@@ -1,0 +1,550 @@
+/* Kargo — Stock, products, pricing, labels, purchases, containers */
+
+const catOpts = () => Object.keys(S().categories || KC.CATEGORIES);
+const subOpts = (cat) => ((S().categories || KC.CATEGORIES)[cat] || []);
+const lotStageBadge = (l) => { const x = K.C.lotX[l.id]; if (!x) return ''; return x.stage === 'warehouse' ? '<span class="badge ok">Warehouse</span>' : x.stage === 'transit' ? '<span class="badge info">' + esc((KC.SHIP_STATUSES.find((s) => s[0] === (byId('shipments', l.shipmentId) || {}).status) || [0, 'In transit'])[1]) + '</span>' : '<span class="badge acc">US storage</span>'; };
+const shipName = (id) => { const s = id && byId('shipments', id); return s ? (s.name || s.containerNo || 'Container') : '—'; };
+
+/* ---------- stock ---------- */
+function stockList() {
+  const f = K.ui.stockFilter, q = K.ui.stockQ.toLowerCase(), cat = K.ui.stockCat; const low = num(S().lowStock) || 3; const w = num(S().expiryWarnDays) || 60;
+  return K.raw.products.filter((p) => !p.archived || f === 'archived').filter((p) => {
+    const x = K.C.prodX[p.id];
+    if (f === 'archived') return p.archived;
+    if (f === 'all') return x.available > 0 || x.reserved > 0;
+    if (f === 'transit') return x.transit + x.us > 0;
+    if (f === 'low') return x.available > 0 && x.available <= low;
+    if (f === 'expiring') return x.available > 0 && x.nextExpiry && daysUntil(x.nextExpiry) <= w;
+    if (f === 'out') return x.available <= 0 && x.transit + x.us <= 0;
+    if (f === 'problems') return x.oversold > 0;
+    return true;
+  }).filter((p) => !cat || p.category === cat).filter((p) => !q || (p.name + ' ' + (p.subcategory || '') + ' ' + (p.barcode || '')).toLowerCase().includes(q))
+    .sort((a, b) => f === 'expiring' ? (K.C.prodX[a.id].nextExpiry || '').localeCompare(K.C.prodX[b.id].nextExpiry || '') : a.name.localeCompare(b.name));
+}
+VIEWS.stock = {
+  render() {
+    const F_ = [['all', 'In stock'], ['transit', 'Incoming'], ['low', 'Low stock'], ['expiring', 'Expiring'], ['out', 'Sold out'], ['every', 'All items'], ['archived', 'Archived']].concat(K.raw.products.some((p) => (K.C.prodX[p.id] || {}).oversold > 0) ? [['problems', '⚠ Oversold']] : []);
+    const list = stockList();
+    const tot = K.raw.products.reduce((a, p) => { const x = K.C.prodX[p.id]; a.u += x.available; a.c += x.stockValue; a.r += x.retailValue; a.t += x.transit + x.us; return a; }, { u: 0, c: 0, r: 0, t: 0 });
+    return (seeCost() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), fmt(tot.t) + ' incoming', true) + kpi('Stock at cost', F(tot.c)) + kpi('Stock at selling price', F(tot.r)) + kpi('Potential profit', F(tot.r - tot.c), tot.c ? pct((tot.r - tot.c) / tot.c * 100) + ' markup' : '') + '</div>' : '') +
+      '<div class="row wrap mb">' + (can('stockEdit') ? '<button class="btn pri" data-a="pricing">' + ic('tag') + 'Set prices / markup</button><button class="btn" data-a="labels">' + ic('barcode') + 'Barcode labels</button>' : '') + (can('export') ? '<button class="btn" data-a="exportStock">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
+      '<div class="chips mb">' + F_.map(([k, l]) => '<button class="chip' + (K.ui.stockFilter === k ? ' on' : '') + '" data-a="stockFilter" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
+      '<div class="row mb"><div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search item or barcode" value="' + esc(K.ui.stockQ) + '" data-i="stockQ"></div><select class="inp" style="width:auto;max-width:44%" data-c="stockCat"><option value="">All categories</option>' + catOpts().map((c) => '<option' + (K.ui.stockCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>' +
+      '<div class="card list" id="stockList">' + stockRows(list) + '</div>';
+  },
+};
+function stockRows(list) {
+  if (!list.length) return '<div class="empty"><div class="big">📦</div>Nothing here.' + (can('purchases') && !K.raw.products.length ? '<div class="mt"><a class="btn pri" href="#buy">Record your first purchase</a></div>' : '') + '</div>';
+  return list.slice(0, 400).map((p) => {
+    const x = K.C.prodX[p.id], open = K.ui.expanded['p' + p.id];
+    return '<div><div class="li" data-a="toggleX" data-k="p' + p.id + '">' + thumb(p, 46, 12) + '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(p.name) + '</div><div class="tiny muted ellipsis">' + esc([p.category, p.subcategory, KC.sizeLabel(p)].filter(Boolean).join(' › ')) + (p.condition && p.condition !== 'New' ? ' · ' + esc(p.condition) : '') + '</div><div class="row gap4 wrap" style="margin-top:4px">' + (x.nextExpiry ? expiryBadge(x.nextExpiry) : '') + (x.transit + x.us > 0 ? '<span class="badge info">+' + (x.transit + x.us) + ' incoming</span>' : '') + (x.reserved > 0 ? '<span class="badge acc">' + x.reserved + ' held for clients</span>' : '') + (x.available > 0 && x.available <= (num(S().lowStock) || 3) ? '<span class="badge warn">Low</span>' : '') + (x.oversold > 0 ? '<span class="badge bad">Oversold ' + x.oversold + '</span>' : '') + '</div></div>' +
+      '<div class="right"><div class="b" style="font-size:17px">' + fmt(allLocs().length > 1 ? (x.byLoc[K.loc] || 0) : x.available) + ' <span class="tiny faint">' + esc(p.unit || '') + '</span></div>' + (allLocs().length > 1 ? '<div class="tiny faint">' + fmt(x.available) + ' all locations</div>' : '') + '<div class="tiny muted money">' + F(x.priceMax) + '</div></div>' + ic(open ? 'down' : 'chev', 'sm') + '</div>' + (open ? productExpand(p) : '') + '</div>';
+  }).join('');
+}
+function productExpand(p) {
+  const x = K.C.prodX[p.id]; const lots = x.lotIds.map((id) => byId('lots', id)).filter(Boolean).sort((a, b) => (b.purchaseDate || '').localeCompare(a.purchaseDate || ''));
+  const src = imgSrc(p.image);
+  const locRow = allLocs().length > 1 ? '<div class="row wrap gap6 mb">' + allLocs().map((L) => '<span class="badge' + (L.id === K.loc ? ' brand' : '') + '">' + esc(L.name) + ': ' + fmt(x.byLoc[L.id] || 0) + '</span>').join('') + '</div>' : '';
+  return '<div class="expand">' + locRow + '<div class="row mb" style="align-items:flex-start">' + (src ? '<img src="' + esc(src) + '" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:14px;flex:none">' : '') + '<div class="small col gap4">' + (KC.sizeLabel(p) ? '<div><span class="faint">Size:</span> <b>' + esc(KC.sizeLabel(p)) + '</b></div>' : '') + '<div><span class="faint">Sold by:</span> <b>' + esc(p.unit || 'piece') + '</b></div>' + ((can('stockEdit') || can('purchases')) ? '<button class="btn sm" data-a="quickPhoto" data-id="' + p.id + '">' + ic('cam', 'sm') + (src ? 'Change photo' : 'Add photo') + '</button>' : '') + '</div></div><div class="grid4 small">' +
+    (seeCost() ? '<div><div class="faint tiny">Avg landed cost</div><div class="b money">' + F(x.avgCost) + '</div></div><div><div class="faint tiny">Markup</div><div class="b">' + (x.priceManual ? 'Fixed price' : pct(x.markup)) + '</div></div>' : '') +
+    '<div><div class="faint tiny">Price (max)</div><div class="b money">' + F(x.priceMax) + '</div></div><div><div class="faint tiny">Wholesale' + (x.bulkQty ? ' / ' + x.bulkQty + '+' : '') + '</div><div class="b money">' + F(x.priceWholesale) + '</div></div><div><div class="faint tiny">Lowest allowed</div><div class="b money">' + F(x.priceMin) + '</div></div>' +
+    (seeCost() ? '<div><div class="faint tiny">Sold</div><div class="b">' + fmt(x.sold) + '</div></div><div><div class="faint tiny">Revenue</div><div class="b money">' + F(x.revenue) + '</div></div><div><div class="faint tiny">Profit</div><div class="b money" style="color:var(--ok)">' + F(x.profit) + '</div></div><div><div class="faint tiny">Margin</div><div class="b">' + (x.revenue ? pct(x.profit / x.revenue * 100) : '—') + '</div></div>' : '') + '</div>' +
+    (p.barcode ? '<div class="tiny muted mt">Barcode: <b>' + esc(p.barcode) + '</b></div>' : '') +
+    '<div class="tw mt"><table class="t"><thead><tr><th>Bought</th><th>Where</th><th>Container</th><th class="r">Qty</th><th class="r">Left</th>' + (seeCost() ? '<th class="r">Paid</th><th class="r">Landed/unit</th>' : '') + '<th>Expiry</th></tr></thead><tbody>' +
+    lots.map((l) => { const lx = K.C.lotX[l.id]; return '<tr><td class="nowrap">' + fmtDate(l.purchaseDate) + '</td><td>' + esc(l.vendor || l.sourceType || '') + '</td><td>' + esc(shipName(l.shipmentId)) + '<br>' + lotStageBadge(l) + (l.reservedFor ? '<br><span class="badge acc">For ' + esc(custName(l.reservedFor)) + '</span>' : '') + '</td><td class="r">' + l.qty + (lx.received < num(l.qty) ? '<div class="tiny" style="color:var(--bad)">−' + (num(l.qty) - lx.received) + ' lost</div>' : '') + '</td><td class="r b">' + (l.reservedFor ? lx.clientAvail : lx.stage === 'warehouse' ? lx.available : '—') + '</td>' + (seeCost() ? '<td class="r money">' + money(l.unitCost, l.currency) + '</td><td class="r money">' + fmt(lx.landedUnit) + '</td>' : '') + '<td class="nowrap">' + (l.expiry ? fmtDate(l.expiry) : '—') + '</td></tr>'; }).join('') +
+    '</tbody></table></div><div class="row wrap mt">' + (can('stockEdit') ? '<button class="btn sm" data-a="editProduct" data-id="' + p.id + '">' + ic('edit', 'sm') + 'Edit / price</button><button class="btn sm" data-a="adjustStock" data-id="' + p.id + '">' + ic('alert', 'sm') + 'Loss / count</button>' : '') + '<button class="btn sm" data-a="itemHistory" data-id="' + p.id + '">' + ic('clock', 'sm') + 'History</button><button class="btn sm" data-a="labelOne" data-id="' + p.id + '">' + ic('barcode', 'sm') + 'Label</button>' + (x.available > 0 ? '<button class="btn sm pri" data-a="sellThis" data-id="' + p.id + '">' + ic('sell', 'sm') + 'Sell</button>' : '') + '</div></div>';
+}
+A.stockFilter = (el) => { K.ui.stockFilter = el.dataset.v; render(true); };
+CH.stockCat = (el) => { K.ui.stockCat = el.value; render(true); };
+I.stockQ = (el) => { K.ui.stockQ = el.value; clearTimeout(I._st); I._st = setTimeout(() => ($('#stockList').innerHTML = stockRows(stockList())), 120); };
+A.sellThis = (el) => { addToCart(el.dataset.id); go('sell'); };
+A.exportStock = () => {
+  const rows = K.raw.products.map((p) => { const x = K.C.prodX[p.id]; const r = { Item: p.name, Category: p.category, Subcategory: p.subcategory, Condition: p.condition, Barcode: p.barcode || '', 'In stock': x.available, Incoming: x.transit + x.us, 'Price max (F)': x.priceMax, 'Price min (F)': x.priceMin, 'Next expiry': x.nextExpiry || '' }; if (seeCost()) Object.assign(r, { 'Avg landed cost (F)': Math.round(x.avgCost), 'Stock value (F)': Math.round(x.stockValue), 'Units sold': x.sold, 'Revenue (F)': Math.round(x.revenue), 'Profit (F)': Math.round(x.profit) }); return r; });
+  xlsxDownload('Stock-' + todayStr() + '.xlsx', { Stock: rows });
+};
+
+/* ---------- product edit ---------- */
+A.editProduct = (el) => editProduct(el.dataset.id);
+function editProduct(id) {
+  const p = byId('products', id); const x = K.C.prodX[id];
+  const sh = openSheet({
+    title: 'Edit item',
+    body: '<div class="col"><div class="row"><div class="photo-slot" data-a="pickPhoto">' + (imgSrc(p.image) ? '<img src="' + esc(imgSrc(p.image)) + '">' : ic('cam')) + '</div><div class="grow">' + field('Item name', inp('name', p.name)) + '</div></div>' + unitFields(p) + '<div class="grid2">' + field('Category', sel('category', catOpts(), p.category, 'id="pCat"')) + field('Subcategory', sel('subcategory', subOpts(p.category), p.subcategory, 'id="pSub"')) + '</div>' +
+      '<div class="grid2">' + field('Condition', sel('condition', KC.CONDITIONS, p.condition || 'New')) + field('Barcode', '<div class="row gap6">' + inp('barcode', p.barcode, 'id="pBar" placeholder="Scan or generate"') + '<button class="btn sm" type="button" data-a="genBar">Gen</button></div>') + '</div>' +
+      '<div class="card pad"><h3>Pricing</h3><div class="tiny muted mb">Average landed cost: <b class="money">' + F(x.avgCost) + '</b>. Leave fixed prices empty to follow the markup.</div><div class="grid2">' +
+      field('Markup % (max price)', inp('markup', p.markup ?? '', 'inputmode="decimal" placeholder="Default ' + S().defaultMarkup + '"')) + field('Min markup % (bulk)', inp('minMarkup', p.minMarkup ?? '', 'inputmode="decimal" placeholder="Default ' + S().minMarkup + '"')) +
+      field('Fixed max price (F)', inp('priceMax', p.priceMax || '', 'inputmode="numeric" placeholder="Auto: ' + fmt(x.priceMax) + '"')) + field('Fixed min price (F)', inp('priceMin', p.priceMin || '', 'inputmode="numeric" placeholder="Auto: ' + fmt(x.priceMin) + '"')) + '</div>' +
+      '<h3 class="mt">Wholesale / bulk</h3><div class="tiny muted mb">Used automatically for Wholesale & Reseller customers, or when a line reaches the bulk quantity.</div><div class="grid3">' + field('Wholesale markup %', inp('wholesaleMarkup', p.wholesaleMarkup ?? '', 'inputmode="decimal" placeholder="Default ' + S().wholesaleMarkup + '"')) + field('Fixed wholesale price', inp('priceWholesale', p.priceWholesale || '', 'inputmode="numeric" placeholder="Auto: ' + fmt(x.priceWholesale) + '"')) + field('Bulk from qty', inp('bulkQty', p.bulkQty || '', 'inputmode="numeric" placeholder="' + (S().bulkQty ? 'Default ' + S().bulkQty : 'Off') + '"')) + '</div></div>' +
+      field('Notes', '<textarea class="inp" name="notes">' + esc(p.notes || '') + '</textarea>') + '<label class="toggle"><input type="checkbox" name="archived" ' + (p.archived ? 'checked' : '') + '>Archive (hide from lists)</label></div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="pSave">Save</button>',
+  });
+  $('#pCat', sh).onchange = (e) => ($('#pSub', sh).innerHTML = subOpts(e.target.value).map((s) => '<option>' + esc(s) + '</option>').join(''));
+  $('#pSave', sh).onclick = async () => {
+    const v = formVals(sh);
+    ['markup', 'minMarkup', 'wholesaleMarkup'].forEach((k) => (v[k] = v[k] === '' ? null : num(v[k])));
+    ['priceMax', 'priceMin', 'priceWholesale', 'bulkQty'].forEach((k) => (v[k] = v[k] === '' ? null : num(v[k])));
+    if (v.barcode && K.raw.products.some((o) => o.id !== id && o.barcode === v.barcode)) return toast('Another item already uses this barcode', true);
+    v.size = v.size === '' ? null : num(v.size);
+    if (sh._photo) { try { v.image = await storePhoto(sh._photo); } catch (e) { toast(e.message, true); } }
+    if (await save('products', Object.assign({}, p, v))) { closeSheet(); scheduleRender(); toast('Saved'); }
+  };
+}
+A.genBar = (el) => { const i = $('#pBar', el.closest('.sheet')); i.value = genBarcode(); };
+function genBarcode() { let c; do { c = '20' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'); } while (K.raw.products.some((p) => p.barcode === c)); return c; }
+
+/* ---------- adjustments ---------- */
+A.adjustStock = (el) => {
+  const p = byId('products', el.dataset.id); const x = K.C.prodX[p.id];
+  const here = (l) => K.C.lotX[l.id].byLoc[K.loc] || 0;
+  const lots = x.lotIds.map((id) => byId('lots', id)).filter((l) => K.C.lotX[l.id].stage === 'warehouse' && !l.reservedFor);
+  const sys = lots.reduce((a, l) => a + Math.max(0, here(l)), 0);
+  if (!lots.length) return toast('No stock of this item in the warehouse yet', true);
+  const sh = openSheet({
+    title: 'Loss / stock count · ' + p.name,
+    body: '<div class="alert info mb">System stock at ' + esc(locName(K.loc)) + ': <b>' + sys + '</b></div><div class="seg mb" id="adjMode"><button class="on" data-a="adjMode" data-v="loss">Record loss</button><button data-a="adjMode" data-v="count">Physical count</button></div>' +
+      '<div class="col"><div id="mLoss">' + field('Quantity lost', inp('lossQty', '', 'inputmode="numeric"')) + '</div><div id="mCount" class="hide">' + field('Quantity counted on shelf', inp('countQty', '', 'inputmode="numeric"')) + '</div>' +
+      field('Reason', sel('reason', KC.ADJ_REASONS, 'Missing / theft')) + field('Date', inp('date', todayStr(), 'type="date"')) + field('Notes', inp('notes', '')) + '</div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="aSave">Save</button>',
+  });
+  sh._mode = 'loss';
+  $('#aSave', sh).onclick = async () => {
+    const v = formVals(sh); let diff = sh._mode === 'loss' ? -Math.abs(num(v.lossQty)) : num(v.countQty) - sys;
+    if (sh._mode === 'count' && v.countQty === '') return toast('Enter the counted quantity', true);
+    if (!diff) { closeSheet(); return toast('No difference — nothing to record'); }
+    // spread across lots: losses from lots with most recent purchase first; gains to newest lot
+    const ordered = lots.slice().sort((a, b) => (b.purchaseDate || '').localeCompare(a.purchaseDate || ''));
+    const adj = []; let left = diff;
+    if (diff > 0) adj.push({ lotId: ordered[0].id, qty: diff });
+    else for (const l of ordered) { if (left >= 0) break; const av = Math.max(0, here(l)); const take = Math.min(av, -left); if (take > 0) { adj.push({ lotId: l.id, qty: -take }); left += take; } }
+    if (left < 0 && diff < 0 && !adj.length) return toast('Nothing in stock to remove', true);
+    for (const a of adj) await save('adjustments', { id: uid('a_'), date: v.date || todayStr(), productId: p.id, lotId: a.lotId, qty: a.qty, locationId: K.loc, byId: K.me.id || '', reason: v.reason, notes: v.notes, by: K.info.userLabel || '' });
+    closeSheet(); scheduleRender(); toast('Stock updated (' + (diff > 0 ? '+' : '') + diff + ')');
+  };
+};
+A.adjMode = (el) => { const sh = el.closest('.scrim'); sh._mode = el.dataset.v; $$('#adjMode button', sh).forEach((b) => b.classList.toggle('on', b === el)); $('#mLoss', sh).classList.toggle('hide', sh._mode !== 'loss'); $('#mCount', sh).classList.toggle('hide', sh._mode !== 'count'); };
+
+/* ---------- pricing tool ---------- */
+A.pricing = () => {
+  const sh = openSheet({ title: 'Prices & markup', wide: true, body: '', foot: '<button class="btn grow" data-a="sheetClose">Close</button><button class="btn pri grow" id="prSave">Save changes</button>' });
+  sh._f = { cat: '', ship: '', q: '' }; sh._chg = {};
+  const ships = K.raw.shipments.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const rowsFor = () => K.raw.products.filter((p) => !p.archived).filter((p) => { const x = K.C.prodX[p.id]; return x.available + x.transit + x.us > 0; })
+    .filter((p) => !sh._f.cat || p.category === sh._f.cat).filter((p) => !sh._f.ship || K.C.prodX[p.id].lotIds.some((id) => (byId('lots', id) || {}).shipmentId === sh._f.ship))
+    .filter((p) => !sh._f.q || p.name.toLowerCase().includes(sh._f.q.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
+  const preview = (p) => { const c = sh._chg[p.id] || {}; const m = Object.assign({}, p, c); const x = K.C.prodX[p.id]; const mk = m.markup ?? S().defaultMarkup; const mn = m.minMarkup ?? S().minMarkup; const mx = num(m.priceMax) > 0 ? num(m.priceMax) : KC.roundTo(x.avgCost * (1 + num(mk) / 100), S().roundTo); const mi = num(m.priceMin) > 0 ? num(m.priceMin) : Math.min(mx, KC.roundTo(x.avgCost * (1 + num(mn) / 100), S().roundTo)); return { mk, mn, mx, mi, prof: x.avgCost ? (mx - x.avgCost) / x.avgCost * 100 : 0 }; };
+  const draw = () => {
+    const rows = rowsFor();
+    setSheetBody(sh, '<div class="alert info mb">Your target: mark everything up (e.g. 100%), then adjust individual items. Prices round up to the nearest ' + S().roundTo + ' F. Fixed prices override markup.</div>' +
+      '<div class="row wrap mb"><select class="inp" style="width:auto" id="fCat"><option value="">All categories</option>' + catOpts().map((c) => '<option' + (sh._f.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select><select class="inp" style="width:auto" id="fShip"><option value="">All containers</option>' + ships.map((s) => '<option value="' + s.id + '"' + (sh._f.ship === s.id ? ' selected' : '') + '>' + esc(s.name || s.containerNo) + '</option>').join('') + '</select><input class="inp grow" style="min-width:140px" id="fQ" placeholder="Search" value="' + esc(sh._f.q) + '"></div>' +
+      '<div class="card pad mb row wrap"><span class="b">Apply to all ' + rows.length + ' shown:</span><input class="inp" style="width:90px" id="bulkMk" inputmode="decimal" placeholder="100"><span>% markup</span><input class="inp" style="width:90px" id="bulkMn" inputmode="decimal" placeholder="' + S().minMarkup + '"><span>% min</span><button class="btn acc" id="bulkGo">Apply</button></div>' +
+      '<div class="tw card"><table class="t"><thead><tr><th>Item</th><th class="r">Stock</th><th class="r">Cost</th><th class="r">Markup %</th><th class="r">Max price</th><th class="r">Min price</th><th class="r">Wholesale</th><th class="r">Profit</th></tr></thead><tbody>' +
+      rows.map((p) => { const x = K.C.prodX[p.id], pv = preview(p), c = Object.assign({}, p, sh._chg[p.id] || {}); return '<tr><td style="min-width:150px">' + esc(p.name) + '</td><td class="r">' + x.available + (x.transit + x.us ? '<span class="faint">+' + (x.transit + x.us) + '</span>' : '') + '</td><td class="r money">' + fmt(x.avgCost) + '</td>' +
+        '<td class="r"><input class="inp price-in" style="width:76px" inputmode="decimal" data-pr="markup" data-id="' + p.id + '" value="' + (c.markup ?? '') + '" placeholder="' + S().defaultMarkup + '"></td><td class="r"><input class="inp price-in" inputmode="numeric" data-pr="priceMax" data-id="' + p.id + '" value="' + (num(c.priceMax) || '') + '" placeholder="' + fmt(pv.mx) + '"></td><td class="r"><input class="inp price-in" inputmode="numeric" data-pr="priceMin" data-id="' + p.id + '" value="' + (num(c.priceMin) || '') + '" placeholder="' + fmt(pv.mi) + '"></td><td class="r"><input class="inp price-in" inputmode="numeric" data-pr="priceWholesale" data-id="' + p.id + '" value="' + (num(c.priceWholesale) || '') + '" placeholder="' + fmt(x.priceWholesale) + '"></td><td class="r b" style="color:' + (pv.prof < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + pct(pv.prof) + '</td></tr>'; }).join('') + '</tbody></table></div>');
+    $('#fCat', sh).onchange = (e) => { sh._f.cat = e.target.value; draw(); };
+    $('#fShip', sh).onchange = (e) => { sh._f.ship = e.target.value; draw(); };
+    $('#fQ', sh).onchange = (e) => { sh._f.q = e.target.value; draw(); };
+    $('#bulkGo', sh).onclick = () => { const mk = $('#bulkMk', sh).value, mn = $('#bulkMn', sh).value; if (mk === '' && mn === '') return; rows.forEach((p) => { const c = (sh._chg[p.id] = sh._chg[p.id] || {}); if (mk !== '') { c.markup = num(mk); c.priceMax = null; } if (mn !== '') { c.minMarkup = num(mn); c.priceMin = null; } }); draw(); toast('Applied — tap Save changes'); };
+    $$('[data-pr]', sh).forEach((i) => i.addEventListener('change', () => { const c = (sh._chg[i.dataset.id] = sh._chg[i.dataset.id] || {}); c[i.dataset.pr] = i.value === '' ? null : num(i.value); }));
+  };
+  draw();
+  $('#prSave', sh).onclick = async () => {
+    const ids = Object.keys(sh._chg); if (!ids.length) return closeSheet();
+    let n = 0; for (const id of ids) { const p = byId('products', id); if (p && await save('products', Object.assign({}, p, sh._chg[id]))) n++; }
+    closeSheet(); scheduleRender(); toast(n + ' item(s) repriced');
+  };
+};
+
+/* ---------- barcode labels ---------- */
+A.labelOne = (el) => labelsSheet([el.dataset.id]);
+A.labels = () => labelsSheet(null);
+function labelsSheet(preIds) {
+  const prods = K.raw.products.filter((p) => !p.archived && (preIds ? preIds.includes(p.id) : K.C.prodX[p.id].available > 0)).sort((a, b) => a.name.localeCompare(b.name));
+  const sh = openSheet({
+    title: 'Print barcode labels', wide: true,
+    body: '<div class="alert info mb">Pick items and how many labels. Items without a barcode get one generated automatically. The PDF prints on A4 sticker sheets (3×8) or a label printer (50×30 mm).</div>' +
+      '<div class="row wrap mb">' + field('Format', sel('fmt', [['a4', 'A4 sheet · 24 labels'], ['roll', 'Label printer · 50×30 mm']], 'a4')) + '<label class="toggle" style="margin-top:18px"><input type="checkbox" name="showPrice" checked>Show price</label></div>' +
+      '<div class="card list">' + prods.map((p) => '<div class="li" style="cursor:default"><input type="checkbox" data-lb="' + p.id + '" ' + (preIds ? 'checked' : '') + ' style="width:20px;height:20px;accent-color:var(--brand)"><div class="grow"><div class="t">' + esc(p.name) + '</div><div class="tiny muted">' + (p.barcode ? esc(p.barcode) : 'No barcode yet') + ' · ' + F(K.C.prodX[p.id].priceMax) + '</div></div><input class="inp" style="width:70px" inputmode="numeric" data-lq="' + p.id + '" value="' + Math.max(1, preIds ? 1 : K.C.prodX[p.id].available) + '"></div>').join('') + '</div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="lbGo">' + ic('dl') + 'Download labels PDF</button>',
+  });
+  $('#lbGo', sh).onclick = async () => {
+    if (!window.jspdf || !window.JsBarcode) return toast('Label tools still loading — try again', true);
+    const v = formVals(sh); const pick = $$('[data-lb]', sh).filter((c) => c.checked).map((c) => ({ p: byId('products', c.dataset.lb), n: Math.max(1, Math.floor(num($('[data-lq="' + c.dataset.lb + '"]', sh).value))) }));
+    if (!pick.length) return toast('Select at least one item', true);
+    for (const it of pick) if (!it.p.barcode) { it.p = Object.assign({}, it.p, { barcode: genBarcode(), useBarcode: true }); await save('products', it.p); }
+    const roll = v.fmt === 'roll';
+    const doc = roll ? new window.jspdf.jsPDF({ unit: 'mm', format: [50, 30], orientation: 'landscape' }) : new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+    const W = roll ? 50 : 70, H = roll ? 30 : 37.125; let k = 0;
+    const cv = document.createElement('canvas');
+    for (const it of pick) {
+      JsBarcode(cv, it.p.barcode, { format: 'CODE128', displayValue: true, fontSize: 18, height: 60, margin: 4 });
+      const img = cv.toDataURL('image/png');
+      for (let n = 0; n < it.n; n++) {
+        let x0, y0;
+        if (roll) { if (k) doc.addPage([50, 30], 'landscape'); x0 = 0; y0 = 0; }
+        else { const pos = k % 24; if (k && pos === 0) doc.addPage(); x0 = (pos % 3) * W; y0 = Math.floor(pos / 3) * H; }
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.text(S().businessName.slice(0, 34), x0 + 3, y0 + 4);
+        doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.text(doc.splitTextToSize(it.p.name, W - 6)[0], x0 + 3, y0 + 8);
+        doc.addImage(img, 'PNG', x0 + 3, y0 + 9.5, W - 6, H - (v.showPrice ? 17 : 12));
+        if (v.showPrice) { doc.setFontSize(10); doc.text(fmt(K.C.prodX[it.p.id].priceMax) + ' ' + baseCode(), x0 + W / 2, y0 + H - 2.5, { align: 'center' }); }
+        k++;
+      }
+    }
+    saveFile('Labels-' + todayStr() + '.pdf', doc.output('blob')); closeSheet();
+  };
+}
+
+/* ---------- purchases ---------- */
+VIEWS.buy = {
+  render() {
+    const q = K.ui.buyQ.toLowerCase(); const f = K.ui.buyF || 'all';
+    let lots = K.raw.lots.filter((l) => { const x = K.C.lotX[l.id]; return f === 'all' || x.stage === f; })
+      .filter((l) => { const p = byId('products', l.productId) || {}; return !q || (p.name + ' ' + (l.vendor || '') + ' ' + (l.poNumber || '') + ' ' + (l.lotNumber || '')).toLowerCase().includes(q); })
+      .sort((a, b) => (b.purchaseDate + b.createdAt).localeCompare(a.purchaseDate + a.createdAt));
+    const m = monthStr(); const mLots = K.raw.lots.filter((l) => (l.purchaseDate || '').slice(0, 7) === m);
+    const spent = mLots.reduce((a, l) => a + K.C.lotX[l.id].unitX * num(l.qty), 0), reg = mLots.reduce((a, l) => a + (num(l.regularPrice) ? K.C.lotX[l.id].regX : K.C.lotX[l.id].unitX) * num(l.qty), 0);
+    const unassigned = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us');
+    const groups = {}; lots.slice(0, 500).forEach((l) => { const k = l.purchaseDate + '|' + (l.vendor || l.sourceType || '') + '|' + (l.poNumber || ''); (groups[k] = groups[k] || []).push(l); });
+    return '<div class="kpis mb">' + kpi('Bought this month', F(spent), 'in ' + baseCode() + ' at your exchange rates', true) + kpi('Discount captured', F(reg - spent), reg ? pct((reg - spent) / reg * 100) + ' below regular price' : 'Enter regular prices to track') + kpi('In US storage', fmt(unassigned.reduce((a, l) => a + num(l.qty), 0)) + ' units', 'not yet in a container') + kpi('Purchase lines', fmt(K.raw.lots.length)) + '</div>' +
+      '<div class="row wrap mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'Add purchase</button><button class="btn" data-a="importPurch">' + ic('up') + 'Import Excel (B-Stock manifest)</button><button class="btn" data-a="tplPurch">' + ic('dl') + 'Template</button></div>' +
+      '<div class="chips mb">' + [['all', 'All'], ['us', 'US storage'], ['transit', 'In container'], ['warehouse', 'In warehouse']].map(([k, l]) => '<button class="chip' + (f === k ? ' on' : '') + '" data-a="buyF" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
+      '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search item, store, order no." value="' + esc(K.ui.buyQ) + '" data-c="buyQ"></div>' +
+      (Object.keys(groups).length ? Object.entries(groups).map(([k, ls]) => { const [d, v, po] = k.split('|'); const tot = ls.reduce((a, l) => a + num(l.unitCost) * num(l.qty), 0); const cur = ls[0].currency; return '<div class="card mb"><div class="pad row between" style="padding-bottom:6px"><div><div class="b">' + esc(v || 'Purchase') + (po ? ' · <span class="muted">#' + esc(po) + '</span>' : '') + '</div><div class="tiny muted">' + fmtDate(d) + ' · ' + ls.length + ' line(s)</div></div><div class="b money">' + money(tot, cur) + '</div></div><div class="list">' + ls.map(lotRow).join('') + '</div></div>'; }).join('') : '<div class="card empty"><div class="big">🛒</div>No purchases yet. Tap <b>Add purchase</b> after each store run, or import a B-Stock manifest.</div>');
+  },
+};
+function lotRow(l) {
+  const p = byId('products', l.productId) || { name: '?' }; const x = K.C.lotX[l.id];
+  const save_ = num(l.regularPrice) > num(l.unitCost) ? Math.round((1 - num(l.unitCost) / num(l.regularPrice)) * 100) : 0;
+  return '<div class="li" data-a="editLot" data-id="' + l.id + '">' + thumb(p, 38, 9) + '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(p.name) + '</div><div class="tiny muted">' + num(l.qty) + ' × ' + money(l.unitCost, l.currency) + (save_ ? ' <span class="badge ok">−' + save_ + '%</span>' : '') + (p.condition && p.condition !== 'New' ? ' · ' + esc(p.condition) : '') + (l.expiry ? ' · exp ' + fmtDate(l.expiry) : '') + (l.reservedFor ? ' · <b>for ' + esc(custName(l.reservedFor)) + '</b>' : '') + '</div></div><div class="right">' + lotStageBadge(l) + '<div class="tiny muted">' + esc(shipName(l.shipmentId)) + '</div></div></div>';
+}
+A.buyF = (el) => { K.ui.buyF = el.dataset.v; render(true); };
+CH.buyQ = (el) => { K.ui.buyQ = el.value; render(true); };
+
+function findOrCreateProduct(name, cat, sub, cond, barcode) {
+  const n = name.trim().toLowerCase();
+  let p = K.raw.products.find((x) => x.name.trim().toLowerCase() === n && (x.condition || 'New') === (cond || 'New'));
+  if (p) { if (barcode && !p.barcode) { p = Object.assign({}, p, { barcode }); return { p, isNew: false, changed: true }; } return { p, isNew: false }; }
+  p = { id: uid('pr_'), name: name.trim(), category: cat || 'Other', subcategory: sub || '', condition: cond || 'New', barcode: barcode || '', markup: null, minMarkup: null, priceMax: null, priceMin: null };
+  return { p, isNew: true };
+}
+const shipOptions = (val) => [['', 'Not shipped yet (US storage)'], ['__local', 'Bought locally / already in warehouse']].concat(K.raw.shipments.filter((s) => s.status !== 'closed').map((s) => [s.id, (s.name || s.containerNo || 'Container') + ' · ' + (KC.SHIP_STATUSES.find((x) => x[0] === s.status) || [0, ''])[1]]));
+
+A.newPurchase = () => purchaseForm();
+function purchaseForm() {
+  const pending = [];
+  const names = [...new Set(K.raw.products.map((p) => p.name))];
+  const sh = openSheet({
+    title: 'Add purchase', wide: true,
+    body: '<datalist id="dlNames">' + names.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist><datalist id="dlVend">' + (S().vendors || []).map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
+      '<div class="card pad mb"><h3 class="mb">1 · Where & when</h3><div class="grid4">' + field('Date', inp('purchaseDate', todayStr(), 'type="date"')) + field('Source', sel('sourceType', KC.SOURCE_TYPES, 'Store')) + field('Store / seller', inp('vendor', '', 'list="dlVend" placeholder="Costco"')) + field('Order / PO no.', inp('poNumber', '', 'placeholder="Optional"')) + '</div><div class="grid3 mt">' + field('Container', sel('shipmentId', shipOptions(''), '')) + field('Currency paid', sel('currency', curOptions(), 'USD')) + field('Auction lot / stock no.', inp('lotNumber', '', 'placeholder="B-Stock lot #"')) + '</div>' + (can('suppliers') ? '<div class="grid2 mt">' + field('Paid?', sel('payStatus', [['paid', 'Paid in full'], ['credit', 'Not paid yet — add to bills to pay']], 'paid')) + field('Pay by', inp('payBy', KC.addDays(todayStr(), 14), 'type="date"')) + '</div>' : '') + '</div>' +
+      '<div class="card pad mb" id="lineForm"><h3 class="mb">2 · Items (add each line)</h3><div class="row" style="align-items:flex-end"><div class="photo-slot" data-a="pickPhoto" title="Take or choose a photo">' + ic('cam') + '</div><div class="grow">' + field('Item description *', inp('name', '', 'list="dlNames" id="lnName" autocomplete="off" placeholder="Quaker Oats Old Fashioned"')) + '</div></div>' + '<div class="grid2 mt">' + field('Category', sel('category', catOpts(), 'Food & Snacks', 'id="lnCat"')) + field('Subcategory', sel('subcategory', subOpts('Food & Snacks'), '', 'id="lnSub"')) + '</div>' + unitFields({}) +
+      '<div class="grid4 mt">' + field('Condition', sel('condition', KC.CONDITIONS, 'New', 'id="lnCond"')) + field('Quantity bought *', inp('qty', '1', 'inputmode="numeric"')) + field('Regular price (each)', inp('regularPrice', '', 'inputmode="decimal" placeholder="Shelf price"')) + field('Price paid (each) *', inp('unitCost', '', 'inputmode="decimal" placeholder="After discount"')) + '</div>' +
+      '<div class="grid2 mt">' + field('Bought for a client? (car, special order)', sel('reservedFor', custOpts(), '')) + '<div class="tiny muted" style="align-self:end;padding-bottom:12px">Held for that client only. They can pay deposits while it is still at sea.</div></div>' +
+      '<div class="grid2 mt">' + field('Each one is a pack of… (units you will sell)', inp('packOf', '1', 'inputmode="numeric" id="packOf"')) + '<div class="tiny muted" id="packHint" style="align-self:end;padding-bottom:12px">Leave 1 if you sell it as bought.</div></div>' +
+      '<div class="grid3 mt">' + field('Expiry date', inp('expiry', '', 'type="date"')) + field('Barcode (optional)', inp('barcode', '', 'placeholder="Scan UPC"')) + field('Notes', inp('lnNotes', '')) + '</div><button class="btn acc block mt" id="lnAdd">' + ic('plus') + 'Add line</button></div>' +
+      '<div class="card" id="lnList"></div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="puSave">Save purchase</button>',
+  });
+  const lf = $('#lineForm', sh);
+  $('#lnCat', sh).onchange = (e) => ($('#lnSub', sh).innerHTML = subOpts(e.target.value).map((s) => '<option>' + esc(s) + '</option>').join(''));
+  $('#lnName', sh).addEventListener('change', (e) => { const p = K.raw.products.find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase()); if (p) { $('#lnCat', sh).value = p.category; $('#lnSub', sh).innerHTML = subOpts(p.category).map((s) => '<option' + (s === p.subcategory ? ' selected' : '') + '>' + esc(s) + '</option>').join(''); $('#lnCond', sh).value = p.condition || 'New'; ['unit', 'size', 'sizeUnit'].forEach((k) => { const el = $('[name=' + k + ']', lf); if (el && p[k] != null) el.value = p[k]; }); if (p.image) { $('.photo-slot', lf).innerHTML = '<img src="' + esc(imgSrc(p.image)) + '">'; } } });
+  $('#packOf', sh).addEventListener('input', () => { const n = Math.max(1, num($('#packOf', sh).value)); $('#packHint', sh).textContent = n > 1 ? 'Stock will be counted in single units: quantity × ' + n + ', and price ÷ ' + n + '.' : 'Leave 1 if you sell it as bought.'; });
+  const drawList = () => {
+    const cur = $('[name=currency]', sh).value; const tot = pending.reduce((a, l) => a + l.unitCost * l.qty, 0);
+    $('#lnList', sh).innerHTML = pending.length ? '<div class="pad row between"><b>' + pending.length + ' line(s)</b><b class="money">' + money(tot, cur) + '</b></div><div class="list">' + pending.map((l, i) => '<div class="li" style="cursor:default">' + (l.photo ? '<img class="thumb" style="width:40px;height:40px;border-radius:10px" src="' + URL.createObjectURL(l.photo) + '">' : '') + '<div class="grow"><div class="t">' + esc(l.name) + '</div><div class="tiny muted">' + (l.packOf > 1 ? l.boughtQty + ' pack(s) × ' + l.packOf + ' = ' : '') + l.qty + ' ' + esc(l.unit || 'pcs') + ' × ' + (Math.round(l.unitCost * 100) / 100) + (l.regularPrice ? ' (reg ' + (Math.round(l.regularPrice * 100) / 100) + ')' : '') + ' · ' + esc(l.condition) + (l.expiry ? ' · exp ' + fmtDate(l.expiry) : '') + (l.reservedFor ? ' · <b>for ' + esc(custName(l.reservedFor)) + '</b>' : '') + '</div></div><button class="icon-btn" data-rm="' + i + '">' + ic('trash', 'sm') + '</button></div>').join('') + '</div>' : '<div class="empty small">Lines you add appear here.</div>';
+    $$('[data-rm]', sh).forEach((b) => (b.onclick = () => { pending.splice(+b.dataset.rm, 1); drawList(); }));
+  };
+  drawList();
+  $('#lnAdd', sh).onclick = () => {
+    const v = formVals(lf);
+    if (!v.name || !num(v.unitCost) && v.unitCost !== '0' || !num(v.qty)) return toast('Description, price paid and quantity are required', true);
+    const pack = Math.max(1, Math.floor(num(v.packOf) || 1));
+    pending.push({ name: v.name, category: v.category, subcategory: v.subcategory, condition: v.condition, unit: v.unit, size: v.size === '' ? null : num(v.size), sizeUnit: v.sizeUnit,
+      regularPrice: num(v.regularPrice) ? num(v.regularPrice) / pack : null, unitCost: num(v.unitCost) / pack, qty: Math.floor(num(v.qty)) * pack, packOf: pack, boughtQty: Math.floor(num(v.qty)),
+      expiry: v.expiry, barcode: v.barcode, reservedFor: v.reservedFor || '', notes: [v.lnNotes, pack > 1 ? 'Bought ' + Math.floor(num(v.qty)) + ' pack(s) of ' + pack : ''].filter(Boolean).join(' · '), photo: sh._photo || null });
+    sh._photo = null; const slot = $('.photo-slot', lf); slot.innerHTML = ic('cam');
+    ['name', 'regularPrice', 'unitCost', 'expiry', 'barcode', 'lnNotes', 'size', 'reservedFor'].forEach((k) => { const el = $('[name=' + k + ']', lf); if (el) el.value = ''; }); $('[name=qty]', lf).value = '1'; $('#packOf', sh).value = '1';
+    drawList(); $('#lnName', sh).focus();
+  };
+  $('#puSave', sh).onclick = async () => {
+    const h = formVals($('.card', sh));
+    if (!pending.length) { if ($('#lnName', sh).value) $('#lnAdd', sh).click(); if (!pending.length) return toast('Add at least one line', true); }
+    await savePurchaseLines(h, pending);
+    if (h.payStatus === 'credit') { const tot = pending.reduce((a, l) => a + l.unitCost * l.qty, 0); await createBillFor({ supplierId: (K.raw.suppliers.find((x) => x.name.toLowerCase() === (h.vendor || '').toLowerCase()) || {}).id, newSupplier: h.vendor || 'Supplier', newSupplierType: h.sourceType === 'Auction' ? 'Auction (B-Stock…)' : 'Store / wholesaler', description: 'Purchase ' + (h.poNumber ? '#' + h.poNumber + ' ' : '') + fmtDate(h.purchaseDate), amount: Math.round(tot * 100) / 100, currency: h.currency || 'USD', date: h.purchaseDate, dueDate: h.payBy, shipmentId: h.shipmentId && h.shipmentId !== '__local' ? h.shipmentId : '' }); }
+    closeSheet(); scheduleRender(); toast(pending.length + ' line(s) saved' + (h.payStatus === 'credit' ? ' · bill created' : ''));
+  };
+}
+async function savePurchaseLines(h, lines) {
+  for (const l of lines) {
+    const r = findOrCreateProduct(l.name, l.category, l.subcategory, l.condition, l.barcode);
+    if (r.isNew) Object.assign(r.p, { unit: l.unit || 'piece', size: l.size || null, sizeUnit: l.sizeUnit || '' });
+    else if (!r.p.size && l.size) { r.p = Object.assign({}, r.p, { size: l.size, sizeUnit: l.sizeUnit, unit: r.p.unit || l.unit }); r.changed = true; }
+    if (l.photo) { try { r.p = Object.assign({}, r.p, { image: await storePhoto(l.photo) }); r.changed = true; } catch (e) { toast('Photo not saved: ' + e.message, true); } }
+    if (r.isNew || r.changed) { await save('products', r.p); }
+    const local = h.shipmentId === '__local' || h.sourceType === 'Local (Cameroon)';
+    await save('lots', { id: uid('l_'), productId: r.p.id, purchaseDate: l.purchaseDate || h.purchaseDate || todayStr(), sourceType: l.sourceType || h.sourceType, vendor: l.vendor || h.vendor || '', poNumber: l.poNumber || h.poNumber || '', lotNumber: l.lotNumber || h.lotNumber || '', currency: h.currency || 'USD', regularPrice: l.regularPrice, unitCost: l.unitCost, qty: l.qty, expiry: l.expiry || '', condition: l.condition || 'New', shipmentId: local ? '' : (l.shipmentId || h.shipmentId || ''), inWarehouse: local, locationId: local ? K.loc : '', reservedFor: l.reservedFor || '', notes: l.notes || '' });
+  }
+}
+A.editLot = (el) => {
+  const l = byId('lots', el.dataset.id); const p = byId('products', l.productId) || {}; const x = K.C.lotX[l.id];
+  const sh = openSheet({
+    title: 'Purchase line',
+    body: '<div class="col"><div class="b">' + esc(p.name) + '</div><div class="grid2">' + field('Date', inp('purchaseDate', l.purchaseDate, 'type="date"')) + field('Source', sel('sourceType', KC.SOURCE_TYPES, l.sourceType)) + field('Store / seller', inp('vendor', l.vendor)) + field('Order / PO no.', inp('poNumber', l.poNumber)) +
+      field('Regular price / unit', inp('regularPrice', l.regularPrice ?? '', 'inputmode="decimal"')) + field('Price paid / unit (' + curSym(l.currency) + ')', inp('unitCost', l.unitCost, 'inputmode="decimal"')) + field('Quantity', inp('qty', l.qty, 'inputmode="numeric"')) + field('Expiry date', inp('expiry', l.expiry, 'type="date"')) + '</div>' +
+      field('Container', sel('shipmentId', shipOptions(l.shipmentId), l.inWarehouse ? '__local' : l.shipmentId || '')) + field('Bought for client', sel('reservedFor', custOpts(), l.reservedFor || '')) + field('Notes', inp('notes', l.notes)) +
+      (seeCost() ? '<div class="alert info">Landed cost per unit: <b class="money">' + F(x.landedUnit) + '</b> (' + F(x.unitX) + ' item + ' + F(x.landedUnit - x.unitX) + ' shipping & customs share)</div>' : '') + '</div>',
+    foot: '<button class="btn danger" id="lDel">' + ic('trash') + '</button><button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="lSave">Save</button>',
+  });
+  $('#lSave', sh).onclick = async () => { const v = formVals(sh); const local = v.shipmentId === '__local'; Object.assign(v, { regularPrice: num(v.regularPrice) || null, unitCost: num(v.unitCost), qty: Math.floor(num(v.qty)), shipmentId: local ? '' : v.shipmentId, inWarehouse: local }); if (await save('lots', Object.assign({}, l, v))) { closeSheet(); scheduleRender(); } };
+  $('#lDel', sh).onclick = async () => { if (x.sold > 0) return toast('This line has sales — adjust quantity instead of deleting', true); if (await confirmBox('Delete this purchase line?', 'Delete', true)) { await remove('lots', l.id); closeSheet(); scheduleRender(); } };
+};
+const PURCH_COLS = ['Date', 'Source', 'Store', 'Order No', 'Lot No', 'Description', 'Category', 'Subcategory', 'Condition', 'Regular Price', 'Price Paid', 'Quantity', 'Expiry Date', 'Barcode', 'Notes'];
+A.tplPurch = () => xlsxDownload('Purchase-template.xlsx', { Purchases: [{ Date: todayStr(), Source: 'Store', Store: 'Costco', 'Order No': '', 'Lot No': '', Description: 'Quaker Oats Old Fashioned 2x2.6kg', Category: 'Food & Snacks', Subcategory: 'Cereal & Oats', Condition: 'New', 'Regular Price': 12.99, 'Price Paid': 9.98, Quantity: 10, 'Pack Of': 1, Unit: 'pack', Size: 2.6, 'Size Unit': 'kg', 'Expiry Date': '2027-06-30', Barcode: '', Notes: '' }], Customers: [{ Name: 'Jenny Mballa', Phone: '677000000', WhatsApp: '677000000', Email: '', City: 'Douala', Type: 'Retail', Notes: '' }] });
+function pickCol(row, names) { const keys = Object.keys(row); for (const n of names) { const k = keys.find((k) => k.toLowerCase().replace(/[^a-z]/g, '') === n.toLowerCase().replace(/[^a-z]/g, '')); if (k && row[k] !== '' && row[k] != null) return row[k]; } for (const n of names) { const k = keys.find((k) => k.toLowerCase().includes(n.toLowerCase())); if (k && row[k] !== '' && row[k] != null) return row[k]; } return ''; }
+function xlDate(v) { if (!v) return ''; if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 864e5)); return d.toISOString().slice(0, 10); } const d = new Date(v); return isNaN(d) ? String(v) : todayStr(d); }
+async function readSheet(file) { const buf = await file.arrayBuffer(); const wb = XLSX.read(buf, { type: 'array' }); return wb; }
+A.importPurch = async () => {
+  if (!window.XLSX) return toast('Excel library still loading', true);
+  const f = await pickFile('.xlsx,.xls,.csv'); if (!f) return;
+  const wb = await readSheet(f); const ws = wb.Sheets[wb.SheetNames.find((n) => /purch|manifest|item/i.test(n)) || wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  const lines = rows.map((r) => ({
+    purchaseDate: xlDate(pickCol(r, ['Date', 'Purchase Date'])), sourceType: pickCol(r, ['Source']) || '', vendor: String(pickCol(r, ['Store', 'Vendor', 'Seller'])), poNumber: String(pickCol(r, ['Order No', 'PO', 'Order'])), lotNumber: String(pickCol(r, ['Lot No', 'Lot', 'Stock No'])),
+    name: String(pickCol(r, ['Description', 'Item Description', 'Product Name', 'Title', 'Item', 'Name'])).trim(), category: String(pickCol(r, ['Category', 'Department'])), subcategory: String(pickCol(r, ['Subcategory', 'Sub Category', 'Class'])),
+    condition: (() => { const c = String(pickCol(r, ['Condition', 'Grade'])).toLowerCase(); return !c ? 'New' : /open|box/.test(c) ? 'Open box' : /refurb/.test(c) ? 'Refurbished' : /damag|part|salvage/.test(c) ? 'Damaged / Parts' : /used|return/.test(c) ? 'Used' : 'New'; })(),
+    regularPrice: num(pickCol(r, ['Regular Price', 'Retail Price', 'MSRP', 'Unit Retail', 'Ext Retail'])) || null, unitCost: num(pickCol(r, ['Price Paid', 'Unit Cost', 'Cost', 'Price'])), qty: Math.floor(num(pickCol(r, ['Quantity', 'Qty', 'Units']))) || 1,
+    expiry: xlDate(pickCol(r, ['Expiry Date', 'Expiry', 'Expiration'])), barcode: String(pickCol(r, ['Barcode', 'UPC', 'EAN'])), notes: String(pickCol(r, ['Notes'])),
+    unit: String(pickCol(r, ['Unit', 'Sold By'])) || 'piece', size: num(pickCol(r, ['Size', 'Weight'])) || null, sizeUnit: String(pickCol(r, ['Size Unit', 'Weight Unit'])), packOf: Math.max(1, Math.floor(num(pickCol(r, ['Pack Of', 'Units Per Pack', 'Pack'])) || 1)),
+  })).filter((l) => l.name);
+  lines.forEach((l) => { if (l.packOf > 1) { l.qty *= l.packOf; l.unitCost /= l.packOf; if (l.regularPrice) l.regularPrice /= l.packOf; } if (!KC.SIZE_UNITS[l.sizeUnit]) { const m = { kgs: 'kg', lbs: 'lb', ounce: 'oz', liter: 'L', litre: 'L', l: 'L', ml: 'mL', gallon: 'gal', floz: 'fl oz' }[String(l.sizeUnit).toLowerCase().replace(/[^a-z]/g, '')]; l.sizeUnit = m || ''; } });
+  if (!lines.length) return toast('No item rows found. Use the template column names.', true);
+  lines.forEach((l) => { if (!catOpts().includes(l.category)) { l.notes = [l.notes, l.category && 'Cat: ' + l.category].filter(Boolean).join(' · '); l.category = /tv|speaker|audio|laptop|phone|electr|computer|tablet/i.test(l.name + l.category) ? 'Electronics' : 'Other'; l.subcategory = subOpts(l.category)[0]; } });
+  const noCost = lines.filter((l) => !l.unitCost).length;
+  const sh = openSheet({
+    title: 'Import ' + lines.length + ' lines',
+    body: '<div class="col">' + (noCost ? '<div class="alert">' + noCost + ' line(s) have no "Price Paid". For auction lots, enter the total you paid below and it will be spread across items by retail value.</div>' : '') +
+      '<div class="grid2">' + field('Default date', inp('purchaseDate', todayStr(), 'type="date"')) + field('Source', sel('sourceType', KC.SOURCE_TYPES, 'Auction')) + field('Store / seller', inp('vendor', 'B-Stock')) + field('Order / PO no.', inp('poNumber', '')) + field('Container', sel('shipmentId', shipOptions(''), '')) + field('Currency', sel('currency', curOptions(), 'USD')) + '</div>' +
+      field('Total paid for whole lot (optional — spreads cost)', inp('lotTotal', '', 'inputmode="decimal" placeholder="e.g. 2450 incl. fees & shipping to you"')) +
+      '<div class="card tw"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Paid</th><th class="r">Retail</th></tr></thead><tbody>' + lines.slice(0, 50).map((l) => '<tr><td>' + esc(l.name) + '<div class="tiny faint">' + esc(l.category) + ' · ' + esc(l.condition) + '</div></td><td class="r">' + l.qty + '</td><td class="r">' + (l.unitCost || '—') + '</td><td class="r">' + (l.regularPrice || '—') + '</td></tr>').join('') + (lines.length > 50 ? '<tr><td colspan="4" class="faint">…and ' + (lines.length - 50) + ' more</td></tr>' : '') + '</tbody></table></div></div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="impGo">Import</button>',
+  });
+  $('#impGo', sh).onclick = async (e) => {
+    const h = formVals(sh); e.target.disabled = true; e.target.textContent = 'Importing…';
+    if (num(h.lotTotal) > 0) { const base = lines.reduce((a, l) => a + (l.regularPrice || l.unitCost || 1) * l.qty, 0); lines.forEach((l) => (l.unitCost = Math.round((num(h.lotTotal) * (l.regularPrice || l.unitCost || 1) / base) * 100) / 100)); }
+    await savePurchaseLines(h, lines); closeSheet(); scheduleRender(); toast(lines.length + ' lines imported');
+  };
+};
+
+/* ---------- containers ---------- */
+const stIdx = (st) => KC.SHIP_STATUSES.findIndex((s) => s[0] === st);
+VIEWS.containers = {
+  render() {
+    const ships = K.raw.shipments.slice().sort((a, b) => stIdx(a.status) - stIdx(b.status) || (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const us = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us');
+    return '<div class="row wrap mb"><button class="btn pri" data-a="newShip">' + ic('plus') + 'New container</button></div>' +
+      (us.length ? '<div class="alert info mb">' + ic('buy', 'sm') + '<div><b>' + us.reduce((a, l) => a + num(l.qty), 0) + ' units</b> in US storage are not in a container yet. Open a container and use <b>Add items</b>.</div></div>' : '') +
+      (ships.length ? ships.map((s) => { const x = K.C.shipX[s.id]; const i = stIdx(s.status); return '<div class="card pad mb" data-a="openShip" data-id="' + s.id + '" style="cursor:pointer"><div class="row between"><div class="row"><div class="av acc">' + ic('ship') + '</div><div><div class="b">' + esc(s.name || 'Container') + '</div><div class="tiny muted">' + esc([s.containerNo, s.bookingNo && 'Booking ' + s.bookingNo, s.origin].filter(Boolean).join(' · ')) + '</div></div></div><span class="badge brand">' + esc((KC.SHIP_STATUSES[i] || [0, ''])[1]) + '</span></div>' +
+        '<div class="pipeline">' + KC.SHIP_STATUSES.slice(0, 6).map((_, j) => '<span class="' + (j <= i ? 'on' : '') + '"></span>').join('') + '</div>' +
+        '<div class="grid4 small mt"><div><div class="faint tiny">Units</div><b>' + fmt(x.units) + '</b></div><div><div class="faint tiny">Landed cost</div><b class="money">' + F(x.landedX) + '</b></div><div><div class="faint tiny">Revenue</div><b class="money">' + F(x.revenue) + '</b></div><div><div class="faint tiny">Sold</div><b>' + (x.units ? pct(x.unitsSold / x.units * 100) : '—') + '</b></div></div>' +
+        (x.units ? '<div class="bar mt"><i style="width:' + Math.min(100, x.unitsSold / x.units * 100) + '%"></i></div>' : '') + '</div>'; }).join('') : '<div class="card empty"><div class="big">🚢</div>No containers yet. Create one when you book a container.</div>');
+  },
+};
+A.newShip = () => shipForm(null);
+function shipForm(id) {
+  const s = id ? byId('shipments', id) : { status: 'planning', origin: 'Houston, TX', destination: 'Douala, Cameroon', size: "40' HC", fxRates: Object.assign({}, S().fxRates || { USD: S().fxRate }) };
+  const n = K.raw.shipments.length + 1;
+  const sh = openSheet({
+    title: id ? 'Edit container' : 'New container',
+    body: '<div class="col">' + field('Name', inp('name', s.name || 'Container #' + n + ' – ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getFullYear())) + '<div class="grid2">' + field('Booking no.', inp('bookingNo', s.bookingNo)) + field('Container no.', inp('containerNo', s.containerNo, 'placeholder="MSCU1234567"')) + field('Seal no.', inp('sealNo', s.sealNo)) + field('Size', sel('size', ["20'", "40'", "40' HC", "45' HC"], s.size)) +
+      field('Shipping line', inp('carrier', s.carrier, 'placeholder="MSC, Maersk, CMA CGM…"')) + field('Clearing agent (Douala)', inp('agent', s.agent)) + field('Ship from', inp('origin', s.origin)) + field('Ship to', inp('destination', s.destination)) +
+      field('Status', sel('status', KC.SHIP_STATUSES, s.status)) + Object.keys(S().fxRates || { USD: 1 }).filter((c) => c !== baseCode()).map((c) => field('Rate: 1 ' + c + ' = ? ' + baseCode(), inp('fx_' + c, (s.fxRates && s.fxRates[c]) || (c === 'USD' && s.fxRate) || (S().fxRates || {})[c] || '', 'inputmode="decimal"'))).join('') + field('Loaded on', inp('loadedAt', s.loadedAt, 'type="date"')) + field('ETA / arrived Douala', inp('arrivedAt', s.arrivedAt, 'type="date"')) + field('Cleared on', inp('clearedAt', s.clearedAt, 'type="date"')) + field('Unloaded in warehouse', inp('receivedAt', s.receivedAt, 'type="date"')) + '</div>' + field('Notes', '<textarea class="inp" name="notes">' + esc(s.notes || '') + '</textarea>') + '</div>',
+    foot: (id ? '<button class="btn danger" id="sDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="sSave">Save</button>',
+  });
+  $('#sSave', sh).onclick = async () => { const v = formVals(sh); v.fxRates = {}; Object.keys(v).filter((k) => k.startsWith('fx_')).forEach((k) => { if (num(v[k]) > 0) v.fxRates[k.slice(3)] = num(v[k]); delete v[k]; }); v.fxRate = v.fxRates.USD || num(S().fxRate) || 600; const o = Object.assign({ costs: [] }, s, v, { id: id || uid('sh_') }); if (await save('shipments', o)) { closeSheet(); scheduleRender(); refreshSheets(); if (!id) openShip(o.id); } };
+  if (id) $('#sDel', sh).onclick = async () => { if (K.raw.lots.some((l) => l.shipmentId === id)) return toast('Remove its items first', true); if (await confirmBox('Delete this container?', 'Delete', true)) { await remove('shipments', id); while (K.sheets.length) closeSheet(); scheduleRender(); } };
+}
+A.openShip = (el) => openShip(el.dataset.id);
+function openShip(id) {
+  const sh = openSheet({ title: 'Container', wide: true, body: '' }); sh._tab = 'sum';
+  sh._refresh = () => {
+    const s = byId('shipments', id); if (!s) return closeSheet(); const x = K.C.shipX[s.id];
+    $('.sh h2', sh).textContent = s.name || 'Container';
+    const lots = K.raw.lots.filter((l) => l.shipmentId === id);
+    const T = [['sum', 'Summary'], ['items', 'Items (' + lots.length + ')'], ['costs', 'Costs (' + (s.costs || []).length + ')'], ['recv', 'Receive']];
+    let body = '<div class="row wrap between mb"><div class="seg">' + T.map(([k, l]) => '<button class="' + (sh._tab === k ? 'on' : '') + '" data-a="shTab" data-v="' + k + '">' + l + '</button>').join('') + '</div><button class="btn sm" data-a="editShip" data-id="' + id + '">' + ic('edit', 'sm') + 'Details</button></div>';
+    if (sh._tab === 'sum') {
+      const i = stIdx(s.status);
+      body += '<div class="card pad mb"><div class="row between"><div><div class="tiny muted">' + esc([s.containerNo, s.size, s.carrier].filter(Boolean).join(' · ') || 'Add container details') + '</div><div class="b">' + esc(s.origin || '') + ' → ' + esc(s.destination || '') + '</div></div><span class="badge brand">' + esc(KC.SHIP_STATUSES[i][1]) + '</span></div><div class="pipeline">' + KC.SHIP_STATUSES.slice(0, 6).map((_, j) => '<span class="' + (j <= i ? 'on' : '') + '"></span>').join('') + '</div>' +
+        '<div class="row wrap mt">' + (i < 5 ? '<button class="btn sm pri" data-a="shAdvance" data-id="' + id + '">Move to: ' + esc(KC.SHIP_STATUSES[i + 1][1]) + ' ' + ic('chev', 'sm') + '</button>' : '') + '</div></div>' +
+        '<div class="kpis mb">' + kpi('Goods cost', F(x.goodsX), 'converted to ' + baseCode(), true) + kpi('Shipping & clearing', F(x.costsX), 'US ' + fmt(x.usX) + ' · CM ' + fmt(x.cmX)) + kpi('Total landed', F(x.landedX), x.units ? fmt(x.landedX / x.units) + ' F / unit avg' : '') + kpi('Discount captured', F(Math.max(0, x.regularX - x.goodsX)), 'vs regular prices') + '</div>' +
+        '<div class="kpis mb">' + kpi('Units', fmt(x.units), fmt(x.unitsSold) + ' sold') + kpi('Revenue', F(x.revenue)) + kpi('Gross profit', F(x.revenue - x.cogs), x.revenue ? pct((x.revenue - x.cogs) / x.revenue * 100) + ' margin' : '') + kpi('Losses', F(x.lossX), 'missing, damaged, theft') + '</div>' +
+        '<div class="card pad"><div class="row between"><b>Recovered so far</b><b>' + (x.landedX ? pct(x.revenue / x.landedX * 100) : '—') + ' of landed cost</b></div><div class="bar mt"><i style="width:' + Math.min(100, x.landedX ? x.revenue / x.landedX * 100 : 0) + '%;background:var(--accent)"></i></div><div class="tiny muted mt">Remaining stock from this container: ' + F(x.stockX) + ' at cost.</div></div>' +
+        (x.unalloc ? '<div class="alert mt">' + F(x.unalloc) + ' of costs could not be assigned to items (e.g. "vehicles only" but no vehicle in the container).</div>' : '');
+    } else if (sh._tab === 'items') {
+      const free = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us');
+      body += '<div class="row wrap mb"><button class="btn pri" data-a="shAddItems" data-id="' + id + '"' + (free.length ? '' : ' disabled') + '>' + ic('plus') + 'Add items from US storage (' + free.length + ')</button><button class="btn" data-a="newPurchase">' + ic('buy') + 'New purchase</button></div>' +
+        '<div class="tiny muted mb">Tip: if you don\'t know exactly what went in, add everything you bought. Record what was missing on the <b>Receive</b> tab or later with a stock count.</div>' +
+        '<div class="card tw"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Paid</th><th class="r">Landed/unit</th><th class="r">Sold</th><th></th></tr></thead><tbody>' +
+        lots.map((l) => { const p = byId('products', l.productId) || {}; const lx = K.C.lotX[l.id]; return '<tr><td>' + esc(p.name) + '<div class="tiny faint">' + esc(l.vendor || '') + ' · ' + fmtDate(l.purchaseDate) + '</div></td><td class="r">' + l.qty + '</td><td class="r money">' + money(l.unitCost, l.currency) + '</td><td class="r money">' + fmt(lx.landedUnit) + '</td><td class="r">' + lx.sold + '</td><td><button class="icon-btn" data-a="shRemoveLot" data-id="' + l.id + '">' + ic('x', 'sm') + '</button></td></tr>'; }).join('') + '</tbody></table>' + (lots.length ? '' : '<div class="empty small">No items yet.</div>') + '</div>';
+    } else if (sh._tab === 'costs') {
+      const fx = x.fx; const cs = s.costs || [];
+      const grp_ = (side) => cs.filter((c) => (c.side || 'US') === side);
+      const tbl = (side) => { const g = grp_(side); return '<div class="card mb"><div class="pad row between" style="padding-bottom:4px"><b>' + (side === 'US' ? '🇺🇸 United States side' : '🇨🇲 Cameroon side') + '</b><b class="money">' + F(g.reduce((a, c) => a + num(c.amount) * KC.rateOf(S(), c.currency || 'USD', s), 0)) + '</b></div><div class="list">' + (g.length ? g.map((c) => '<div class="li" data-a="shCost" data-s="' + id + '" data-c="' + c.id + '"><div class="grow"><div class="t">' + esc(c.category) + '</div><div class="tiny muted">' + esc([c.label, c.paidTo, c.date && fmtDate(c.date), { all: 'all items', goods: 'goods only', vehicles: 'vehicles only' }[c.appliesTo || 'all'] || 'one item'].filter(Boolean).join(' · ')) + '</div></div><div class="right b money">' + money(c.amount, c.currency) + '</div></div>').join('') : '<div class="empty small">No costs yet.</div>') + '</div></div>'; };
+      body += '<div class="row wrap mb"><button class="btn pri" data-a="shCost" data-s="' + id + '" data-side="US">' + ic('plus') + 'US cost</button><button class="btn pri" data-a="shCost" data-s="' + id + '" data-side="CM">' + ic('plus') + 'Cameroon cost</button></div>' +
+        '<div class="tiny muted mb">Costs are spread over the items by purchase value, so expensive items carry more of the freight and customs. Car customs can be charged to the car only.</div>' + tbl('US') + tbl('CM');
+    } else {
+      body += '<div class="alert info mb">Enter what was <b>missing</b> or <b>damaged</b> on arrival. Then tap <b>Confirm received in warehouse</b> — items become available for sale.</div>' +
+        '<div class="card tw"><table class="t"><thead><tr><th>Item</th><th class="r">Shipped</th><th class="r">Missing</th><th class="r">Damaged</th></tr></thead><tbody>' +
+        lots.map((l) => { const p = byId('products', l.productId) || {}; return '<tr><td>' + esc(p.name) + '</td><td class="r">' + l.qty + '</td><td class="r"><input class="inp" style="width:70px;min-height:36px" inputmode="numeric" data-rv="recvMissing" data-id="' + l.id + '" value="' + (l.recvMissing || '') + '" placeholder="0"></td><td class="r"><input class="inp" style="width:70px;min-height:36px" inputmode="numeric" data-rv="recvDamaged" data-id="' + l.id + '" value="' + (l.recvDamaged || '') + '" placeholder="0"></td></tr>'; }).join('') + '</tbody></table></div>' +
+        (allLocs().length > 1 ? '<div class="mt">' + field('Unload into', sel('recvLoc', allLocs().map((L) => [L.id, L.name]), s.locationId || K.loc, 'id="recvLoc"')) + '</div>' : '') +
+        '<div class="row wrap mt"><button class="btn" data-a="shSaveRecv" data-id="' + id + '">Save counts</button>' + (stIdx(s.status) < 5 ? '<button class="btn pri" data-a="shReceive" data-id="' + id + '">' + ic('check') + 'Confirm received in warehouse</button>' : '<span class="badge ok">Received ' + fmtDate(s.receivedAt) + '</span>') + '</div>';
+    }
+    setSheetBody(sh, body);
+  };
+  sh._refresh();
+}
+A.shTab = (el) => { const sh = el.closest('.scrim'); sh._tab = el.dataset.v; sh._refresh(); };
+A.editShip = (el) => shipForm(el.dataset.id);
+A.shAdvance = async (el) => { const s = byId('shipments', el.dataset.id); const i = stIdx(s.status); const next = KC.SHIP_STATUSES[i + 1][0]; if (next === 'received') return A.shReceive(el); const dk = { loading: 'loadedAt', in_transit: 'departedAt', at_port: 'arrivedAt', cleared: 'clearedAt' }[next]; const o = Object.assign({}, s, { status: next }); if (dk && !o[dk]) o[dk] = todayStr(); await save('shipments', o); refreshSheets(); scheduleRender(); };
+A.shReceive = async (el) => { const s = byId('shipments', el.dataset.id); await saveRecv(el); if (!(await confirmBox('Mark "' + (s.name || 'container') + '" as unloaded in the warehouse? Its items become available for sale.', 'Confirm received'))) return; const rl = $('#recvLoc', el.closest('.scrim') || document); await save('shipments', Object.assign({}, byId('shipments', s.id), { status: 'received', receivedAt: todayStr(), locationId: rl ? rl.value : (s.locationId || K.loc) })); refreshSheets(); scheduleRender(); toast('Items are now in stock'); };
+async function saveRecv(el) { const sh = el.closest('.scrim'); for (const i of $$('[data-rv]', sh)) { const l = byId('lots', i.dataset.id); const v = Math.max(0, Math.floor(num(i.value))); if (num(l[i.dataset.rv]) !== v) await save('lots', Object.assign({}, byId('lots', l.id), { [i.dataset.rv]: v })); } }
+A.shSaveRecv = async (el) => { await saveRecv(el); refreshSheets(); scheduleRender(); toast('Counts saved'); };
+A.shRemoveLot = async (el) => { const l = byId('lots', el.dataset.id); if (K.C.lotX[l.id].sold > 0) return toast('Item already has sales', true); await save('lots', Object.assign({}, l, { shipmentId: '' })); refreshSheets(); scheduleRender(); };
+A.shAddItems = (el) => {
+  const id = el.dataset.id; const free = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us').sort((a, b) => (a.purchaseDate || '').localeCompare(b.purchaseDate || ''));
+  const sh = openSheet({ title: 'Add items to container', body: '<label class="toggle mb"><input type="checkbox" id="allF" checked> Select all (' + free.length + ')</label><div class="card list">' + free.map((l) => { const p = byId('products', l.productId) || {}; return '<label class="li"><input type="checkbox" data-fl="' + l.id + '" checked style="width:20px;height:20px;accent-color:var(--brand)"><div class="grow"><div class="t">' + esc(p.name) + '</div><div class="tiny muted">' + l.qty + ' units · ' + esc(l.vendor || '') + ' · ' + fmtDate(l.purchaseDate) + '</div></div></label>'; }).join('') + '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="afGo">Add to container</button>' });
+  $('#allF', sh).onchange = (e) => $$('[data-fl]', sh).forEach((c) => (c.checked = e.target.checked));
+  $('#afGo', sh).onclick = async (e) => { e.target.disabled = true; const ids = $$('[data-fl]', sh).filter((c) => c.checked).map((c) => c.dataset.fl); for (const lid of ids) await save('lots', Object.assign({}, byId('lots', lid), { shipmentId: id })); closeSheet(); refreshSheets(); scheduleRender(); toast(ids.length + ' line(s) added'); };
+};
+A.shCost = (el) => {
+  const s = byId('shipments', el.dataset.s); const c = el.dataset.c ? (s.costs || []).find((x) => x.id === el.dataset.c) : { side: el.dataset.side, currency: el.dataset.side === 'CM' ? baseCode() : 'USD', appliesTo: 'all', date: todayStr() };
+  const cats = KC.COST_CATEGORIES.filter((x) => x[0] === c.side).map((x) => x[1]);
+  const lots = K.raw.lots.filter((l) => l.shipmentId === s.id);
+  const sh = openSheet({
+    title: (c.id ? 'Edit' : 'Add') + ' cost · ' + (c.side === 'US' ? 'US side' : 'Cameroon side'),
+    body: '<div class="col">' + field('Cost type', sel('category', cats, c.category || cats[0])) + field('Description', inp('label', c.label, 'placeholder="e.g. Houston port → Katy and back"')) + '<div class="grid2">' + field('Amount', inp('amount', c.amount, 'inputmode="decimal"')) + field('Currency', sel('currency', curOptions(), c.currency)) + field('Paid to', inp('paidTo', c.paidTo)) + field('Date', inp('date', c.date, 'type="date"')) + '</div>' +
+      (!c.id && can('suppliers') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="unpaid" id="ccUnpaid">Not paid yet — add to bills to pay</label><div id="ccSup" class="hide mt">' + supplierSelect('') + '<div class="grid2 mt hide" id="newSup">' + field('New supplier name', inp('newSupplier', c.paidTo || '')) + field('Type', sel('newSupplierType', SUP_TYPES, c.side === 'CM' ? 'Clearing agent' : 'Trucker')) + '</div>' + field('Pay by', inp('billDue', KC.addDays(todayStr(), 14), 'type="date"'), 'mt') + '</div></div>' : '') +
+      field('Charge this cost to', sel('appliesTo', [['all', 'All items in container (by value)'], ['goods', 'Goods only (not vehicles)'], ['vehicles', 'Vehicles only']].concat(lots.map((l) => [l.id, 'Only: ' + ((byId('products', l.productId) || {}).name || '')])), c.appliesTo || 'all')) + '</div>',
+    foot: (c.id ? '<button class="btn danger" id="cDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="cSave">Save cost</button>',
+  });
+  if ($('#ccUnpaid', sh)) { $('#ccUnpaid', sh).onchange = (e) => $('#ccSup', sh).classList.toggle('hide', !e.target.checked); $('#ccSup [name=supplierId]', sh).onchange = (e) => $('#newSup', sh).classList.toggle('hide', e.target.value !== '__new'); }
+  $('#cSave', sh).onclick = async () => { const v = formVals(sh); v.amount = num(v.amount); if (!v.amount) return toast('Enter an amount', true); const unpaid = v.unpaid; const bill = { supplierId: v.supplierId, newSupplier: v.newSupplier || v.paidTo, newSupplierType: v.newSupplierType, dueDate: v.billDue }; ['unpaid', 'supplierId', 'newSupplier', 'newSupplierType', 'billDue'].forEach((k) => delete v[k]); const cur = byId('shipments', s.id); const cost = Object.assign({}, c, v, { id: c.id || uid('k_') });
+    if (unpaid) { if (!bill.supplierId || bill.supplierId === '__new') { if (!bill.newSupplier) return toast('Choose or name the supplier', true); bill.supplierId = '__new'; } const ok = await createBillFor(Object.assign(bill, { description: cost.category + (cost.label ? ' — ' + cost.label : '') + ' · ' + (cur.name || ''), amount: cost.amount, currency: cost.currency, date: cost.date, shipmentId: s.id, costId: cost.id })); if (!ok) return; cost.billed = true; }
+    const costs = (cur.costs || []).filter((x) => x.id !== c.id).concat([cost]); if (await save('shipments', Object.assign({}, cur, { costs }))) { closeSheet(); refreshSheets(); scheduleRender(); if (unpaid) toast('Cost added and bill created'); } };
+  if (c.id) $('#cDel', sh).onclick = async () => { const cur = byId('shipments', s.id); await save('shipments', Object.assign({}, cur, { costs: cur.costs.filter((x) => x.id !== c.id) })); closeSheet(); refreshSheets(); scheduleRender(); };
+};
+
+/* ---------- units & photos ---------- */
+function unitFields(p) {
+  return '<div class="grid2 mt">' + field('Sold by (unit)', sel('unit', KC.SELL_UNITS, p.unit || 'piece')) + field('Size / weight', '<div class="row gap6"><input class="inp" name="size" value="' + esc(p.size ?? '') + '" inputmode="decimal" placeholder="2.6" style="min-width:0;flex:1">' + sel('sizeUnit', [['', '—']].concat(Object.keys(KC.SIZE_UNITS)), p.sizeUnit || '', 'style="width:auto;flex:none"') + '</div>') + '</div><div class="tiny muted" data-conv style="margin-top:4px"></div>';
+}
+document.addEventListener('input', (e) => { if (e.target.name === 'size' || e.target.name === 'sizeUnit') convHint(e.target); });
+document.addEventListener('change', (e) => { if (e.target.name === 'sizeUnit') convHint(e.target); });
+function convHint(el) { const root = el.closest('.card,.sb') || document; const sz = $('[name=size]', root), su = $('[name=sizeUnit]', root), out = $('[data-conv]', root); if (sz && su && out) { const c = KC.convertSize(sz.value, su.value); out.textContent = c ? '= ' + c : ''; } }
+A.pickPhoto = async (el) => {
+  const f = await photoPicker(); if (!f) return;
+  const sh = el.closest('.scrim'); sh._photo = f;
+  el.innerHTML = '<img src="' + URL.createObjectURL(f) + '">';
+};
+A.quickPhoto = async (el) => {
+  const f = await photoPicker(); if (!f) return;
+  const p = byId('products', el.dataset.id); toast('Saving photo…');
+  try { const ref = await storePhoto(f); await save('products', Object.assign({}, p, { image: ref })); scheduleRender(); toast('Photo saved'); } catch (e) { toast(e.message, true); }
+};
+
+const custOpts = () => [['', '— For stock (anyone can buy) —']].concat(K.raw.customers.slice().sort((a, b) => a.name.localeCompare(b.name)).map((c) => [c.id, c.name + (c.phone ? ' · ' + c.phone : '')]));
+const custName = (id) => (byId('customers', id) || {}).name || 'customer';
+
+/* ---------- item history: purchases & sales ---------- */
+const stats = (arr) => arr.length ? { min: Math.min(...arr), max: Math.max(...arr), avg: arr.reduce((a, b) => a + b, 0) / arr.length, last: arr[arr.length - 1] } : null;
+A.itemHistory = (el) => {
+  const p = byId('products', el.dataset.id); const x = K.C.prodX[p.id]; const c = seeCost();
+  const lots = x.lotIds.map((id) => byId('lots', id)).filter(Boolean).sort((a, b) => (a.purchaseDate || '').localeCompare(b.purchaseDate || ''));
+  const buys = lots.map((l) => ({ l, lx: K.C.lotX[l.id] }));
+  const buyPrices = buys.map((b) => b.lx.unitX), landed = buys.map((b) => b.lx.landedUnit);
+  const sales = []; visibleSales().forEach((s) => { const t = K.C.saleX[s.id]; if (t.status === 'cancelled') return; (s.lines || []).forEach((ln) => { if (ln.productId !== p.id) return; const rq = (ln.returns || []).reduce((a, r) => a + num(r.qty), 0); sales.push({ s, date: saleDate(s), qty: num(ln.qty) - rq, price: num(ln.unitPrice), customer: s.customerName, customerId: s.customerId || s.customerName }); }); });
+  sales.sort((a, b) => a.date.localeCompare(b.date));
+  const sp = stats(sales.map((r) => r.price)), bp = stats(buyPrices), lp = stats(landed);
+  const byCust = {}; sales.forEach((r) => { const o = (byCust[r.customerId] = byCust[r.customerId] || { name: r.customer, times: 0, qty: 0, total: 0, last: '' }); o.times++; o.qty += r.qty; o.total += r.qty * r.price; if (r.date > o.last) o.last = r.date; });
+  const byMonth = {}; sales.forEach((r) => { const m = r.date.slice(0, 7); byMonth[m] = (byMonth[m] || 0) + r.qty; });
+  const totalSoldQty = sales.reduce((a, r) => a + r.qty, 0), totalBought = lots.reduce((a, l) => a + num(l.qty), 0);
+  const sb = (l, v) => '<div><div class="faint tiny">' + l + '</div><b class="money">' + v + '</b></div>';
+  K._histRows = { Purchases: buys.map(({ l, lx }) => Object.assign({ Date: l.purchaseDate, Store: l.vendor, Source: l.sourceType, 'Order no': l.poNumber, Container: shipName(l.shipmentId), Qty: l.qty, 'For client': l.reservedFor ? custName(l.reservedFor) : '' }, c ? { 'Paid each (F)': Math.round(lx.unitX), 'Landed each (F)': Math.round(lx.landedUnit) } : {})), Sales: sales.map((r) => ({ Date: r.date, Receipt: r.s.no, Customer: r.customer, Qty: r.qty, 'Price (F)': r.price })), Customers: Object.values(byCust).map((o) => ({ Customer: o.name, Times: o.times, Qty: o.qty, 'Total (F)': Math.round(o.total), 'Last bought': o.last })) };
+  openSheet({ title: p.name, wide: true, body:
+    '<div class="row mb">' + thumb(p, 64, 14) + '<div><div class="b">' + esc(p.name) + '</div><div class="tiny muted">' + esc([p.category, p.subcategory, KC.sizeLabel(p)].filter(Boolean).join(' · ')) + '</div>' + (can('export') ? '<button class="btn sm mt" data-a="histXlsx" data-n="' + esc(p.name.replace(/\W+/g, '-')) + '">' + ic('dl', 'sm') + 'Excel</button>' : '') + '</div></div>' +
+    '<div class="kpis mb">' + kpi('Times bought', fmt(lots.length), fmt(totalBought) + ' units total', true) + kpi('Times sold', fmt(sales.length), fmt(totalSoldQty) + ' units') + kpi('Customers', fmt(Object.keys(byCust).length)) + kpi('In stock', fmt(x.available), x.reserved ? x.reserved + ' held for clients' : '') + '</div>' +
+    '<div class="card pad mb"><h3 class="mb">Selling prices</h3>' + (sp ? '<div class="grid4 small">' + sb('Lowest', F(sp.min)) + sb('Average', F(sp.avg)) + sb('Highest', F(sp.max)) + sb('Last', F(sp.last)) + '</div>' : '<div class="muted small">Not sold yet.</div>') +
+    (c ? '<h3 class="mb mt">Buying prices (per unit)</h3>' + (bp ? '<div class="grid4 small">' + sb('Lowest paid', F(bp.min)) + sb('Average paid', F(bp.avg)) + sb('Highest paid', F(bp.max)) + sb('Last paid', F(bp.last)) + '</div><div class="grid4 small mt">' + sb('Lowest landed', F(lp.min)) + sb('Average landed', F(lp.avg)) + sb('Highest landed', F(lp.max)) + sb('Last landed', F(lp.last)) + '</div>' + (sp ? '<div class="alert info mt"><div>Average margin on this item: <b>' + pct((sp.avg - lp.avg) / sp.avg * 100) + '</b> (' + F(sp.avg - lp.avg) + ' per unit)</div></div>' : '') : '') : '') + '</div>' +
+    '<div class="card mb"><div class="pad"><h3>Who buys it</h3></div><div class="tw"><table class="t"><thead><tr><th>Customer</th><th class="r">Times</th><th class="r">Units</th><th class="r">Total</th><th>Last</th></tr></thead><tbody>' + Object.values(byCust).sort((a, b) => b.qty - a.qty).map((o) => '<tr><td>' + esc(o.name) + '</td><td class="r">' + o.times + '</td><td class="r">' + fmt(o.qty) + '</td><td class="r money">' + fmt(o.total) + '</td><td class="nowrap">' + fmtDate(o.last) + '</td></tr>').join('') + '</tbody></table>' + (sales.length ? '' : '<div class="empty small">No sales yet.</div>') + '</div></div>' +
+    (Object.keys(byMonth).length > 1 ? '<div class="card pad mb"><h3>Units sold per month</h3>' + vbars(Object.entries(byMonth).sort().slice(-12).map(([k, v]) => ({ key: k, qty: v })), (r) => MONTHS[+r.key.slice(5) - 1], 'qty') + '</div>' : '') +
+    '<div class="card mb"><div class="pad"><h3>Purchase history</h3></div><div class="tw"><table class="t"><thead><tr><th>Date</th><th>Where</th><th>Container</th><th class="r">Qty</th>' + (c ? '<th class="r">Paid</th><th class="r">Landed</th>' : '') + '</tr></thead><tbody>' + buys.slice().reverse().map(({ l, lx }) => '<tr><td class="nowrap">' + fmtDate(l.purchaseDate) + '</td><td>' + esc(l.vendor || l.sourceType || '') + (l.reservedFor ? '<div class="tiny">for ' + esc(custName(l.reservedFor)) + '</div>' : '') + '</td><td>' + esc(shipName(l.shipmentId)) + '</td><td class="r">' + l.qty + '</td>' + (c ? '<td class="r money">' + money(l.unitCost, l.currency) + '</td><td class="r money">' + fmt(lx.landedUnit) + '</td>' : '') + '</tr>').join('') + '</tbody></table></div></div>' +
+    '<div class="card mb"><div class="pad"><h3>Sales history</h3></div><div class="tw"><table class="t"><thead><tr><th>Date</th><th>Customer</th><th class="r">Qty</th><th class="r">Price</th></tr></thead><tbody>' + sales.slice().reverse().slice(0, 200).map((r) => '<tr><td class="nowrap">' + fmtDate(r.date) + '</td><td>' + esc(r.customer) + '</td><td class="r">' + r.qty + '</td><td class="r money">' + fmt(r.price) + '</td></tr>').join('') + '</tbody></table></div></div>' });
+};
+A.histXlsx = (el) => xlsxDownload('History-' + el.dataset.n + '.xlsx', K._histRows);
+
+/* ---------- transfers between branches (send → receive) ---------- */
+const trBadge = (t) => t.status === 'cancelled' ? '<span class="badge">Cancelled</span>' : t.status === 'in_transit' ? '<span class="badge info">On the way</span>' : (t.lines || []).some((l) => l.receivedQty !== undefined && num(l.receivedQty) < num(l.qty)) ? '<span class="badge bad">Received short</span>' : '<span class="badge ok">Received</span>';
+VIEWS.transfers = {
+  render() {
+    const L = allLocs();
+    if (L.length < 2) return '<div class="card pad2"><h2>One branch</h2><p class="muted">Add your branches and warehouses in <a href="#settings">Settings → Branches & warehouses</a>, then move stock between them here.</p></div>';
+    const list = K.raw.transfers.slice().sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
+    const waiting = list.filter((t) => t.status === 'in_transit' && t.to === K.loc);
+    const row = (t) => { const n = (t.lines || []).reduce((a, l) => a + num(l.qty), 0); return '<div class="li" data-a="openTransfer" data-id="' + t.id + '"><div class="av' + (t.status === 'cancelled' ? ' ink' : '') + '">' + ic('ship', 'sm') + '</div><div class="grow"><div class="t">' + esc(locName(t.from)) + ' → ' + esc(locName(t.to)) + '</div><div class="tiny muted">' + fmtDate(t.date) + ' · ' + n + ' unit(s) · ' + esc(t.reason || '') + (t.by ? ' · ' + esc(t.by) : '') + '</div></div>' + trBadge(t) + '</div>'; };
+    return '<div class="alert info mb">Stock leaves the sending branch when you tap <b>Send</b>, and arrives only when the receiving branch counts it and taps <b>Receive</b>. Anything missing is recorded as a loss.</div>' +
+      (waiting.length ? '<h2 class="mb">Arriving at ' + esc(locName(K.loc)) + '</h2><div class="card list mb">' + waiting.map(row).join('') + '</div>' : '') +
+      (can('transfers') ? '<div class="row wrap mb"><button class="btn pri" data-a="newTransfer">' + ic('plus') + 'Send stock to a branch</button></div>' : '') +
+      '<div class="card list">' + (list.length ? list.map(row).join('') : '<div class="empty">No transfers yet.</div>') + '</div>';
+  },
+};
+A.newTransfer = () => {
+  const L = myLocs().length > 1 || can('allLocations') ? allLocs() : allLocs(); const st = { from: K.loc, to: (L.find((l) => l.id !== K.loc) || {}).id, lines: [] };
+  const sh = openSheet({ title: 'Send stock', wide: true, body: '', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="trGo">' + ic('ship') + 'Send</button>' });
+  const availAt = (pid, loc) => { const x = K.C.prodX[pid]; return x ? Math.max(0, x.byLoc[loc] || 0) : 0; };
+  const fromOpts = can('allLocations') ? L : L.filter((l) => l.id === K.loc);
+  const draw = (q) => {
+    const prods = K.raw.products.filter((p) => availAt(p.id, st.from) > 0 && (!q || p.name.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 60);
+    setSheetBody(sh, '<div class="grid2 mb">' + field('From', sel('from', fromOpts.map((l) => [l.id, l.name]), st.from, 'id="trFrom"')) + field('To', sel('to', L.filter((l) => l.id !== st.from).map((l) => [l.id, l.name]), st.to, 'id="trTo"')) + field('Reason', sel('reason', KC.TRANSFER_REASONS, st.reason || KC.TRANSFER_REASONS[0], 'id="trReason"')) + field('Carried by (driver / staff)', inp('carrier', st.carrier || '', 'id="trCarrier"')) + '</div>' +
+      (st.lines.length ? '<div class="card pad mb"><h3 class="mb">Sending</h3>' + st.lines.map((l, i) => '<div class="row between cl"><span>' + esc((byId('products', l.productId) || {}).name) + ' <span class="tiny faint">of ' + availAt(l.productId, st.from) + '</span></span><div class="row gap6"><input class="inp" style="width:80px" inputmode="numeric" value="' + l.qty + '" data-trq="' + i + '"><button class="icon-btn" data-trrm="' + i + '">' + ic('trash', 'sm') + '</button></div></div>').join('') + '</div>' : '') +
+      '<div class="search mb">' + ic('search') + '<input class="inp" id="trQ" placeholder="Search item at ' + esc(locName(st.from)) + '" value="' + esc(q || '') + '"></div><div class="card list">' + (prods.map((p) => '<div class="li" data-tradd="' + p.id + '">' + thumb(p, 36, 9) + '<div class="grow t">' + esc(p.name) + '</div><span class="small muted">' + availAt(p.id, st.from) + ' here</span>' + ic('plus', 'sm') + '</div>').join('') || '<div class="empty small">No stock at this branch.</div>') + '</div>');
+    $('#trFrom', sh).onchange = (e) => { st.from = e.target.value; st.lines = []; if (st.to === st.from) st.to = (L.find((l) => l.id !== st.from) || {}).id; draw(); };
+    $('#trTo', sh).onchange = (e) => { st.to = e.target.value; };
+    $('#trReason', sh).onchange = (e) => { st.reason = e.target.value; };
+    $('#trCarrier', sh).oninput = (e) => { st.carrier = e.target.value; };
+    $('#trQ', sh).oninput = (e) => { clearTimeout(sh._t); sh._t = setTimeout(() => { draw(e.target.value); const i = $('#trQ', sh); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250); };
+    $$('[data-tradd]', sh).forEach((el) => (el.onclick = () => { const pid = el.dataset.tradd; const ex = st.lines.find((l) => l.productId === pid); if (ex) ex.qty = Math.min(ex.qty + 1, availAt(pid, st.from)); else st.lines.push({ productId: pid, qty: 1 }); draw($('#trQ', sh).value); }));
+    $$('[data-trq]', sh).forEach((el) => (el.oninput = () => { const l = st.lines[+el.dataset.trq]; l.qty = Math.max(0, Math.min(Math.floor(num(el.value)), availAt(l.productId, st.from))); }));
+    $$('[data-trrm]', sh).forEach((el) => (el.onclick = () => { st.lines.splice(+el.dataset.trrm, 1); draw($('#trQ', sh).value); }));
+  };
+  draw();
+  $('#trGo', sh).onclick = async (e) => {
+    if (!st.to || st.from === st.to) return toast('Choose two different branches', true);
+    const lines = []; for (const l of st.lines.filter((x) => x.qty > 0)) { const alloc = KC.allocate(K.C, K.raw.lots, l.productId, l.qty, {}, null, st.from); if (!alloc) return toast('Not enough ' + (byId('products', l.productId) || {}).name + ' at ' + locName(st.from), true); lines.push({ productId: l.productId, qty: l.qty, alloc }); }
+    if (!lines.length) return toast('Add items to send', true);
+    e.target.disabled = true;
+    const d = new Date();
+    if (await save('transfers', { id: uid('t_'), no: 'T' + String(d.getFullYear()).slice(2) + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '-' + Math.random().toString(36).slice(2, 5).toUpperCase(), date: todayStr(), from: st.from, to: st.to, reason: st.reason || KC.TRANSFER_REASONS[0], carrier: st.carrier || '', lines, status: 'in_transit', by: K.me.name || '', byId: K.me.id || '', sentAt: d.toISOString() })) { closeSheet(); scheduleRender(); toast('Sent — ' + locName(st.to) + ' must receive it'); }
+    e.target.disabled = false;
+  };
+};
+A.openTransfer = (el) => {
+  const t = byId('transfers', el.dataset.id);
+  const canReceive = t.status === 'in_transit' && (can('transfers') || K.loc === t.to);
+  const sh = openSheet({ title: (t.no ? t.no + ' · ' : '') + locName(t.from) + ' → ' + locName(t.to), body: '<div class="row between mb"><div class="tiny muted">' + fmtDate(t.date) + ' · sent by ' + esc(t.by || '—') + (t.carrier ? ' · carried by ' + esc(t.carrier) : '') + ' · ' + esc(t.reason || '') + (t.receivedBy ? '<br>Received by ' + esc(t.receivedBy) + ' ' + fmtDT(t.receivedAt) : '') + '</div>' + trBadge(t) + '</div>' +
+    (canReceive ? '<div class="alert info mb">Count what actually arrived. Anything missing is recorded as a loss at ' + esc(locName(t.to)) + '.</div>' : '') +
+    '<div class="card list">' + (t.lines || []).map((l, i) => { const p = byId('products', l.productId) || {}; return '<div class="li" style="cursor:default">' + thumb(p, 36, 9) + '<div class="grow"><div class="t">' + esc(p.name) + '</div><div class="tiny muted">Sent ' + l.qty + (l.receivedQty !== undefined ? ' · received ' + l.receivedQty : '') + '</div></div>' + (canReceive ? '<input class="inp" style="width:80px" inputmode="numeric" data-rq="' + i + '" value="' + l.qty + '">' : '<b>' + (l.receivedQty !== undefined ? l.receivedQty : l.qty) + '</b>') + '</div>'; }).join('') + '</div>' + (canReceive ? field('Note', inp('rnote', ''), 'mt') : ''),
+    foot: (t.status === 'in_transit' && can('transfers') ? '<button class="btn danger" id="trCancel">Cancel</button>' : '') + (canReceive ? '<button class="btn pri grow" id="trRecv">' + ic('check') + 'Receive at ' + esc(locName(t.to)) + '</button>' : '') });
+  if ($('#trCancel', sh)) $('#trCancel', sh).onclick = async () => { if (await confirmBox('Cancel this transfer? Stock goes back to ' + locName(t.from) + '.', 'Cancel transfer', true)) { await save('transfers', Object.assign({}, t, { status: 'cancelled' })); closeSheet(); scheduleRender(); } };
+  if ($('#trRecv', sh)) $('#trRecv', sh).onclick = async (e) => {
+    const cur = JSON.parse(JSON.stringify(byId('transfers', t.id))); let short = 0; const adjs = [];
+    $$('[data-rq]', sh).forEach((inp_) => { const l = cur.lines[+inp_.dataset.rq]; const got = Math.max(0, Math.min(num(l.qty), Math.floor(num(inp_.value)))); l.receivedQty = got; let miss = num(l.qty) - got; short += miss;
+      for (const a of l.alloc.slice().reverse()) { if (miss <= 0) break; const take = Math.min(miss, num(a.qty)); adjs.push({ lotId: a.lotId, productId: l.productId, qty: -take }); miss -= take; } });
+    if (short > 0 && !(await confirmBox(short + ' unit(s) missing. They will be recorded as a loss (missing in transfer). Continue?', 'Receive'))) return;
+    e.target.disabled = true;
+    cur.status = 'received'; cur.receivedAt = new Date().toISOString(); cur.receivedBy = K.me.name || ''; cur.receivedById = K.me.id || ''; cur.receiveNote = formVals(sh).rnote || '';
+    if (await save('transfers', cur)) {
+      if (K.info.mode !== 'saas') for (const [ai, a] of adjs.entries()) await save('adjustments', { id: 'a_tr_' + t.id + '_' + ai, date: todayStr(), productId: a.productId, lotId: a.lotId, qty: a.qty, locationId: t.to, reason: 'Missing in transfer', notes: 'Transfer ' + (t.no || t.id) + ' from ' + locName(t.from) + (t.carrier ? ', carried by ' + t.carrier : ''), byId: K.me.id || '', by: K.me.name || '' });
+      closeSheet(); scheduleRender(); toast(short ? 'Received — ' + short + ' missing recorded' : 'Received in full');
+    }
+    e.target.disabled = false;
+  };
+};

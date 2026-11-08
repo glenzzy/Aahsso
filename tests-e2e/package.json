@@ -1,0 +1,1 @@
+{ "name": "kargo-e2e-libs", "private": true, "description": "Local copies of the CDN libraries so e2e tests run offline", "dependencies": { "xlsx": "0.18.5", "jspdf": "2.5.1", "jsbarcode": "3.11.6" } }

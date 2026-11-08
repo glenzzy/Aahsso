@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: kargo
+      POSTGRES_PASSWORD: kargo
+      POSTGRES_DB: kargo
+    volumes: [ "pgdata:/var/lib/postgresql/data" ]
+    ports: [ "5432:5432" ]
+  app:
+    build: .
+    depends_on: [ db ]
+    environment:
+      PORT: 8080
+      DATABASE_URL: postgres://kargo:kargo@db:5432/kargo
+      JWT_SECRET: ${JWT_SECRET:-please-change-me}
+      TRIAL_DAYS: 30
+    ports: [ "8080:8080" ]
+volumes:
+  pgdata: {}
