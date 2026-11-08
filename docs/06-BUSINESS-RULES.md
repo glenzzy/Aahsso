@@ -49,11 +49,19 @@ landedUnit           = (goods value + shared costs) / qty
 - The due date is the sale date + `creditDays`.
 - Customer pages show the purchase history and balance; product pages show which customers bought the item, how often, and at what prices.
 
-## 6.6 Cash handover (end of day)
-- **Expected** = the payments **that staff member received** that day, per method (refunds are negative). The server computes this from its own `payments.byId`.
+## 6.6 Payments (method, transaction ID, MoMo charges)
+- Payment methods: Cash, MTN MoMo, Orange Money, Bank transfer, Other.
+- **`payments[].amount`** is what pays the sale (balance / handover / reports of money collected).
+- **`payments[].fee`** is the operator withdrawal / cash-out charge for MTN MoMo or Orange Money. It is stored separately and does **not** reduce the sale balance. The customer typically sends `amount + fee`.
+- Suggested fees come from `settings.momoFeeTables` (Cameroon MTN/Orange withdrawal tiers by default). Editable in Settings; optional server env `MOMO_FEE_TABLES` overrides defaults for new tenants.
+- **Transaction ID** (`payments[].ref`) is **required** for MTN MoMo and Orange Money, along with the receiving number (`account`). The sale’s `txnId` is set from the first electronic payment ref.
+- Cash and refunds do not require a transaction ID. Refunds keep `fee` at 0.
+
+## 6.7 Cash handover (end of day)
+- **Expected** = the payments **that staff member received** that day, per method (refunds are negative). Uses `amount` only — MoMo charges are not part of the cash drawer. The server computes this from its own `payments.byId`.
 - The staff member declares what they hand over. The difference is shown, and a manager with `handover` confirms it.
 
-## 6.7 Transfers & stock counts
+## 6.8 Transfers & stock counts
 - **Send:** stock leaves the source branch (`in_transit`).
 - **Receive:** the receiver enters the received quantities. Any shortfall becomes a "Missing in transfer" loss adjustment, created by the server.
 - **Stock count:**
@@ -61,25 +69,25 @@ landedUnit           = (goods value + shared costs) / qty
   2. Enter the counts and submit.
   3. A manager applies the count, and each difference becomes a "Stock count difference" adjustment valued at cost.
 
-## 6.8 Losses
+## 6.9 Losses
 Losses are adjustments with a reason: Missing/theft, Unaccounted, Damaged, Expired, Missing in transfer, or Stock count difference. Container receiving shortfalls count too. The Losses report adds them up at landed cost.
 
-## 6.9 Supplier payables
+## 6.10 Supplier payables
 - A bill is money owed to a supplier: a store paid later, or a freight or clearing agent.
 - A container cost marked "not paid yet" creates a bill automatically.
 - Payments are added to the bill. Overdue bills appear on Home.
 
-## 6.10 Reminders
+## 6.11 Reminders
 - The template uses `{name} {balance} {due} {business} {momo} {receipts}`.
 - **One tap:** WhatsApp (wa.me) or SMS, logged.
 - **Automatic (SaaS):** daily at `reminderHour` in the `timezone`. Every customer with a balance gets a reminder, at most once every `reminderEvery` days, unless they are marked `noReminders`. It goes through the configured provider; see 07.
 
-## 6.11 Currency
+## 6.12 Currency
 - **Purchase side:** any currency, with per-container rates.
 - **Sales side:** the base currency only. Sales, reports, profit, handovers, expenses and credit are all in base currency.
 - Changing the base currency (another country) relabels amounts. It does **not** convert old sales, so choose it at the start.
 
-## 6.12 Business assets (equipment, vehicles, land…)
+## 6.13 Business assets (equipment, vehicles, land…)
 - **Full cost** = price × exchange rate (the asset's own rate, or the settings rate) + extra costs (shipping, customs, transport, installation). An asset bought abroad and shipped in a container carries its own shipping in extra costs; container costs are spread over goods for sale only.
 - **Depreciation** starts on the purchase date (or the "started using it" date):
   - **Straight line:** (cost − residual) ÷ (life × 12) per month. The first month is charged only for the days after the start, and every later month gets the same amount, e.g. 2 000 000 over 5 years = 33 333 a month. The last year takes the remainder.
@@ -96,5 +104,5 @@ Losses are adjustments with a reason: Missing/theft, Unaccounted, Damaged, Expir
 - **Delete** is allowed only for an asset with no costs or bills and not sold (registered by mistake), and needs a reason. Otherwise it is sold or written off and stays in the register.
 - Reminders: service, insurance, papers and warranty dates within 30 days appear on Home and Assets.
 
-## 6.13 Activity log
+## 6.14 Activity log
 Every write records who, when, which branch, what (in a readable sentence from `describeChange`), and why. A reason is asked for when deleting, cancelling, adjusting or changing a price, and the before/after values are kept. The SaaS build keeps this in `audit_log`, server-side.

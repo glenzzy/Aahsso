@@ -154,22 +154,61 @@ function accountOpts(method) {
   return [['', method === 'Cash' ? '—' : 'Select receiving number']].concat(acc.map((a) => [a.number, (a.label ? a.label + ' · ' : '') + a.number]));
 }
 function payFields(defAmount, defMethod = 'Cash') {
-  return '<div class="col"><div class="grid2">' + field('Amount received (F)', inp('payAmount', defAmount, 'inputmode="numeric" id="payAmount"')) + field('Date', inp('payDate', todayStr(), 'type="date"')) + '</div>' +
+  const mm = KC.isMobileMoney(defMethod);
+  const sug = mm ? KC.calcMomoFee(defMethod, defAmount, S()) : 0;
+  return '<div class="col"><div class="grid2">' + field('Sale amount (F)', inp('payAmount', defAmount, 'inputmode="numeric" id="payAmount"')) + field('Date', inp('payDate', todayStr(), 'type="date"')) + '</div>' +
     field('Payment method', '<div class="seg" id="pm">' + KC.PAY_METHODS.map((m) => '<button type="button" class="' + (m === defMethod ? 'on' : '') + '" data-a="pmPick" data-v="' + m + '">' + m + '</button>').join('') + '</div><input type="hidden" name="payMethod" value="' + defMethod + '">') +
-    '<div class="grid2" id="pmExtra">' + field('Money sent to (number)', '<select class="inp" name="payAccount" id="payAccount">' + accountOpts(defMethod).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>') + field('Transaction ID / ref', inp('payRef', '', 'placeholder="Optional"')) + '</div>' +
+    '<div id="pmCharges" class="' + (mm ? '' : 'hide') + '">' +
+      '<div class="grid2">' + field('Withdrawal / MoMo charges (F)', inp('payFee', sug || '', 'inputmode="numeric" id="payFee" placeholder="0"')) +
+        '<div class="field"><label class="lbl">Customer sends</label><div class="inp" id="payGross" style="display:flex;align-items:center;background:var(--bg, #f6f6f6)">' + F(num(defAmount) + sug) + '</div></div></div>' +
+      '<div class="tiny muted" style="margin-top:-4px;margin-bottom:8px">Sale amount pays the receipt. Charges are the operator fee (MTN / Orange) — kept as a separate column. Suggested from Settings → fee table; you can edit.</div>' +
+    '</div>' +
+    '<div class="grid2" id="pmExtra">' + field('Money sent to (number)', '<select class="inp" name="payAccount" id="payAccount">' + accountOpts(defMethod).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>') +
+      field('Transaction ID', inp('payRef', '', 'id="payRef" placeholder="' + (mm ? 'Required — MoMo txn ID' : 'Optional ref') + '"')) + '</div>' +
     '<div id="payAccOther" class="hide">' + field('Other receiving number', inp('payAccountOther', '', 'inputmode="tel"')) + '</div></div>';
+}
+function syncPayCharges(root) {
+  if (!root) return;
+  const method = ($('[name=payMethod]', root) || {}).value || 'Cash';
+  const mm = KC.isMobileMoney(method);
+  const box = $('#pmCharges', root); if (box) box.classList.toggle('hide', !mm);
+  const amtEl = $('#payAmount', root), feeEl = $('#payFee', root), gross = $('#payGross', root), refEl = $('#payRef', root);
+  if (refEl) refEl.placeholder = mm ? 'Required — MoMo txn ID' : 'Optional ref';
+  if (!mm) { if (feeEl) feeEl.value = ''; if (gross) gross.textContent = '—'; return; }
+  const amount = num(amtEl && amtEl.value);
+  if (feeEl && (feeEl.dataset.auto !== '0' || feeEl.value === '')) {
+    feeEl.value = KC.calcMomoFee(method, amount, S()) || '';
+    feeEl.dataset.auto = '1';
+  }
+  if (gross) gross.textContent = F(amount + num(feeEl && feeEl.value));
 }
 A.pmPick = (el) => {
   const root = el.closest('.sheet'); $$('#pm button', root).forEach((b) => b.classList.toggle('on', b === el));
   $('[name=payMethod]', root).value = el.dataset.v;
   $('#payAccount', root).innerHTML = accountOpts(el.dataset.v).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option>';
   $('#pmExtra', root).style.opacity = el.dataset.v === 'Cash' ? .5 : 1;
+  const feeEl = $('#payFee', root); if (feeEl) feeEl.dataset.auto = '1';
+  syncPayCharges(root);
 };
 CH.payAcc = () => { };
 document.addEventListener('change', (e) => { if (e.target.id === 'payAccount') { const r = e.target.closest('.sheet'); $('#payAccOther', r).classList.toggle('hide', e.target.value !== '__other'); } });
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'payAmount') { const r = e.target.closest('.sheet'); const feeEl = $('#payFee', r); if (feeEl) feeEl.dataset.auto = '1'; syncPayCharges(r); }
+  if (e.target.id === 'payFee') { e.target.dataset.auto = '0'; const r = e.target.closest('.sheet'); const gross = $('#payGross', r); if (gross) gross.textContent = F(num(($('#payAmount', r) || {}).value) + num(e.target.value)); }
+});
 function readPayment(v) {
   const amount = num(v.payAmount); if (!amount) return null;
-  return { id: uid('p_'), date: v.payDate || todayStr(), method: v.payMethod || 'Cash', account: v.payAccount === '__other' ? v.payAccountOther : v.payAccount || '', ref: v.payRef || '', amount, by: K.me.name || K.info.userLabel || '', byId: K.me.id || '', at: new Date().toISOString() };
+  const method = v.payMethod || 'Cash';
+  const fee = KC.isMobileMoney(method) ? Math.max(0, num(v.payFee)) : 0;
+  const p = { id: uid('p_'), date: v.payDate || todayStr(), method, account: v.payAccount === '__other' ? v.payAccountOther : v.payAccount || '', ref: String(v.payRef || '').trim(), amount, fee, by: K.me.name || K.info.userLabel || '', byId: K.me.id || '', at: new Date().toISOString() };
+  const err = KC.validatePayment(p, S());
+  if (err) { toast(err, true); return false; }
+  return p;
+}
+function applySaleTxnId(sale) {
+  const txn = KC.saleTxnId(sale);
+  if (txn) sale.txnId = txn; else delete sale.txnId;
+  return sale;
 }
 
 A.checkout = () => {
@@ -192,7 +231,8 @@ A.checkout = () => {
       (can('payments') ? '<h3 class="mt">Payment ' + (editing ? '(additional)' : '') + '</h3><div class="tiny muted" style="margin-top:-6px">Enter less than the total for a deposit, or 0 for an unpaid reserved order.</div>' + payFields(Math.max(0, due)) : '<div class="alert info">The order will be saved unpaid. A cashier records the payment.</div>') +
       field('If not fully paid: pay by', inp('dueDate', editing && editing.dueDate ? editing.dueDate : KC.addDays(todayStr(), num(S().creditDays) || 14), 'type="date"')) +
       field('Note (optional)', inp('notes', editing ? editing.notes : '')) + '</div>');
-    if ($('#discIn', el)) $('#discIn', el).addEventListener('input', (e) => { K.cart.discount = Math.max(0, num(e.target.value)); const tt = cartTotal() - K.cart.discount; $('#totOut', el).textContent = F(tt); $('#payAmount', el).value = Math.max(0, editing ? tt - t.paid : tt); saveCart(); });
+    if ($('#discIn', el)) $('#discIn', el).addEventListener('input', (e) => { K.cart.discount = Math.max(0, num(e.target.value)); const tt = cartTotal() - K.cart.discount; $('#totOut', el).textContent = F(tt); const pa = $('#payAmount', el); if (pa) { pa.value = Math.max(0, editing ? tt - t.paid : tt); const feeEl = $('#payFee', el); if (feeEl) feeEl.dataset.auto = '1'; syncPayCharges(el); } saveCart(); });
+    syncPayCharges(el);
   };
   el._refresh();
   $('.sf', el) || el.querySelector('.sheet').insertAdjacentHTML('beforeend', '<div class="sf"></div>');
@@ -214,7 +254,10 @@ async function completeSale(v) {
     lines.push({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), alloc, returns: [] });
   }
   const cu = K.cart.customerId && byId('customers', K.cart.customerId);
-  const pay = can('payments') ? readPayment(v) : null;
+  let pay = null;
+  if (can('payments')) {
+    if (num(v.payAmount)) { pay = readPayment(v); if (pay === false) return false; }
+  }
   const total = cartTotal() - num(K.cart.discount);
   const alreadyPaid = editing ? KC.saleTotals(editing).paid : 0;
   const remaining = total - alreadyPaid - (pay ? pay.amount : 0);
@@ -239,6 +282,7 @@ async function completeSale(v) {
   });
   if (remaining > 0.5) sale.dueDate = v.dueDate || KC.addDays(sale.date, num(S().creditDays) || 14); else delete sale.dueDate;
   sale.payments = (sale.payments || []).slice(); if (pay) sale.payments.push(pay);
+  applySaleTxnId(sale);
   if (!(await save('sales', sale))) return false;
   if (cu) save('customers', Object.assign({}, cu));
   K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; saveCart();
@@ -260,7 +304,9 @@ function receiptText(s) {
   if (t.returned) L.push('Returned: −' + F(t.returned));
   L.push('*TOTAL: ' + F(t.net) + '*', 'Paid: ' + F(t.paid));
   if (t.balance > 0) L.push('*Balance due: ' + F(t.balance) + '*');
-  (s.payments || []).forEach((p) => L.push('  ' + fmtDate(p.date) + ' ' + p.method + (p.account ? ' → ' + p.account : '') + ': ' + F(p.amount)));
+  (s.payments || []).forEach((p) => L.push('  ' + fmtDate(p.date) + ' ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : '')));
+  if (t.fees > 0) L.push('MoMo charges total: ' + F(t.fees));
+  if (t.txnId) L.push('Transaction ID: ' + t.txnId);
   if (!s.delivered) L.push('', '⏳ Items reserved — awaiting pickup');
   if (st.receiptFooter) L.push('', st.receiptFooter);
   return L.join('\n');
@@ -274,7 +320,7 @@ function receiptHTML(s) {
     (t.discount ? '<tr><td class="muted">Discount</td><td class="right money">−' + fmt(t.discount) + '</td></tr>' : '') + (t.returned ? '<tr><td class="muted">Returns</td><td class="right money">−' + fmt(t.returned) + '</td></tr>' : '') +
     '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr><tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
     (t.balance > 0 ? '<tr><td class="b" style="color:var(--bad)">Balance due</td><td class="right money b" style="color:var(--bad)">' + F(t.balance) + '</td></tr>' : '') + '</table>' +
-    ((s.payments || []).length ? '<div class="tiny muted mt">' + s.payments.map((p) => esc(fmtDate(p.date) + ' · ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' (ref ' + p.ref + ')' : '') + ': ' + F(p.amount))).join('<br>') + '</div>' : '') +
+    ((s.payments || []).length ? '<div class="tiny muted mt">' + s.payments.map((p) => esc(fmtDate(p.date) + ' · ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : ''))).join('<br>') + (t.fees > 0 ? '<br>MoMo charges total: ' + F(t.fees) : '') + '</div>' : '') +
     '<div class="center mt"><span class="stamp ' + t.status + '">' + ({ paid: 'PAID', partial: 'DEPOSIT', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status]) + '</span>' + (!s.delivered && t.status !== 'cancelled' ? '<div class="tiny mt b" style="color:var(--warn)">Reserved — awaiting pickup</div>' : '') + '</div>' +
     (st.receiptFooter ? '<div class="tiny muted center mt">' + esc(st.receiptFooter) + '</div>' : '') + '</div>';
 }
@@ -316,7 +362,8 @@ function receiptPDF(s) {
   if (t.returned) row('Returns', '-' + fmt(t.returned));
   doc.setFontSize(11); row('TOTAL (' + baseCode() + ')', fmt(t.net), true); doc.setFontSize(8);
   row('Paid', fmt(t.paid)); if (t.balance > 0) row('Balance due', fmt(t.balance), true);
-  (s.payments || []).forEach((p) => { doc.text(fmtDate(p.date) + ' ' + p.method + (p.account ? ' > ' + p.account : '') + ': ' + fmt(p.amount), 5, y); y += 4; });
+  (s.payments || []).forEach((p) => { doc.text(fmtDate(p.date) + ' ' + p.method + (p.ref ? ' #' + p.ref : '') + ': ' + fmt(p.amount) + (num(p.fee) > 0 ? ' +fee ' + fmt(p.fee) : ''), 5, y); y += 4; });
+  if (t.txnId) { doc.text('Txn ID: ' + t.txnId, 5, y); y += 4; }
   y += 3; doc.setFont('helvetica', 'bold'); doc.text(({ paid: 'PAID', partial: 'DEPOSIT PAID', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status]) + (!s.delivered ? ' - RESERVED' : ''), c, y, { align: 'center' }); y += 6;
   doc.setFont('helvetica', 'normal'); if (st.receiptFooter) doc.text(doc.splitTextToSize(st.receiptFooter, 68), c, y, { align: 'center' });
   saveFile('Receipt-' + s.no + '.pdf', doc.output('blob'));
@@ -332,7 +379,7 @@ VIEWS.sales = {
     let list = K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup' ? visibleSales().slice() : salesInRange();
     const st = K.ui.salesStatus, q = K.ui.salesQ.toLowerCase();
     list = list.filter((s) => { const x = K.C.saleX[s.id]; return st === 'all' ? true : st === 'owing' ? x.status === 'partial' || x.status === 'unpaid' : st === 'pickup' ? !s.delivered && x.status !== 'cancelled' : st === 'cancelled' ? x.status === 'cancelled' : true; })
-      .filter((s) => !q || (s.no + ' ' + s.customerName + ' ' + s.customerPhone + ' ' + (s.lines || []).map((l) => l.name).join(' ')).toLowerCase().includes(q))
+      .filter((s) => !q || (s.no + ' ' + (s.txnId || '') + ' ' + s.customerName + ' ' + s.customerPhone + ' ' + (s.payments || []).map((p) => p.ref || '').join(' ') + ' ' + (s.lines || []).map((l) => l.name).join(' ')).toLowerCase().includes(q))
       .sort((a, b) => (saleDate(b) + b.createdAt).localeCompare(saleDate(a) + a.createdAt));
     const live = list.filter((s) => K.C.saleX[s.id].status !== 'cancelled');
     const tot = live.reduce((a, s) => a + K.C.saleX[s.id].net, 0), paid = live.reduce((a, s) => a + K.C.saleX[s.id].paid, 0), bal = live.reduce((a, s) => a + Math.max(0, K.C.saleX[s.id].balance), 0), prof = live.reduce((a, s) => a + K.C.saleX[s.id].profit, 0);
@@ -349,7 +396,7 @@ function salesRows(list) {
   if (!list.length) return '<div class="empty"><div class="big">🧾</div>No sales here yet.</div>';
   return list.slice(0, 300).map((s) => {
     const x = K.C.saleX[s.id]; const n = (s.lines || []).reduce((a, l) => a + num(l.qty), 0);
-    return '<div class="li" data-a="openSale" data-id="' + s.id + '"><div class="av">' + esc(initials(s.customerName)) + '</div><div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(s.customerName) + '</div><div class="tiny muted ellipsis">' + esc(s.no) + ' · ' + fmtDate(saleDate(s)) + ' · ' + n + ' item(s)</div></div>' +
+    return '<div class="li" data-a="openSale" data-id="' + s.id + '"><div class="av">' + esc(initials(s.customerName)) + '</div><div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(s.customerName) + '</div><div class="tiny muted ellipsis">' + esc(s.no) + (x.txnId ? ' · txn ' + esc(x.txnId) : '') + ' · ' + fmtDate(saleDate(s)) + ' · ' + n + ' item(s)</div></div>' +
       '<div class="right"><div class="b money">' + F(x.net) + '</div><div class="row gap4" style="justify-content:flex-end;margin-top:3px">' + (allLocs().length > 1 ? '<span class="badge">' + esc(locName(s.locationId)) + '</span>' : '') + (!s.delivered && x.status !== 'cancelled' ? '<span class="badge info">Pickup</span>' : '') + statusBadge(x.status) + '</div>' + (x.balance > 0 && x.status !== 'cancelled' ? '<div class="tiny" style="color:var(--bad)">owes ' + fmt(x.balance) + (KC.dueDateOf(s, S()) < todayStr() ? ' · overdue' : '') + '</div>' : '') + '</div></div>';
   }).join('');
 }
@@ -366,13 +413,13 @@ function openSale(id) {
     const x = K.C.saleX[s.id]; const cancelled = x.status === 'cancelled';
     const hasReturns = (s.lines || []).some((l) => (l.returns || []).length);
     $('.sh h2', el).textContent = 'Sale ' + s.no;
-    setSheetBody(el, '<div class="row between mb"><div><div class="b" style="font-size:17px">' + esc(s.customerName) + '</div><div class="tiny muted">' + fmtDate(saleDate(s)) + ' · by ' + esc(s.createdBy || '—') + (s.customerPhone ? ' · ' + esc(s.customerPhone) : '') + (allLocs().length > 1 ? ' · ' + esc(locName(s.locationId)) : '') + (x.balance > 0 && !cancelled ? ' · <b>pay by ' + fmtDate(KC.dueDateOf(s, S())) + '</b>' : '') + '</div></div><div class="col gap4" style="align-items:flex-end">' + statusBadge(x.status) + (!s.delivered && !cancelled ? '<span class="badge info">Awaiting pickup</span>' : '') + '</div></div>' +
+    setSheetBody(el, '<div class="row between mb"><div><div class="b" style="font-size:17px">' + esc(s.customerName) + '</div><div class="tiny muted">' + fmtDate(saleDate(s)) + ' · by ' + esc(s.createdBy || '—') + (s.customerPhone ? ' · ' + esc(s.customerPhone) : '') + (allLocs().length > 1 ? ' · ' + esc(locName(s.locationId)) : '') + (x.txnId ? ' · txn ' + esc(x.txnId) : '') + (x.balance > 0 && !cancelled ? ' · <b>pay by ' + fmtDate(KC.dueDateOf(s, S())) + '</b>' : '') + '</div></div><div class="col gap4" style="align-items:flex-end">' + statusBadge(x.status) + (!s.delivered && !cancelled ? '<span class="badge info">Awaiting pickup</span>' : '') + '</div></div>' +
       '<div class="card"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>' +
       (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td>' + esc(l.name) + (rq ? '<div class="tiny" style="color:var(--warn)">' + rq + ' returned</div>' : '') + '</td><td class="r">' + l.qty + '</td><td class="r money">' + fmt(l.unitPrice) + '</td><td class="r money">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
       '</tbody></table><div class="pad"><div class="row between small"><span class="muted">Subtotal</span><span class="money">' + F(x.subtotal) + '</span></div>' + (x.discount ? '<div class="row between small"><span class="muted">Discount</span><span class="money">−' + F(x.discount) + '</span></div>' : '') + (x.returned ? '<div class="row between small"><span class="muted">Returns</span><span class="money">−' + F(x.returned) + '</span></div>' : '') +
-      '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div><div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
+      '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div><div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
       (seeCost() && !cancelled ? '<div class="row between small mt"><span class="muted">Cost of goods · profit</span><span class="money">' + F(x.cogs) + ' · <b style="color:var(--ok)">' + F(x.profit) + '</b></span></div>' : '') + '</div></div>' +
-      '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · ref ' + esc(p.ref) : '') + (p.by ? ' · ' + esc(p.by) : '') + '</div></div><div class="b money">' + F(p.amount) + '</div>' + (can('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
+      '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (can('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
       (s.notes ? '<div class="alert info mt">' + esc(s.notes) + '</div>' : '') +
       '<div class="grid2 mt2">' +
       (!cancelled && x.balance > 0 && can('payments') ? '<button class="btn pri" data-a="addPay" data-id="' + s.id + '">' + ic('wallet') + 'Add payment</button>' : '') +
@@ -403,15 +450,19 @@ A.cancelSale = async (el) => {
 };
 A.payDel = async (el) => {
   const why = await askReason('Delete this payment?', ['Entered by mistake', 'Duplicate', 'Payment reversed / bounced', 'Other'], 'Delete payment'); if (why === null) return;
-  const s = byId('sales', el.dataset.s); await save('sales', Object.assign({}, s, { payments: s.payments.filter((p) => p.id !== el.dataset.p), lastPaymentDeleteReason: why })); refreshSheets(); scheduleRender();
+  const s = byId('sales', el.dataset.s);
+  await save('sales', applySaleTxnId(Object.assign({}, s, { payments: s.payments.filter((p) => p.id !== el.dataset.p), lastPaymentDeleteReason: why })));
+  refreshSheets(); scheduleRender();
 };
 A.addPay = (el) => {
   const s = byId('sales', el.dataset.id); const x = K.C.saleX[s.id];
   const sh = openSheet({ title: 'Add payment · ' + s.no, body: '<div class="alert info mb">Balance due: <b class="money">' + F(x.balance) + '</b></div>' + payFields(x.balance), foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="pSave">Save payment</button>' });
+  syncPayCharges(sh);
   $('#pSave', sh).onclick = async () => {
-    const p = readPayment(formVals(sh)); if (!p) return toast('Enter an amount', true);
+    const p = readPayment(formVals(sh)); if (p === false) return; if (!p) return toast('Enter an amount', true);
     const cur = byId('sales', s.id);
-    if (await save('sales', Object.assign({}, cur, { payments: (cur.payments || []).concat([p]) }))) { closeSheet(); refreshSheets(); scheduleRender(); toast('Payment recorded'); }
+    const next = applySaleTxnId(Object.assign({}, cur, { payments: (cur.payments || []).concat([p]) }));
+    if (await save('sales', next)) { closeSheet(); refreshSheets(); scheduleRender(); toast('Payment recorded'); }
   };
 };
 A.returnSale = (el) => {

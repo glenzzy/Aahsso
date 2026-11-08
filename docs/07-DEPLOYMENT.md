@@ -32,6 +32,7 @@ npm run migrate && npm start
 | TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM | | Twilio SMS (or WhatsApp with `TWILIO_FROM=whatsapp:+1…`) |
 | SMS_HTTP_URL, SMS_HTTP_AUTH, SMS_SENDER | | Any SMS gateway accepting POST JSON `{to, message, sender}` (local gateways in Cameroon, Africa's Talking via a small adapter…) |
 | REMINDERS_DISABLED | | `1` to switch the scheduler off (e.g. on extra instances) |
+| MOMO_FEE_TABLES | | Optional JSON object overriding default MTN MoMo / Orange Money withdrawal fee tiers for new tenants (also editable per business in Settings) |
 
 ## 7.4 Hosting suggestions
 - **Simplest:** Render, Railway or Fly.io running the Dockerfile, with managed Postgres (Neon, Supabase or the platform's own).

@@ -67,8 +67,11 @@ SELECT d.tenant_id, d.id AS sale_id, (d.data->>'date')::date AS sale_date, l->>'
 FROM documents d, jsonb_array_elements(d.data->'lines') l WHERE d.collection = 'sales' AND d.data->>'status' <> 'cancelled';
 
 CREATE OR REPLACE VIEW v_payments AS
-SELECT d.tenant_id, d.id AS sale_id, d.data->>'no' AS receipt_no, (p->>'date')::date AS paid_on, p->>'method' AS method,
-       p->>'account' AS account, p->>'ref' AS reference, (p->>'amount')::numeric AS amount
+SELECT d.tenant_id, d.id AS sale_id, d.data->>'no' AS receipt_no, d.data->>'txnId' AS sale_txn_id,
+       (p->>'date')::date AS paid_on, p->>'method' AS method,
+       p->>'account' AS account, p->>'ref' AS reference, (p->>'amount')::numeric AS amount,
+       COALESCE((p->>'fee')::numeric, 0) AS fee,
+       (p->>'amount')::numeric + COALESCE((p->>'fee')::numeric, 0) AS gross
 FROM documents d, jsonb_array_elements(d.data->'payments') p WHERE d.collection = 'sales';
 
 CREATE OR REPLACE VIEW v_lots AS
@@ -142,9 +145,13 @@ FROM documents d, jsonb_array_elements(COALESCE(d.data->'lines','[]')) WITH ORDI
 WHERE d.collection='sales' AND COALESCE(d.data->>'status','open') <> 'cancelled';
 
 CREATE OR REPLACE VIEW v_payments AS
-SELECT d.tenant_id, d.id AS sale_id, p->>'id' AS payment_id, (p->>'date')::date AS pay_date,
+SELECT d.tenant_id, d.id AS sale_id, d.data->>'no' AS sale_no, d.data->>'txnId' AS sale_txn_id,
+       p->>'id' AS payment_id, (p->>'date')::date AS pay_date,
        p->>'method' AS method, p->>'account' AS account, p->>'ref' AS ref,
-       (p->>'amount')::numeric AS amount, p->>'by' AS received_by, p->>'byId' AS received_by_id
+       (p->>'amount')::numeric AS amount,
+       COALESCE((p->>'fee')::numeric, 0) AS fee,
+       (p->>'amount')::numeric + COALESCE((p->>'fee')::numeric, 0) AS gross,
+       p->>'by' AS received_by, p->>'byId' AS received_by_id
 FROM documents d, jsonb_array_elements(COALESCE(d.data->'payments','[]')) p
 WHERE d.collection='sales';
 

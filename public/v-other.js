@@ -130,6 +130,8 @@ VIEWS.settings = {
       '<div class="grid2 mt">' + field('Default credit limit per customer (F)', inp('defaultCreditLimit', s.defaultCreditLimit ?? '', 'inputmode="numeric" placeholder="Empty = no limit"')) + '<div class="tiny muted" style="align-self:end;padding-bottom:12px">Set a different limit on any customer. 0 = cash only.</div></div>' +
       '<div class="tiny muted mt">Who can see costs and profit is set per person in <a href="#team">Team & access</a>.</div>' +
       '<h2 class="mt2 mb">Mobile money numbers (receiving)</h2><div id="momoList">' + (s.momoAccounts || []).map((a, i) => '<div class="grid3 mb" data-mm="' + i + '">' + sel('mmMethod' + i, ['MTN MoMo', 'Orange Money', 'Bank transfer'], a.method) + inp('mmNumber' + i, a.number, 'placeholder="Number" inputmode="tel"') + inp('mmLabel' + i, a.label, 'placeholder="Label e.g. Boss MoMo"') + '</div>').join('') + '</div><button class="btn sm" data-a="mmAdd">' + ic('plus', 'sm') + 'Add number</button>' +
+      '<h2 class="mt2 mb">MoMo / Orange withdrawal charges</h2><p class="muted small" style="margin-top:0">Suggested fee when a customer pays by MTN MoMo or Orange Money. The sale amount and the fee are stored as separate columns. Edit the JSON tiers if operators change their grid (min/max, type <code>fixed</code> or <code>pct</code>).</p>' +
+      '<textarea class="inp" name="momoFeeTables" style="min-height:160px;font-family:ui-monospace,monospace;font-size:12px">' + esc(JSON.stringify(s.momoFeeTables || KC.DEFAULT_MOMO_FEE_TABLES, null, 2)) + '</textarea>' +
       '<h2 class="mt2 mb">Payment reminder message</h2><div class="tiny muted mb">Words in braces are filled in: {name} {balance} {due} {business} {momo} {receipts}</div><textarea class="inp" name="reminderTemplate">' + esc(s.reminderTemplate || '') + '</textarea>' + field('Remind the same customer at most every (days)', inp('reminderEvery', s.reminderEvery, 'inputmode="numeric"'), 'mt') +
       '<h2 class="mt2 mb">Stores you buy from</h2>' + field('Comma-separated', inp('vendors', (s.vendors || []).join(', '))) +
       '<h2 class="mt2 mb">Categories</h2><div class="tiny muted mb">One per line: <b>Category: sub1, sub2</b></div><textarea class="inp" name="categories" style="min-height:180px;font-size:14px">' + esc(Object.entries(s.categories || KC.CATEGORIES).map(([k, v]) => k + ': ' + v.join(', ')).join('\n')) + '</textarea>' +
@@ -148,9 +150,17 @@ A.saveSettings = async () => {
   const v = formVals($('#setForm'));
   const cats = {}; v.categories.split('\n').forEach((line) => { const [k, rest] = line.split(':'); if (k && k.trim()) cats[k.trim()] = (rest || '').split(',').map((x) => x.trim()).filter(Boolean); });
   const mm = []; for (let i = 0; i < mmCount(); i++) if (v['mmNumber' + i]) mm.push({ method: v['mmMethod' + i], number: v['mmNumber' + i], label: v['mmLabel' + i] });
+  let momoFeeTables = S().momoFeeTables || KC.DEFAULT_MOMO_FEE_TABLES;
+  if (v.momoFeeTables && String(v.momoFeeTables).trim()) {
+    try {
+      const parsed = JSON.parse(v.momoFeeTables);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+      momoFeeTables = parsed;
+    } catch (e) { toast('MoMo fee table JSON is invalid', true); return; }
+  }
   const rates = {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
   const curInfo = KC.CURRENCIES.find((c) => c[0] === v.baseCurrency) || [v.baseCurrency, v.baseCurrency];
-  const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, vendors: v.vendors.split(',').map((x) => x.trim()).filter(Boolean), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
+  const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, momoFeeTables, vendors: v.vendors.split(',').map((x) => x.trim()).filter(Boolean), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
   if (await saveSettings(patch)) { toast('Settings saved'); render(true); }
 };
 A.logoUp = async () => {

@@ -55,12 +55,18 @@ function repOverview(r) {
   else { series = KC.groupBy(f, (x) => x.date.slice(0, 7)).sort((a, b) => a.key.localeCompare(b.key)).slice(-18); lab = (x) => MONTHS[+x.key.slice(5) - 1]; }
   const items = KC.groupBy(f, (x) => x.productId, (x) => x.name).sort((a, b) => b.revenue - a.revenue);
   const cats = KC.groupBy(f, (x) => x.category).sort((a, b) => b.revenue - a.revenue);
-  const pays = {}; visibleSales().forEach((sa) => (sa.payments || []).forEach((p) => { if (p.date >= r.from && p.date <= r.to) pays[p.method] = (pays[p.method] || 0) + num(p.amount); }));
-  K._repRows = { Summary: [{ From: r.from, To: r.to, Receipts: s.n, Units: s.qty, 'Revenue (F)': Math.round(s.revenue), ...(can('costs') ? { 'Gross profit (F)': Math.round(s.profit), 'Margin %': Math.round(s.margin) } : {}), 'Average sale (F)': Math.round(s.avgTicket) }], 'By day': byDay.map((x) => ({ Date: x.key, Receipts: x.n, Units: x.qty, 'Revenue (F)': Math.round(x.revenue), ...(can('costs') ? { 'Profit (F)': Math.round(x.profit) } : {}) })), Items: items.map(itemRow), Categories: cats.map(itemRow) };
+  const pays = {}; let feesTot = 0;
+  visibleSales().forEach((sa) => (sa.payments || []).forEach((p) => {
+    if (p.date >= r.from && p.date <= r.to) {
+      pays[p.method] = (pays[p.method] || 0) + num(p.amount);
+      feesTot += Math.max(0, num(p.fee));
+    }
+  }));
+  K._repRows = { Summary: [{ From: r.from, To: r.to, Receipts: s.n, Units: s.qty, 'Revenue (F)': Math.round(s.revenue), ...(can('costs') ? { 'Gross profit (F)': Math.round(s.profit), 'Margin %': Math.round(s.margin) } : {}), 'Average sale (F)': Math.round(s.avgTicket), 'MoMo charges (F)': Math.round(feesTot) }], 'By day': byDay.map((x) => ({ Date: x.key, Receipts: x.n, Units: x.qty, 'Revenue (F)': Math.round(x.revenue), ...(can('costs') ? { 'Profit (F)': Math.round(x.profit) } : {}) })), Items: items.map(itemRow), Categories: cats.map(itemRow) };
   return '<div class="kpis mb">' + kpi('Sales', F(s.revenue), pv ? delta(s.revenue, pv.revenue) : s.n + ' receipts', true) + (can('costs') ? kpi('Gross profit', F(s.profit), pct(s.margin) + ' margin' + (pv ? ' · ' + delta(s.profit, pv.profit) : '')) : kpi('Receipts', fmt(s.n))) + kpi('Average sale', F(s.avgTicket), s.n + ' receipts') + kpi('Units sold', fmt(s.qty)) + '</div>' +
     '<div class="card pad mb"><h3>Sales trend</h3>' + (series.length ? vbars(series, lab, 'revenue') : '<div class="muted small mt">No sales in this period.</div>') + '</div>' +
     '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3 class="mb">Top items</h3>' + hbars(items.slice(0, 8), 'revenue', fmt, (x) => fmt(x.qty) + ' sold') + '</div><div class="card pad"><h3 class="mb">Top categories</h3>' + hbars(cats.slice(0, 8), 'revenue', fmt, (x) => can('costs') ? pct(x.margin) + ' margin' : fmt(x.qty) + ' units') + '</div></div>' +
-    '<div class="card pad mb"><h3 class="mb">Money in by method</h3>' + (Object.keys(pays).length ? Object.entries(pays).sort((a, b) => b[1] - a[1]).map(([k, v]) => '<div class="row between cl"><span>' + esc(k) + '</span><b class="money">' + F(v) + '</b></div>').join('') : '<div class="muted small">No payments in this period.</div>') + '</div>';
+    '<div class="card pad mb"><h3 class="mb">Money in by method</h3>' + (Object.keys(pays).length ? Object.entries(pays).sort((a, b) => b[1] - a[1]).map(([k, v]) => '<div class="row between cl"><span>' + esc(k) + '</span><b class="money">' + F(v) + '</b></div>').join('') + (feesTot > 0 ? '<div class="row between cl mt"><span class="muted">MoMo / OM charges (separate)</span><b class="money">' + F(feesTot) + '</b></div>' : '') : '<div class="muted small">No payments in this period.</div>') + '</div>';
 }
 function itemRow(x) { return Object.assign({ Name: x.label, Receipts: x.n, Units: x.qty, 'Revenue (F)': Math.round(x.revenue) }, can('costs') ? { 'Cost (F)': Math.round(x.cogs), 'Profit (F)': Math.round(x.profit), 'Margin %': Math.round(x.margin) } : {}); }
 function repItems(r) {

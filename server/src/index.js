@@ -11,6 +11,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { q, tx, pool } = require('./db');
 const KC = require('../public/compute.js'); // same business logic as the browser
+if (process.env.MOMO_FEE_TABLES) {
+  try {
+    const tables = JSON.parse(process.env.MOMO_FEE_TABLES);
+    if (tables && typeof tables === 'object' && !Array.isArray(tables)) KC.DEFAULT_SETTINGS.momoFeeTables = tables;
+    else console.warn('MOMO_FEE_TABLES ignored: expected a JSON object of method → tiers');
+  } catch (e) { console.warn('MOMO_FEE_TABLES is not valid JSON:', e.message); }
+}
 
 const PORT = process.env.PORT || 8080;
 const SECRET = process.env.JWT_SECRET;
@@ -214,11 +221,26 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       if (newPays.some((p) => !oldPays.has(p.id) && Number(p.amount) > 0) && !P.payments) return { status: 403, error: 'You cannot record payments' };
       // who collected the money is decided by the server (cash handover depends on it)
       newPays.forEach((p) => { if (!oldPays.has(p.id)) { p.byId = u.id; p.by = u.name; } else { const o = old.payments.find((x) => x.id === p.id); p.byId = o.byId; p.by = o.by; } });
+      // load settings early so MoMo fee / txn-id rules use this tenant's tables
+      const raw = await loadAll(c, u.tenant_id);
+      const paySettings = Object.assign({}, KC.DEFAULT_SETTINGS, raw.settings || {});
+      for (const p of newPays) {
+        if (oldPays.has(p.id)) {
+          const o = (old.payments || []).find((x) => x.id === p.id);
+          if (o) { p.fee = o.fee; p.ref = o.ref; p.method = o.method; p.account = o.account; p.amount = o.amount; p.date = o.date; }
+          continue;
+        }
+        p.fee = Math.max(0, Number(p.fee) || 0);
+        if (!KC.isMobileMoney(p.method) || Number(p.amount) < 0) p.fee = 0;
+        p.ref = String(p.ref || '').trim();
+        const payErr = KC.validatePayment(p, paySettings);
+        if (payErr) return { status: 400, error: payErr };
+      }
+      const txn = KC.saleTxnId(body); if (txn) body.txnId = txn; else delete body.txnId;
       const oldRet = JSON.stringify(((old && old.lines) || []).map((l) => l.returns || [])), newRet = JSON.stringify((body.lines || []).map((l) => l.returns || []));
       if (old && oldRet !== newRet && !P.returns) return { status: 403, error: 'You cannot process returns' };
       const linesChanged = !old || JSON.stringify((old.lines || []).map((l) => [l.productId, l.qty, l.unitPrice])) !== JSON.stringify((body.lines || []).map((l) => [l.productId, l.qty, l.unitPrice]));
       if (linesChanged && !P.sell) return { status: 403, error: 'You cannot change sale items' };
-      const raw = await loadAll(c, u.tenant_id);
       if (!P.discount) {
         if (Number(body.discount || 0) > Number((old && old.discount) || 0)) return { status: 403, error: 'You cannot give discounts' };
         const C0 = KC.computeAll(raw);

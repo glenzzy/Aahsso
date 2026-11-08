@@ -214,6 +214,23 @@ test('custom roles: edited and new roles; owner never restricted', () => {
   assert.equal(KC.permsFor({ role: 'owner' }, { owner: { perms: [] } }).team, true);
   assert.equal(KC.rolesWith(roles).cashier.custom, true);
 });
+test('MoMo fees: Cameroon tiers, validate txn id, sale totals keep fee separate', () => {
+  assert.equal(KC.isMobileMoney('MTN MoMo'), true);
+  assert.equal(KC.isMobileMoney('Cash'), false);
+  assert.equal(KC.calcMomoFee('Cash', 10000), 0);
+  assert.equal(KC.calcMomoFee('MTN MoMo', 2000), 54);
+  // 100_000 → 1% + 0.2% tax + 4 = 1000 + 200 + 4 = 1204
+  assert.equal(KC.calcMomoFee('MTN MoMo', 100000), 1204);
+  assert.equal(KC.calcMomoFee('Orange Money', 400000), 4004);
+  assert.match(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: '', account: '677' }), /Transaction ID/);
+  assert.match(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: 'TX1', account: '' }), /Receiving/);
+  assert.equal(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: 'TX1', account: '677' }), '');
+  assert.equal(KC.validatePayment({ method: 'Cash', amount: 5000 }), '');
+  const sale = { no: 'S1', lines: [{ qty: 1, unitPrice: 10000, returns: [] }], payments: [{ id: 'p1', amount: 10000, fee: 1204, method: 'MTN MoMo', ref: 'ABC99', account: '677' }] };
+  const t = KC.saleTotals(sale);
+  assert.equal(t.paid, 10000); assert.equal(t.fees, 1204); assert.equal(t.balance, 0); assert.equal(t.txnId, 'ABC99');
+  assert.equal(KC.saleTxnId(sale), 'ABC99');
+});
 test('activity descriptions: plain words for who-did-what', () => {
   const L = { product: () => 'Oats', customer: () => 'Jenny', loc: (x) => (x === 'shop' ? 'Akwa shop' : 'Main warehouse'), ship: () => 'Container #1', supplier: () => 'Trucker', F: (v) => v + ' F', money: (v, c) => c + ' ' + v };
   const s0 = { no: 'S1', customerName: 'Jenny', lines: [{ productId: 'p', name: 'Oats', qty: 2, unitPrice: 5000, returns: [] }], payments: [] };

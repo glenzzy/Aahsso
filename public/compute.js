@@ -114,7 +114,7 @@
   const CURRENCIES = [['XAF', 'F', 'Central African CFA franc (Cameroon, Gabon, Congo, Chad, CAR, Eq. Guinea)'], ['XOF', 'F', 'West African CFA franc (Senegal, Côte d\'Ivoire, Mali, Burkina, Benin, Togo, Niger)'], ['NGN', '₦', 'Nigerian naira'], ['GHS', 'GH₵', 'Ghanaian cedi'], ['RWF', 'RF', 'Rwandan franc'], ['GNF', 'FG', 'Guinean franc'], ['KES', 'KSh', 'Kenyan shilling'], ['UGX', 'USh', 'Ugandan shilling'], ['TZS', 'TSh', 'Tanzanian shilling'], ['ZAR', 'R', 'South African rand'], ['CDF', 'FC', 'Congolese franc'], ['USD', '$', 'US dollar'], ['EUR', '€', 'Euro'], ['GBP', '£', 'British pound'], ['CAD', 'C$', 'Canadian dollar'], ['CNY', '¥', 'Chinese yuan'], ['AED', 'AED', 'UAE dirham']];
   const EXPENSE_CATS = ['Warehouse rent', 'Salaries & wages', 'Local transport', 'Electricity & water', 'Phone & internet', 'Marketing', 'Taxes & licences', 'MoMo / bank fees', 'Security', 'Repairs & maintenance', 'Fuel', 'Insurance', 'Other'];
 
-  /** Sale totals that don't depend on cost. */
+  /** Sale totals that don't depend on cost. Payment `amount` pays the sale; `fee` is MoMo/OM charges (separate). */
   function saleTotals(s) {
     const lines = s.lines || [];
     const subtotal = lines.reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
@@ -125,9 +125,10 @@
     lines.forEach((l) => (l.returns || []).forEach((r) => { returned += num(r.qty) * num(l.unitPrice) * factor; }));
     const net = total - returned;
     const paid = (s.payments || []).reduce((a, p) => a + num(p.amount), 0);
+    const fees = paymentFees(s);
     const balance = Math.round(net - paid);
     let status = s.status === 'cancelled' ? 'cancelled' : balance <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
-    return { subtotal, discount, total, factor, returned, net, paid, balance, status };
+    return { subtotal, discount, total, factor, returned, net, paid, fees, balance, status, txnId: saleTxnId(s) };
   }
 
   /** Everything derived from raw collections. */
@@ -518,7 +519,7 @@
         if (lb !== la) push('Changed items on ' + ref + ': ' + items(b) + ' → ' + items(a) + ' (' + F(total(b)) + ' → ' + F(total(a)) + ')', { ref });
         if (n(b.discount) !== n(a.discount)) push('Changed discount on ' + ref + ': ' + F(n(b.discount)) + ' → ' + F(n(a.discount)), { ref });
         const pb = new Map((b.payments || []).map((p) => [p.id, p])), pa = new Map((a.payments || []).map((p) => [p.id, p]));
-        pa.forEach((p, id) => { if (!pb.has(id)) out.push({ type: 'Payments', text: (n(p.amount) < 0 ? 'Refunded ' + F(-n(p.amount)) : 'Received ' + F(n(p.amount))) + ' by ' + (p.method || 'Cash') + (p.account ? ' to ' + p.account : '') + (p.ref ? ' (ref ' + p.ref + ')' : '') + ' — ' + ref + ', ' + cust, ref, amount: n(p.amount), reason: n(p.amount) < 0 ? (p.ref || '') : '' }); });
+        pa.forEach((p, id) => { if (!pb.has(id)) out.push({ type: 'Payments', text: (n(p.amount) < 0 ? 'Refunded ' + F(-n(p.amount)) : 'Received ' + F(n(p.amount))) + ' by ' + (p.method || 'Cash') + (p.account ? ' to ' + p.account : '') + (p.ref ? ' (txn ' + p.ref + ')' : '') + (n(p.fee) > 0 ? ' + ' + F(n(p.fee)) + ' charges' : '') + ' — ' + ref + ', ' + cust, ref: p.ref || ref, amount: n(p.amount), reason: n(p.amount) < 0 ? (p.ref || '') : '' }); });
         pb.forEach((p, id) => { if (!pa.has(id)) out.push({ type: 'Payments', text: 'Deleted a payment of ' + F(n(p.amount)) + ' (' + (p.method || '') + ') from ' + ref, ref, amount: -n(p.amount), reason: a.lastPaymentDeleteReason || '' }); });
         (a.lines || []).forEach((l, i) => { const rb = ((b.lines || [])[i] || {}).returns || []; (l.returns || []).slice(rb.length).forEach((r) => push('Return: ' + n(r.qty) + ' × ' + (l.name || L.product(l.productId)) + ' on ' + ref + (r.restock ? ' — back to stock' : ' — written off'), { ref, reason: [r.reason, r.note].filter(Boolean).join(' · ') })); });
         if (!b.delivered && a.delivered && a.status !== 'cancelled') push('Customer picked up ' + ref, { ref });
@@ -665,6 +666,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, CATEGORIES, SOURCE_TYPES, CONDITIONS, PAY_METHODS, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, CONDITIONS, PAY_METHODS, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

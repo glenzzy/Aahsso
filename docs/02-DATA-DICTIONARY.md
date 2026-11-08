@@ -67,6 +67,7 @@ On PostgreSQL every collection lives in `documents(tenant_id, collection, id, da
 | Field | Type | Meaning |
 |---|---|---|
 | no | string | Receipt number, e.g. `S261107-K3P` |
+| txnId | string | Primary electronic transaction ID (first MoMo/OM/bank payment `ref`); set automatically |
 | date, dueDate | date | Sale date; pay-by date when not fully paid |
 | locationId | id | Branch where sold |
 | customerId, customerName, customerPhone | | null id = walk-in (must pay in full) |
@@ -75,7 +76,7 @@ On PostgreSQL every collection lives in `documents(tenant_id, collection, id, da
 | delivered | bool | false = reserved order waiting for pickup (stock is held) |
 | discount, notes, cancelReason, cancelledBy, lastPaymentDeleteReason | | |
 | lines[] | `{productId, name, qty, unitPrice, alloc: [{lotId, qty}], returns: [{id, date, qty, restock, alloc, reason, note, by, locationId}]}` | `alloc` = the exact lots taken (FIFO) |
-| payments[] | `{id, date, method, account, ref, amount, by, byId, at}` | Negative amount = refund. In SaaS, `byId`/`by` are set by the server. |
+| payments[] | `{id, date, method, account, ref, amount, fee, by, byId, at}` | `amount` pays the sale; `fee` is MoMo/OM withdrawal charges (separate). `ref` = transaction ID (required for MTN MoMo / Orange Money). Negative amount = refund. In SaaS, `byId`/`by` are set by the server. |
 
 ## customers
 `name, phone, whatsapp, email, city, type (Retail / Wholesale / Reseller), creditLimit (null = default), notes, noReminders`
