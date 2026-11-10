@@ -45,7 +45,7 @@ VIEWS.home = {
         (pick.length ? '<div class="alert info" data-a="goSales" data-f="pickup" style="cursor:pointer">' + ic('clock', 'sm') + '<div><b>' + pick.length + ' reserved order(s)</b> waiting for pickup.</div></div>' : '') + '</div></div>' : '') +
       ((can('containers') || can('purchases')) && K.raw.lots.length ? journeyCard() : '') +
       (ships.length && can('containers') ? '<div class="sec"><div class="sech"><h2>Containers</h2><a href="#containers" class="small b">All</a></div>' + ships.map((s) => { const i = stIdx(s.status); return '<div class="card pad mb" data-a="openShipD" data-id="' + s.id + '" style="cursor:pointer"><div class="row between"><b>' + esc(s.name) + '</b><span class="badge brand">' + esc(KC.SHIP_STATUSES[i][1]) + '</span></div><div class="pipeline">' + KC.SHIP_STATUSES.slice(0, 6).map((_, j) => '<span class="' + (j <= i ? 'on' : '') + '"></span>').join('') + '</div></div>'; }).join('') + '</div>' : '') +
-      '<div class="sec"><div class="sech"><h2>Recent sales</h2><a href="#sales" class="small b">All</a></div><div class="card list">' + salesRows(recent) + '</div></div>';
+      '<div class="sec"><div class="sech"><h2>Recent sales</h2><a href="#sales" class="small b">All</a></div><div class="card list">' + saleCards(recent) + '</div></div>';
   },
 };
 A.goStock = (el) => { K.ui.stockFilter = el.dataset.f; go('stock'); };
@@ -77,7 +77,7 @@ A.openCust = (el) => {
       '<div class="row wrap mb">' + (wa ? '<a class="btn" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '">' + ic('wa') + 'WhatsApp</a>' : '') + '' + (can('customers') ? '<button class="btn" data-a="custEdit" data-id="' + id + '">' + ic('edit') + 'Edit</button>' : '') + (can('sell') ? '<button class="btn pri" data-a="custSell" data-id="' + id + '">' + ic('sell') + 'New sale</button>' : '') + '</div>' +
       '<div class="grid3 mb">' + kpi('Bought', F(live.reduce((a, s) => a + K.C.saleX[s.id].net, 0))) + kpi('Sales', fmt(live.length)) + kpi('Owes', F(owed)) + '</div>' +
       custCredit(c, owed) + custHeld(c) + custItems(live) +
-      (c.notes ? '<div class="alert info mb">' + esc(c.notes) + '</div>' : '') + '<h3 class="mb">Purchase history</h3><div class="card list">' + salesRows(sales) + '</div>');
+      (c.notes ? '<div class="alert info mb">' + esc(c.notes) + '</div>' : '') + '<h3 class="mb">Purchase history</h3><div class="card list">' + saleCards(sales) + '</div>');
   };
   sh._refresh();
 };

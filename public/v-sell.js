@@ -423,6 +423,17 @@ VIEWS.sales = {
       '<div class="card tw sales-tw" id="salesList">' + salesRows(list) + '</div>';
   },
 };
+/** Compact sales list for narrow places (home "Recent sales", customer panel). The Sales page uses the table below. */
+function saleCards(list) {
+  if (!list.length) return '<div class="empty"><div class="big">🧾</div>No sales here yet.</div>';
+  return list.slice(0, 300).map((s) => {
+    const x = K.C.saleX[s.id]; const n = (s.lines || []).reduce((a, l) => a + num(l.qty), 0);
+    return '<div class="li" data-a="openSale" data-id="' + s.id + '"><div class="av">' + esc(initials(s.customerName)) + '</div><div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(s.customerName) + '</div><div class="tiny muted ellipsis">' + esc(s.no) + (x.txnId ? ' · txn ' + esc(x.txnId) : '') + ' · ' + fmtDate(saleDate(s)) + ' · ' + n + ' item(s)</div></div>' +
+      '<div class="right"><div class="b money">' + F(x.net) + '</div><div class="row gap4" style="justify-content:flex-end;margin-top:3px">' + (allLocs().length > 1 ? '<span class="badge">' + esc(locName(s.locationId)) + '</span>' : '') + (!s.delivered && x.status !== 'cancelled' ? '<span class="badge info">Pickup</span>' : '') + statusBadge(x.status) + '</div>' + (x.balance > 0 && x.status !== 'cancelled' ? '<div class="tiny" style="color:var(--bad)">owes ' + fmt(x.balance) + (KC.dueDateOf(s, S()) < todayStr() ? ' · overdue' : '') + '</div>' : '') + '</div></div>';
+  }).join('');
+}
+/** '2026-11-10' → '10 Nov' (year shown separately to keep table columns narrow). */
+const dayMon = (d) => fmtDate(d).split(' ').slice(0, 2).join(' ');
 /** Sales as a table: one row per sale, every important figure in its own column. */
 function salesRows(list) {
   if (!list.length) return '<div class="empty"><div class="big">🧾</div>No sales here yet.</div>';
@@ -438,24 +449,22 @@ function salesRows(list) {
     const due = KC.dueDateOf(s, S()); const overdue = !cx && x.balance > 0 && due < today;
     if (!cx) { T.net += x.net; T.paid += x.paid; T.fees += x.fees || 0; T.bal += Math.max(0, x.balance); T.profit += x.profit || 0; T.qty += qty; }
     return '<tr data-a="openSale" data-id="' + s.id + '"' + (cx ? ' class="cx"' : '') + '>' +
-      '<td>' + fmtDate(saleDate(s)) + '</td>' +
+      '<td>' + esc(dayMon(saleDate(s))) + '<span class="sub">' + esc(String(saleDate(s)).slice(0, 4)) + '</span></td>' +
       '<td><b>' + esc(s.no) + '</b><span class="sub">' + esc(x.txnId || '') + '</span></td>' +
-      '<td>' + esc(s.customerName) + (s.customerPhone ? '<span class="sub">' + esc(s.customerPhone) + '</span>' : '') + '</td>' +
-      '<td class="wrap"><span class="ellipsis" style="display:block;max-width:260px">' + esc(items) + '</span><span class="sub">' + fmt(qty) + ' item(s)</span></td>' +
-      '<td>' + (modes.length ? esc(modes.join(', ')) : '<span class="faint">—</span>') + (refs.length ? '<span class="sub">' + esc(refs.join(', ')) + '</span>' : '') + '</td>' +
+      '<td class="cut" title="' + esc(s.customerName) + '">' + esc(s.customerName) + (s.customerPhone ? '<span class="sub">' + esc(s.customerPhone) + '</span>' : '') + '</td>' +
+      '<td class="wrap" title="' + esc(items) + '"><span class="clamp">' + esc(items) + '</span><span class="sub">' + fmt(qty) + ' item(s)</span></td>' +
+      '<td class="cut"' + (refs.length ? ' title="' + esc(refs.join(', ')) + '"' : '') + '>' + (modes.length ? esc(modes.join(', ')) : '<span class="faint">—</span>') + (refs.length ? '<span class="sub">' + esc(refs.join(', ')) + '</span>' : '') + '</td>' +
       '<td class="r money b">' + fmt(x.net) + '</td>' +
       '<td class="r money">' + fmt(x.paid) + '</td>' +
       '<td class="r money">' + (x.fees > 0 ? fmt(x.fees) : '<span class="faint">—</span>') + '</td>' +
-      '<td class="r money' + (x.balance > 0 && !cx ? ' neg b' : '') + '">' + (x.balance > 0 && !cx ? fmt(x.balance) + '<span class="sub">' + (overdue ? 'overdue · ' : 'by ') + fmtDate(due) + '</span>' : '<span class="faint">—</span>') + '</td>' +
+      '<td class="r money' + (x.balance > 0 && !cx ? ' neg b' : '') + '">' + (x.balance > 0 && !cx ? fmt(x.balance) + '<span class="sub">' + (overdue ? 'overdue' : 'due ' + dayMon(due)) + '</span>' : '<span class="faint">—</span>') + '</td>' +
       (cost ? '<td class="r money">' + (cx ? '<span class="faint">—</span>' : fmt(x.profit)) + '</td>' : '') +
-      '<td>' + statusBadge(x.status) + (!s.delivered && !cx ? ' <span class="badge info">Pickup</span>' : '') + '</td>' +
-      (multi ? '<td>' + esc(locName(s.locationId)) + '</td>' : '') +
-      '<td>' + esc(s.createdBy || '—') + '</td></tr>';
+      '<td class="st">' + statusBadge(x.status) + (!s.delivered && !cx ? ' <span class="badge info">Pickup</span>' : '') + '<span class="sub">' + esc(s.createdBy || '—') + (multi ? ' · ' + esc(locName(s.locationId)) : '') + '</span></td></tr>';
   }).join('');
   const F_ = (v) => '<td class="r money">' + fmt(v) + '</td>';
-  return '<table class="t sales"><thead><tr><th>Date</th><th>Receipt / Txn ID</th><th>Customer</th><th>Items</th><th>Payment mode</th><th class="r">Total</th><th class="r">Paid</th><th class="r">MoMo charges</th><th class="r">Balance</th>' + (cost ? '<th class="r">Profit</th>' : '') + '<th>Status</th>' + (multi ? '<th>Branch</th>' : '') + '<th>Sold by</th></tr></thead>' +
+  return '<table class="t sales"><thead><tr><th>Date</th><th>Receipt / Txn ID</th><th>Customer</th><th>Items</th><th>Payment mode</th><th class="r">Total</th><th class="r">Paid</th><th class="r">MoMo charges</th><th class="r">Balance</th>' + (cost ? '<th class="r">Profit</th>' : '') + '<th>Status</th></tr></thead>' +
     '<tbody>' + body + '</tbody>' +
-    '<tfoot><tr><td colspan="3">Total · ' + rows.filter((s) => K.C.saleX[s.id].status !== 'cancelled').length + ' sale(s)' + (list.length > rows.length ? ' (first ' + rows.length + ' of ' + list.length + ')' : '') + '</td><td>' + fmt(T.qty) + ' item(s)</td><td></td>' + F_(T.net) + F_(T.paid) + F_(T.fees) + F_(T.bal) + (cost ? F_(T.profit) : '') + '<td></td>' + (multi ? '<td></td>' : '') + '<td></td></tr></tfoot></table>';
+    '<tfoot><tr><td colspan="3">Total · ' + rows.filter((s) => K.C.saleX[s.id].status !== 'cancelled').length + ' sale(s)' + (list.length > rows.length ? ' (first ' + rows.length + ' of ' + list.length + ')' : '') + '</td><td>' + fmt(T.qty) + ' item(s)</td><td></td>' + F_(T.net) + F_(T.paid) + F_(T.fees) + F_(T.bal) + (cost ? F_(T.profit) : '') + '<td></td></tr></tfoot></table>';
 }
 A.salesRange = (el) => { K.ui.salesRange = el.dataset.v; if (K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup') K.ui.salesStatus = 'all'; render(true); };
 A.salesStatus = (el) => { K.ui.salesStatus = el.dataset.v; render(true); };

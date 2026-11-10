@@ -40,7 +40,9 @@ h3{font-size:15px;font-weight:700}
 .top{position:sticky;top:0;z-index:20;background:rgba(243,242,238,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:calc(10px + var(--safeT)) 18px 10px;display:flex;align-items:center;gap:12px}
 .top .tlogo{display:none}
 .top h1{font-size:19px}
-.view{padding:18px;max-width:1180px;width:100%;margin:0 auto;padding-bottom:calc(110px + var(--safeB))}
+.view{padding:18px;max-width:1640px;width:100%;margin:0 auto;padding-bottom:calc(110px + var(--safeB))}
+@media (min-width:1400px){.view{padding-left:26px;padding-right:26px}}
+@media (min-width:900px) and (max-width:1439px){.side{width:200px}.side a.nav{gap:10px;padding:9px 10px;font-size:14px;white-space:nowrap}.side .bn{font-size:14px}table.sales th,table.sales td{padding-left:6px!important;padding-right:6px!important}}
 .sync{font-size:11.5px;display:flex;align-items:center;gap:6px;color:var(--ink2);white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block}
 .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
@@ -228,7 +230,14 @@ table.t td.money,table.t td.r{white-space:nowrap}
 table.sales{font-size:13px}
 table.sales th{position:sticky;top:0;background:var(--card,#fff);z-index:1}
 table.sales td{vertical-align:middle;white-space:nowrap}
-table.sales td.wrap{white-space:normal;min-width:160px;max-width:260px}
+table.sales td.wrap{white-space:normal;min-width:120px;max-width:220px}
+table.sales th,table.sales td{padding-left:7px;padding-right:7px}
+table.sales td.cut{max-width:132px;overflow:hidden;text-overflow:ellipsis}
+table.sales th{white-space:normal;vertical-align:bottom;line-height:1.25;max-width:90px}
+table.sales td.st{white-space:normal;min-width:110px;max-width:150px}
+table.sales td.st .sub{white-space:normal}
+table.sales td.cut .sub{overflow:hidden;text-overflow:ellipsis}
+table.sales .clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 table.sales tbody tr{cursor:pointer}
 table.sales tbody tr:hover td{background:#fbfaf7}
 table.sales tr.cx td{opacity:.55}
