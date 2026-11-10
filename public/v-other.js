@@ -195,7 +195,8 @@ A.backupXlsx = () => {
     ContainerCosts: K.raw.shipments.flatMap((s) => (s.costs || []).map((c) => Object.assign({ container: s.name }, c))),
     Customers: K.raw.customers.map(flat), Sales: K.raw.sales.map(saleRow),
     SaleLines: K.raw.sales.flatMap((s) => (s.lines || []).map((l) => ({ receipt: s.no, date: saleDate(s), customer: s.customerName, item: l.name, qty: l.qty, unit_price: l.unitPrice, returned: (l.returns || []).reduce((a, r) => a + num(r.qty), 0) }))),
-    Payments: K.raw.sales.flatMap((s) => (s.payments || []).map((p) => ({ receipt: s.no, customer: s.customerName, date: p.date, method: p.method, account: p.account, ref: p.ref, amount: p.amount }))),
+    Payments: K.raw.sales.flatMap((s) => (s.payments || []).map((p) => ({ receipt: s.no, sale_txn_id: KC.saleTxnId(s), customer: s.customerName, date: p.date, mode: p.method, account: p.account, txn_id: p.ref, amount: p.amount, momo_charges: num(p.fee), total_sent: num(p.amount) + Math.max(0, num(p.fee)), note: p.note || '', by: p.by || '' }))),
+    SupplierPayments: K.raw.bills.flatMap((b) => (b.payments || []).map((p) => ({ bill_txn_id: KC.billTxnId(b), supplier: (byId('suppliers', b.supplierId) || {}).name || '', description: b.description || '', currency: b.currency, date: p.date, mode: p.method, paid_to: p.account || '', txn_id: p.ref || '', amount: p.amount, momo_charges: num(p.fee), total_sent: num(p.amount) + Math.max(0, num(p.fee)), by: p.by || '' }))),
     Adjustments: K.raw.adjustments.map(flat), Expenses: K.raw.expenses.map(flat),
   };
   if (K.raw.assets.length) sheets.Assets = K.raw.assets.map((a) => { const v = KC.assetValue(a, S(), todayStr()); return Object.assign(flat(a), { full_cost: Math.round(v.cost), value_today: Math.round(v.book), value_lost: Math.round(v.accumulated) }); });

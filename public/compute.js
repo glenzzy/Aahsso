@@ -51,8 +51,18 @@
 
   const SOURCE_TYPES = ['Store', 'Auction', 'Online', 'Private seller', 'Local (Cameroon)'];
   const CONDITIONS = ['New', 'Open box', 'Used', 'Refurbished', 'Damaged / Parts'];
-  const PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer', 'Other'];
+  /* Payment modes. Local sales in Cameroon: Cash, MTN MoMo, Orange Money only.
+   * Purchases (often US stores / USD) may also use bank transfers. PAY_METHODS = every known mode. */
+  const SALE_PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money'];
+  const PURCHASE_PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer', 'Zelle / US bank', 'Other'];
+  const PAY_METHODS = PURCHASE_PAY_METHODS;
   const isMobileMoney = (method) => method === 'MTN MoMo' || method === 'Orange Money';
+  /** New transaction id, e.g. TX261110-K3F9QZ (sales) or PU261110-… (purchases). */
+  function newTxnId(prefix, date) {
+    const d = String(date || new Date().toISOString().slice(0, 10)).replace(/-/g, '').slice(2, 8);
+    let r = ''; for (let i = 0; i < 6; i++) r += '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 34)];
+    return (prefix || 'TX') + d + '-' + r;
+  }
   const feeTablesOf = (S) => { const t = S && S.momoFeeTables; return (t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).length > 0) ? t : DEFAULT_MOMO_FEE_TABLES; };
   /** Suggested operator charge for a MoMo/OM payment of `amount` (sale portion). Cash/bank → 0. */
   function calcMomoFee(method, amount, S) {
@@ -72,30 +82,36 @@
     }
     return 0;
   }
-  /** Validate a payment document. Returns '' if ok, else an error message. */
-  function validatePayment(p, S) {
+  /** Validate a payment. kind 'sale' (default): Cash / MoMo / OM only, receiving number required for MoMo/OM.
+   *  kind 'purchase': any purchase mode, number optional. Refunds (amount < 0) may use any known mode
+   *  so older records can still be refunded the way they were paid. Returns '' if ok, else an error message. */
+  function validatePayment(p, S, kind) {
     if (!p) return 'Missing payment';
     const method = p.method || 'Cash';
-    if (PAY_METHODS.indexOf(method) < 0) return 'Invalid payment method';
     const amount = num(p.amount), fee = num(p.fee);
+    const allowed = amount < 0 ? PAY_METHODS : kind === 'purchase' ? PURCHASE_PAY_METHODS : SALE_PAY_METHODS;
+    if (allowed.indexOf(method) < 0) return 'Payment mode must be ' + allowed.join(', ');
     if (!isFinite(amount)) return 'Invalid amount';
     if (fee < 0) return 'Charges cannot be negative';
     if (amount === 0 && fee === 0) return 'Enter an amount';
     if (isMobileMoney(method) && amount > 0) {
       if (!String(p.ref || '').trim()) return 'Transaction ID is required for ' + method;
-      if (!String(p.account || '').trim()) return 'Receiving MoMo number is required for ' + method;
+      if (kind !== 'purchase' && !String(p.account || '').trim()) return 'Receiving MoMo number is required for ' + method;
     }
     return '';
   }
-  /** First electronic payment ref on a sale (for listing / search). */
+  /** Every sale has a transaction id (assigned when the sale is created, never changed).
+   *  Older sales without one fall back to their receipt number. */
   function saleTxnId(s) {
-    if (s && s.txnId) return String(s.txnId);
-    const pays = (s && s.payments) || [];
-    for (let i = 0; i < pays.length; i++) {
-      const p = pays[i];
-      if (num(p.amount) > 0 && String(p.ref || '').trim() && (isMobileMoney(p.method) || p.method === 'Bank transfer' || p.method === 'Other')) return String(p.ref).trim();
-    }
-    return '';
+    if (!s) return '';
+    if (s.txnId) return String(s.txnId);
+    return s.no ? 'TX-' + s.no : '';
+  }
+  /** Same for purchases / supplier bills. */
+  function billTxnId(b) {
+    if (!b) return '';
+    if (b.txnId) return String(b.txnId);
+    return b.id ? 'PU-' + String(b.id).replace(/^b_/, '').toUpperCase() : '';
   }
   function paymentFees(s) { return ((s && s.payments) || []).reduce((a, p) => a + Math.max(0, num(p.fee)), 0); }
   const SHIP_STATUSES = [
@@ -487,15 +503,16 @@
   function priceFloor(C, productId, qty, customer) { const px = C.prodX[productId]; if (!px) return 0; const ws = isWholesale(customer) || (px.bulkQty > 0 && num(qty) >= px.bulkQty); return ws ? Math.min(px.priceMin, px.priceWholesale) : px.priceMin; }
   /* cash handover: what a person collected on a day, by method */
   function collectedBy(raw, userId, date) {
-    const by = {}; let total = 0; const items = [];
-    (raw.sales || []).forEach((s) => (s.payments || []).forEach((p) => { if (p.byId === userId && p.date === date) { by[p.method] = (by[p.method] || 0) + num(p.amount); total += num(p.amount); items.push({ saleId: s.id, no: s.no, customer: s.customerName, p }); } }));
-    return { by, total, items };
+    const by = {}, feesBy = {}; let total = 0, fees = 0; const items = [];
+    (raw.sales || []).forEach((s) => (s.payments || []).forEach((p) => { if (p.byId === userId && p.date === date) { by[p.method] = (by[p.method] || 0) + num(p.amount); total += num(p.amount); const f = Math.max(0, num(p.fee)); if (f) { feesBy[p.method] = (feesBy[p.method] || 0) + f; fees += f; } items.push({ saleId: s.id, no: s.no, txnId: saleTxnId(s), customer: s.customerName, p }); } }));
+    return { by, total, feesBy, fees, items };
   }
   /* supplier bills */
   function billTotals(b, S) {
     const fx = num(b.fxRate) || rateOf(S || {}, b.currency || 'XAF'); const toX = (v) => num(v) * fx;
     const amount = num(b.amount), paid = (b.payments || []).reduce((a, p) => a + num(p.amount), 0), balance = amount - paid;
-    return { amount, paid, balance, amountX: toX(amount), paidX: toX(paid), balanceX: toX(balance), status: balance <= 0.005 ? 'paid' : paid > 0 ? 'partial' : 'unpaid' };
+    const fees = paymentFees(b); // MoMo / OM charges we paid on top — separate from the bill amount
+    return { amount, paid, balance, fees, amountX: toX(amount), paidX: toX(paid), balanceX: toX(balance), feesX: toX(fees), txnId: billTxnId(b), status: balance <= 0.005 ? 'paid' : paid > 0 ? 'partial' : 'unpaid' };
   }
   /* reminders */
   function dueDateOf(s, S) { return s.dueDate || addDays(String(s.date || s.createdAt || '').slice(0, 10), num((S || {}).creditDays) || 14); }
@@ -566,7 +583,7 @@
     }
     if (col === 'customers') { const d = a || b; if (!b) push('New customer ' + d.name + (d.phone ? ' (' + d.phone + ')' : '')); else if (!a) push('Deleted customer ' + b.name); else { const ch = []; if ((b.creditLimit ?? '') !== (a.creditLimit ?? '')) ch.push('credit limit ' + (b.creditLimit ?? 'default') + ' → ' + (a.creditLimit ?? 'default')); if (b.phone !== a.phone) ch.push('phone ' + (b.phone || '—') + ' → ' + (a.phone || '—')); if (b.type !== a.type) ch.push('type ' + (b.type || 'Retail') + ' → ' + a.type); if (b.name !== a.name) ch.push('renamed from ' + b.name); if (ch.length) push('Customer ' + a.name + ': ' + ch.join(', ')); } return out; }
     if (col === 'handovers') { const d = a || b; const tot = Object.values(d.declared || {}).reduce((s, v) => s + n(v), 0) + n(d.payouts); if (a && a.status === 'confirmed' && (!b || b.status !== 'confirmed')) push('Confirmed cash handover of ' + (d.userName || 'staff') + ' for ' + d.date + ' — ' + F(tot) + (Math.abs(n(d.diff)) >= 1 ? (n(d.diff) < 0 ? ', short ' + F(-n(d.diff)) : ', over ' + F(n(d.diff))) : ', balanced'), { amount: tot }); else if (a) push('Handed over ' + F(tot) + ' for ' + d.date + (Math.abs(n(d.diff)) >= 1 ? (n(d.diff) < 0 ? ' — short ' + F(-n(d.diff)) : ' — over ' + F(n(d.diff))) : ' — balanced'), { amount: tot, reason: [d.payoutNote && 'paid out: ' + d.payoutNote, d.notes].filter(Boolean).join(' · ') }); return out; }
-    if (col === 'bills') { const d = a || b; const sup = L.supplier ? L.supplier(d.supplierId) : ''; const m = (v) => (L.money ? L.money(v, d.currency) : v); if (!b) push('New bill from ' + sup + ': ' + m(d.amount) + (d.description ? ' — ' + d.description : '')); else if (a) { const pb = (b.payments || []).length; (a.payments || []).slice(pb).forEach((p) => push('Paid ' + m(p.amount) + ' to ' + sup + ' by ' + (p.method || ''), { reason: d.description || '' })); if (a.status === 'cancelled' && b.status !== 'cancelled') push('Cancelled bill from ' + sup); if (!out.length) push('Edited bill from ' + sup); } else push('Deleted bill from ' + sup); return out; }
+    if (col === 'bills') { const d = a || b; const sup = L.supplier ? L.supplier(d.supplierId) : ''; const m = (v) => (L.money ? L.money(v, d.currency) : v); if (!b) push('New bill from ' + sup + ': ' + m(d.amount) + (d.description ? ' — ' + d.description : '')); else if (a) { const pb = (b.payments || []).length; (a.payments || []).slice(pb).forEach((p) => push('Paid ' + m(p.amount) + ' to ' + sup + ' by ' + (p.method || '') + (p.ref ? ' (txn ' + p.ref + ')' : '') + (n(p.fee) > 0 ? ' + ' + m(n(p.fee)) + ' charges' : ''), { reason: d.description || '', ref: p.ref || billTxnId(d) })); if (a.status === 'cancelled' && b.status !== 'cancelled') push('Cancelled bill from ' + sup); if (!out.length) push('Edited bill from ' + sup); } else push('Deleted bill from ' + sup); return out; }
     if (col === 'audits') { const d = a || b; if (!b) push('Started a stock count at ' + L.loc(d.locationId) + (d.category ? ' (' + d.category + ')' : '')); else if (a && a.status === 'submitted' && b.status === 'draft') push('Finished stock count at ' + L.loc(d.locationId) + ': ' + (a.lines || []).length + ' item(s), ' + (a.lines || []).filter((l) => n(l.counted) !== n(l.system)).length + ' with a difference'); else if (a && a.status === 'applied' && b.status !== 'applied') push('Approved stock count at ' + L.loc(d.locationId) + ' — stock corrected'); return out; }
     if (col === 'expenses') { const d = a || b; push((b ? (a ? 'Edited' : 'Deleted') : 'Recorded') + ' expense: ' + d.category + ' ' + F(n(d.amount)), { reason: d.description || '', amount: n(d.amount) }); return out; }
     if (col === 'members') { const d = a || b; if (!b) push('Gave ' + d.name + ' access as ' + ((L.role && L.role(d.role)) || (ROLES[d.role] || { label: d.role }).label)); else if (!a) push('Removed ' + b.name + ' from the team'); else { const ch = []; if (b.role !== a.role) ch.push('role ' + ((L.role && L.role(b.role)) || b.role) + ' → ' + ((L.role && L.role(a.role)) || a.role)); if (JSON.stringify(b.perms || {}) !== JSON.stringify(a.perms || {})) ch.push('permissions changed'); if (b.active !== a.active) ch.push(a.active === false ? 'disabled' : 'enabled'); if ((b.locationId || '') !== (a.locationId || '')) ch.push('branch → ' + L.loc(a.locationId)); push('Team: ' + a.name + ' — ' + (ch.join(', ') || 'edited')); } return out; }
@@ -666,6 +683,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, CONDITIONS, PAY_METHODS, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, CONDITIONS, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

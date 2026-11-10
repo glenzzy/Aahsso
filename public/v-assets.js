@@ -121,7 +121,7 @@ function assetForm(id) {
     let sid = null;
     if (credit) { sid = await ensureSupplier(sup); if (!sid) return toast('Choose or add the seller', true); }
     if (!(await save('assets', doc))) return;
-    if (credit) { const bill = { id: uid('b_'), supplierId: sid, description: 'Asset: ' + name + (doc.tag ? ' (' + doc.tag + ')' : ''), amount: num(doc.price), currency: doc.currency, date: doc.purchaseDate, dueDate: billDue || KC.addDays(doc.purchaseDate, 30), assetId: doc.id, payments: [] }; if (await save('bills', bill)) toast('Bill to pay created under Suppliers'); }
+    if (credit) { const bill = { id: uid('b_'), txnId: KC.newTxnId('PU', doc.purchaseDate), supplierId: sid, description: 'Asset: ' + name + (doc.tag ? ' (' + doc.tag + ')' : ''), amount: num(doc.price), currency: doc.currency, date: doc.purchaseDate, dueDate: billDue || KC.addDays(doc.purchaseDate, 30), assetId: doc.id, payments: [] }; if (await save('bills', bill)) toast('Bill to pay created under Suppliers'); }
     closeSheet(); scheduleRender(); toast(isNew ? 'Asset registered' : 'Saved'); setTimeout(() => assetOpen(doc.id), 80);
   };
   if (!isNew) $('#asDel', sh).onclick = async () => {

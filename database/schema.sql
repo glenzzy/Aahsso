@@ -155,6 +155,18 @@ SELECT d.tenant_id, d.id AS sale_id, d.data->>'no' AS sale_no, d.data->>'txnId' 
 FROM documents d, jsonb_array_elements(COALESCE(d.data->'payments','[]')) p
 WHERE d.collection='sales';
 
+CREATE OR REPLACE VIEW v_bill_payments AS
+SELECT d.tenant_id, d.id AS bill_id, d.data->>'txnId' AS bill_txn_id, d.data->>'supplierId' AS supplier_id,
+       d.data->>'description' AS description, d.data->>'currency' AS currency,
+       p->>'id' AS payment_id, (p->>'date')::date AS pay_date,
+       p->>'method' AS method, p->>'account' AS paid_to, p->>'ref' AS ref,
+       (p->>'amount')::numeric AS amount,
+       COALESCE((p->>'fee')::numeric, 0) AS fee,
+       (p->>'amount')::numeric + COALESCE((p->>'fee')::numeric, 0) AS gross,
+       p->>'by' AS paid_by, p->>'byId' AS paid_by_id
+FROM documents d, jsonb_array_elements(COALESCE(d.data->'payments','[]')) p
+WHERE d.collection='bills';
+
 CREATE OR REPLACE VIEW v_lots AS
 SELECT d.tenant_id, d.id, d.data->>'productId' AS product_id, (d.data->>'purchaseDate')::date AS purchase_date,
        d.data->>'vendor' AS vendor, d.data->>'sourceType' AS source_type, COALESCE(d.data->>'currency','USD') AS currency,

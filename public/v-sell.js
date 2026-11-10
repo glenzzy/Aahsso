@@ -148,69 +148,101 @@ function editCustomer(id, after) {
   };
 }
 
-/* ---------- checkout ---------- */
+/* ---------- shared payment form (sales AND purchases) ----------
+ * Amount and MoMo/OM charges are separate fields/columns. Every payment carries a mode and a transaction ID
+ * (required for MoMo / OM). kind 'sale': Cash / MTN MoMo / Orange Money, money goes to one of our numbers.
+ * kind 'purchase': purchase modes, money goes to the supplier. */
+const payMethodsFor = (kind) => kind === 'purchase' ? KC.PURCHASE_PAY_METHODS : KC.SALE_PAY_METHODS;
 function accountOpts(method) {
   const acc = (S().momoAccounts || []).filter((a) => !a.method || a.method === method);
   return [['', method === 'Cash' ? '—' : 'Select receiving number']].concat(acc.map((a) => [a.number, (a.label ? a.label + ' · ' : '') + a.number]));
 }
-function payFields(defAmount, defMethod = 'Cash') {
-  const mm = KC.isMobileMoney(defMethod);
-  const sug = mm ? KC.calcMomoFee(defMethod, defAmount, S()) : 0;
-  return '<div class="col"><div class="grid2">' + field('Sale amount (F)', inp('payAmount', defAmount, 'inputmode="numeric" id="payAmount"')) + field('Date', inp('payDate', todayStr(), 'type="date"')) + '</div>' +
-    field('Payment method', '<div class="seg" id="pm">' + KC.PAY_METHODS.map((m) => '<button type="button" class="' + (m === defMethod ? 'on' : '') + '" data-a="pmPick" data-v="' + m + '">' + m + '</button>').join('') + '</div><input type="hidden" name="payMethod" value="' + defMethod + '">') +
+/** Suggested charges only make sense in local currency (the MoMo tariff grid is in F). */
+const payFeeSuggest = (method, amount, cur) => (!cur || cur === baseCode()) ? KC.calcMomoFee(method, amount, S()) : 0;
+function payFields(defAmount, opts = {}) {
+  const kind = opts.kind || 'sale', cur = opts.currency || baseCode(), sym = esc(curSym(cur));
+  const methods = payMethodsFor(kind); const defMethod = methods.indexOf(opts.method) >= 0 ? opts.method : 'Cash';
+  const mm = KC.isMobileMoney(defMethod), sale = kind === 'sale';
+  const sug = mm ? payFeeSuggest(defMethod, defAmount, cur) : 0;
+  return '<div class="col" id="payBox" data-kind="' + kind + '" data-cur="' + esc(cur) + '"><div class="grid2">' + field((sale ? 'Sale amount' : 'Amount paid') + ' (' + sym + ')', inp('payAmount', defAmount, 'inputmode="decimal" id="payAmount"')) + field('Date', inp('payDate', todayStr(), 'type="date"')) + '</div>' +
+    field('Payment mode', '<div class="seg" id="pm" style="flex-wrap:wrap">' + methods.map((m) => '<button type="button" class="' + (m === defMethod ? 'on' : '') + '" data-a="pmPick" data-v="' + esc(m) + '">' + esc(m) + '</button>').join('') + '</div><input type="hidden" name="payMethod" value="' + esc(defMethod) + '">') +
     '<div id="pmCharges" class="' + (mm ? '' : 'hide') + '">' +
-      '<div class="grid2">' + field('Withdrawal / MoMo charges (F)', inp('payFee', sug || '', 'inputmode="numeric" id="payFee" placeholder="0"')) +
-        '<div class="field"><label class="lbl">Customer sends</label><div class="inp" id="payGross" style="display:flex;align-items:center;background:var(--bg, #f6f6f6)">' + F(num(defAmount) + sug) + '</div></div></div>' +
-      '<div class="tiny muted" style="margin-top:-4px;margin-bottom:8px">Sale amount pays the receipt. Charges are the operator fee (MTN / Orange) — kept as a separate column. Suggested from Settings → fee table; you can edit.</div>' +
+      '<div class="grid2">' + field('Withdrawal / MoMo charges (' + sym + ')', inp('payFee', sug || '', 'inputmode="decimal" id="payFee" placeholder="0"')) +
+        field(sale ? 'Customer sends' : 'You send', '<div class="inp" id="payGross" style="display:flex;align-items:center;background:var(--bg, #f6f6f6)">' + money(num(defAmount) + sug, cur) + '</div>') + '</div>' +
+      '<div class="tiny muted" style="margin-top:-4px;margin-bottom:8px">' + (sale ? 'Sale amount pays the receipt.' : 'Amount paid reduces what you owe.') + ' Charges are the operator fee (MTN / Orange), kept in a separate column. Suggested from Settings → fee table; you can edit.</div>' +
     '</div>' +
-    '<div class="grid2" id="pmExtra">' + field('Money sent to (number)', '<select class="inp" name="payAccount" id="payAccount">' + accountOpts(defMethod).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>') +
-      field('Transaction ID', inp('payRef', '', 'id="payRef" placeholder="' + (mm ? 'Required — MoMo txn ID' : 'Optional ref') + '"')) + '</div>' +
-    '<div id="payAccOther" class="hide">' + field('Other receiving number', inp('payAccountOther', '', 'inputmode="tel"')) + '</div></div>';
+    '<div class="grid2" id="pmExtra"' + (defMethod === 'Cash' ? ' style="opacity:.5"' : '') + '>' +
+      (sale ? field('Money sent to (number)', '<select class="inp" name="payAccount" id="payAccount">' + accountOpts(defMethod).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>')
+        : field('Paid to (number / account)', inp('payAccount', opts.account || '', 'placeholder="Optional"'))) +
+      field('Transaction ID', inp('payRef', '', 'id="payRef" placeholder="' + (mm ? 'Required — ' + esc(defMethod) + ' txn ID' : 'Optional ref') + '"')) + '</div>' +
+    (sale ? '<div id="payAccOther" class="hide">' + field('Other receiving number', inp('payAccountOther', '', 'inputmode="tel"')) + '</div>' : '') + '</div>';
+}
+/** Change the label text of a field() wrapper around `input` (label text is the first text node). */
+function setFieldLabel(input, text) {
+  const f = input && input.closest('label.f'); if (f && f.firstChild && f.firstChild.nodeType === 3) f.firstChild.textContent = text;
+}
+/** Switch the payment form to another currency (purchase currency changed). */
+function setPayCurrency(root, cur) {
+  const box = $('#payBox', root); if (!box) return; box.dataset.cur = cur;
+  setFieldLabel($('#payAmount', root), (box.dataset.kind === 'sale' ? 'Sale amount' : 'Amount paid') + ' (' + curSym(cur) + ')');
+  setFieldLabel($('#payFee', root), 'Withdrawal / MoMo charges (' + curSym(cur) + ')');
+  syncPayCharges(root);
 }
 function syncPayCharges(root) {
   if (!root) return;
+  const box = $('#payBox', root); if (!box) return;
+  const cur = box.dataset.cur;
   const method = ($('[name=payMethod]', root) || {}).value || 'Cash';
   const mm = KC.isMobileMoney(method);
-  const box = $('#pmCharges', root); if (box) box.classList.toggle('hide', !mm);
+  const ch = $('#pmCharges', root); if (ch) ch.classList.toggle('hide', !mm);
   const amtEl = $('#payAmount', root), feeEl = $('#payFee', root), gross = $('#payGross', root), refEl = $('#payRef', root);
-  if (refEl) refEl.placeholder = mm ? 'Required — MoMo txn ID' : 'Optional ref';
+  if (refEl) refEl.placeholder = mm ? 'Required — ' + method + ' txn ID' : 'Optional ref';
   if (!mm) { if (feeEl) feeEl.value = ''; if (gross) gross.textContent = '—'; return; }
-  const amount = num(amtEl && amtEl.value);
+  // an empty amount means "the default" (e.g. total of purchase lines) when the form provides one
+  const amount = num(amtEl && (amtEl.value !== '' ? amtEl.value : amtEl.dataset.def));
   if (feeEl && (feeEl.dataset.auto !== '0' || feeEl.value === '')) {
-    feeEl.value = KC.calcMomoFee(method, amount, S()) || '';
+    feeEl.value = payFeeSuggest(method, amount, cur) || '';
     feeEl.dataset.auto = '1';
   }
-  if (gross) gross.textContent = F(amount + num(feeEl && feeEl.value));
+  if (gross) gross.textContent = money(amount + num(feeEl && feeEl.value), cur);
 }
 A.pmPick = (el) => {
   const root = el.closest('.sheet'); $$('#pm button', root).forEach((b) => b.classList.toggle('on', b === el));
   $('[name=payMethod]', root).value = el.dataset.v;
-  $('#payAccount', root).innerHTML = accountOpts(el.dataset.v).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option>';
+  const accSel = $('select#payAccount', root);
+  if (accSel) { accSel.innerHTML = accountOpts(el.dataset.v).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option>'; const o = $('#payAccOther', root); if (o) o.classList.add('hide'); }
   $('#pmExtra', root).style.opacity = el.dataset.v === 'Cash' ? .5 : 1;
   const feeEl = $('#payFee', root); if (feeEl) feeEl.dataset.auto = '1';
   syncPayCharges(root);
 };
 CH.payAcc = () => { };
-document.addEventListener('change', (e) => { if (e.target.id === 'payAccount') { const r = e.target.closest('.sheet'); $('#payAccOther', r).classList.toggle('hide', e.target.value !== '__other'); } });
+document.addEventListener('change', (e) => { if (e.target.id === 'payAccount') { const r = e.target.closest('.sheet'); const o = $('#payAccOther', r); if (o) o.classList.toggle('hide', e.target.value !== '__other'); } });
 document.addEventListener('input', (e) => {
   if (e.target.id === 'payAmount') { const r = e.target.closest('.sheet'); const feeEl = $('#payFee', r); if (feeEl) feeEl.dataset.auto = '1'; syncPayCharges(r); }
-  if (e.target.id === 'payFee') { e.target.dataset.auto = '0'; const r = e.target.closest('.sheet'); const gross = $('#payGross', r); if (gross) gross.textContent = F(num(($('#payAmount', r) || {}).value) + num(e.target.value)); }
+  if (e.target.id === 'payFee') { e.target.dataset.auto = '0'; const r = e.target.closest('.sheet'); const gross = $('#payGross', r); const box = $('#payBox', r); if (gross) { const a = $('#payAmount', r) || {}; gross.textContent = money(num(a.value !== '' ? a.value : (a.dataset || {}).def) + num(e.target.value), box ? box.dataset.cur : baseCode()); } }
 });
-function readPayment(v) {
+/** Read the payment form. null = no amount entered, false = invalid (toast already shown). */
+function readPayment(v, kind = 'sale') {
   const amount = num(v.payAmount); if (!amount) return null;
   const method = v.payMethod || 'Cash';
   const fee = KC.isMobileMoney(method) ? Math.max(0, num(v.payFee)) : 0;
-  const p = { id: uid('p_'), date: v.payDate || todayStr(), method, account: v.payAccount === '__other' ? v.payAccountOther : v.payAccount || '', ref: String(v.payRef || '').trim(), amount, fee, by: K.me.name || K.info.userLabel || '', byId: K.me.id || '', at: new Date().toISOString() };
-  const err = KC.validatePayment(p, S());
+  const p = { id: uid(kind === 'sale' ? 'p_' : 'bp_'), date: v.payDate || todayStr(), method, account: v.payAccount === '__other' ? v.payAccountOther || '' : v.payAccount || '', ref: String(v.payRef || '').trim(), amount, fee, by: K.me.name || K.info.userLabel || '', byId: K.me.id || '', at: new Date().toISOString() };
+  const err = KC.validatePayment(p, S(), kind);
   if (err) { toast(err, true); return false; }
   return p;
 }
-function applySaleTxnId(sale) {
-  const txn = KC.saleTxnId(sale);
-  if (txn) sale.txnId = txn; else delete sale.txnId;
+/** A refund goes back the way the customer paid and is linked to the sale's transaction ID. */
+function refundPayment(sale, method, amount, why) {
+  return { id: uid('p_'), date: todayStr(), method, amount: -Math.abs(num(amount)), fee: 0, ref: KC.saleTxnId(sale), note: why || 'Refund', by: K.me.name || '', byId: K.me.id || '', at: new Date().toISOString() };
+}
+/** Every sale gets a transaction ID when it is created; it never changes afterwards.
+ *  Older sales without one keep their fallback id (same rule as the server). */
+function applySaleTxnId(sale, isNew) {
+  if (!sale.txnId) sale.txnId = isNew ? KC.newTxnId('TX', sale.date) : KC.saleTxnId(sale);
   return sale;
 }
 
+/* ---------- checkout ---------- */
 A.checkout = () => {
   if (!K.cart.lines.length) return;
   if (K.cart.lines.some((l) => !num(l.qty))) return toast('Remove lines with quantity 0', true);
@@ -282,7 +314,7 @@ async function completeSale(v) {
   });
   if (remaining > 0.5) sale.dueDate = v.dueDate || KC.addDays(sale.date, num(S().creditDays) || 14); else delete sale.dueDate;
   sale.payments = (sale.payments || []).slice(); if (pay) sale.payments.push(pay);
-  applySaleTxnId(sale);
+  applySaleTxnId(sale, !editing);
   if (!(await save('sales', sale))) return false;
   if (cu) save('customers', Object.assign({}, cu));
   K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; saveCart();
@@ -379,7 +411,7 @@ VIEWS.sales = {
     let list = K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup' ? visibleSales().slice() : salesInRange();
     const st = K.ui.salesStatus, q = K.ui.salesQ.toLowerCase();
     list = list.filter((s) => { const x = K.C.saleX[s.id]; return st === 'all' ? true : st === 'owing' ? x.status === 'partial' || x.status === 'unpaid' : st === 'pickup' ? !s.delivered && x.status !== 'cancelled' : st === 'cancelled' ? x.status === 'cancelled' : true; })
-      .filter((s) => !q || (s.no + ' ' + (s.txnId || '') + ' ' + s.customerName + ' ' + s.customerPhone + ' ' + (s.payments || []).map((p) => p.ref || '').join(' ') + ' ' + (s.lines || []).map((l) => l.name).join(' ')).toLowerCase().includes(q))
+      .filter((s) => !q || (s.no + ' ' + KC.saleTxnId(s) + ' ' + s.customerName + ' ' + s.customerPhone + ' ' + (s.payments || []).map((p) => p.ref || '').join(' ') + ' ' + (s.lines || []).map((l) => l.name).join(' ')).toLowerCase().includes(q))
       .sort((a, b) => (saleDate(b) + b.createdAt).localeCompare(saleDate(a) + a.createdAt));
     const live = list.filter((s) => K.C.saleX[s.id].status !== 'cancelled');
     const tot = live.reduce((a, s) => a + K.C.saleX[s.id].net, 0), paid = live.reduce((a, s) => a + K.C.saleX[s.id].paid, 0), bal = live.reduce((a, s) => a + Math.max(0, K.C.saleX[s.id].balance), 0), prof = live.reduce((a, s) => a + K.C.saleX[s.id].profit, 0);
@@ -419,7 +451,7 @@ function openSale(id) {
       '</tbody></table><div class="pad"><div class="row between small"><span class="muted">Subtotal</span><span class="money">' + F(x.subtotal) + '</span></div>' + (x.discount ? '<div class="row between small"><span class="muted">Discount</span><span class="money">−' + F(x.discount) + '</span></div>' : '') + (x.returned ? '<div class="row between small"><span class="muted">Returns</span><span class="money">−' + F(x.returned) + '</span></div>' : '') +
       '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div><div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
       (seeCost() && !cancelled ? '<div class="row between small mt"><span class="muted">Cost of goods · profit</span><span class="money">' + F(x.cogs) + ' · <b style="color:var(--ok)">' + F(x.profit) + '</b></span></div>' : '') + '</div></div>' +
-      '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (can('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
+      '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.note ? ' &middot; ' + esc(p.note) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (can('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
       (s.notes ? '<div class="alert info mt">' + esc(s.notes) + '</div>' : '') +
       '<div class="grid2 mt2">' +
       (!cancelled && x.balance > 0 && can('payments') ? '<button class="btn pri" data-a="addPay" data-id="' + s.id + '">' + ic('wallet') + 'Add payment</button>' : '') +
@@ -445,7 +477,7 @@ A.cancelSale = async (el) => {
   const why = await askReason('Cancel sale ' + s.no + '? Items go back to stock.' + (x.paid > 0 ? ' A refund of ' + F(x.paid) + ' will be recorded.' : ''), ['Customer changed mind', 'Wrong entry / mistake', 'Duplicate sale', 'Customer did not pay', 'Other'], 'Cancel sale'); if (why === null) return;
   // refund each way the customer paid (MoMo back to MoMo, cash back as cash) so cash handovers stay correct
   const pays = (s.payments || []).slice(); const byM = {}; pays.forEach((p) => (byM[p.method || 'Cash'] = (byM[p.method || 'Cash'] || 0) + num(p.amount)));
-  Object.entries(byM).forEach(([m, amt]) => { if (amt > 0.5) pays.push({ id: uid('p_'), date: todayStr(), method: m, amount: -amt, ref: 'Refund on cancel', by: K.me.name || '', byId: K.me.id || '', at: new Date().toISOString() }); });
+  Object.entries(byM).forEach(([m, amt]) => { if (amt > 0.5) pays.push(refundPayment(s, m, amt, 'Refund on cancel')); });
   await save('sales', Object.assign({}, s, { status: 'cancelled', payments: pays, cancelledAt: new Date().toISOString(), cancelReason: why, cancelledBy: K.me.name || '' })); refreshSheets(); scheduleRender(); toast('Sale cancelled');
 };
 A.payDel = async (el) => {
@@ -471,7 +503,7 @@ A.returnSale = (el) => {
   const sh = openSheet({
     title: 'Return items · ' + s.no,
     body: '<div class="card pad">' + (rows || '<div class="empty small">Everything was already returned.</div>') + '</div><div class="col mt">' + field('Returned items go', sel('restock', [['yes', 'Back to stock (resellable)'], ['no', 'Damaged — write off']], 'yes')) +
-      '<div class="grid2">' + field('Refund amount (F)', inp('refund', '', 'inputmode="numeric" id="refundAmt"')) + field('Refund method', sel('refMethod', KC.PAY_METHODS, 'Cash')) + '</div><div class="tiny muted">Leave refund at 0 for an exchange or credit.</div>' + field('Reason', sel('reason', KC.RETURN_REASONS, KC.RETURN_REASONS[0])) + field('Details (optional)', inp('reasonNote', '')) + '</div>',
+      '<div class="grid2">' + field('Refund amount (F)', inp('refund', '', 'inputmode="numeric" id="refundAmt"')) + field('Refund mode', sel('refMethod', KC.SALE_PAY_METHODS, ((s.payments || []).find((p) => num(p.amount) > 0 && KC.SALE_PAY_METHODS.includes(p.method)) || {}).method || 'Cash')) + '</div><div class="tiny muted">Leave refund at 0 for an exchange or credit.</div>' + field('Reason', sel('reason', KC.RETURN_REASONS, KC.RETURN_REASONS[0])) + field('Details (optional)', inp('reasonNote', '')) + '</div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="rSave">Record return</button>',
   });
   const calc = () => { let v = 0; $$('[data-ret]', sh).forEach((i) => { const l = s.lines[+i.dataset.ret]; v += Math.min(num(i.value), num(i.dataset.max)) * num(l.unitPrice) * x.factor; }); $('#refundAmt', sh).value = Math.round(Math.min(v, Math.max(0, x.paid))); };
@@ -487,7 +519,7 @@ A.returnSale = (el) => {
       l.returns = (l.returns || []).concat([{ id: uid('r_'), date: todayStr(), qty: q, restock: v.restock === 'yes', alloc, reason: v.reason || '', note: v.reasonNote || '', by: K.me.name || '', locationId: K.loc }]);
     });
     if (!any) return toast('Enter a quantity to return', true);
-    if (num(v.refund) > 0) cur.payments = (cur.payments || []).concat([{ id: uid('p_'), date: todayStr(), method: v.refMethod, amount: -num(v.refund), ref: 'Refund: ' + (v.reason || 'return'), by: K.me.name || '', byId: K.me.id || '', at: new Date().toISOString() }]);
+    if (num(v.refund) > 0) cur.payments = (cur.payments || []).concat([refundPayment(cur, v.refMethod, v.refund, 'Refund: ' + (v.reason || 'return'))]);
     if (await save('sales', cur)) { closeSheet(); refreshSheets(); scheduleRender(); toast('Return recorded'); }
   };
 };

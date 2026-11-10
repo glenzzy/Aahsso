@@ -33,6 +33,12 @@ const WRITE_PERMS = {
 };
 const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'] };
 const perms = (u) => KC.permsFor({ role: u.role, perms: u.perms || {} }, u.customRoles);
+// a client may propose a transaction id (offline-created records); otherwise the server makes one
+const TXN_RE = /^[A-Za-z0-9][A-Za-z0-9\-]{3,39}$/;
+async function tenantSettings(c, tid) {
+  const r = (await c.query("SELECT data FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [tid])).rows[0];
+  return Object.assign({}, KC.DEFAULT_SETTINGS, (r && r.data) || {});
+}
 const canU = (u, p) => !!perms(u)[p];
 const anyU = (u, list) => (list || []).some((p) => canU(u, p));
 const ID_RE = /^[A-Za-z0-9_\-.:@+~]{1,120}$/;
@@ -191,6 +197,37 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       body.expectedTotal = KC.collectedBy(await loadAllSales(c, u.tenant_id), body.userId, body.date).total; // never trust the client's own total
     }
     if (col === 'audits' && body.status === 'applied' && !P.stockEdit) return { status: 403, error: 'Only a manager can approve a stock count' };
+    if (col === 'bills') {
+      // purchases: every bill has a transaction id; payments carry mode, txn id and MoMo charges (separate from amount)
+      const old = prev ? prev.data : null;
+      body.txnId = old ? KC.billTxnId(Object.assign({ id }, old)) : (TXN_RE.test(String(body.txnId || '')) ? String(body.txnId) : KC.newTxnId('PU', body.date));
+      const oldPays = new Map(((old && old.payments) || []).map((p) => [p.id, p]));
+      const S0 = await tenantSettings(c, u.tenant_id);
+      for (const p of (body.payments = Array.isArray(body.payments) ? body.payments : [])) {
+        const o = oldPays.get(p.id);
+        if (o) { Object.assign(p, { amount: o.amount, fee: o.fee, method: o.method, ref: o.ref, account: o.account, date: o.date, by: o.by, byId: o.byId }); continue; }
+        p.byId = u.id; p.by = u.name;
+        p.fee = KC.isMobileMoney(p.method) && Number(p.amount) > 0 ? Math.max(0, Number(p.fee) || 0) : 0;
+        p.ref = String(p.ref || '').trim(); p.account = String(p.account || '').trim();
+        const payErr = KC.validatePayment(p, S0, 'purchase'); if (payErr) return { status: 400, error: payErr };
+      }
+    }
+    if (col === 'shipments' && P.costs) {
+      // container costs paid on the spot: same payment rules as purchases
+      const oldCosts = new Map((((prev && prev.data.costs) || [])).map((k) => [k.id, k]));
+      const S0 = await tenantSettings(c, u.tenant_id);
+      for (const k of body.costs || []) {
+        const o = oldCosts.get(k.id);
+        if (o) { if (o.txnId) k.txnId = o.txnId; if (o.payment) k.payment = o.payment; continue; }
+        if (!TXN_RE.test(String(k.txnId || ''))) k.txnId = KC.newTxnId('PU', k.date);
+        if (k.payment) {
+          const p = k.payment; p.byId = u.id; p.by = u.name;
+          p.fee = KC.isMobileMoney(p.method) && Number(p.amount) > 0 ? Math.max(0, Number(p.fee) || 0) : 0;
+          p.ref = String(p.ref || '').trim();
+          const payErr = KC.validatePayment(p, S0, 'purchase'); if (payErr) return { status: 400, error: payErr };
+        }
+      }
+    }
     if (col === 'assets') {
       const bad = KC.assetCheck(body); if (bad) return { status: 400, error: bad };
       if (KC.assetGone(body) && body.disposal && body.disposal.date) body.disposal.bookValue = Math.round(KC.assetBookOn(body, Object.assign({}, KC.DEFAULT_SETTINGS, ((await c.query("SELECT data FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0] || {}).data || {}), body.disposal.date));
@@ -236,7 +273,8 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
         const payErr = KC.validatePayment(p, paySettings);
         if (payErr) return { status: 400, error: payErr };
       }
-      const txn = KC.saleTxnId(body); if (txn) body.txnId = txn; else delete body.txnId;
+      // every sale has a transaction id; once set it never changes
+      body.txnId = old ? KC.saleTxnId(old) : (TXN_RE.test(String(body.txnId || '')) ? String(body.txnId) : KC.newTxnId('TX', body.date));
       const oldRet = JSON.stringify(((old && old.lines) || []).map((l) => l.returns || [])), newRet = JSON.stringify((body.lines || []).map((l) => l.returns || []));
       if (old && oldRet !== newRet && !P.returns) return { status: 403, error: 'You cannot process returns' };
       const linesChanged = !old || JSON.stringify((old.lines || []).map((l) => [l.productId, l.qty, l.unitPrice])) !== JSON.stringify((body.lines || []).map((l) => [l.productId, l.qty, l.unitPrice]));

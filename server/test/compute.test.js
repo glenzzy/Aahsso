@@ -228,8 +228,33 @@ test('MoMo fees: Cameroon tiers, validate txn id, sale totals keep fee separate'
   assert.equal(KC.validatePayment({ method: 'Cash', amount: 5000 }), '');
   const sale = { no: 'S1', lines: [{ qty: 1, unitPrice: 10000, returns: [] }], payments: [{ id: 'p1', amount: 10000, fee: 1204, method: 'MTN MoMo', ref: 'ABC99', account: '677' }] };
   const t = KC.saleTotals(sale);
-  assert.equal(t.paid, 10000); assert.equal(t.fees, 1204); assert.equal(t.balance, 0); assert.equal(t.txnId, 'ABC99');
-  assert.equal(KC.saleTxnId(sale), 'ABC99');
+  assert.equal(t.paid, 10000); assert.equal(t.fees, 1204); assert.equal(t.balance, 0);
+  // every sale has its own transaction id (MoMo refs stay on the payment); older sales fall back to the receipt no
+  assert.equal(t.txnId, 'TX-S1');
+  assert.equal(KC.saleTxnId(Object.assign({}, sale, { txnId: 'TX261110-ABC123' })), 'TX261110-ABC123');
+  assert.match(KC.newTxnId('TX', '2026-11-10'), /^TX261110-[0-9A-Z]{6}$/);
+});
+test('payment modes: sales are Cash / MTN MoMo / Orange Money; purchases may also use bank', () => {
+  assert.deepEqual(KC.SALE_PAY_METHODS, ['Cash', 'MTN MoMo', 'Orange Money']);
+  assert.match(KC.validatePayment({ method: 'Bank transfer', amount: 5000 }), /Payment mode must be/);
+  assert.equal(KC.validatePayment({ method: 'Bank transfer', amount: 5000 }, {}, 'purchase'), '');
+  // refunds may go back by an older mode
+  assert.equal(KC.validatePayment({ method: 'Bank transfer', amount: -5000 }), '');
+  // purchases by MoMo still need the txn ID, but not a receiving number of ours
+  assert.match(KC.validatePayment({ method: 'Orange Money', amount: 5000, fee: 54 }, {}, 'purchase'), /Transaction ID/);
+  assert.equal(KC.validatePayment({ method: 'Orange Money', amount: 5000, fee: 54, ref: 'OM1' }, {}, 'purchase'), '');
+});
+test('supplier bills: charges separate from amount, every bill has a txn id', () => {
+  const b = { id: 'b_xyz', amount: 100000, currency: 'XAF', payments: [{ id: 'bp1', amount: 60000, fee: 724, method: 'MTN MoMo', ref: 'M1' }] };
+  const x = KC.billTotals(b, KC.DEFAULT_SETTINGS);
+  assert.equal(x.paid, 60000); assert.equal(x.fees, 724); assert.equal(x.balance, 40000); assert.equal(x.status, 'partial');
+  assert.equal(x.txnId, 'PU-XYZ');
+  assert.equal(KC.billTxnId(Object.assign({}, b, { txnId: 'PU261110-AAAAAA' })), 'PU261110-AAAAAA');
+});
+test('cash handover keeps MoMo charges apart from the money to hand over', () => {
+  const raw = { sales: [{ id: 's', no: 'S1', txnId: 'TX1', payments: [{ id: 'p', byId: 'u1', date: '2026-11-10', method: 'MTN MoMo', amount: 10000, fee: 1204 }, { id: 'p2', byId: 'u1', date: '2026-11-10', method: 'Cash', amount: 500 }] }] };
+  const c = KC.collectedBy(raw, 'u1', '2026-11-10');
+  assert.equal(c.total, 10500); assert.equal(c.fees, 1204); assert.equal(c.feesBy['MTN MoMo'], 1204); assert.equal(c.items[0].txnId, 'TX1');
 });
 test('activity descriptions: plain words for who-did-what', () => {
   const L = { product: () => 'Oats', customer: () => 'Jenny', loc: (x) => (x === 'shop' ? 'Akwa shop' : 'Main warehouse'), ship: () => 'Container #1', supplier: () => 'Trucker', F: (v) => v + ' F', money: (v, c) => c + ' ' + v };
