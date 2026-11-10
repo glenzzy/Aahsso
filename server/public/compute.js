@@ -51,6 +51,8 @@
 
   const SOURCE_TYPES = ['Store', 'Auction', 'Online', 'Private seller', 'Local (Cameroon)'];
   const CONDITIONS = ['New', 'Open box', 'Used', 'Refurbished', 'Damaged / Parts'];
+  /** Does the item work? Recorded per line on sales and purchases. */
+  const WORKING = ['Working', 'Not working', 'Not tested'];
   /* Payment modes. Local sales in Cameroon: Cash, MTN MoMo, Orange Money only.
    * Purchases (often US stores / USD) may also use bank transfers. PAY_METHODS = every known mode. */
   const SALE_PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money'];
@@ -128,7 +130,8 @@
   const RETURN_REASONS = ['Damaged / defective', 'Expired', 'Wrong item given', 'Customer changed mind', 'Not as described', 'Other'];
   const TRANSFER_REASONS = ['Restock a branch', 'Customer order at another branch', 'Return to main warehouse', 'Rebalance slow stock', 'Other'];
   const CURRENCIES = [['XAF', 'F', 'Central African CFA franc (Cameroon, Gabon, Congo, Chad, CAR, Eq. Guinea)'], ['XOF', 'F', 'West African CFA franc (Senegal, Côte d\'Ivoire, Mali, Burkina, Benin, Togo, Niger)'], ['NGN', '₦', 'Nigerian naira'], ['GHS', 'GH₵', 'Ghanaian cedi'], ['RWF', 'RF', 'Rwandan franc'], ['GNF', 'FG', 'Guinean franc'], ['KES', 'KSh', 'Kenyan shilling'], ['UGX', 'USh', 'Ugandan shilling'], ['TZS', 'TSh', 'Tanzanian shilling'], ['ZAR', 'R', 'South African rand'], ['CDF', 'FC', 'Congolese franc'], ['USD', '$', 'US dollar'], ['EUR', '€', 'Euro'], ['GBP', '£', 'British pound'], ['CAD', 'C$', 'Canadian dollar'], ['CNY', '¥', 'Chinese yuan'], ['AED', 'AED', 'UAE dirham']];
-  const EXPENSE_CATS = ['Warehouse rent', 'Salaries & wages', 'Local transport', 'Electricity & water', 'Phone & internet', 'Marketing', 'Taxes & licences', 'MoMo / bank fees', 'Security', 'Repairs & maintenance', 'Fuel', 'Insurance', 'Other'];
+  // daily running costs first (recorded at the end of each day), then the monthly ones
+  const EXPENSE_CATS = ['Food & drinks', 'Water', 'Local transport', 'Fuel', 'Phone & internet', 'Warehouse rent', 'Salaries & wages', 'Electricity & water', 'Marketing', 'Taxes & licences', 'MoMo / bank fees', 'Security', 'Repairs & maintenance', 'Insurance', 'Other'];
 
   /** Sale totals that don't depend on cost. Payment `amount` pays the sale; `fee` is MoMo/OM charges (separate). */
   function saleTotals(s) {
@@ -683,6 +686,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, CONDITIONS, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, CONDITIONS, WORKING, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

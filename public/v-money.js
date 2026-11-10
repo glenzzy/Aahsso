@@ -36,10 +36,13 @@ const hoBadge = (h) => h.status === 'confirmed' ? '<span class="badge ok">Confir
 const diffText = (d) => Math.abs(d) < 1 ? 'balanced ✓' : d < 0 ? 'short ' + F(-d) : 'over ' + F(d);
 A.hoOpen = (el) => {
   const d = el.dataset.d; const exp = KC.collectedBy(K.raw, K.me.id, d); const prev = byId('handovers', hoId(d, K.me.id)) || {};
+  // cash expenses this person recorded today (End of day) are what they paid out of the till
+  const mine = K.raw.expenses.filter((e) => e.date === d && e.byId === K.me.id && (e.method || 'Cash') === 'Cash');
+  const myCash = { total: mine.reduce((a, e) => a + num(e.amount), 0), note: mine.map((e) => e.category + (e.description ? ' (' + e.description + ')' : '')).join(', ') };
   const methods = Array.from(new Set(Object.keys(exp.by).concat(['Cash'])));
   const sh = openSheet({ title: 'Hand over · ' + fmtDate(d), body: '<div class="alert info mb">Enter what you actually have — counted cash, and the MoMo / OM amounts you can see on the phone.</div>' +
     methods.map((m) => '<div class="row between cl"><div class="grow"><div class="b">' + esc(m) + '</div><div class="tiny muted">Recorded: ' + F(exp.by[m] || 0) + (exp.feesBy[m] ? ' · charges received on top: ' + F(exp.feesBy[m]) : '') + '</div></div><input class="inp price-in" inputmode="numeric" data-dm="' + esc(m) + '" value="' + ((prev.declared || {})[m] ?? (exp.by[m] || '')) + '"></div>').join('') +
-    '<div class="grid2 mt">' + field('Cash paid out today (F)', inp('payouts', prev.payouts || '', 'inputmode="numeric" placeholder="e.g. transport, food"')) + field('What for', inp('payoutNote', prev.payoutNote || '')) + '</div>' + field('Note', inp('notes', prev.notes || ''), 'mt') +
+    '<div class="grid2 mt">' + field('Cash paid out today (F)', inp('payouts', prev.payouts ?? (myCash.total || ''), 'inputmode="numeric" placeholder="e.g. transport, food"')) + field('What for', inp('payoutNote', prev.payoutNote ?? myCash.note)) + '</div>' + field('Note', inp('notes', prev.notes || ''), 'mt') +
     '<div class="card pad mt"><div class="row between"><span>Recorded</span><b class="money">' + F(exp.total) + '</b></div><div class="row between"><span>Handing over + paid out</span><b class="money" id="hoDecl">—</b></div><div class="row between b mt"><span>Difference</span><span id="hoDiff">—</span></div></div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="hoSave">Submit handover</button>' });
   const calc = () => { const decl = $$('[data-dm]', sh).reduce((a, i) => a + num(i.value), 0) + num($('[name=payouts]', sh).value); const diff = decl - exp.total; $('#hoDecl', sh).textContent = F(decl); const o = $('#hoDiff', sh); o.textContent = diffText(diff); o.style.color = Math.abs(diff) < 1 ? 'var(--ok)' : diff < 0 ? 'var(--bad)' : 'var(--warn)'; return diff; };

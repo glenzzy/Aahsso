@@ -99,20 +99,85 @@ A.importCust = async () => {
 };
 
 /* ---------- expenses ---------- */
+/* ---------- end of day: record the day's expenses and do the subtractions ---------- */
+/** Everything for one day: money in (by mode), expenses (by mode), and what is left. */
+function dayClose(d) {
+  const st = periodStats((x) => x === d);
+  const exps = K.raw.expenses.filter((e) => e.date === d).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  const expBy = {}; exps.forEach((e) => { const m = e.method || 'Cash'; expBy[m] = (expBy[m] || 0) + num(e.amount); });
+  const expT = exps.reduce((a, e) => a + num(e.amount), 0);
+  const modes = [...new Set(['Cash'].concat(Object.keys(st.byMethod), Object.keys(expBy)))];
+  const perMode = modes.map((m) => ({ m, inn: st.byMethod[m] || 0, out: expBy[m] || 0, left: (st.byMethod[m] || 0) - (expBy[m] || 0) }));
+  return { d, st, exps, expT, perMode, left: st.collected - expT, profitLeft: st.profit - expT };
+}
+function dayCloseText(c) {
+  return '*End of day — ' + fmtDate(c.d) + ' · ' + S().businessName + '*\n' +
+    'Sales: ' + F(c.st.revenue) + ' (' + c.st.n + ' receipts)\n' +
+    'Money collected: ' + F(c.st.collected) + '\n' + c.perMode.filter((r) => r.inn).map((r) => '  ' + r.m + ': ' + F(r.inn)).join('\n') + (c.perMode.some((r) => r.inn) ? '\n' : '') +
+    'Expenses: −' + F(c.expT) + '\n' + c.exps.map((e) => '  ' + e.category + (e.description ? ' (' + e.description + ')' : '') + ': ' + F(e.amount)).join('\n') + (c.exps.length ? '\n' : '') +
+    '*Left after expenses: ' + F(c.left) + '*\n' +
+    c.perMode.filter((r) => r.inn || r.out).map((r) => '  ' + r.m + ' left: ' + F(r.left)).join('\n') +
+    (seeCost() ? '\nGross profit: ' + F(c.st.profit) + '\n*Profit after expenses: ' + F(c.profitLeft) + '*' : '');
+}
+// lines being typed are kept in K.ui.eodDraft, so a background refresh redraws them instead of wiping them
+const eodRow = (i, r) => { r = r || {}; return '<div class="grid4 eod-row" data-eod="' + i + '">' + sel('eodCat' + i, KC.EXPENSE_CATS, r.category || (i < 3 ? KC.EXPENSE_CATS[i] : 'Other'), 'aria-label="What for"') +
+  inp('eodDesc' + i, r.description || '', 'placeholder="Details (optional)" aria-label="Details"') + inp('eodAmt' + i, r.amount || '', 'inputmode="numeric" placeholder="Amount (F)" aria-label="Amount"') + sel('eodMethod' + i, KC.PAY_METHODS, r.method || 'Cash', 'aria-label="Paid by"') + '</div>'; };
+const eodReadRows = () => { const box = $('#eodRows'); if (!box) return []; const v = formVals(box); return $$('[data-eod]', box).map((r) => r.dataset.eod).map((i) => ({ category: v['eodCat' + i], description: v['eodDesc' + i] || '', amount: v['eodAmt' + i] || '', method: v['eodMethod' + i] || 'Cash' })); };
+['input', 'change'].forEach((t) => document.addEventListener(t, (e) => { if (e.target.closest && e.target.closest('#eodRows')) K.ui.eodDraft = eodReadRows(); }));
+function endOfDayCard() {
+  const d = K.ui.eodDate || todayStr(); const c = dayClose(d); const neg = (v) => v < 0 ? ' style="color:var(--bad)"' : '';
+  const line = (label, v, opt = {}) => '<div class="row between cl' + (opt.b ? ' b' : '') + '"' + (opt.sub ? ' style="padding-left:14px"' : '') + '><span class="' + (opt.sub ? 'small muted' : '') + '">' + label + '</span><span class="money"' + neg(v) + '>' + F(v) + '</span></div>';
+  const draft = K.ui.eodDraft && K.ui.eodDraft.length ? K.ui.eodDraft : [{}, {}, {}];
+  return '<div class="card pad2 mb"><div class="row wrap between mb"><h2>End of day</h2><div class="row wrap"><input type="date" class="inp" style="width:auto" value="' + d + '" data-c="eodDate"><button class="btn" data-a="eodCopy">' + ic('copy') + 'Copy for WhatsApp</button></div></div>' +
+    '<div class="grid2 eod" style="align-items:start">' +
+      // left: add the day's expenses
+      '<div><h3 class="mb">Add today\'s expenses</h3><div class="tiny muted mb">Water, food, transport, fuel… one line each. Leave unused lines empty.</div><div id="eodRows" class="col" style="gap:8px">' + draft.map((r, i) => eodRow(i, r)).join('') + '</div>' +
+      '<div class="row wrap mt"><button class="btn sm" data-a="eodMore">' + ic('plus', 'sm') + 'Another line</button><button class="btn pri grow" data-a="eodSave">' + ic('check') + 'Save expenses</button></div>' +
+      '<h3 class="mt2 mb">Expenses on ' + fmtDate(d) + '</h3>' +
+      (c.exps.length ? '<div class="card tw"><table class="t"><thead><tr><th>What for</th><th>Paid by</th><th>By</th><th class="r">Amount</th></tr></thead><tbody>' + c.exps.map((e) => '<tr data-a="expEdit" data-id="' + e.id + '" style="cursor:pointer"><td>' + esc(e.category) + (e.description ? '<div class="tiny muted">' + esc(e.description) + '</div>' : '') + '</td><td>' + esc(e.method || 'Cash') + '</td><td class="small muted">' + esc(e.by || '—') + '</td><td class="r money b">' + fmt(e.amount) + '</td></tr>').join('') + '</tbody><tfoot><tr><td colspan="3" class="b">Total</td><td class="r money b">' + fmt(c.expT) + '</td></tr></tfoot></table></div>' : '<div class="muted small">No expenses recorded for this day yet.</div>') + '</div>' +
+      // right: the subtractions
+      '<div class="card pad" style="background:var(--bg)"><h3 class="mb">The day\'s sums</h3>' +
+        line('Sales made · ' + c.st.n + ' receipt(s)', c.st.revenue) +
+        line('Money collected', c.st.collected, { b: 1 }) +
+        c.perMode.filter((r) => r.inn).map((r) => line(esc(r.m), r.inn, { sub: 1 })).join('') +
+        line('Expenses (' + c.exps.length + ')', -c.expT) +
+        '<hr class="sep">' + line('= Money left after expenses', c.left, { b: 1 }) +
+        c.perMode.filter((r) => r.inn || r.out).map((r) => line(esc(r.m) + ': ' + fmt(r.inn) + ' in − ' + fmt(r.out) + ' spent', r.left, { sub: 1 })).join('') +
+        (seeCost() ? '<hr class="sep">' + line('Gross profit on sales', c.st.profit) + line('Expenses', -c.expT) + line('= Profit after expenses', c.profitLeft, { b: 1 }) : '') +
+        (c.st.owed > 0 ? '<div class="tiny muted mt">Customers still owe ' + F(c.st.owed) + ' from this day\'s sales (not counted above).</div>' : '') +
+      '</div>' +
+    '</div></div>';
+}
+CH.eodDate = (el) => { K.ui.eodDate = el.value; render(true); };
+A.eodMore = () => { const box = $('#eodRows'); const i = $$('[data-eod]', box).length; box.insertAdjacentHTML('beforeend', eodRow(i, { category: 'Other' })); K.ui.eodDraft = eodReadRows(); box.lastElementChild.querySelector('[name^=eodAmt]').focus(); };
+A.eodCopy = () => copyText(dayCloseText(dayClose(K.ui.eodDate || todayStr())));
+A.eodSave = async () => {
+  const d = K.ui.eodDate || todayStr();
+  const rows = eodReadRows().map((r) => Object.assign(r, { amount: num(r.amount) }));
+  if (rows.some((r) => r.amount < 0)) return toast('Amounts cannot be negative', true);
+  const noAmt = rows.find((r) => r.description && !r.amount); if (noAmt) return toast('Enter the amount for "' + noAmt.description + '"', true);
+  const todo = rows.filter((r) => r.amount > 0);
+  if (!todo.length) return toast('Enter at least one amount', true);
+  let ok = 0;
+  for (const r of todo) if (await save('expenses', Object.assign(r, { id: uid('e_'), date: d, locationId: K.loc, by: K.me.name || '', byId: K.me.id || '' }))) ok++;
+  K.ui.eodDraft = null; render(true);
+  toast(ok + ' expense(s) saved · ' + F(todo.reduce((a, r) => a + r.amount, 0)));
+};
 VIEWS.expenses = {
   render() {
     const m = K.ui.expMonth || monthStr(); const list = K.raw.expenses.filter((e) => (e.date || '').slice(0, 7) === m).sort((a, b) => b.date.localeCompare(a.date));
-    return '<div class="row wrap mb"><button class="btn pri" data-a="expEdit">' + ic('plus') + 'Add expense</button><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth"></div>' +
+    return endOfDayCard() +
+      '<div class="row wrap between mb"><h2>All expenses</h2><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth"><button class="btn" data-a="expEdit">' + ic('plus') + 'Add one expense</button></div></div>' +
       '<div class="alert info mb">For running costs in Cameroon (rent, wages, transport, repairs, fuel…). Container costs go inside each container. Buying equipment or a vehicle? Register it under <a href="#assets">Assets</a> instead — it is spread over its life.</div>' +
       '<div class="kpis mb">' + kpi('Expenses this month', F(list.reduce((a, e) => a + num(e.amount), 0)), list.length + ' entries', true) + '</div>' +
-      '<div class="card list">' + (list.length ? list.map((e) => '<div class="li" data-a="expEdit" data-id="' + e.id + '"><div class="av ink">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(e.category) + '</div><div class="tiny muted">' + fmtDate(e.date) + (e.description ? ' · ' + esc(e.description) : '') + (e.assetId ? ' · ' + esc(assetName(e.assetId)) : '') + ' · ' + esc(e.method || '') + '</div></div><b class="money">' + F(e.amount) + '</b></div>').join('') : '<div class="empty small">No expenses this month.</div>') + '</div>';
+      '<div class="card list">' + (list.length ? list.map((e) => '<div class="li" data-a="expEdit" data-id="' + e.id + '"><div class="av ink">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(e.category) + '</div><div class="tiny muted">' + fmtDate(e.date) + (e.description ? ' · ' + esc(e.description) : '') + (e.assetId ? ' · ' + esc(assetName(e.assetId)) : '') + ' · ' + esc(e.method || '') + (e.by ? ' · ' + esc(e.by) : '') + '</div></div><b class="money">' + F(e.amount) + '</b></div>').join('') : '<div class="empty small">No expenses this month.</div>') + '</div>';
   },
 };
 CH.expMonth = (el) => { K.ui.expMonth = el.value; render(true); };
 A.expEdit = (el) => {
   const id = el.dataset.id; const e = id ? byId('expenses', id) : { date: todayStr(), method: 'Cash', category: KC.EXPENSE_CATS[0] };
   const sh = openSheet({ title: id ? 'Edit expense' : 'Add expense', body: '<div class="col"><div class="grid2">' + field('Date', inp('date', e.date, 'type="date"')) + field('Amount (F)', inp('amount', e.amount, 'inputmode="numeric"')) + field('Category', sel('category', KC.EXPENSE_CATS, e.category)) + field('Paid by', sel('method', KC.PAY_METHODS, e.method)) + '</div>' + field('Description', inp('description', e.description)) + (K.raw.assets.length ? field('For asset (optional)', sel('assetId', [['', '—']].concat(K.raw.assets.filter((a) => !KC.assetGone(a) || a.id === e.assetId).map((a) => [a.id, a.name + (a.tag ? ' · ' + a.tag : '')])), e.assetId || '')) : '') + '</div>', foot: (id ? '<button class="btn danger" id="eDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="eSave">Save</button>' });
-  $('#eSave', sh).onclick = async () => { const v = formVals(sh); v.amount = num(v.amount); if (!v.amount) return toast('Enter an amount', true); if (await save('expenses', Object.assign({ locationId: K.loc }, e, v, { id: id || uid('e_') }))) { closeSheet(); scheduleRender(); } };
+  $('#eSave', sh).onclick = async () => { const v = formVals(sh); v.amount = num(v.amount); if (!v.amount) return toast('Enter an amount', true); if (await save('expenses', Object.assign({ locationId: K.loc }, id ? {} : { by: K.me.name || '', byId: K.me.id || '' }, e, v, { id: id || uid('e_') }))) { closeSheet(); scheduleRender(); } };
   if (id) $('#eDel', sh).onclick = async () => { if (await confirmBox('Delete this expense?', 'Delete', true)) { await remove('expenses', id); closeSheet(); scheduleRender(); } };
 };
 
@@ -194,7 +259,7 @@ A.backupXlsx = () => {
     Containers: K.raw.shipments.map((s) => flat(s)),
     ContainerCosts: K.raw.shipments.flatMap((s) => (s.costs || []).map((c) => Object.assign({ container: s.name }, c))),
     Customers: K.raw.customers.map(flat), Sales: K.raw.sales.map(saleRow),
-    SaleLines: K.raw.sales.flatMap((s) => (s.lines || []).map((l) => ({ receipt: s.no, date: saleDate(s), customer: s.customerName, item: l.name, qty: l.qty, unit_price: l.unitPrice, returned: (l.returns || []).reduce((a, r) => a + num(r.qty), 0) }))),
+    SaleLines: K.raw.sales.flatMap((s) => (s.lines || []).map((l) => ({ receipt: s.no, date: saleDate(s), customer: s.customerName, item: l.name, qty: l.qty, unit_price: l.unitPrice, condition: l.condition || '', working: l.working || '', collected: s.delivered ? 'yes' : 'no', returned: (l.returns || []).reduce((a, r) => a + num(r.qty), 0) }))),
     Payments: K.raw.sales.flatMap((s) => (s.payments || []).map((p) => ({ receipt: s.no, sale_txn_id: KC.saleTxnId(s), customer: s.customerName, date: p.date, mode: p.method, account: p.account, txn_id: p.ref, amount: p.amount, momo_charges: num(p.fee), total_sent: num(p.amount) + Math.max(0, num(p.fee)), note: p.note || '', by: p.by || '' }))),
     SupplierPayments: K.raw.bills.flatMap((b) => (b.payments || []).map((p) => ({ bill_txn_id: KC.billTxnId(b), supplier: (byId('suppliers', b.supplierId) || {}).name || '', description: b.description || '', currency: b.currency, date: p.date, mode: p.method, paid_to: p.account || '', txn_id: p.ref || '', amount: p.amount, momo_charges: num(p.fee), total_sent: num(p.amount) + Math.max(0, num(p.fee)), by: p.by || '' }))),
     Adjustments: K.raw.adjustments.map(flat), Expenses: K.raw.expenses.map(flat),

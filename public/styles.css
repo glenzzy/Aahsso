@@ -261,3 +261,7 @@ table.sales .neg{color:var(--bad)}
 .btn.is-busy{filter:saturate(.85)}
 /* clickable rows / cards that start slow work */
 .li.is-busy,[data-a].is-busy:not(button):not(.btn):not(.chip){opacity:.6}
+
+/* end of day expense lines: room for the category and details */
+.eod-row{grid-template-columns:1.35fr 1.35fr 1fr .9fr;gap:8px}
+@media (max-width:600px){.eod-row{grid-template-columns:1fr 1fr}}

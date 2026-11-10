@@ -148,6 +148,21 @@ function editCustomer(id, after) {
   };
 }
 
+/* ---------- item condition on each sale line ---------- */
+const lineCond = (l) => l.condition || (byId('products', l.productId) || {}).condition || 'New';
+const lineWork = (l) => l.working || 'Working';
+/** 'Used · Not tested' — only when it is worth saying (anything other than new & working). */
+const itemNote = (l) => (lineCond(l) === 'New' && lineWork(l) === 'Working') ? '' : lineCond(l) + ' · ' + lineWork(l);
+function cartConditionFields() {
+  if (!K.cart.lines.length) return '';
+  const opt = (list, v) => list.map((o) => '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
+  return '<h3 class="mt">Items — condition</h3><div class="card pad col" style="gap:8px">' + K.cart.lines.map((l, i) =>
+    '<div><div class="b small ellipsis">' + esc(l.name) + ' <span class="muted">× ' + fmt(l.qty) + '</span></div><div class="grid2" style="margin-top:4px">' +
+    '<select class="inp" data-lc="' + i + '" data-k="condition" aria-label="Condition of ' + esc(l.name) + '">' + opt(KC.CONDITIONS, lineCond(l)) + '</select>' +
+    '<select class="inp" data-lc="' + i + '" data-k="working" aria-label="Is ' + esc(l.name) + ' working?">' + opt(KC.WORKING, lineWork(l)) + '</select></div></div>').join('') + '</div>';
+}
+document.addEventListener('change', (e) => { const t = e.target; if (!t.dataset || t.dataset.lc === undefined) return; const l = K.cart.lines[+t.dataset.lc]; if (l) { l[t.dataset.k] = t.value; saveCart(); } });
+
 /* ---------- shared payment form (sales AND purchases) ----------
  * Amount and MoMo/OM charges are separate fields/columns. Every payment carries a mode and a transaction ID
  * (required for MoMo / OM). kind 'sale': Cash / MTN MoMo / Orange Money, money goes to one of our numbers.
@@ -258,7 +273,8 @@ A.checkout = () => {
       (can('discount') ? '<div class="row between mt"><span class="muted">Discount (F)</span><input class="inp price-in" inputmode="numeric" id="discIn" value="' + (disc || '') + '" placeholder="0"></div>' : '') +
       '<hr class="sep"><div class="row between"><span class="b">Total</span><span class="money b" style="font-size:22px" id="totOut">' + F(total) + '</span></div>' +
       (editing ? '<div class="row between small mt"><span class="muted">Already paid</span><span class="money">' + F(t.paid) + '</span></div>' : '') + '</div>' +
-      '<div class="grid2">' + field('Sale date', inp('saleDate', editing ? saleDate(editing) : todayStr(), 'type="date"')) + field('Picked up?', sel('delivered', [['yes', 'Yes, collected now'], ['no', 'No — reserve / hold']], editing ? (editing.delivered ? 'yes' : 'no') : 'yes')) + '</div>' +
+      '<div class="grid2">' + field('Sale date', inp('saleDate', editing ? saleDate(editing) : todayStr(), 'type="date"')) + field('Collected by the customer?', sel('delivered', [['yes', 'Yes — collected now'], ['no', 'No — left at the shop, to pick up later']], editing ? (editing.delivered ? 'yes' : 'no') : 'yes')) + '</div>' +
+      cartConditionFields() +
       (can('payments') ? '<h3 class="mt">Payment ' + (editing ? '(additional)' : '') + '</h3><div class="tiny muted" style="margin-top:-6px">Enter less than the total for a deposit, or 0 for an unpaid reserved order.</div>' + payFields(Math.max(0, due)) : '<div class="alert info">The order will be saved unpaid. A cashier records the payment.</div>') +
       field('If not fully paid: pay by', inp('dueDate', editing && editing.dueDate ? editing.dueDate : KC.addDays(todayStr(), num(S().creditDays) || 14), 'type="date"')) +
       field('Note (optional)', inp('notes', editing ? editing.notes : '')) + '</div>');
@@ -282,7 +298,7 @@ async function completeSale(v) {
   for (const l of K.cart.lines) {
     const alloc = KC.allocate(K.C, K.raw.lots, l.productId, num(l.qty), extra, K.cart.customerId, K.loc);
     if (!alloc) { toast('Not enough stock for ' + l.name + ' (' + availFor(l.productId) + ' left)', true); return false; }
-    lines.push({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), alloc, returns: [] });
+    lines.push({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), condition: lineCond(l), working: lineWork(l), alloc, returns: [] });
   }
   const cu = K.cart.customerId && byId('customers', K.cart.customerId);
   let pay = null;
@@ -329,7 +345,7 @@ function receiptText(s) {
   const L = ['*' + st.businessName + '*'];
   if (st.phone) L.push('Tel: ' + st.phone);
   L.push('', 'Receipt: ' + s.no, 'Date: ' + fmtDate(saleDate(s)), 'Customer: ' + s.customerName, '');
-  (s.lines || []).forEach((l) => L.push('• ' + l.name + '\n   ' + l.qty + ' × ' + fmt(l.unitPrice) + ' = ' + F(l.qty * l.unitPrice)));
+  (s.lines || []).forEach((l) => L.push('• ' + l.name + (itemNote(l) ? ' (' + itemNote(l) + ')' : '') + '\n   ' + l.qty + ' × ' + fmt(l.unitPrice) + ' = ' + F(l.qty * l.unitPrice)));
   L.push('');
   if (t.discount) L.push('Subtotal: ' + F(t.subtotal), 'Discount: −' + F(t.discount));
   if (t.returned) L.push('Returned: −' + F(t.returned));
@@ -338,6 +354,7 @@ function receiptText(s) {
   (s.payments || []).forEach((p) => L.push('  ' + fmtDate(p.date) + ' ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : '')));
   if (t.fees > 0) L.push('MoMo charges total: ' + F(t.fees));
   if (t.txnId) L.push('Transaction ID: ' + t.txnId);
+  L.push('Collected: ' + (s.delivered ? 'Yes' : 'No — to pick up at the shop'));
   if (!s.delivered) L.push('', '⏳ Items reserved — awaiting pickup');
   if (st.receiptFooter) L.push('', st.receiptFooter);
   return L.join('\n');
@@ -347,7 +364,7 @@ function receiptHTML(s) {
   return '<div class="receipt" id="rcpt"><div class="rh"><div class="rlogo">' + (st.logo ? '<img src="' + esc(st.logo) + '">' : esc(initials(st.businessName).slice(0, 2))) + '</div><div class="b" style="font-size:17px">' + esc(st.businessName) + '</div>' +
     (st.tagline ? '<div class="tiny muted">' + esc(st.tagline) + '</div>' : '') + '<div class="tiny muted">' + esc([st.address, st.phone].filter(Boolean).join(' · ')) + '</div></div>' +
     '<div class="row between small"><span class="muted">Receipt</span><b>' + esc(s.no) + '</b></div><div class="row between small"><span class="muted">Date</span><span>' + fmtDate(saleDate(s)) + '</span></div><div class="row between small mb"><span class="muted">Customer</span><span class="b">' + esc(s.customerName) + '</span></div>' +
-    '<table>' + (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td><div class="b">' + esc(l.name) + '</div><div class="tiny muted">' + l.qty + ' × ' + fmt(l.unitPrice) + (rq ? ' · ' + rq + ' returned' : '') + '</div></td><td class="right money nowrap">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
+    '<table>' + (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td><div class="b">' + esc(l.name) + '</div><div class="tiny muted">' + l.qty + ' × ' + fmt(l.unitPrice) + (itemNote(l) ? ' · ' + esc(itemNote(l)) : '') + (rq ? ' · ' + rq + ' returned' : '') + '</div></td><td class="right money nowrap">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
     (t.discount ? '<tr><td class="muted">Discount</td><td class="right money">−' + fmt(t.discount) + '</td></tr>' : '') + (t.returned ? '<tr><td class="muted">Returns</td><td class="right money">−' + fmt(t.returned) + '</td></tr>' : '') +
     '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr><tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
     (t.balance > 0 ? '<tr><td class="b" style="color:var(--bad)">Balance due</td><td class="right money b" style="color:var(--bad)">' + F(t.balance) + '</td></tr>' : '') + '</table>' +
@@ -385,7 +402,7 @@ function receiptPDF(s) {
   lines.forEach((l) => {
     doc.setFont('helvetica', 'bold'); doc.text(doc.splitTextToSize(l.name, 50)[0], 5, y);
     doc.text(fmt(l.qty * l.unitPrice), 75, y, { align: 'right' }); y += 4;
-    doc.setFont('helvetica', 'normal'); doc.text(l.qty + ' x ' + fmt(l.unitPrice), 5, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.text(l.qty + ' x ' + fmt(l.unitPrice) + (itemNote(l) ? '  ' + itemNote(l) : ''), 5, y); y += 5;
   });
   doc.line(5, y, 75, y); y += 5;
   const row = (a, b, bold) => { doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.text(a, 5, y); doc.text(b, 75, y, { align: 'right' }); y += 5; };
@@ -445,7 +462,7 @@ function salesRows(list) {
     const pays = (s.payments || []).filter((p) => num(p.amount) > 0);
     const modes = Array.from(new Set(pays.map((p) => p.method || 'Cash')));
     const refs = pays.map((p) => p.ref).filter(Boolean);
-    const items = (s.lines || []).map((l) => l.name + ' ×' + l.qty).join(', ');
+    const items = (s.lines || []).map((l) => l.name + ' ×' + l.qty + (itemNote(l) ? ' (' + itemNote(l) + ')' : '')).join(', ');
     const due = KC.dueDateOf(s, S()); const overdue = !cx && x.balance > 0 && due < today;
     if (!cx) { T.net += x.net; T.paid += x.paid; T.fees += x.fees || 0; T.bal += Math.max(0, x.balance); T.profit += x.profit || 0; T.qty += qty; }
     return '<tr data-a="openSale" data-id="' + s.id + '"' + (cx ? ' class="cx"' : '') + '>' +
@@ -459,7 +476,7 @@ function salesRows(list) {
       '<td class="r money">' + (x.fees > 0 ? fmt(x.fees) : '<span class="faint">—</span>') + '</td>' +
       '<td class="r money' + (x.balance > 0 && !cx ? ' neg b' : '') + '">' + (x.balance > 0 && !cx ? fmt(x.balance) + '<span class="sub">' + (overdue ? 'overdue' : 'due ' + dayMon(due)) + '</span>' : '<span class="faint">—</span>') + '</td>' +
       (cost ? '<td class="r money">' + (cx ? '<span class="faint">—</span>' : fmt(x.profit)) + '</td>' : '') +
-      '<td class="st">' + statusBadge(x.status) + (!s.delivered && !cx ? ' <span class="badge info">Pickup</span>' : '') + '<span class="sub">' + esc(s.createdBy || '—') + (multi ? ' · ' + esc(locName(s.locationId)) : '') + '</span></td></tr>';
+      '<td class="st">' + statusBadge(x.status) + (!cx ? (s.delivered ? ' <span class="badge">Collected</span>' : ' <span class="badge info">At shop</span>') : '') + '<span class="sub">' + esc(s.createdBy || '—') + (multi ? ' · ' + esc(locName(s.locationId)) : '') + '</span></td></tr>';
   }).join('');
   const F_ = (v) => '<td class="r money">' + fmt(v) + '</td>';
   return '<table class="t sales"><thead><tr><th>Date</th><th>Receipt / Txn ID</th><th>Customer</th><th>Items</th><th>Payment mode</th><th class="r">Total</th><th class="r">Paid</th><th class="r">MoMo charges</th><th class="r">Balance</th>' + (cost ? '<th class="r">Profit</th>' : '') + '<th>Status</th></tr></thead>' +
@@ -479,9 +496,9 @@ function openSale(id) {
     const x = K.C.saleX[s.id]; const cancelled = x.status === 'cancelled';
     const hasReturns = (s.lines || []).some((l) => (l.returns || []).length);
     $('.sh h2', el).textContent = 'Sale ' + s.no;
-    setSheetBody(el, '<div class="row between mb"><div><div class="b" style="font-size:17px">' + esc(s.customerName) + '</div><div class="tiny muted">' + fmtDate(saleDate(s)) + ' · by ' + esc(s.createdBy || '—') + (s.customerPhone ? ' · ' + esc(s.customerPhone) : '') + (allLocs().length > 1 ? ' · ' + esc(locName(s.locationId)) : '') + (x.txnId ? ' · txn ' + esc(x.txnId) : '') + (x.balance > 0 && !cancelled ? ' · <b>pay by ' + fmtDate(KC.dueDateOf(s, S())) + '</b>' : '') + '</div></div><div class="col gap4" style="align-items:flex-end">' + statusBadge(x.status) + (!s.delivered && !cancelled ? '<span class="badge info">Awaiting pickup</span>' : '') + '</div></div>' +
+    setSheetBody(el, '<div class="row between mb"><div><div class="b" style="font-size:17px">' + esc(s.customerName) + '</div><div class="tiny muted">' + fmtDate(saleDate(s)) + ' · by ' + esc(s.createdBy || '—') + (s.customerPhone ? ' · ' + esc(s.customerPhone) : '') + (allLocs().length > 1 ? ' · ' + esc(locName(s.locationId)) : '') + (x.txnId ? ' · txn ' + esc(x.txnId) : '') + (x.balance > 0 && !cancelled ? ' · <b>pay by ' + fmtDate(KC.dueDateOf(s, S())) + '</b>' : '') + '</div></div><div class="col gap4" style="align-items:flex-end">' + statusBadge(x.status) + (!cancelled ? (s.delivered ? '<span class="badge">Collected' + (s.pickedUpAt ? ' ' + esc(dayMon(s.pickedUpAt.slice(0, 10))) : '') + '</span>' : '<span class="badge info">Not collected — at shop</span>') : '') + '</div></div>' +
       '<div class="card"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>' +
-      (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td>' + esc(l.name) + (rq ? '<div class="tiny" style="color:var(--warn)">' + rq + ' returned</div>' : '') + '</td><td class="r">' + l.qty + '</td><td class="r money">' + fmt(l.unitPrice) + '</td><td class="r money">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
+      (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td>' + esc(l.name) + '<div class="tiny muted">' + esc(lineCond(l) + ' · ' + lineWork(l)) + '</div>' + (rq ? '<div class="tiny" style="color:var(--warn)">' + rq + ' returned</div>' : '') + '</td><td class="r">' + l.qty + '</td><td class="r money">' + fmt(l.unitPrice) + '</td><td class="r money">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
       '</tbody></table><div class="pad"><div class="row between small"><span class="muted">Subtotal</span><span class="money">' + F(x.subtotal) + '</span></div>' + (x.discount ? '<div class="row between small"><span class="muted">Discount</span><span class="money">−' + F(x.discount) + '</span></div>' : '') + (x.returned ? '<div class="row between small"><span class="muted">Returns</span><span class="money">−' + F(x.returned) + '</span></div>' : '') +
       '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div><div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
       (seeCost() && !cancelled ? '<div class="row between small mt"><span class="muted">Cost of goods · profit</span><span class="money">' + F(x.cogs) + ' · <b style="color:var(--ok)">' + F(x.profit) + '</b></span></div>' : '') + '</div></div>' +
@@ -502,7 +519,7 @@ A.markPicked = async (el) => { const s = byId('sales', el.dataset.id); await sav
 A.editSale = (el) => {
   const s = byId('sales', el.dataset.id);
   if (K.cart.lines.length && K.cart.editingId !== s.id) { toast('Finish or clear the current cart first', true); return; }
-  K.cart = { editingId: s.id, customerId: s.customerId, discount: num(s.discount), lines: s.lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, manual: true })) };
+  K.cart = { editingId: s.id, customerId: s.customerId, discount: num(s.discount), lines: s.lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, condition: l.condition, working: l.working, manual: true })) };
   if ((s.locationId || 'main') !== K.loc) { if (!myLocs().find((x) => x.id === (s.locationId || 'main'))) { toast('This sale belongs to another location', true); K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; return; } K.loc = s.locationId || 'main'; fixLoc(); }
   saveCart(); while (K.sheets.length) closeSheet(); go('sell');
 };
