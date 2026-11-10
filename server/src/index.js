@@ -443,7 +443,12 @@ app.get('/api/images/:id', wrap(async (req, res) => {
 
 /* ---------- frontend ---------- */
 app.get('/healthz', (req, res) => res.json({ ok: true }));
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+// App code (html/js/css) must never be served stale after an update: browsers revalidate every time
+// (a cheap 304 when unchanged). Icons/images can still be cached for an hour.
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  maxAge: '1h',
+  setHeaders: (res, file) => { if (/\.(html|js|css|json)$/.test(file)) res.setHeader('Cache-Control', 'no-cache'); },
+}));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 app.use((e, req, res, next) => { console.error(e); err(res, 500, 'Server error'); });

@@ -169,7 +169,6 @@ function payFields(defAmount, opts = {}) {
     '<div id="pmCharges" class="' + (mm ? '' : 'hide') + '">' +
       '<div class="grid2">' + field('Withdrawal / MoMo charges (' + sym + ')', inp('payFee', sug || '', 'inputmode="decimal" id="payFee" placeholder="0"')) +
         field(sale ? 'Customer sends' : 'You send', '<div class="inp" id="payGross" style="display:flex;align-items:center;background:var(--bg, #f6f6f6)">' + money(num(defAmount) + sug, cur) + '</div>') + '</div>' +
-      '<div class="tiny muted" style="margin-top:-4px;margin-bottom:8px">' + (sale ? 'Sale amount pays the receipt.' : 'Amount paid reduces what you owe.') + ' Charges are the operator fee (MTN / Orange), kept in a separate column. Suggested from Settings → fee table; you can edit.</div>' +
     '</div>' +
     '<div class="grid2" id="pmExtra"' + (defMethod === 'Cash' ? ' style="opacity:.5"' : '') + '>' +
       (sale ? field('Money sent to (number)', '<select class="inp" name="payAccount" id="payAccount">' + accountOpts(defMethod).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>')
@@ -421,16 +420,42 @@ VIEWS.sales = {
       '<div class="chips mb">' + SS.map(([k, l]) => '<button class="chip' + (st === k ? ' on' : '') + '" data-a="salesStatus" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="kpis mb">' + kpi('Sales', F(tot), live.length + ' receipt(s)', true) + kpi('Collected', F(paid)) + kpi('Balance owed', F(bal)) + (seeCost() ? kpi('Gross profit', F(prof), tot ? pct(prof / tot * 100) + ' margin' : '') : kpi('Items', fmt(live.reduce((a, s) => a + (s.lines || []).reduce((b, l) => b + num(l.qty), 0), 0)))) + '</div>' +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search customer, receipt no., item" value="' + esc(K.ui.salesQ) + '" data-i="salesQ"></div>' +
-      '<div class="card list" id="salesList">' + salesRows(list) + '</div>';
+      '<div class="card tw sales-tw" id="salesList">' + salesRows(list) + '</div>';
   },
 };
+/** Sales as a table: one row per sale, every important figure in its own column. */
 function salesRows(list) {
   if (!list.length) return '<div class="empty"><div class="big">🧾</div>No sales here yet.</div>';
-  return list.slice(0, 300).map((s) => {
-    const x = K.C.saleX[s.id]; const n = (s.lines || []).reduce((a, l) => a + num(l.qty), 0);
-    return '<div class="li" data-a="openSale" data-id="' + s.id + '"><div class="av">' + esc(initials(s.customerName)) + '</div><div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(s.customerName) + '</div><div class="tiny muted ellipsis">' + esc(s.no) + (x.txnId ? ' · txn ' + esc(x.txnId) : '') + ' · ' + fmtDate(saleDate(s)) + ' · ' + n + ' item(s)</div></div>' +
-      '<div class="right"><div class="b money">' + F(x.net) + '</div><div class="row gap4" style="justify-content:flex-end;margin-top:3px">' + (allLocs().length > 1 ? '<span class="badge">' + esc(locName(s.locationId)) + '</span>' : '') + (!s.delivered && x.status !== 'cancelled' ? '<span class="badge info">Pickup</span>' : '') + statusBadge(x.status) + '</div>' + (x.balance > 0 && x.status !== 'cancelled' ? '<div class="tiny" style="color:var(--bad)">owes ' + fmt(x.balance) + (KC.dueDateOf(s, S()) < todayStr() ? ' · overdue' : '') + '</div>' : '') + '</div></div>';
+  const multi = allLocs().length > 1, cost = seeCost(), today = todayStr();
+  const rows = list.slice(0, 300); const T = { net: 0, paid: 0, fees: 0, bal: 0, profit: 0, qty: 0 };
+  const body = rows.map((s) => {
+    const x = K.C.saleX[s.id]; const cx = x.status === 'cancelled';
+    const qty = (s.lines || []).reduce((a, l) => a + num(l.qty), 0);
+    const pays = (s.payments || []).filter((p) => num(p.amount) > 0);
+    const modes = Array.from(new Set(pays.map((p) => p.method || 'Cash')));
+    const refs = pays.map((p) => p.ref).filter(Boolean);
+    const items = (s.lines || []).map((l) => l.name + ' ×' + l.qty).join(', ');
+    const due = KC.dueDateOf(s, S()); const overdue = !cx && x.balance > 0 && due < today;
+    if (!cx) { T.net += x.net; T.paid += x.paid; T.fees += x.fees || 0; T.bal += Math.max(0, x.balance); T.profit += x.profit || 0; T.qty += qty; }
+    return '<tr data-a="openSale" data-id="' + s.id + '"' + (cx ? ' class="cx"' : '') + '>' +
+      '<td>' + fmtDate(saleDate(s)) + '</td>' +
+      '<td><b>' + esc(s.no) + '</b><span class="sub">' + esc(x.txnId || '') + '</span></td>' +
+      '<td>' + esc(s.customerName) + (s.customerPhone ? '<span class="sub">' + esc(s.customerPhone) + '</span>' : '') + '</td>' +
+      '<td class="wrap"><span class="ellipsis" style="display:block;max-width:260px">' + esc(items) + '</span><span class="sub">' + fmt(qty) + ' item(s)</span></td>' +
+      '<td>' + (modes.length ? esc(modes.join(', ')) : '<span class="faint">—</span>') + (refs.length ? '<span class="sub">' + esc(refs.join(', ')) + '</span>' : '') + '</td>' +
+      '<td class="r money b">' + fmt(x.net) + '</td>' +
+      '<td class="r money">' + fmt(x.paid) + '</td>' +
+      '<td class="r money">' + (x.fees > 0 ? fmt(x.fees) : '<span class="faint">—</span>') + '</td>' +
+      '<td class="r money' + (x.balance > 0 && !cx ? ' neg b' : '') + '">' + (x.balance > 0 && !cx ? fmt(x.balance) + '<span class="sub">' + (overdue ? 'overdue · ' : 'by ') + fmtDate(due) + '</span>' : '<span class="faint">—</span>') + '</td>' +
+      (cost ? '<td class="r money">' + (cx ? '<span class="faint">—</span>' : fmt(x.profit)) + '</td>' : '') +
+      '<td>' + statusBadge(x.status) + (!s.delivered && !cx ? ' <span class="badge info">Pickup</span>' : '') + '</td>' +
+      (multi ? '<td>' + esc(locName(s.locationId)) + '</td>' : '') +
+      '<td>' + esc(s.createdBy || '—') + '</td></tr>';
   }).join('');
+  const F_ = (v) => '<td class="r money">' + fmt(v) + '</td>';
+  return '<table class="t sales"><thead><tr><th>Date</th><th>Receipt / Txn ID</th><th>Customer</th><th>Items</th><th>Payment mode</th><th class="r">Total</th><th class="r">Paid</th><th class="r">MoMo charges</th><th class="r">Balance</th>' + (cost ? '<th class="r">Profit</th>' : '') + '<th>Status</th>' + (multi ? '<th>Branch</th>' : '') + '<th>Sold by</th></tr></thead>' +
+    '<tbody>' + body + '</tbody>' +
+    '<tfoot><tr><td colspan="3">Total · ' + rows.filter((s) => K.C.saleX[s.id].status !== 'cancelled').length + ' sale(s)' + (list.length > rows.length ? ' (first ' + rows.length + ' of ' + list.length + ')' : '') + '</td><td>' + fmt(T.qty) + ' item(s)</td><td></td>' + F_(T.net) + F_(T.paid) + F_(T.fees) + F_(T.bal) + (cost ? F_(T.profit) : '') + '<td></td>' + (multi ? '<td></td>' : '') + '<td></td></tr></tfoot></table>';
 }
 A.salesRange = (el) => { K.ui.salesRange = el.dataset.v; if (K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup') K.ui.salesStatus = 'all'; render(true); };
 A.salesStatus = (el) => { K.ui.salesStatus = el.dataset.v; render(true); };
