@@ -75,25 +75,31 @@ async function runForTenant(tid, opts = {}) {
   return { provider: providerName(), dryRun: !!opts.dryRun, date: t, count: items.length, sent: items.filter((i) => i.status === 'sent').length, failed: items.filter((i) => i.status === 'failed').length, items };
 }
 
-/** Every 15 minutes: run once per day per business at its chosen hour (default 9:00 local). */
+/** Send today's reminders for every business that has them switched on — once per day per business.
+ *  anyHour=false (long-running server, every 15 min): only at the business's chosen hour (default 9:00 local).
+ *  anyHour=true  (Vercel daily cron): whenever it runs; reminder_runs still stops a second send the same day. */
+async function runDue({ anyHour = false } = {}) {
+  const done = [];
+  const rows = (await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND (d.data->>'autoReminders')::boolean IS TRUE AND t.status <> 'suspended'")).rows;
+  for (const r of rows) {
+    const tz = r.data.timezone || 'Africa/Douala'; const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hour12: false }).format(new Date()));
+    if (!anyHour && hour !== Number(r.data.reminderHour ?? 9)) continue;
+    const d = today(tz);
+    const ins = await q('INSERT INTO reminder_runs(tenant_id, run_date) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING tenant_id', [r.tenant_id, d]);
+    if (!ins.rowCount) continue; // already ran today (also safe with several servers)
+    const out = await runForTenant(r.tenant_id, {});
+    await q('UPDATE reminder_runs SET sent=$1 WHERE tenant_id=$2 AND run_date=$3', [out.sent, r.tenant_id, d]);
+    console.log('[reminders]', r.tenant_id, out.sent, 'sent,', out.failed, 'failed');
+    done.push({ tenant: r.tenant_id, sent: out.sent, failed: out.failed });
+  }
+  return done;
+}
+
+/** Long-running server only (Docker / node src/index.js). On Vercel the daily cron calls runDue instead. */
 function startScheduler() {
   if (process.env.REMINDERS_DISABLED === 'true') return;
-  const tick = async () => {
-    try {
-      const rows = (await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND (d.data->>'autoReminders')::boolean IS TRUE AND t.status <> 'suspended'")).rows;
-      for (const r of rows) {
-        const tz = r.data.timezone || 'Africa/Douala'; const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hour12: false }).format(new Date()));
-        if (hour !== Number(r.data.reminderHour ?? 9)) continue;
-        const d = today(tz);
-        const ins = await q('INSERT INTO reminder_runs(tenant_id, run_date) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING tenant_id', [r.tenant_id, d]);
-        if (!ins.rowCount) continue; // already ran today (also safe with several servers)
-        const out = await runForTenant(r.tenant_id, {});
-        await q('UPDATE reminder_runs SET sent=$1 WHERE tenant_id=$2 AND run_date=$3', [out.sent, r.tenant_id, d]);
-        console.log('[reminders]', r.tenant_id, out.sent, 'sent,', out.failed, 'failed');
-      }
-    } catch (e) { console.error('[reminders] scheduler error', e.message); }
-  };
+  const tick = () => runDue().catch((e) => console.error('[reminders] scheduler error', e.message));
   setInterval(tick, 15 * 60 * 1000); setTimeout(tick, 20000);
 }
 
-module.exports = { runForTenant, startScheduler, providerName, send };
+module.exports = { runForTenant, runDue, startScheduler, providerName, send };

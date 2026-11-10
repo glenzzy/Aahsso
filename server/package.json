@@ -1,19 +1,21 @@
 {
   "name": "kargo-server",
   "version": "1.0.0",
-  "description": "Kargo \u2014 multi-tenant SaaS for importers/resellers: purchases, containers, landed cost, stock, POS, receivables, reports",
+  "description": "Kargo — multi-tenant SaaS for importers/resellers: purchases, containers, landed cost, stock, POS, receivables, reports",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "migrate": "node src/migrate.js",
     "import-backup": "node scripts/import-backup.js",
-    "test": "node --test test/compute.test.js",
+    "test": "node scripts/sync-public.js --check && node --test test/compute.test.js",
     "test:api": "node --test test/api.test.js",
-    "seed-demo": "node scripts/seed-demo.js"
+    "seed-demo": "node scripts/seed-demo.js",
+    "sync-public": "node scripts/sync-public.js",
+    "deploy:vercel": "node scripts/sync-public.js && vercel deploy --prod"
   },
   "engines": {
-    "node": ">=18"
+    "node": "24.x"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

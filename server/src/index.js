@@ -46,7 +46,7 @@ const ID_RE = /^[A-Za-z0-9_\-.:@+~]{1,120}$/;
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(compression());
+app.use(compression({ filter: (req, res) => req.path !== '/api/stream' && compression.filter(req, res) })); // never buffer the live stream
 const origins = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 if (origins.length) app.use(cors({ origin: origins }));
 app.use(express.json({ limit: '25mb' }));
@@ -122,13 +122,53 @@ app.get('/api/me', auth, (req, res) => {
 });
 
 /* ---------- live updates (Server-Sent Events) ---------- */
+// Two sources, so it works on one long-running server AND on Vercel (many short-lived instances):
+//  1. in-memory push — instant when the writer and the listener are on the same instance;
+//  2. the audit log in Postgres, checked every few seconds — reaches listeners on any instance.
+// Each event carries the audit cursor as its id; when the stream is closed (Vercel time limit) the browser
+// reconnects with Last-Event-ID and continues from there, so nothing is missed in between.
 const streams = new Map(); // tenantId -> Set(res)
+const STREAM_POLL_MS = Number(process.env.STREAM_POLL_MS || 3000);
+const STREAM_MAX_MS = Number(process.env.STREAM_SECONDS || (process.env.VERCEL ? 50 : 0)) * 1000; // 0 = never close
+const OVERLAP_MS = 20000; // a transaction may commit a little after its audit timestamp
+// rows written alongside another collection without their own audit row
+const ALSO_REFRESH = { transfers: ['adjustments'] };
 app.get('/api/stream', auth, (req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-  res.write('retry: 5000\n\n');
-  const set = streams.get(req.user.tenant_id) || new Set(); set.add(res); streams.set(req.user.tenant_id, set);
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.write('retry: 3000\n\n');
+  const tid = req.user.tenant_id;
+  const set = streams.get(tid) || new Set(); set.add(res); streams.set(tid, set);
+  const lastId = Number(req.headers['last-event-id'] || req.query.since);
+  let cursor = lastId > 0 && lastId > Date.now() - 24 * 3600e3 ? lastId : null; // null → start from the database's "now"
+  const seen = new Map(); // audit id -> at (ms), only within the overlap window
+  let closed = false, busy = false;
+  const poll = async () => {
+    if (closed || busy) return; busy = true;
+    try {
+      if (cursor === null) { cursor = Number((await q('SELECT (extract(epoch from now()) * 1000)::bigint AS ms')).rows[0].ms); busy = false; return; }
+      const rows = (await q('SELECT id, collection, action, (extract(epoch from at) * 1000)::bigint AS ms FROM audit_log WHERE tenant_id=$1 AND at > to_timestamp($2 / 1000.0) ORDER BY at LIMIT 500', [tid, cursor - OVERLAP_MS])).rows;
+      const cols = new Set(); let all = false;
+      for (const r of rows) {
+        const ms = Number(r.ms); if (ms > cursor) cursor = ms;
+        if (seen.has(String(r.id))) continue; seen.set(String(r.id), ms);
+        if (r.action === 'import') all = true;
+        else if (r.collection) { cols.add(r.collection); (ALSO_REFRESH[r.collection] || []).forEach((c) => cols.add(c)); }
+      }
+      seen.forEach((ms, k) => { if (ms < cursor - OVERLAP_MS - 5000) seen.delete(k); });
+      if (!closed && (all || cols.size)) {
+        if (all) res.write('id: ' + cursor + '\ndata: {}\n\n');
+        else cols.forEach((col) => res.write('id: ' + cursor + '\ndata: ' + JSON.stringify({ col }) + '\n\n'));
+      }
+    } catch (e) { console.warn('[stream] poll failed:', e.message); }
+    busy = false;
+  };
+  const pollT = setInterval(poll, STREAM_POLL_MS);
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);
-  req.on('close', () => { clearInterval(ping); set.delete(res); });
+  const stop = () => { if (closed) return; closed = true; clearInterval(pollT); clearInterval(ping); clearTimeout(endT); set.delete(res); };
+  // close a little before the platform would kill the function; the browser reconnects with Last-Event-ID
+  const endT = STREAM_MAX_MS ? setTimeout(async () => { await poll(); res.write('id: ' + cursor + '\n\n'); stop(); res.end(); }, STREAM_MAX_MS) : null;
+  poll(); // start the cursor now, or catch up on whatever happened while reconnecting
+  req.on('close', stop);
 });
 function broadcast(tid, col, id) { (streams.get(tid) || new Set()).forEach((r) => r.write('data: ' + JSON.stringify({ col, id }) + '\n\n')); }
 
@@ -425,10 +465,18 @@ app.post('/api/reminders/run', auth, requireActive, requirePerm('reminders'), wr
   COLLECTIONS.forEach((c) => c === 'reminders' && broadcast(req.user.tenant_id, c));
   res.json(out);
 }));
+// Vercel Cron (vercel.json) calls this once a day; Vercel sends "Authorization: Bearer $CRON_SECRET".
+app.get('/api/cron/reminders', wrap(async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.authorization !== 'Bearer ' + secret) return err(res, 401, 'Unauthorized');
+  const done = await reminders.runDue({ anyHour: true });
+  done.forEach((d) => broadcast(d.tenant, 'reminders'));
+  res.json({ ok: true, businesses: done.length, done });
+}));
 app.get('/api/reminders/provider', auth, (req, res) => res.json({ provider: reminders.providerName() }));
 
 /* ---------- product photos ---------- */
-app.post('/api/images', auth, requireActive, express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '5mb' }), wrap(async (req, res) => {
+app.post('/api/images', auth, requireActive, express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '4mb' }), wrap(async (req, res) => {
   if (!anyU(req.user, ['stockEdit', 'purchases'])) return err(res, 403, 'You do not have permission to add photos');
   if (!Buffer.isBuffer(req.body) || !req.body.length) return err(res, 400, 'Send a JPEG, PNG or WebP image');
   const r = await q('INSERT INTO images(tenant_id,content_type,data) VALUES ($1,$2,$3) RETURNING id', [req.user.tenant_id, req.headers['content-type'], req.body]);

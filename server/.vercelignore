@@ -1,0 +1,8 @@
+# never upload secrets or local stuff to Vercel
+.env
+.env.local
+node_modules
+test
+Dockerfile
+docker-compose.yml
+.dockerignore
