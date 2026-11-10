@@ -211,9 +211,20 @@ async function saveFile(filename, blob) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-function pickFile(accept) {
-  return new Promise((res) => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0] || null); i.click(); });
+/** Open the file chooser. Resolves with the file, or null if the person cancels (so buttons stop loading). */
+function chooseFile(accept, capture) {
+  return new Promise((res) => {
+    const i = document.createElement('input'); i.type = 'file'; i.accept = accept; if (capture) i.setAttribute('capture', capture);
+    let done = false; const finish = (f) => { if (done) return; done = true; window.removeEventListener('focus', onFocus); res(f); };
+    // older browsers have no 'cancel' event: when the window gets focus back and nothing was chosen, treat it as cancel
+    const onFocus = () => setTimeout(() => { if (!i.files || !i.files.length) finish(null); }, 800);
+    i.onchange = () => finish(i.files[0] || null);
+    i.addEventListener('cancel', () => finish(null));
+    setTimeout(() => window.addEventListener('focus', onFocus), 300);
+    i.click();
+  });
 }
+function pickFile(accept) { return chooseFile(accept); }
 async function copyText(t) {
   try { await navigator.clipboard.writeText(t); toast('Copied — paste it in WhatsApp'); }
   catch (e) {
@@ -294,10 +305,55 @@ document.addEventListener('focusout', () => setTimeout(() => { if (!K.sheets.len
 
 /* ---------- event delegation ---------- */
 const A = {}; const I = {}; const CH = {};
+
+/* ---------- loading state for EVERY button ----------
+ * Whenever a click handler returns a promise (saving, signing in, uploading, exporting, waiting for a confirm…)
+ * the clicked button goes into a loading state until the work is done: it is disabled at once (no double
+ * submits), shows a spinner if the work takes more than a moment, and is marked aria-busy for screen readers.
+ * Works for both data-a actions and buttons wired with `.onclick = async () => …` — no per-button code needed. */
+const BUSY_MAX_MS = 120000; // safety net: never leave a button stuck if a promise never settles
+function setBusy(el, on) {
+  if (!el) return;
+  if (on) {
+    if (el.dataset.busy) return;
+    el.dataset.busy = '1'; el._busyWasDisabled = !!el.disabled;
+    if ('disabled' in el) el.disabled = true;
+    el.classList.add('is-busy'); el.setAttribute('aria-busy', 'true');
+    el._busyT = setTimeout(() => setBusy(el, false), BUSY_MAX_MS);
+  } else {
+    if (!el.dataset.busy) return;
+    delete el.dataset.busy; clearTimeout(el._busyT);
+    if ('disabled' in el) el.disabled = el._busyWasDisabled;
+    el.classList.remove('is-busy'); el.removeAttribute('aria-busy');
+  }
+}
+/** If `ret` is a promise, keep `el` busy until it settles. Returns `ret` unchanged. */
+function withBusy(el, ret) {
+  if (!el || !ret || typeof ret.then !== 'function') return ret;
+  setBusy(el, true);
+  const done = () => setBusy(el, false);
+  ret.then(done, done);
+  return ret;
+}
+// buttons wired with el.onclick = async … : wrap the handler just before it runs (capture phase comes first)
+document.addEventListener('click', (e) => {
+  for (let n = e.target; n && n !== document; n = n.parentNode) {
+    if (n.dataset && n.dataset.busy) { e.preventDefault(); e.stopImmediatePropagation(); return; } // already working
+    const h = n.onclick;
+    if (typeof h === 'function' && !h._busyWrapped) {
+      const owner = n;
+      const w = function (ev) { return withBusy(owner, h.call(this, ev)); };
+      w._busyWrapped = true; owner.onclick = w;
+    }
+  }
+}, true);
+// data-a actions
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-a]'); if (!el) return;
   const fn = A[el.dataset.a]; if (!fn) return;
-  e.preventDefault(); e.stopPropagation(); fn(el, e);
+  e.preventDefault(); e.stopPropagation();
+  if (el.dataset.busy) return;
+  withBusy(el, fn(el, e));
 });
 ['input', 'change'].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target.closest && e.target.closest('#view') && VIEWS[K.route] && VIEWS[K.route].form && !e.target.closest('[data-a]')) K.viewDirty = true; }));
 document.addEventListener('input', (e) => { const el = e.target.closest('[data-i]'); if (el && I[el.dataset.i]) I[el.dataset.i](el, e); });
@@ -335,9 +391,7 @@ async function storePhoto(file) {
   if (K.store.uploadImage) { try { const id = await K.store.uploadImage(big.blob); if (id) return id; } catch (e) { console.warn('upload failed, using inline photo', e); } }
   return (await resizeImage(file, 260, 0.72)).dataUrl;
 }
-function photoPicker() {
-  return new Promise((res) => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.setAttribute('capture', 'environment'); i.onchange = () => res(i.files[0] || null); i.click(); });
-}
+function photoPicker() { return chooseFile('image/*', 'environment'); }
 
 document.addEventListener('error', (e) => { const t = e.target; if (t && t.tagName === 'IMG' && (t.classList.contains('thumb') || t.closest('.pimg'))) t.style.visibility = 'hidden'; }, true);
 

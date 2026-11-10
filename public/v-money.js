@@ -172,7 +172,7 @@ VIEWS.reminders = {
 };
 A.remF = (el) => { K.ui.remF = el.dataset.v; render(true); };
 document.addEventListener('click', (e) => { const a = e.target.closest('[data-a2="remLog"]'); if (!a) return; const bal = num(a.dataset.bal); setTimeout(() => save('reminders', { id: uid('rm_'), customerId: a.dataset.c, channel: a.dataset.ch, balance: bal, at: new Date().toISOString(), by: K.me.name || '', auto: false }).then(() => scheduleRender()), 300); }, true);
-A.remCopy = (el) => { const o = owingCustomers().find((x) => x.id === el.dataset.c); copyText(reminderText(o)); save('reminders', { id: uid('rm_'), customerId: o.id, channel: 'copied', balance: Math.round(o.balance), at: new Date().toISOString(), by: K.me.name || '' }); };
+A.remCopy = async (el) => { const o = owingCustomers().find((x) => x.id === el.dataset.c); await copyText(reminderText(o)); await save('reminders', { id: uid('rm_'), customerId: o.id, channel: 'copied', balance: Math.round(o.balance), at: new Date().toISOString(), by: K.me.name || '' }); };
 
 /* ================= LOCATIONS (settings card) ================= */
 function locationsCard() {

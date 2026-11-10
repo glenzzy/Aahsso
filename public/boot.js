@@ -13,6 +13,7 @@ function renderLogin() {
       const r = await fetch(api + (reg ? '/api/auth/register' : '/api/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Failed');
       localStorage.setItem('kargo-token', j.token); location.reload();
+      return new Promise(() => { }); // keep the button loading until the page reloads into the app
     } catch (e) { $('#err').textContent = e.message; }
   };
 }

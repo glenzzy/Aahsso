@@ -235,3 +235,20 @@ table.sales tr.cx td{opacity:.55}
 table.sales tfoot td{font-weight:700;border-top:2px solid var(--line);border-bottom:0;background:var(--card,#fff);position:sticky;bottom:0}
 table.sales .sub{display:block;font-size:11.5px;color:var(--ink3);margin-top:2px}
 table.sales .neg{color:var(--bad)}
+
+/* loading state for every clicked button (set by setBusy in app-core.js) */
+@keyframes kspin{to{transform:rotate(360deg)}}
+@keyframes kbusyHide{to{color:transparent}}
+@keyframes kbusyHideKids{to{visibility:hidden}}
+@keyframes kbusyShow{to{opacity:1}}
+.is-busy{cursor:progress!important;pointer-events:none}
+.btn.is-busy,.icon-btn.is-busy,.chip.is-busy,button.is-busy{position:relative;opacity:1!important;animation:kbusyHide 0s linear .15s forwards}
+.btn.is-busy>*,.icon-btn.is-busy>*,.chip.is-busy>*,button.is-busy>*{animation:kbusyHideKids 0s linear .15s forwards}
+.btn.is-busy::after,.icon-btn.is-busy::after,.chip.is-busy::after,button.is-busy::after{content:'';position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;
+  border:2px solid var(--busySpin,var(--ink2));border-right-color:transparent;opacity:0;animation:kspin .7s linear infinite,kbusyShow 0s linear .15s forwards}
+.btn.pri.is-busy,.chip.on.is-busy{--busySpin:#fff}
+.btn.danger.is-busy{--busySpin:var(--bad)}
+.btn.sm.is-busy::after,.icon-btn.is-busy::after{width:13px;height:13px;margin:-6.5px 0 0 -6.5px}
+.btn.is-busy{filter:saturate(.85)}
+/* clickable rows / cards that start slow work */
+.li.is-busy,[data-a].is-busy:not(button):not(.btn):not(.chip){opacity:.6}
