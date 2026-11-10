@@ -312,11 +312,13 @@ const A = {}; const I = {}; const CH = {};
  * submits), shows a spinner if the work takes more than a moment, and is marked aria-busy for screen readers.
  * Works for both data-a actions and buttons wired with `.onclick = async () => …` — no per-button code needed. */
 const BUSY_MAX_MS = 120000; // safety net: never leave a button stuck if a promise never settles
-function setBusy(el, on) {
+function setBusy(el, on, wasDisabled) {
   if (!el) return;
   if (on) {
     if (el.dataset.busy) return;
-    el.dataset.busy = '1'; el._busyWasDisabled = !!el.disabled;
+    // remember the state from BEFORE the click: some handlers disable their own button first, and restoring
+    // that would leave the button dead after a validation error
+    el.dataset.busy = '1'; el._busyWasDisabled = wasDisabled === undefined ? !!el.disabled : !!wasDisabled;
     if ('disabled' in el) el.disabled = true;
     el.classList.add('is-busy'); el.setAttribute('aria-busy', 'true');
     el._busyT = setTimeout(() => setBusy(el, false), BUSY_MAX_MS);
@@ -328,9 +330,9 @@ function setBusy(el, on) {
   }
 }
 /** If `ret` is a promise, keep `el` busy until it settles. Returns `ret` unchanged. */
-function withBusy(el, ret) {
+function withBusy(el, ret, wasDisabled) {
   if (!el || !ret || typeof ret.then !== 'function') return ret;
-  setBusy(el, true);
+  setBusy(el, true, wasDisabled);
   const done = () => setBusy(el, false);
   ret.then(done, done);
   return ret;
@@ -342,7 +344,7 @@ document.addEventListener('click', (e) => {
     const h = n.onclick;
     if (typeof h === 'function' && !h._busyWrapped) {
       const owner = n;
-      const w = function (ev) { return withBusy(owner, h.call(this, ev)); };
+      const w = function (ev) { const was = !!owner.disabled; return withBusy(owner, h.call(this, ev), was); };
       w._busyWrapped = true; owner.onclick = w;
     }
   }
@@ -353,7 +355,8 @@ document.addEventListener('click', (e) => {
   const fn = A[el.dataset.a]; if (!fn) return;
   e.preventDefault(); e.stopPropagation();
   if (el.dataset.busy) return;
-  withBusy(el, fn(el, e));
+  const was = !!el.disabled;
+  withBusy(el, fn(el, e), was);
 });
 ['input', 'change'].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target.closest && e.target.closest('#view') && VIEWS[K.route] && VIEWS[K.route].form && !e.target.closest('[data-a]')) K.viewDirty = true; }));
 document.addEventListener('input', (e) => { const el = e.target.closest('[data-i]'); if (el && I[el.dataset.i]) I[el.dataset.i](el, e); });

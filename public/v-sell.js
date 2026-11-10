@@ -284,7 +284,8 @@ A.checkout = () => {
   el._refresh();
   $('.sf', el) || el.querySelector('.sheet').insertAdjacentHTML('beforeend', '<div class="sf"></div>');
   $('.sf', el).innerHTML = '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow lg" id="doSell">' + ic('check') + (editing ? 'Update sale' : 'Complete sale') + '</button>';
-  $('#doSell', el).onclick = async (e) => { e.target.disabled = true; const ok = await completeSale(formVals(el)); if (!ok) e.target.disabled = false; };
+  // loading / double-tap protection is handled centrally (setBusy in app-core.js)
+  $('#doSell', el).onclick = () => completeSale(formVals(el));
 };
 async function completeSale(v) {
   const editing = K.cart.editingId && byId('sales', K.cart.editingId);
