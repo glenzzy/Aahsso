@@ -53,7 +53,7 @@
   const CONDITIONS = ['New', 'Open box', 'Used', 'Refurbished', 'Damaged / Parts'];
   const PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer', 'Other'];
   const isMobileMoney = (method) => method === 'MTN MoMo' || method === 'Orange Money';
-  const feeTablesOf = (S) => ((S && S.momoFeeTables) && typeof S.momoFeeTables === 'object' ? S.momoFeeTables : DEFAULT_MOMO_FEE_TABLES);
+  const feeTablesOf = (S) => { const t = S && S.momoFeeTables; return (t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).length > 0) ? t : DEFAULT_MOMO_FEE_TABLES; };
   /** Suggested operator charge for a MoMo/OM payment of `amount` (sale portion). Cash/bank → 0. */
   function calcMomoFee(method, amount, S) {
     if (!isMobileMoney(method)) return 0;
