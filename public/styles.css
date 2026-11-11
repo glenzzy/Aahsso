@@ -310,7 +310,79 @@ table.sales .neg{color:var(--bad)}
 
 /* settings: withdrawal charge grid */
 table.t.fee-tbl td{vertical-align:middle;padding:7px 8px}table.t.fee-tbl th{white-space:nowrap}
-.fee-tbl select.inp{min-height:40px;padding:7px 9px;font-size:14px;min-width:140px}
-.fee-in{position:relative;min-width:104px}.fee-in input{min-height:40px;padding:7px 30px 7px 10px;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+.fee-tbl select.inp{min-height:40px;padding:7px 9px;font-size:14px;min-width:126px}
+.fee-in{position:relative;min-width:86px}.fee-in input{min-height:40px;padding:7px 30px 7px 10px;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
 .fee-in span{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--ink3);pointer-events:none}
 .fee-top{white-space:nowrap;font-variant-numeric:tabular-nums}.fee-try .row{gap:10px;align-items:center}
+
+/* ================= settings page ================= */
+.settings{display:grid;grid-template-columns:220px minmax(0,1fr);gap:22px;align-items:start}
+.set-nav{position:sticky;top:76px;display:flex;flex-direction:column;gap:2px}
+.set-nav button{display:flex;align-items:center;gap:10px;border:0;background:transparent;text-align:left;padding:9px 12px;border-radius:10px;font:inherit;font-size:14px;font-weight:500;color:var(--ink2);cursor:pointer}
+.set-nav button svg{opacity:.55}
+.set-nav button:hover{background:var(--line2);color:var(--ink)}
+.set-nav button.on{background:var(--card);color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(20,32,46,.08),inset 3px 0 0 var(--brand)}
+.set-nav button.on svg{opacity:1;color:var(--brand)}
+.set-main{min-width:0;display:flex;flex-direction:column;gap:16px}
+.set-main .card{margin:0}
+.set-card{padding:22px 24px;scroll-margin-top:80px}
+.set-anchor{scroll-margin-top:80px}
+.set-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--line2)}
+.settings h2{font-size:18px;font-weight:800;letter-spacing:-.015em;color:var(--ink)}
+.set-head p{margin:5px 0 0;font-size:13.5px;font-weight:400;line-height:1.5;color:var(--ink3);max-width:70ch}
+.settings h3{font-size:14.5px;font-weight:750;color:var(--ink);margin:0}
+.set-sub{margin-top:22px;padding-top:18px;border-top:1px dashed var(--line)}
+.set-sub > .hint{margin:3px 0 12px}
+.settings label.f{gap:6px}
+.settings label.f .lbl{font-size:13px;font-weight:600;color:var(--ink2);letter-spacing:.005em}
+.settings .inp{font-size:15px;font-weight:500;color:var(--ink)}
+.settings textarea.inp{font-weight:450;line-height:1.5}
+.settings .hint{font-size:12px;font-weight:400;line-height:1.45;color:var(--ink3)}
+.settings .hint b{font-weight:650;color:var(--ink2)}
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:16px 18px}
+.set-grid .span2{grid-column:span 2}
+@media (max-width:640px){.set-grid .span2{grid-column:auto}}
+/* logo, upload and remove on one line */
+.logo-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+.logo-row .logo{flex:none;border-radius:14px}
+.logo-row .logo-txt{margin-right:auto;min-width:140px}
+.logo-row .logo-txt .b{font-weight:700;font-size:14px}
+/* inputs with their unit inside: 25 % · 50 F · 14 days */
+.in-unit{position:relative}
+.in-unit .inp{padding-right:58px;font-variant-numeric:tabular-nums}
+.in-unit span{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:12.5px;font-weight:600;color:var(--ink3);pointer-events:none}
+/* exchange rates: 1 USD = 600 XAF */
+.fx-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.fx-one,.fx-eq{font-weight:700;color:var(--ink2);font-size:15px}
+select.inp.fx-code{width:104px;flex:none}
+.in-unit.fx-rate{width:170px;flex:none}
+.fx-eg{min-width:150px}
+/* mobile money numbers */
+.mm-row{display:grid;grid-template-columns:160px minmax(160px,1fr) minmax(160px,1fr) 40px;gap:10px;align-items:center;margin-bottom:10px;max-width:760px}
+@media (max-width:640px){.mm-row{grid-template-columns:1fr 1fr 40px}.mm-row [data-mml]{grid-column:1 / 3}}
+/* reminders */
+.tok-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
+.tok-row .chip{font-size:12.5px;padding:5px 10px}
+.rem-prev{margin-top:10px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;padding:12px 14px}
+.rem-prev #remPrev{margin-top:4px;font-size:14px;line-height:1.5;white-space:pre-wrap}
+.cat-ta{font-size:14px!important;min-height:200px}
+/* unsaved changes bar */
+.set-savebar{position:fixed;left:50%;bottom:calc(18px + var(--safeB));transform:translate(-50%,140%);opacity:0;pointer-events:none;transition:transform .2s ease,opacity .2s ease;z-index:40;background:var(--ink);color:#fff;border-radius:16px;padding:10px 12px 10px 18px;display:flex;align-items:center;gap:16px;box-shadow:0 12px 32px rgba(20,32,46,.35);max-width:calc(100vw - 32px)}
+.set-savebar.show{transform:translate(-50%,0);opacity:1;pointer-events:auto}
+.set-savebar .hint{color:#b8c3cd}
+.set-savebar .btn:not(.pri){background:transparent;color:#fff;border-color:rgba(255,255,255,.3)}
+@media (min-width:900px){.set-savebar{left:calc(50% + 118px)}}
+/* phones / tablets: the menu becomes a row of tabs */
+@media (max-width:1099px){
+  .settings{grid-template-columns:1fr}
+  .set-nav{flex-direction:row;overflow-x:auto;top:58px;z-index:15;background:var(--bg);padding:6px 0 8px;margin:-6px 0 0;gap:6px;scrollbar-width:none}
+  .set-nav::-webkit-scrollbar{display:none}
+  .set-nav button{white-space:nowrap;border:1px solid var(--line);background:var(--card);padding:7px 12px;font-size:13px}
+  .set-nav button.on{box-shadow:none;background:var(--ink);color:#fff;border-color:var(--ink)}
+  .set-nav button.on svg{color:#fff}
+}
+@media (max-width:640px){.set-card{padding:18px 16px}.set-head{flex-direction:column}.set-savebar .hint{display:none}}
+.set-anchor > .card{padding:22px 24px}
+@media (max-width:640px){.set-anchor > .card{padding:18px 16px}}
+#setForm{display:flex;flex-direction:column;gap:16px}
+.set-savebar > span:first-child{white-space:nowrap}

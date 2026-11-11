@@ -182,31 +182,113 @@ A.expEdit = (el) => {
 };
 
 /* ---------- settings + backup ---------- */
+/* ---------- settings page: section menu + one card per section ---------- */
+const SET_SECTIONS = [['business', 'Business', 'home'], ['currency', 'Currency', 'wallet'], ['pricing', 'Pricing', 'tag'], ['credit', 'Wholesale & credit', 'users'], ['money', 'Mobile money', 'wallet'], ['reminders', 'Reminders', 'wa'], ['catalogue', 'Stores & categories', 'buy'], ['shop', 'Online shop', 'sell'], ['branches', 'Branches', 'home'], ['backup', 'Backup', 'dl'], ['account', 'Account', 'gear']];
+const setCard = (id, title, desc, body, side) => '<section class="card set-card" id="set-' + id + '"><header class="set-head"><div><h2>' + title + '</h2>' + (desc ? '<p>' + desc + '</p>' : '') + '</div>' + (side || '') + '</header>' + body + '</section>';
+/** label + input + optional hint (one small grey line). */
+const sf = (label, inner, hint, cls) => '<label class="f' + (cls ? ' ' + cls : '') + '"><span class="lbl">' + label + '</span>' + inner + (hint ? '<span class="hint">' + hint + '</span>' : '') + '</label>';
+/** input with its unit inside the box: 25 [%], 50 [F], 14 [days] */
+const unitIn = (name, val, unit, attrs) => '<div class="in-unit"><input class="inp" name="' + name + '" value="' + esc(val === undefined || val === null ? '' : val) + '" ' + (attrs || 'inputmode="decimal"') + '><span>' + esc(unit) + '</span></div>';
+const REM_TOKENS = [['{name}', 'Customer name'], ['{balance}', 'Amount owed'], ['{due}', 'Due date'], ['{business}', 'Your business'], ['{momo}', 'Your MoMo numbers'], ['{receipts}', 'Receipt numbers']];
+function fxRow(code, rate, base) {
+  const k = 'fx' + Math.random().toString(36).slice(2, 8);
+  const opts = KC.CURRENCIES.filter((c) => c[0] !== base).map((c) => '<option value="' + c[0] + '"' + (c[0] === code ? ' selected' : '') + '>' + c[0] + '</option>').join('');
+  return '<div class="fx-row" data-fxrow><span class="fx-one">1</span><select class="inp fx-code" data-fxc="' + k + '" aria-label="Foreign currency">' + opts + '</select><span class="fx-eq">=</span>' +
+    '<div class="in-unit fx-rate"><input class="inp" inputmode="decimal" data-fxr="' + k + '" value="' + esc(rate === undefined ? '' : rate) + '" placeholder="Rate" aria-label="Exchange rate"><span class="fx-base">' + esc(base) + '</span></div>' +
+    '<span class="fx-eg hint"></span><button type="button" class="icon-btn" data-a="fxDel" title="Remove this currency" aria-label="Remove this currency">' + ic('trash', 'sm') + '</button></div>';
+}
+function mmRow(a) {
+  return '<div class="mm-row" data-mm>' + sel('mmMethod', ['MTN MoMo', 'Orange Money', 'Bank transfer'], a.method || 'MTN MoMo', 'aria-label="Type"') +
+    '<input class="inp" data-mmn value="' + esc(a.number || '') + '" placeholder="Number, e.g. 677 00 00 00" inputmode="tel" aria-label="Number">' +
+    '<input class="inp" data-mml value="' + esc(a.label || '') + '" placeholder="Label, e.g. Shop MoMo" aria-label="Label">' +
+    '<button type="button" class="icon-btn" data-a="mmDel" title="Remove this number" aria-label="Remove this number">' + ic('trash', 'sm') + '</button></div>';
+}
+function currencyBlock(s) {
+  const base = s.currency || 'XAF'; const rates = Object.entries(s.fxRates || { USD: s.fxRate || 600 });
+  return '<div class="set-grid">' +
+    sf('Your currency', '<select class="inp" name="baseCurrency" id="baseCur">' + KC.CURRENCIES.map((c) => '<option value="' + c[0] + '"' + (c[0] === base ? ' selected' : '') + '>' + c[0] + ' — ' + esc(c[2]) + '</option>').join('') + '</select>', 'Sales, prices, profit and reports are always in this currency.', 'span2') +
+    sf('Symbol on receipts', '<input class="inp" name="currencySymbol" id="curSym" value="' + esc(s.currencySymbol || 'F') + '" maxlength="5">', 'Prices show as <b id="curEg">25 000 ' + esc(s.currencySymbol || 'F') + '</b>') + '</div>' +
+    '<div class="set-sub"><h3>Exchange rates</h3><p class="hint">For purchases made abroad ($, €…). A rate set on a container is used instead for that container.</p>' +
+    '<div id="fxBox">' + rates.map(([c, r]) => fxRow(c, r, base)).join('') + '</div><button type="button" class="btn sm" data-a="fxAdd">' + ic('plus', 'sm') + 'Add a currency</button></div>';
+}
 VIEWS.settings = {
   form: true,
   render() {
     const s = S();
     K.ui.feeDraft = feeCopy(s.momoFeeTables);
     if (!can('settings')) return '<div class="card pad2 mb"><h2 class="mb">Downloads</h2><div class="row wrap"><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="backupJson">' + ic('dl') + 'Full backup</button></div></div>';
-    return '<div class="card pad2 mb"><h2 class="mb">Backup & restore</h2><p class="muted small" style="margin-top:0">Download <b>all</b> records to keep safe. You can restore this file here or load it into the full version of the app.</p><div class="row wrap"><button class="btn pri" data-a="backupJson">' + ic('dl') + 'Download full backup</button><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="restore">' + ic('up') + 'Restore from backup</button></div><div class="tiny faint mt">Last backup: ' + (s.lastBackup ? fmtDT(s.lastBackup) : 'never') + '</div></div>' +
-      '<div class="card pad2 mb" id="setForm"><h2 class="mb">Business</h2><div class="row mb">' + logoHTML('logo" style="width:64px;height:64px;font-size:22px') + '<div class="col gap6"><button class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button class="btn sm ghost" data-a="logoDel">Remove</button>' : '') + '</div></div>' +
-      '<div class="grid2">' + field('Business name', inp('businessName', s.businessName)) + field('Tagline', inp('tagline', s.tagline)) + field('Phone (on receipts)', inp('phone', s.phone)) + field('Address', inp('address', s.address)) + '</div>' + field('Receipt footer', inp('receiptFooter', s.receiptFooter), 'mt') +
-      currencyBlock(s) + '<h2 class="mt2 mb">Pricing defaults</h2><div class="grid3">' + field('Default markup %', inp('defaultMarkup', s.defaultMarkup, 'inputmode="decimal"')) + field('Minimum markup % (bulk)', inp('minMarkup', s.minMarkup, 'inputmode="decimal"')) + field('Round prices up to (F)', inp('roundTo', s.roundTo, 'inputmode="numeric"')) + field('Low stock alert at', inp('lowStock', s.lowStock, 'inputmode="numeric"')) + field('Expiry warning (days)', inp('expiryWarnDays', s.expiryWarnDays, 'inputmode="numeric"')) + '</div>' +
-      '<h2 class="mt2 mb">Wholesale & credit</h2><div class="grid3">' + field('Wholesale markup %', inp('wholesaleMarkup', s.wholesaleMarkup, 'inputmode="decimal"')) + field('Bulk price from qty (0 = off)', inp('bulkQty', s.bulkQty, 'inputmode="numeric"')) + field('Days to pay (credit sales)', inp('creditDays', s.creditDays, 'inputmode="numeric"')) + '</div>' +
-      '<div class="grid2 mt">' + field('Default credit limit per customer (F)', inp('defaultCreditLimit', s.defaultCreditLimit ?? '', 'inputmode="numeric" placeholder="Empty = no limit"')) + '<div class="tiny muted" style="align-self:end;padding-bottom:12px">Set a different limit on any customer. 0 = cash only.</div></div>' +
-      '<div class="tiny muted mt">Who can see costs and profit is set per person in <a href="#team">Team & access</a>.</div>' +
-      '<h2 class="mt2 mb">Mobile money numbers (receiving)</h2><div id="momoList">' + (s.momoAccounts || []).map((a, i) => '<div class="grid3 mb" data-mm="' + i + '">' + sel('mmMethod' + i, ['MTN MoMo', 'Orange Money', 'Bank transfer'], a.method) + inp('mmNumber' + i, a.number, 'placeholder="Number" inputmode="tel"') + inp('mmLabel' + i, a.label, 'placeholder="Label e.g. Boss MoMo"') + '</div>').join('') + '</div><button class="btn sm" data-a="mmAdd">' + ic('plus', 'sm') + 'Add number</button>' +
-      '<h2 class="mt2 mb">Mobile money withdrawal charges</h2><p class="muted small" style="margin-top:0">When a customer pays by MTN MoMo or Orange Money, Kargo suggests the withdrawal charge from this grid (kept apart from the sale amount). Staff can still change it on each payment. Update it here when the operators change their prices.</p>' +
-      feeEditor() +
-      '<h2 class="mt2 mb">Payment reminder message</h2><div class="tiny muted mb">Words in braces are filled in: {name} {balance} {due} {business} {momo} {receipts}</div><textarea class="inp" name="reminderTemplate">' + esc(s.reminderTemplate || '') + '</textarea>' + field('Remind the same customer at most every (days)', inp('reminderEvery', s.reminderEvery, 'inputmode="numeric"'), 'mt') +
-      '<h2 class="mt2 mb">Stores you buy from</h2>' + field('Comma-separated', inp('vendors', (s.vendors || []).join(', '))) +
-      '<h2 class="mt2 mb">Categories</h2><div class="tiny muted mb">One per line: <b>Category: sub1, sub2</b></div><textarea class="inp" name="categories" style="min-height:180px;font-size:14px">' + esc(Object.entries(s.categories || KC.CATEGORIES).map(([k, v]) => k + ': ' + v.join(', ')).join('\n')) + '</textarea>' +
-      '<button class="btn pri lg block mt2" data-a="saveSettings">Save settings</button></div>' +
-      shopCard() + locationsCard() + (K.info.mode === 'saas' ? '<div class="card pad2 mb"><div class="row between"><div><h2>Account</h2>' + (K.info.tenant ? '<div class="small muted">Plan: <b>' + esc(K.info.tenant.plan) + '</b>' + (K.info.tenant.trialEndsAt ? ' · trial ends ' + fmtDate(String(K.info.tenant.trialEndsAt).slice(0, 10)) : '') + '</div>' : '') + '</div><button class="btn sm" data-a="logout">Sign out</button></div><div class="grid3 mt">' + field('Current password', '<input class="inp" type="password" id="pwOld">') + field('New password', '<input class="inp" type="password" id="pwNew">') + '<button class="btn" style="align-self:end" data-a="pwChange">Change password</button></div></div>' : '');
+    const cats = s.categories || KC.CATEGORIES; const subN = Object.values(cats).reduce((a, v) => a + v.length, 0);
+    const secs = SET_SECTIONS.filter(([k]) => k !== 'account' || K.info.mode === 'saas');
+    const nav = '<nav class="set-nav" aria-label="Settings sections">' + secs.map(([k, l, i]) => '<button type="button" data-a="setGo" data-v="' + k + '" class="' + (k === 'business' ? 'on' : '') + '">' + ic(i, 'sm') + '<span>' + l + '</span></button>').join('') + '</nav>';
+    const form = '<div id="setForm">' +
+      setCard('business', 'Business', 'How your business appears on receipts, the shop page and messages to customers.',
+        '<div class="logo-row" id="setLogo">' + logoHTML('logo" style="width:64px;height:64px;font-size:22px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : '') + '</div>' +
+        '<div class="set-grid">' + sf('Business name', inp('businessName', s.businessName)) + sf('Tagline', inp('tagline', s.tagline, 'placeholder="e.g. Quality goods from the USA"')) + sf('Phone (on receipts)', inp('phone', s.phone, 'inputmode="tel"')) + sf('Address', inp('address', s.address)) + '</div>' +
+        sf('Receipt footer', inp('receiptFooter', s.receiptFooter), 'Printed at the bottom of every receipt.', 'mt')) +
+      setCard('currency', 'Currency', 'Your money, and how purchases in other currencies are converted.', currencyBlock(s)) +
+      setCard('pricing', 'Pricing', 'How selling prices are worked out from what each item cost you, and when to warn you.',
+        '<div class="set-grid">' + sf('Default markup', unitIn('defaultMarkup', s.defaultMarkup, '%'), 'Selling price = landed cost + this %.') + sf('Lowest markup', unitIn('minMarkup', s.minMarkup, '%'), 'Staff cannot sell below this without permission.') + sf('Round prices up to', unitIn('roundTo', s.roundTo, 'F', 'inputmode="numeric"'), 'e.g. 50 → 12 330 becomes 12 350.') +
+        sf('Low stock alert at', unitIn('lowStock', s.lowStock, 'units', 'inputmode="numeric"'), 'Items at or below this show as Low.') + sf('Expiry warning', unitIn('expiryWarnDays', s.expiryWarnDays, 'days', 'inputmode="numeric"'), 'Warn this many days before expiry.') + '</div>') +
+      setCard('credit', 'Wholesale & credit', 'Prices for resellers and how much customers may owe. Who sees costs and profit is set per person in <a href="#team">Team & access</a>.',
+        '<div class="set-grid">' + sf('Wholesale markup', unitIn('wholesaleMarkup', s.wholesaleMarkup, '%'), 'For customers marked Wholesale or Reseller.') + sf('Bulk price from', unitIn('bulkQty', s.bulkQty, 'units', 'inputmode="numeric"'), '0 = off. Buying this many gets the wholesale price.') +
+        sf('Days to pay', unitIn('creditDays', s.creditDays, 'days', 'inputmode="numeric"'), 'Default due date for credit sales.') + sf('Credit limit per customer', unitIn('defaultCreditLimit', s.defaultCreditLimit ?? '', 'F', 'inputmode="numeric" placeholder="No limit"'), 'Empty = no limit, 0 = cash only. Can be changed per customer.') + '</div>') +
+      setCard('money', 'Mobile money', 'Numbers customers send money to, and the withdrawal charges suggested at payment.',
+        '<h3>Receiving numbers</h3><p class="hint" style="margin-top:2px">Shown on receipts and reminders, and chosen when a customer pays.</p><div id="momoList">' + (s.momoAccounts || []).map(mmRow).join('') + '</div><button type="button" class="btn sm" data-a="mmAdd">' + ic('plus', 'sm') + 'Add a number</button>' +
+        '<div class="set-sub"><h3>Withdrawal charges</h3><p class="hint">When a customer pays by MTN MoMo or Orange Money, this grid suggests the charge (kept apart from the sale amount). Staff can still change it on each payment.</p>' + feeEditor() + '</div>') +
+      setCard('reminders', 'Payment reminders', 'The message sent to customers who owe you money.',
+        '<div class="tok-row"><span class="hint">Insert:</span>' + REM_TOKENS.map(([t, l]) => '<button type="button" class="chip" data-a="remTok" data-v="' + t + '" title="' + l + '">' + l + '</button>').join('') + '</div>' +
+        '<textarea class="inp" name="reminderTemplate" id="remTpl" rows="3">' + esc(s.reminderTemplate || '') + '</textarea>' +
+        '<div class="rem-prev"><div class="hint b">Preview</div><div id="remPrev"></div></div>' +
+        '<div class="set-grid mt">' + sf('Remind the same customer at most every', unitIn('reminderEvery', s.reminderEvery, 'days', 'inputmode="numeric"'), 'Nobody is reminded twice within this time.') + '</div>') +
+      setCard('catalogue', 'Stores & categories', 'Lists that make adding purchases and items faster.',
+        sf('Stores you buy from', inp('vendors', (s.vendors || []).join(', ')), 'Separate with commas. They are suggested when you add a purchase.') +
+        sf('Categories', '<textarea class="inp cat-ta" name="categories" rows="9">' + esc(Object.entries(cats).map(([k, v]) => k + ': ' + v.join(', ')).join('\n')) + '</textarea>', 'One category per line, then its subcategories: <b>Category: sub1, sub2</b> · now ' + Object.keys(cats).length + ' categories, ' + subN + ' subcategories.', 'mt') +
+        '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>') +
+      '</div>';
+    const rest = '<div id="set-shop" class="set-anchor">' + shopCard() + '</div><div id="set-branches" class="set-anchor">' + locationsCard() + '</div>' +
+      setCard('backup', 'Backup & restore', 'Download all your records to keep them safe. You can restore the file here or load it into the full version of the app.',
+        '<div class="row wrap"><button class="btn pri" data-a="backupJson">' + ic('dl') + 'Download full backup</button><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="restore">' + ic('up') + 'Restore from backup</button></div><div class="hint mt">Last backup: ' + (s.lastBackup ? fmtDT(s.lastBackup) : '<b>never</b>') + '</div>') +
+      (K.info.mode === 'saas' ? setCard('account', 'Account', K.info.tenant ? 'Plan: <b>' + esc(K.info.tenant.plan) + '</b>' + (K.info.tenant.trialEndsAt ? ' · trial ends ' + fmtDate(String(K.info.tenant.trialEndsAt).slice(0, 10)) : '') : '',
+        '<div class="set-grid">' + sf('Current password', '<input class="inp" type="password" id="pwOld" autocomplete="current-password">') + sf('New password', '<input class="inp" type="password" id="pwNew" autocomplete="new-password">') + '<div class="f" style="justify-content:flex-end"><button class="btn" data-a="pwChange">Change password</button></div></div>',
+        '<button class="btn sm" data-a="logout">Sign out</button>') : '');
+    setTimeout(setAfterRender, 0);
+    return '<div class="settings">' + nav + '<div class="set-main">' + form + rest + '</div></div>' +
+      '<div class="set-savebar" id="setBar" role="status" aria-live="polite"><span><b>Unsaved changes</b><span class="hint"> — save before leaving this page</span></span><span class="row"><button type="button" class="btn" data-a="setDiscard">Discard</button><button type="button" class="btn pri" data-a="saveSettings">' + ic('check') + 'Save settings</button></span></div>';
   },
 };
-const mmCount = () => $$('[data-mm]').length;
-A.mmAdd = () => { $('#momoList').insertAdjacentHTML('beforeend', '<div class="grid3 mb" data-mm="' + mmCount() + '">' + sel('mmMethod' + mmCount(), ['MTN MoMo', 'Orange Money', 'Bank transfer'], 'MTN MoMo') + inp('mmNumber' + mmCount(), '', 'placeholder="Number" inputmode="tel"') + inp('mmLabel' + mmCount(), '', 'placeholder="Label"') + '</div>'); };
+/* live bits after the page is drawn: exchange-rate examples, reminder preview */
+function setAfterRender() { fxExamples(); remPreview(); }
+function fxExamples() {
+  const base = ($('#baseCur') || {}).value || baseCode(); const sym = ($('#curSym') || {}).value || 'F';
+  $$('[data-fxrow]').forEach((r) => { const c = $('select', r).value; const v = num($('[data-fxr]', r).value); const sy = (KC.CURRENCIES.find((x) => x[0] === c) || [0, c])[1]; $('.fx-eg', r).textContent = v > 0 ? sy + ' 100 = ' + fmt(v * 100) + ' ' + sym : ''; $('.fx-base', r).textContent = base; });
+  const eg = $('#curEg'); if (eg) eg.textContent = '25 000 ' + sym;
+}
+function remPreview() {
+  const ta = $('#remTpl'), out = $('#remPrev'); if (!ta || !out) return; const st = S();
+  const momo = ($$('[data-mm]').map((r) => $('select', r).value + ' ' + $('[data-mmn]', r).value).filter((x) => /\d/.test(x)).join(', ')) || st.phone || '';
+  out.textContent = ta.value.replace(/\{name\}/g, 'Jeanne').replace(/\{balance\}/g, F(25000)).replace(/\{due\}/g, fmtDate(KC.addDays(todayStr(), 7))).replace(/\{business\}/g, ($('[name=businessName]') || {}).value || st.businessName).replace(/\{momo\}/g, momo).replace(/\{receipts\}/g, 'S261111-A1B');
+}
+const setDirty = () => { K.viewDirty = true; const b = $('#setBar'); if (b) b.classList.add('show'); };
+['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
+  if (!e.target.closest || !e.target.closest('#setForm')) return;
+  setDirty();
+  if (e.target.closest('#set-currency')) fxExamples();
+  if (e.target.id === 'remTpl' || e.target.closest('#set-money') || e.target.name === 'businessName') remPreview();
+}));
+A.setGo = (el) => { const t = $('#set-' + el.dataset.v); if (t) window.scrollTo({ top: t.getBoundingClientRect().top + window.scrollY - 70, behavior: 'smooth' }); };
+A.setDiscard = async () => { if (await confirmBox('Discard the changes you made on this page?', 'Discard', true)) { K.viewDirty = false; render(true); } };
+A.fxAdd = () => { const used = $$('[data-fxc]').map((s) => s.value); const base = ($('#baseCur') || {}).value || baseCode(); const next = (KC.CURRENCIES.find((c) => c[0] !== base && !used.includes(c[0])) || ['USD'])[0]; $('#fxBox').insertAdjacentHTML('beforeend', fxRow(next, '', base)); $$('#fxBox [data-fxr]').pop().focus(); setDirty(); fxExamples(); };
+A.fxDel = (el) => { el.closest('[data-fxrow]').remove(); setDirty(); };
+A.mmAdd = () => { $('#momoList').insertAdjacentHTML('beforeend', mmRow({})); $$('#momoList [data-mmn]').pop().focus(); setDirty(); };
+A.mmDel = (el) => { el.closest('[data-mm]').remove(); setDirty(); remPreview(); };
+A.remTok = (el) => { const ta = $('#remTpl'); const a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a; ta.value = ta.value.slice(0, a) + el.dataset.v + ta.value.slice(b); ta.focus(); ta.setSelectionRange(a + el.dataset.v.length, a + el.dataset.v.length); setDirty(); remPreview(); };
+document.addEventListener('change', (e) => { if (e.target.id === 'baseCur') { const c = KC.CURRENCIES.find((x) => x[0] === e.target.value); const sy = $('#curSym'); if (c && sy) sy.value = c[1]; fxExamples(); } });
+// highlight the section you are looking at in the menu
+window.addEventListener('scroll', () => {
+  if (K.route !== 'settings') return; const nav = $('.set-nav'); if (!nav) return;
+  let cur = 'business'; for (const [k] of SET_SECTIONS) { const el = $('#set-' + k); if (el && el.getBoundingClientRect().top < 140) cur = k; }
+  $$('button', nav).forEach((b) => b.classList.toggle('on', b.dataset.v === cur));
+}, { passive: true });
 async function saveSettings(patch) {
   const cur = Object.assign({}, K.raw.settings, patch, { id: 'main' });
   K.raw.settings = cur; recompute();
@@ -215,7 +297,7 @@ async function saveSettings(patch) {
 A.saveSettings = async () => {
   const v = formVals($('#setForm'));
   const cats = {}; v.categories.split('\n').forEach((line) => { const [k, rest] = line.split(':'); if (k && k.trim()) cats[k.trim()] = (rest || '').split(',').map((x) => x.trim()).filter(Boolean); });
-  const mm = []; for (let i = 0; i < mmCount(); i++) if (v['mmNumber' + i]) mm.push({ method: v['mmMethod' + i], number: v['mmNumber' + i], label: v['mmLabel' + i] });
+  const mm = $$('#momoList [data-mm]').map((r) => ({ method: $('select', r).value, number: $('[data-mmn]', r).value.trim(), label: $('[data-mml]', r).value.trim() })).filter((m) => m.number);
   const fee = feeDraftForSave(); if (fee.error) { toast(fee.error, true); const ed = $('#feeEd'); if (ed) ed.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
   const momoFeeTables = fee.tables;
   const rates = {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
@@ -232,7 +314,7 @@ A.logoUp = async () => {
   if (await saveSettings({ logo: c.toDataURL('image/jpeg', 0.85) })) { toast('Logo updated'); refreshLogo(); }
 };
 A.logoDel = async () => { await saveSettings({ logo: '' }); refreshLogo(); };
-function refreshLogo() { const box = $('#setForm .logo'); if (box) box.outerHTML = logoHTML('logo" style="width:64px;height:64px;font-size:22px'); shell(); }
+function refreshLogo() { const row = $('#setLogo'); const s = S(); if (row) row.innerHTML = logoHTML('logo" style="width:64px;height:64px;font-size:22px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : ''); shell(); }
 function fullBackup() { const o = { app: 'kargo', version: 1, exportedAt: new Date().toISOString(), business: S().businessName, data: {} }; COLLECTIONS.forEach((c) => (o.data[c] = c === 'settings' ? [Object.assign({ id: 'main' }, K.raw.settings)] : K.raw[c])); if (K.raw.members.length) o.data.members = K.raw.members; return o; }
 async function embedPhotos(b) {
   // Photos stored as files are copied into the backup so it restores anywhere.
@@ -299,15 +381,6 @@ function custItems(live) {
     rows.map((o) => '<tr><td>' + esc(o.name) + '</td><td class="r">' + o.times + '</td><td class="r">' + fmt(o.qty) + '</td><td class="r money">' + fmt(o.prices.reduce((a, b) => a + b, 0) / o.prices.length) + '</td><td class="r money">' + fmt(o.total) + '</td><td class="nowrap">' + fmtDate(o.last) + '</td></tr>').join('') + '</tbody></table></div></div>';
 }
 
-function currencyBlock(s) {
-  const rates = Object.entries(s.fxRates || { USD: s.fxRate || 600 });
-  return '<h2 class="mt2 mb">Currency</h2><div class="tiny muted mb">Sales, prices, profit and reports are always in your local currency. Purchases abroad ($, €…) are converted with these rates, or with the rate set on each container.</div>' +
-    '<div class="grid2">' + field('Your country\'s currency', '<select class="inp" name="baseCurrency" id="baseCur">' + KC.CURRENCIES.map((c) => '<option value="' + c[0] + '"' + (c[0] === (s.currency || 'XAF') ? ' selected' : '') + '>' + c[0] + ' — ' + esc(c[2]) + '</option>').join('') + '</select>') + field('Symbol on receipts', inp('currencySymbol', s.currencySymbol || 'F', 'id="curSym"')) + '</div>' +
-    '<div class="card pad mt" id="fxBox"><div class="b mb">Exchange rates — 1 unit = how much ' + esc(s.currency || 'XAF') + '?</div>' + rates.map(([c, r], i) => '<div class="row mb"><input class="inp" style="width:90px" data-fxc="' + i + '" value="' + esc(c) + '"><span>=</span><input class="inp grow" inputmode="decimal" data-fxr="' + i + '" value="' + r + '"><span class="small muted">' + esc(s.currency || 'XAF') + '</span></div>').join('') +
-    '<button class="btn sm" data-a="fxAdd">' + ic('plus', 'sm') + 'Add currency</button></div>';
-}
-A.fxAdd = () => { const box = $('#fxBox'); const i = $$('[data-fxc]').length; box.querySelector('[data-a=fxAdd]').insertAdjacentHTML('beforebegin', '<div class="row mb"><input class="inp" style="width:90px" data-fxc="' + i + '" placeholder="EUR"><span>=</span><input class="inp grow" inputmode="decimal" data-fxr="' + i + '" placeholder="655.957"><span class="small muted">' + esc(baseCode()) + '</span></div>'); };
-document.addEventListener('change', (e) => { if (e.target.id === 'baseCur') { const c = KC.CURRENCIES.find((x) => x[0] === e.target.value); const sy = $('#curSym'); if (c && sy) sy.value = c[1]; } });
 
 /* where every unit is right now: US → container → sea → port → cleared → warehouse/branches */
 function journeyCard() {
