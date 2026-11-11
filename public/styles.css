@@ -307,3 +307,10 @@ table.sales .neg{color:var(--bad)}
 .dt-pct{display:inline-block;width:46px;height:6px;border-radius:4px;background:var(--line2);margin-right:8px;vertical-align:middle;overflow:hidden}.dt-pct i{display:block;height:100%;background:var(--brand);border-radius:4px}
 
 .nav-count{margin-left:auto;background:var(--accent);color:var(--ink);font-size:11.5px;font-weight:800;border-radius:999px;padding:1px 8px;min-width:22px;text-align:center}
+
+/* settings: withdrawal charge grid */
+table.t.fee-tbl td{vertical-align:middle;padding:7px 8px}table.t.fee-tbl th{white-space:nowrap}
+.fee-tbl select.inp{min-height:40px;padding:7px 9px;font-size:14px;min-width:140px}
+.fee-in{position:relative;min-width:104px}.fee-in input{min-height:40px;padding:7px 30px 7px 10px;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+.fee-in span{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--ink3);pointer-events:none}
+.fee-top{white-space:nowrap;font-variant-numeric:tabular-nums}.fee-try .row{gap:10px;align-items:center}

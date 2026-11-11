@@ -186,6 +186,7 @@ VIEWS.settings = {
   form: true,
   render() {
     const s = S();
+    K.ui.feeDraft = feeCopy(s.momoFeeTables);
     if (!can('settings')) return '<div class="card pad2 mb"><h2 class="mb">Downloads</h2><div class="row wrap"><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="backupJson">' + ic('dl') + 'Full backup</button></div></div>';
     return '<div class="card pad2 mb"><h2 class="mb">Backup & restore</h2><p class="muted small" style="margin-top:0">Download <b>all</b> records to keep safe. You can restore this file here or load it into the full version of the app.</p><div class="row wrap"><button class="btn pri" data-a="backupJson">' + ic('dl') + 'Download full backup</button><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="restore">' + ic('up') + 'Restore from backup</button></div><div class="tiny faint mt">Last backup: ' + (s.lastBackup ? fmtDT(s.lastBackup) : 'never') + '</div></div>' +
       '<div class="card pad2 mb" id="setForm"><h2 class="mb">Business</h2><div class="row mb">' + logoHTML('logo" style="width:64px;height:64px;font-size:22px') + '<div class="col gap6"><button class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button class="btn sm ghost" data-a="logoDel">Remove</button>' : '') + '</div></div>' +
@@ -195,8 +196,8 @@ VIEWS.settings = {
       '<div class="grid2 mt">' + field('Default credit limit per customer (F)', inp('defaultCreditLimit', s.defaultCreditLimit ?? '', 'inputmode="numeric" placeholder="Empty = no limit"')) + '<div class="tiny muted" style="align-self:end;padding-bottom:12px">Set a different limit on any customer. 0 = cash only.</div></div>' +
       '<div class="tiny muted mt">Who can see costs and profit is set per person in <a href="#team">Team & access</a>.</div>' +
       '<h2 class="mt2 mb">Mobile money numbers (receiving)</h2><div id="momoList">' + (s.momoAccounts || []).map((a, i) => '<div class="grid3 mb" data-mm="' + i + '">' + sel('mmMethod' + i, ['MTN MoMo', 'Orange Money', 'Bank transfer'], a.method) + inp('mmNumber' + i, a.number, 'placeholder="Number" inputmode="tel"') + inp('mmLabel' + i, a.label, 'placeholder="Label e.g. Boss MoMo"') + '</div>').join('') + '</div><button class="btn sm" data-a="mmAdd">' + ic('plus', 'sm') + 'Add number</button>' +
-      '<h2 class="mt2 mb">MoMo / Orange withdrawal charges</h2><p class="muted small" style="margin-top:0">Suggested fee when a customer pays by MTN MoMo or Orange Money. The sale amount and the fee are stored as separate columns. Edit the JSON tiers if operators change their grid (min/max, type <code>fixed</code> or <code>pct</code>).</p>' +
-      '<textarea class="inp" name="momoFeeTables" style="min-height:160px;font-family:ui-monospace,monospace;font-size:12px">' + esc(JSON.stringify(s.momoFeeTables || KC.DEFAULT_MOMO_FEE_TABLES, null, 2)) + '</textarea>' +
+      '<h2 class="mt2 mb">Mobile money withdrawal charges</h2><p class="muted small" style="margin-top:0">When a customer pays by MTN MoMo or Orange Money, Kargo suggests the withdrawal charge from this grid (kept apart from the sale amount). Staff can still change it on each payment. Update it here when the operators change their prices.</p>' +
+      feeEditor() +
       '<h2 class="mt2 mb">Payment reminder message</h2><div class="tiny muted mb">Words in braces are filled in: {name} {balance} {due} {business} {momo} {receipts}</div><textarea class="inp" name="reminderTemplate">' + esc(s.reminderTemplate || '') + '</textarea>' + field('Remind the same customer at most every (days)', inp('reminderEvery', s.reminderEvery, 'inputmode="numeric"'), 'mt') +
       '<h2 class="mt2 mb">Stores you buy from</h2>' + field('Comma-separated', inp('vendors', (s.vendors || []).join(', '))) +
       '<h2 class="mt2 mb">Categories</h2><div class="tiny muted mb">One per line: <b>Category: sub1, sub2</b></div><textarea class="inp" name="categories" style="min-height:180px;font-size:14px">' + esc(Object.entries(s.categories || KC.CATEGORIES).map(([k, v]) => k + ': ' + v.join(', ')).join('\n')) + '</textarea>' +
@@ -215,14 +216,8 @@ A.saveSettings = async () => {
   const v = formVals($('#setForm'));
   const cats = {}; v.categories.split('\n').forEach((line) => { const [k, rest] = line.split(':'); if (k && k.trim()) cats[k.trim()] = (rest || '').split(',').map((x) => x.trim()).filter(Boolean); });
   const mm = []; for (let i = 0; i < mmCount(); i++) if (v['mmNumber' + i]) mm.push({ method: v['mmMethod' + i], number: v['mmNumber' + i], label: v['mmLabel' + i] });
-  let momoFeeTables = S().momoFeeTables || KC.DEFAULT_MOMO_FEE_TABLES;
-  if (v.momoFeeTables && String(v.momoFeeTables).trim()) {
-    try {
-      const parsed = JSON.parse(v.momoFeeTables);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
-      momoFeeTables = parsed;
-    } catch (e) { toast('MoMo fee table JSON is invalid', true); return; }
-  }
+  const fee = feeDraftForSave(); if (fee.error) { toast(fee.error, true); const ed = $('#feeEd'); if (ed) ed.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  const momoFeeTables = fee.tables;
   const rates = {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
   const curInfo = KC.CURRENCIES.find((c) => c[0] === v.baseCurrency) || [v.baseCurrency, v.baseCurrency];
   const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, momoFeeTables, vendors: v.vendors.split(',').map((x) => x.trim()).filter(Boolean), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
@@ -387,3 +382,93 @@ A.shopNewLink = async () => {
   if (!(await confirmBox('Make a new shop link? The old link will stop working for anyone who has it.', 'New link', true))) return;
   await saveSettings({ shopId: newShopKey() }); toast('New link ready'); render(true);
 };
+
+/* ---------- settings: MoMo / Orange Money withdrawal charges (visual editor, no JSON) ---------- */
+const FEE_OPS = ['MTN MoMo', 'Orange Money'];
+const feeCopy = (t) => JSON.parse(JSON.stringify(t || KC.DEFAULT_MOMO_FEE_TABLES));
+/** Problems in one operator's grid. errors block saving; warnings are only shown. */
+function feeIssues(tiers) {
+  const errors = [], warnings = [];
+  const rows = tiers.map((t, i) => Object.assign({ n: i + 1 }, t)).sort((a, b) => num(a.min) - num(b.min));
+  tiers.forEach((t, i) => {
+    const n = 'Range ' + (i + 1);
+    if (t.min === '' || t.min === null || t.min === undefined) errors.push(n + ': type the "From" amount');
+    if (t.max !== '' && t.max !== null && t.max !== undefined && num(t.max) < num(t.min)) errors.push(n + ': "To" is below "From"');
+    if (t.type === 'pct' ? t.pct === '' || t.pct === undefined || t.pct === null : t.fee === '' || t.fee === undefined || t.fee === null) errors.push(n + ': type the ' + (t.type === 'pct' ? 'percentage' : 'charge'));
+    if ([t.min, t.max, t.fee, t.pct, t.taxPct, t.taxFixed].some((v) => v !== '' && v !== null && v !== undefined && num(v) < 0)) errors.push(n + ': amounts cannot be negative');
+  });
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1], b = rows[i]; const aMax = a.max === '' || a.max == null ? Infinity : num(a.max);
+    if (num(b.min) <= aMax) errors.push('Ranges ' + a.n + ' and ' + b.n + ' overlap');
+    else if (num(b.min) > aMax + 1) warnings.push('No charge for amounts from ' + fmt(aMax + 1) + ' to ' + fmt(num(b.min) - 1) + ' F');
+  }
+  // operators have their own minimum and maximum withdrawal, so the outer edges are information, not a problem
+  const last = rows[rows.length - 1];
+  const covers = rows.length ? fmt(num(rows[0].min)) + ' F – ' + (last.max === '' || last.max == null ? 'no limit' : fmt(num(last.max)) + ' F') : '';
+  return { errors, warnings, covers };
+}
+function feeEditor() { return '<div id="feeEd">' + feeEditorInner() + '</div>'; }
+function feeEditorInner() {
+  const op = K.ui.feeOp || FEE_OPS[0]; const tiers = K.ui.feeDraft[op] || (K.ui.feeDraft[op] = []);
+  const tables = Object.assign({}, K.ui.feeDraft); const iss = feeIssues(tiers);
+  const numIn = (i, k, v, unit, ph) => '<div class="fee-in"><input class="inp" inputmode="decimal" data-ft="' + k + '" data-fi="' + i + '" value="' + (v === undefined || v === null ? '' : esc(v)) + '" placeholder="' + (ph || '') + '" aria-label="' + k + ' for range ' + (i + 1) + '"><span>' + unit + '</span></div>';
+  const top = (t) => { const hi = t.max === '' || t.max == null ? null : num(t.max); return hi === null ? '—' : fmt(KC.calcMomoFee(op, hi, { momoFeeTables: tables })) + ' F'; };
+  const tryAmt = K.ui.feeTry === undefined ? 50000 : K.ui.feeTry; const tryFee = KC.calcMomoFee(op, tryAmt, { momoFeeTables: tables });
+  return '<div class="row wrap between mb"><div class="seg" role="tablist">' + FEE_OPS.map((o) => '<button type="button" role="tab" aria-selected="' + (o === op) + '" class="' + (o === op ? 'on' : '') + '" data-a="feeOp" data-v="' + esc(o) + '">' + esc(o) + ' <span class="tiny muted">' + (K.ui.feeDraft[o] || []).length + '</span></button>').join('') + '</div>' +
+      '<div class="row wrap"><button type="button" class="btn sm" data-a="feeAdd">' + ic('plus', 'sm') + 'Add a range</button><button type="button" class="btn sm" data-a="feeReset">Reset to standard grid</button></div></div>' +
+    (tiers.length ? '<div class="card tw"><table class="t fee-tbl"><thead><tr><th>#</th><th>From</th><th>To</th><th>Charge type</th><th>Charge</th><th>+ Tax</th><th>+ Extra</th><th class="r">Charge at top of range</th><th></th></tr></thead><tbody>' +
+      tiers.map((t, i) => { const pct = t.type === 'pct'; return '<tr><td class="muted">' + (i + 1) + '</td>' +
+        '<td>' + numIn(i, 'min', t.min, 'F', '0') + '</td><td>' + numIn(i, 'max', t.max, 'F', 'No limit') + '</td>' +
+        '<td><select class="inp" data-ft="type" data-fi="' + i + '" aria-label="Charge type for range ' + (i + 1) + '"><option value="fixed"' + (pct ? '' : ' selected') + '>Fixed amount</option><option value="pct"' + (pct ? ' selected' : '') + '>Percentage</option></select></td>' +
+        '<td>' + (pct ? numIn(i, 'pct', t.pct, '%', '1') : numIn(i, 'fee', t.fee, 'F', '0')) + '</td>' +
+        '<td>' + (pct ? numIn(i, 'taxPct', t.taxPct, '%', '0') : dtNil) + '</td><td>' + (pct ? numIn(i, 'taxFixed', t.taxFixed, 'F', '0') : dtNil) + '</td>' +
+        '<td class="r b fee-top" data-top="' + i + '">' + top(t) + '</td>' +
+        '<td><button type="button" class="icon-btn" data-a="feeDel" data-i="' + i + '" title="Remove this range" aria-label="Remove range ' + (i + 1) + '">' + ic('trash', 'sm') + '</button></td></tr>'; }).join('') +
+      '</tbody></table></div>' : '<div class="card empty small">No ranges for ' + esc(op) + ' — no charge will be suggested. <button type="button" class="btn sm" data-a="feeAdd">Add a range</button></div>') +
+    '<div id="feeMsgs">' + feeMsgs(iss) + '</div>' +
+    '<div class="card pad mt fee-try"><div class="row wrap"><b>Try it</b><span class="muted small">A customer pays</span><div class="fee-in" style="width:150px"><input class="inp" inputmode="numeric" id="feeTry" value="' + esc(tryAmt) + '" aria-label="Amount to test"><span>F</span></div><span class="muted small">by ' + esc(op) + ' →</span>' +
+      '<span>charge <b id="feeTryOut">' + fmt(tryFee) + ' F</b></span><span class="muted small">· customer sends <b id="feeTryGross">' + fmt(num(tryAmt) + tryFee) + ' F</b></span></div></div>';
+}
+const feeMsgs = (iss) => (iss.errors.length ? '<div class="alert bad mt">' + iss.errors.map(esc).join('<br>') + '</div>' : '') + (iss.warnings.length ? '<div class="alert mt small">' + iss.warnings.map(esc).join('<br>') + '</div>' : '') + (!iss.errors.length && !iss.warnings.length && iss.covers ? '<div class="tiny mt" style="color:var(--ok)">✓ Ranges are complete and do not overlap · covers ' + esc(iss.covers) + '</div>' : '');
+/** Refresh the parts that depend on the numbers without redrawing the inputs (keeps the cursor where it is). */
+function feeLive() {
+  const op = K.ui.feeOp || FEE_OPS[0]; const tables = K.ui.feeDraft; const tiers = tables[op] || [];
+  tiers.forEach((t, i) => { const c = $('[data-top="' + i + '"]'); if (c) c.textContent = t.max === '' || t.max == null ? '—' : fmt(KC.calcMomoFee(op, num(t.max), { momoFeeTables: tables })) + ' F'; });
+  const m = $('#feeMsgs'); if (m) m.innerHTML = feeMsgs(feeIssues(tiers));
+  const amt = num(K.ui.feeTry === undefined ? 50000 : K.ui.feeTry); const f = KC.calcMomoFee(op, amt, { momoFeeTables: tables });
+  if ($('#feeTryOut')) { $('#feeTryOut').textContent = fmt(f) + ' F'; $('#feeTryGross').textContent = fmt(amt + f) + ' F'; }
+}
+const feeRedraw = () => { const e = $('#feeEd'); if (e) e.innerHTML = feeEditorInner(); };
+['input', 'change'].forEach((evt) => document.addEventListener(evt, (e) => {
+  const t = e.target;
+  if (t.id === 'feeTry') { K.ui.feeTry = t.value; return feeLive(); }
+  if (!t.dataset || !t.dataset.ft) return;
+  const op = K.ui.feeOp || FEE_OPS[0]; const row = (K.ui.feeDraft[op] || [])[+t.dataset.fi]; if (!row) return;
+  const k = t.dataset.ft;
+  if (k === 'type') { row.type = t.value; if (row.type === 'pct') { delete row.fee; row.pct = row.pct ?? ''; row.taxPct = row.taxPct ?? ''; row.taxFixed = row.taxFixed ?? ''; } else { row.fee = row.fee ?? ''; delete row.pct; delete row.taxPct; delete row.taxFixed; } return feeRedraw(); }
+  row[k] = t.value.trim() === '' ? '' : num(t.value); feeLive();
+}));
+A.feeOp = (el) => { K.ui.feeOp = el.dataset.v; feeRedraw(); };
+A.feeAdd = () => {
+  const op = K.ui.feeOp || FEE_OPS[0]; const tiers = K.ui.feeDraft[op] || (K.ui.feeDraft[op] = []);
+  const last = tiers.slice().sort((a, b) => num(a.min) - num(b.min)).pop(); const from = last ? (last.max === '' || last.max == null ? '' : num(last.max) + 1) : 0;
+  tiers.push({ min: from, max: '', type: 'fixed', fee: '' }); K.viewDirty = true; feeRedraw();
+  const ins = $$('#feeEd [data-ft="fee"]'); if (ins.length) ins[ins.length - 1].focus();
+};
+A.feeDel = (el) => { const op = K.ui.feeOp || FEE_OPS[0]; (K.ui.feeDraft[op] || []).splice(+el.dataset.i, 1); K.viewDirty = true; feeRedraw(); };
+A.feeReset = async () => {
+  const op = K.ui.feeOp || FEE_OPS[0];
+  if (!(await confirmBox('Replace the ' + op + ' ranges with the standard Cameroon grid? Your changes for ' + op + ' are lost (only after you press Save).', 'Reset', true))) return;
+  K.ui.feeDraft[op] = feeCopy(KC.DEFAULT_MOMO_FEE_TABLES)[op] || []; K.viewDirty = true; feeRedraw();
+};
+/** The edited grid, cleaned and sorted, or { error } — used by the Settings Save button. */
+function feeDraftForSave() {
+  const out = {};
+  for (const op of Object.keys(K.ui.feeDraft || {})) {
+    const iss = feeIssues(K.ui.feeDraft[op]); if (iss.errors.length) return { error: op + ' charges — ' + iss.errors[0] };
+    out[op] = K.ui.feeDraft[op].map((t) => t.type === 'pct'
+      ? { min: num(t.min), max: t.max === '' || t.max == null ? null : num(t.max), type: 'pct', pct: num(t.pct), taxPct: num(t.taxPct), taxFixed: num(t.taxFixed) }
+      : { min: num(t.min), max: t.max === '' || t.max == null ? null : num(t.max), type: 'fixed', fee: num(t.fee) }).sort((a, b) => a.min - b.min);
+  }
+  return { tables: out };
+}
