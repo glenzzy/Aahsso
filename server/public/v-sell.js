@@ -256,6 +256,52 @@ function applySaleTxnId(sale, isNew) {
   return sale;
 }
 
+/* ---------- delivery at checkout (kept on the cart so it survives redraws and comes back when editing) ---------- */
+const cartDelivery = () => (K.cart.delivery = K.cart.delivery || { mode: 'pickup', payer: 'client_us', status: 'to_send' });
+function deliveryFields(d) {
+  const opt = (list, v) => list.map(([k, l]) => '<option value="' + k + '"' + (k === v ? ' selected' : '') + '>' + esc(l) + '</option>').join('');
+  const f = (k, label, attrs) => field(label, '<input class="inp" data-dl="' + k + '" value="' + esc(d[k] === undefined || d[k] === null || d[k] === 0 ? '' : d[k]) + '" ' + (attrs || '') + '>');
+  const s_ = (k, label, list) => field(label, '<select class="inp" data-dl="' + k + '">' + opt(list, d[k]) + '</select>');
+  return '<h3 class="mt">Delivery</h3><div class="col" id="dlBox">' + s_('mode', 'How does the client get the goods?', KC.DELIVERY_MODES) +
+    '<div id="dlMore" class="col">' +
+      '<div class="grid2"><div data-dlshow="agency courier">' + f('agency', 'Agency / company name', 'placeholder="e.g. General Express"') + '</div>' + f('destination', 'Town / area', 'placeholder="e.g. Bafoussam"') + '</div>' +
+      f('address', 'Address / landmark (optional)', 'placeholder="e.g. near the main market"') +
+      '<div class="grid2">' + f('recipientName', 'Recipient name', 'placeholder="Who receives the parcel"') + f('recipientPhone', 'Recipient phone', 'inputmode="tel" placeholder="6xx xx xx xx"') + '</div>' +
+      '<div class="grid2">' + f('fee', 'Delivery fee (F)', 'inputmode="numeric" placeholder="0"') + s_('payer', 'Who pays the delivery?', KC.DELIVERY_PAYERS) + '</div>' +
+      '<div class="grid2">' + s_('status', 'Delivery status', KC.DELIVERY_STATUSES) + f('trackingNo', 'Agency receipt / tracking no.', 'placeholder="Optional"') + '</div>' +
+    '</div></div>';
+}
+/** Show / hide delivery fields for the chosen mode and refresh the totals (goods + delivery fee). */
+function syncCheckout(root, setPay) {
+  if (!root) return; const d = cartDelivery(); const del = d.mode !== 'pickup';
+  const more = $('#dlMore', root); if (more) more.classList.toggle('hide', !del);
+  $$('[data-dlshow]', root).forEach((e) => e.classList.toggle('hide', !e.dataset.dlshow.split(' ').includes(d.mode)));
+  const pf = $('#pickField', root); if (pf) pf.classList.toggle('hide', del);
+  if (del) { // the client is usually the recipient
+    const cu = K.cart.customerId && byId('customers', K.cart.customerId);
+    [['recipientName', cu && cu.name], ['recipientPhone', cu && (cu.whatsapp || cu.phone)]].forEach(([k, v]) => { const i = $('[data-dl=' + k + ']', root); if (i && !i.value && v) { i.value = v; d[k] = v; } });
+  }
+  const goods = cartTotal() - num(K.cart.discount); const fee = KC.deliveryFeeDue({ delivery: d });
+  const tot = $('#totOut', root); if (tot) tot.textContent = F(goods);
+  const fr = $('#dlFeeRow', root); if (fr) { fr.classList.toggle('hide', !fee); $('#dlFeeOut', root).textContent = F(fee); $('#dueRow', root).classList.toggle('hide', !fee); $('#dueOut', root).textContent = F(goods + fee); }
+  if (setPay) { const pa = $('#payAmount', root); if (pa) { pa.value = Math.max(0, goods + fee - (root._paid || 0)); const feeEl = $('#payFee', root); if (feeEl) feeEl.dataset.auto = '1'; syncPayCharges(root); } }
+  saveCart();
+}
+['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
+  const k = e.target.dataset && e.target.dataset.dl; if (!k) return;
+  const d = cartDelivery(); d[k] = k === 'fee' ? Math.max(0, num(e.target.value)) : e.target.value;
+  syncCheckout(e.target.closest('.scrim'), k === 'fee' || k === 'payer' || k === 'mode');
+}));
+/** Delivery details from the cart, checked. Returns { delivery } or { error }. */
+function readCartDelivery() {
+  const d = KC.cleanDelivery(cartDelivery()) || { mode: 'pickup' };
+  if (d.mode === 'pickup') return { delivery: { mode: 'pickup' } };
+  if (!d.destination) return { error: 'Type the town / area to deliver to' };
+  if (d.mode === 'agency' && !d.agency) return { error: 'Type the travel agency name' };
+  if (!d.recipientName || !d.recipientPhone) return { error: 'Type the recipient name and phone' };
+  return { delivery: d };
+}
+
 /* ---------- checkout ---------- */
 A.checkout = () => {
   if (!K.cart.lines.length) return;
@@ -266,20 +312,23 @@ A.checkout = () => {
     const cu = K.cart.customerId && byId('customers', K.cart.customerId);
     const sub = cartTotal(), disc = num(K.cart.discount), total = sub - disc;
     const t = editing ? KC.saleTotals(editing) : null;
-    const due = editing ? total - t.paid : total;
+    const dFee = KC.deliveryFeeDue({ delivery: cartDelivery() });
+    el._paid = editing ? t.paid : 0;
+    const due = total + dFee - el._paid;
     setSheetBody(el, '<div class="col">' +
       '<div class="cust-pill" data-a="pickCustomer">' + (cu ? '<div class="av">' + esc(initials(cu.name)) + '</div><div class="grow"><div class="b">' + esc(cu.name) + '</div><div class="tiny muted">' + esc(cu.phone || '') + creditTag(cu) + '</div></div>' : '<div class="av">' + ic('users', 'sm') + '</div><div class="grow b">Walk-in customer — tap to select</div>') + ic('chev', 'sm') + '</div>' +
       '<div class="card pad"><div class="row between"><span class="muted">Subtotal (' + cartCount() + ' items)</span><span class="money b">' + F(sub) + '</span></div>' +
       (can('discount') ? '<div class="row between mt"><span class="muted">Discount (F)</span><input class="inp price-in" inputmode="numeric" id="discIn" value="' + (disc || '') + '" placeholder="0"></div>' : '') +
       '<hr class="sep"><div class="row between"><span class="b">Total</span><span class="money b" style="font-size:22px" id="totOut">' + F(total) + '</span></div>' +
+      '<div id="dlFeeRow" class="row between small mt hide"><span class="muted">Delivery fee</span><span class="money" id="dlFeeOut"></span></div><div id="dueRow" class="row between b mt hide"><span>Total to pay</span><span class="money" id="dueOut"></span></div>' +
       (editing ? '<div class="row between small mt"><span class="muted">Already paid</span><span class="money">' + F(t.paid) + '</span></div>' : '') + '</div>' +
-      '<div class="grid2">' + field('Sale date', inp('saleDate', editing ? saleDate(editing) : todayStr(), 'type="date"')) + field('Collected by the customer?', sel('delivered', [['yes', 'Yes — collected now'], ['no', 'No — left at the shop, to pick up later']], editing ? (editing.delivered ? 'yes' : 'no') : 'yes')) + '</div>' +
-      cartConditionFields() +
+      '<div class="grid2">' + field('Sale date', inp('saleDate', editing ? saleDate(editing) : todayStr(), 'type="date"')) + '<div id="pickField">' + field('Collected by the customer?', sel('delivered', [['yes', 'Yes — collected now'], ['no', 'No — left at the shop, to pick up later']], editing ? (editing.delivered ? 'yes' : 'no') : 'yes')) + '</div></div>' +
+      cartConditionFields() + deliveryFields(cartDelivery()) +
       (can('payments') ? '<h3 class="mt">Payment ' + (editing ? '(additional)' : '') + '</h3><div class="tiny muted" style="margin-top:-6px">Enter less than the total for a deposit, or 0 for an unpaid reserved order.</div>' + payFields(Math.max(0, due)) : '<div class="alert info">The order will be saved unpaid. A cashier records the payment.</div>') +
       field('If not fully paid: pay by', inp('dueDate', editing && editing.dueDate ? editing.dueDate : KC.addDays(todayStr(), num(S().creditDays) || 14), 'type="date"')) +
       field('Note (optional)', inp('notes', editing ? editing.notes : '')) + '</div>');
-    if ($('#discIn', el)) $('#discIn', el).addEventListener('input', (e) => { K.cart.discount = Math.max(0, num(e.target.value)); const tt = cartTotal() - K.cart.discount; $('#totOut', el).textContent = F(tt); const pa = $('#payAmount', el); if (pa) { pa.value = Math.max(0, editing ? tt - t.paid : tt); const feeEl = $('#payFee', el); if (feeEl) feeEl.dataset.auto = '1'; syncPayCharges(el); } saveCart(); });
-    syncPayCharges(el);
+    if ($('#discIn', el)) $('#discIn', el).addEventListener('input', (e) => { K.cart.discount = Math.max(0, num(e.target.value)); syncCheckout(el, true); });
+    syncPayCharges(el); syncCheckout(el, false);
   };
   el._refresh();
   $('.sf', el) || el.querySelector('.sheet').insertAdjacentHTML('beforeend', '<div class="sf"></div>');
@@ -302,11 +351,13 @@ async function completeSale(v) {
     lines.push({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), condition: lineCond(l), working: lineWork(l), alloc, returns: [] });
   }
   const cu = K.cart.customerId && byId('customers', K.cart.customerId);
+  const dl = readCartDelivery(); if (dl.error) { toast(dl.error, true); return false; }
   let pay = null;
   if (can('payments')) {
     if (num(v.payAmount)) { pay = readPayment(v); if (pay === false) return false; }
   }
-  const total = cartTotal() - num(K.cart.discount);
+  // what the client must pay = goods + delivery fee (when they pay it to us)
+  const total = cartTotal() - num(K.cart.discount) + KC.deliveryFeeDue({ delivery: dl.delivery });
   const alreadyPaid = editing ? KC.saleTotals(editing).paid : 0;
   const remaining = total - alreadyPaid - (pay ? pay.amount : 0);
   if (remaining > 0.5 && !cu) { toast('Select the customer — unpaid and deposit sales need a name and phone number', true); return false; }
@@ -326,13 +377,24 @@ async function completeSale(v) {
   });
   Object.assign(sale, {
     date: v.saleDate || todayStr(), customerId: cu ? cu.id : null, customerName: cu ? cu.name : 'Walk-in customer', customerPhone: cu ? cu.whatsapp || cu.phone || '' : '',
-    lines, discount: num(K.cart.discount), delivered: v.delivered !== 'no', notes: v.notes || '', locationId: K.loc,
+    lines, discount: num(K.cart.discount), notes: v.notes || '', locationId: K.loc,
   });
+  // delivery: pickup → "collected?" question; delivery → its status (to send / sent / delivered)
+  const prevDl = (editing && editing.delivery) || {}; const now = new Date().toISOString();
+  sale.delivery = dl.delivery;
+  if (dl.delivery.mode === 'pickup') sale.delivered = v.delivered !== 'no';
+  else {
+    sale.delivered = dl.delivery.status !== 'to_send';
+    if (dl.delivery.status !== 'to_send') sale.delivery.sentAt = prevDl.sentAt || now;
+    if (dl.delivery.status === 'delivered') sale.delivery.deliveredAt = prevDl.deliveredAt || now;
+  }
+  if (K.cart.orderId) sale.orderId = K.cart.orderId;
   if (remaining > 0.5) sale.dueDate = v.dueDate || KC.addDays(sale.date, num(S().creditDays) || 14); else delete sale.dueDate;
   sale.payments = (sale.payments || []).slice(); if (pay) sale.payments.push(pay);
   applySaleTxnId(sale, !editing);
   if (!(await save('sales', sale))) return false;
   if (cu) save('customers', Object.assign({}, cu));
+  if (sale.orderId) { const o = byId('orders', sale.orderId); if (o && o.status !== 'done') save('orders', Object.assign({}, o, { status: 'done', saleId: sale.id, saleNo: sale.no, handledBy: K.me.name || '', handledAt: new Date().toISOString() })); }
   K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; saveCart();
   refreshPOS(); scheduleRender();
   while (K.sheets.length) closeSheet();
@@ -350,12 +412,14 @@ function receiptText(s) {
   L.push('');
   if (t.discount) L.push('Subtotal: ' + F(t.subtotal), 'Discount: −' + F(t.discount));
   if (t.returned) L.push('Returned: −' + F(t.returned));
-  L.push('*TOTAL: ' + F(t.net) + '*', 'Paid: ' + F(t.paid));
+  L.push('*TOTAL: ' + F(t.net) + '*');
+  if (t.deliveryFee > 0) L.push('Delivery fee: ' + F(t.deliveryFee), '*TOTAL TO PAY: ' + F(t.due) + '*');
+  L.push('Paid: ' + F(t.paid));
   if (t.balance > 0) L.push('*Balance due: ' + F(t.balance) + '*');
   (s.payments || []).forEach((p) => L.push('  ' + fmtDate(p.date) + ' ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : '')));
   if (t.fees > 0) L.push('MoMo charges total: ' + F(t.fees));
   if (t.txnId) L.push('Transaction ID: ' + t.txnId);
-  L.push('Collected: ' + (s.delivered ? 'Yes' : 'No — to pick up at the shop'));
+  if (KC.isDelivery(s)) L.push('', ...deliveryLines(s)); else L.push('Collected: ' + (s.delivered ? 'Yes' : 'No — to pick up at the shop'));
   if (!s.delivered) L.push('', '⏳ Items reserved — awaiting pickup');
   if (st.receiptFooter) L.push('', st.receiptFooter);
   return L.join('\n');
@@ -367,9 +431,10 @@ function receiptHTML(s) {
     '<div class="row between small"><span class="muted">Receipt</span><b>' + esc(s.no) + '</b></div><div class="row between small"><span class="muted">Date</span><span>' + fmtDate(saleDate(s)) + '</span></div><div class="row between small mb"><span class="muted">Customer</span><span class="b">' + esc(s.customerName) + '</span></div>' +
     '<table>' + (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td><div class="b">' + esc(l.name) + '</div><div class="tiny muted">' + l.qty + ' × ' + fmt(l.unitPrice) + (itemNote(l) ? ' · ' + esc(itemNote(l)) : '') + (rq ? ' · ' + rq + ' returned' : '') + '</div></td><td class="right money nowrap">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
     (t.discount ? '<tr><td class="muted">Discount</td><td class="right money">−' + fmt(t.discount) + '</td></tr>' : '') + (t.returned ? '<tr><td class="muted">Returns</td><td class="right money">−' + fmt(t.returned) + '</td></tr>' : '') +
-    '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr><tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
+    '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr>' + (t.deliveryFee > 0 ? '<tr><td class="muted">Delivery fee</td><td class="right money">' + F(t.deliveryFee) + '</td></tr><tr class="tot"><td>TOTAL TO PAY</td><td class="right money">' + F(t.due) + '</td></tr>' : '') + '<tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
     (t.balance > 0 ? '<tr><td class="b" style="color:var(--bad)">Balance due</td><td class="right money b" style="color:var(--bad)">' + F(t.balance) + '</td></tr>' : '') + '</table>' +
     ((s.payments || []).length ? '<div class="tiny muted mt">' + s.payments.map((p) => esc(fmtDate(p.date) + ' · ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : ''))).join('<br>') + (t.fees > 0 ? '<br>MoMo charges total: ' + F(t.fees) : '') + '</div>' : '') +
+    (KC.isDelivery(s) ? '<div class="tiny mt" style="border-top:1px dashed var(--line);padding-top:8px">' + deliveryLines(s).map(esc).join('<br>') + '</div>' : '') +
     '<div class="center mt"><span class="stamp ' + t.status + '">' + ({ paid: 'PAID', partial: 'DEPOSIT', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status]) + '</span>' + (!s.delivered && t.status !== 'cancelled' ? '<div class="tiny mt b" style="color:var(--warn)">Reserved — awaiting pickup</div>' : '') + '</div>' +
     (st.receiptFooter ? '<div class="tiny muted center mt">' + esc(st.receiptFooter) + '</div>' : '') + '</div>';
 }
@@ -390,7 +455,7 @@ function receiptPDF(s) {
   if (!window.jspdf) return toast('PDF library still loading — try again', true);
   const st = S(), t = K.C.saleX[s.id];
   const lines = s.lines || [];
-  const h = 95 + lines.length * 9 + (s.payments || []).length * 5;
+  const h = 95 + lines.length * 9 + (s.payments || []).length * 5 + (KC.isDelivery(s) ? 30 : 0);
   const doc = new window.jspdf.jsPDF({ unit: 'mm', format: [80, Math.max(140, h)] });
   let y = 8; const c = 40;
   if (st.logo) { try { doc.addImage(st.logo, st.logo.includes('image/png') ? 'PNG' : 'JPEG', c - 8, y, 16, 16); y += 19; } catch (e) { } }
@@ -410,7 +475,9 @@ function receiptPDF(s) {
   if (t.discount) row('Discount', '-' + fmt(t.discount));
   if (t.returned) row('Returns', '-' + fmt(t.returned));
   doc.setFontSize(11); row('TOTAL (' + baseCode() + ')', fmt(t.net), true); doc.setFontSize(8);
+  if (t.deliveryFee > 0) { row('Delivery fee', fmt(t.deliveryFee)); doc.setFontSize(10); row('TOTAL TO PAY', fmt(t.due), true); doc.setFontSize(8); }
   row('Paid', fmt(t.paid)); if (t.balance > 0) row('Balance due', fmt(t.balance), true);
+  deliveryLines(s).forEach((ln) => { doc.text(doc.splitTextToSize(ln, 70)[0], 5, y); y += 4; });
   (s.payments || []).forEach((p) => { doc.text(fmtDate(p.date) + ' ' + p.method + (p.ref ? ' #' + p.ref : '') + ': ' + fmt(p.amount) + (num(p.fee) > 0 ? ' +fee ' + fmt(p.fee) : ''), 5, y); y += 4; });
   if (t.txnId) { doc.text('Txn ID: ' + t.txnId, 5, y); y += 4; }
   y += 3; doc.setFont('helvetica', 'bold'); doc.text(({ paid: 'PAID', partial: 'DEPOSIT PAID', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status]) + (!s.delivered ? ' - RESERVED' : ''), c, y, { align: 'center' }); y += 6;
@@ -425,15 +492,15 @@ function salesInRange() {
 }
 VIEWS.sales = {
   render() {
-    let list = K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup' ? visibleSales().slice() : salesInRange();
+    let list = K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup' || K.ui.salesStatus === 'deliver' ? visibleSales().slice() : salesInRange();
     const st = K.ui.salesStatus, q = K.ui.salesQ.toLowerCase();
-    list = list.filter((s) => { const x = K.C.saleX[s.id]; return st === 'all' ? true : st === 'owing' ? x.status === 'partial' || x.status === 'unpaid' : st === 'pickup' ? !s.delivered && x.status !== 'cancelled' : st === 'cancelled' ? x.status === 'cancelled' : true; })
+    list = list.filter((s) => { const x = K.C.saleX[s.id]; return st === 'all' ? true : st === 'owing' ? x.status === 'partial' || x.status === 'unpaid' : st === 'pickup' ? !KC.isDelivery(s) && !s.delivered && x.status !== 'cancelled' : st === 'deliver' ? KC.isDelivery(s) && s.delivery.status !== 'delivered' && x.status !== 'cancelled' : st === 'cancelled' ? x.status === 'cancelled' : true; })
       .filter((s) => !q || (s.no + ' ' + KC.saleTxnId(s) + ' ' + s.customerName + ' ' + s.customerPhone + ' ' + (s.payments || []).map((p) => p.ref || '').join(' ') + ' ' + (s.lines || []).map((l) => l.name).join(' ')).toLowerCase().includes(q))
       .sort((a, b) => (saleDate(b) + b.createdAt).localeCompare(saleDate(a) + a.createdAt));
     const live = list.filter((s) => K.C.saleX[s.id].status !== 'cancelled');
     const tot = live.reduce((a, s) => a + K.C.saleX[s.id].net, 0), paid = live.reduce((a, s) => a + K.C.saleX[s.id].paid, 0), bal = live.reduce((a, s) => a + Math.max(0, K.C.saleX[s.id].balance), 0), prof = live.reduce((a, s) => a + K.C.saleX[s.id].profit, 0);
     const R = [['today', 'Today'], ['yday', 'Yesterday'], ['week', '7 days'], ['month', 'This month'], ['all', 'All']];
-    const SS = [['all', 'All'], ['owing', 'Owing'], ['pickup', 'Awaiting pickup'], ['cancelled', 'Cancelled']];
+    const SS = [['all', 'All'], ['owing', 'Owing'], ['pickup', 'Awaiting pickup'], ['deliver', 'To deliver'], ['cancelled', 'Cancelled']];
     return (can('sell') ? '<a class="btn pri lg block mb mob-block" href="#sell">' + ic('sell') + 'New sale</a>' : '') + (!can('salesAll') ? '<div class="alert info mb">Showing your own sales only.</div>' : '') + '<div class="row wrap between mb"><div class="seg">' + R.map(([k, l]) => '<button class="' + (K.ui.salesRange === k ? 'on' : '') + '" data-a="salesRange" data-v="' + k + '">' + l + '</button>').join('') + '</div>' + (can('sell') ? '<a class="btn pri" href="#sell">' + ic('plus') + 'New sale</a>' : '') + (can('export') ? '<button class="btn" data-a="exportSales">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + SS.map(([k, l]) => '<button class="chip' + (st === k ? ' on' : '') + '" data-a="salesStatus" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="kpis mb">' + kpi('Sales', F(tot), live.length + ' receipt(s)', true) + kpi('Collected', F(paid)) + kpi('Balance owed', F(bal)) + (seeCost() ? kpi('Gross profit', F(prof), tot ? pct(prof / tot * 100) + ' margin' : '') : kpi('Items', fmt(live.reduce((a, s) => a + (s.lines || []).reduce((b, l) => b + num(l.qty), 0), 0)))) + '</div>' +
@@ -481,13 +548,19 @@ function salesRows(list) {
       { k: 'due', label: 'Pay by', v: (s) => owes(s) ? KC.dueDateOf(s, S()) : '', html: (s) => { if (!owes(s)) return dtNil; const d = KC.dueDateOf(s, S()); return d < today ? '<span class="badge bad">Overdue · ' + esc(dayMon(d)) + '</span>' : dtDate(d); } },
       cost ? { k: 'profit', label: 'Profit', money: true, v: (s) => live(s) ? X(s).profit : '', total: sumLive((s) => X(s).profit) } : null,
       { k: 'status', label: 'Status', core: true, v: (s) => X(s).status, html: (s) => statusBadge(X(s).status) },
-      { k: 'coll', label: 'Collected', v: (s) => live(s) ? (s.delivered ? 'Yes' : 'No') : '', html: (s) => !live(s) ? dtNil : s.delivered ? '<span class="badge">Yes</span>' : '<span class="badge info">No · at shop</span>' },
+      { k: 'coll', label: 'Collected / delivery', v: (s) => !live(s) ? '' : KC.isDelivery(s) ? s.delivery.status || 'to_send' : (s.delivered ? 'Yes' : 'No'), html: (s) => !live(s) ? dtNil : KC.isDelivery(s) ? dlStatusBadge(s.delivery.status) : s.delivered ? '<span class="badge">Yes</span>' : '<span class="badge info">No · at shop</span>' },
+      { k: 'dmode', label: 'Delivery', v: (s) => KC.isDelivery(s) ? KC.deliveryModeLabel(s.delivery.mode).replace(/ \(.*\)/, '') : '' },
+      { k: 'agency', label: 'Agency', v: (s) => KC.isDelivery(s) ? s.delivery.agency || '' : '' },
+      { k: 'dest', label: 'Town / area', v: (s) => KC.isDelivery(s) ? s.delivery.destination || '' : '' },
+      { k: 'rname', label: 'Recipient', v: (s) => KC.isDelivery(s) ? s.delivery.recipientName || '' : '' },
+      { k: 'rphone', label: 'Recipient phone', v: (s) => KC.isDelivery(s) ? s.delivery.recipientPhone || '' : '', cls: 'mut' },
+      { k: 'dfee', label: 'Delivery fee', money: true, v: (s) => KC.isDelivery(s) && num(s.delivery.fee) ? num(s.delivery.fee) : '', total: sumLive((s) => KC.isDelivery(s) ? num(s.delivery.fee) : 0) },
       { k: 'by', label: 'Sold by', v: (s) => s.createdBy || '', cls: 'mut' },
       multi ? { k: 'branch', label: 'Branch', v: (s) => locName(s.locationId), cls: 'mut' } : null,
     ],
   });
 }
-A.salesRange = (el) => { K.ui.salesRange = el.dataset.v; if (K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup') K.ui.salesStatus = 'all'; render(true); };
+A.salesRange = (el) => { K.ui.salesRange = el.dataset.v; if (['owing', 'pickup', 'deliver'].includes(K.ui.salesStatus)) K.ui.salesStatus = 'all'; render(true); };
 A.salesStatus = (el) => { K.ui.salesStatus = el.dataset.v; render(true); };
 I.salesQ = (el) => { K.ui.salesQ = el.value; clearTimeout(I._sq); I._sq = setTimeout(() => dtRefresh('salesList'), 150); };
 
@@ -504,13 +577,13 @@ function openSale(id) {
       '<div class="card"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>' +
       (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td>' + esc(l.name) + '<div class="tiny muted">' + esc(lineCond(l) + ' · ' + lineWork(l)) + '</div>' + (rq ? '<div class="tiny" style="color:var(--warn)">' + rq + ' returned</div>' : '') + '</td><td class="r">' + l.qty + '</td><td class="r money">' + fmt(l.unitPrice) + '</td><td class="r money">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
       '</tbody></table><div class="pad"><div class="row between small"><span class="muted">Subtotal</span><span class="money">' + F(x.subtotal) + '</span></div>' + (x.discount ? '<div class="row between small"><span class="muted">Discount</span><span class="money">−' + F(x.discount) + '</span></div>' : '') + (x.returned ? '<div class="row between small"><span class="muted">Returns</span><span class="money">−' + F(x.returned) + '</span></div>' : '') +
-      '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div><div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
+      '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div>' + (x.deliveryFee > 0 ? '<div class="row between small"><span class="muted">Delivery fee</span><span class="money">' + F(x.deliveryFee) + '</span></div><div class="row between b"><span>Total to pay</span><span class="money">' + F(x.due) + '</span></div>' : '') + '<div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
       (seeCost() && !cancelled ? '<div class="row between small mt"><span class="muted">Cost of goods · profit</span><span class="money">' + F(x.cogs) + ' · <b style="color:var(--ok)">' + F(x.profit) + '</b></span></div>' : '') + '</div></div>' +
-      '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.note ? ' &middot; ' + esc(p.note) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (can('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
+      deliveryCard(s) + '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.note ? ' &middot; ' + esc(p.note) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (can('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
       (s.notes ? '<div class="alert info mt">' + esc(s.notes) + '</div>' : '') +
       '<div class="grid2 mt2">' +
       (!cancelled && x.balance > 0 && can('payments') ? '<button class="btn pri" data-a="addPay" data-id="' + s.id + '">' + ic('wallet') + 'Add payment</button>' : '') +
-      (!cancelled && !s.delivered ? '<button class="btn" data-a="markPicked" data-id="' + s.id + '">' + ic('check') + 'Mark picked up</button>' : '') +
+      (!cancelled && KC.isDelivery(s) ? deliveryButtons(s) : '') + (!cancelled && !KC.isDelivery(s) && !s.delivered ? '<button class="btn" data-a="markPicked" data-id="' + s.id + '">' + ic('check') + 'Mark picked up</button>' : '') +
       '<button class="btn" data-a="openReceipt" data-id="' + s.id + '">' + ic('sales') + 'Receipt</button>' + (can('activity') ? '<button class="btn" data-a="actFor" data-q="' + esc(s.no) + '">' + ic('clock') + 'History</button>' : '') +
       (!cancelled && !hasReturns && can('sell') && (can('salesAll') || s.createdById === K.me.id) ? '<button class="btn" data-a="editSale" data-id="' + s.id + '">' + ic('edit') + 'Edit items</button>' : '') +
       (!cancelled && can('returns') ? '<button class="btn" data-a="returnSale" data-id="' + s.id + '">' + ic('undo') + 'Return items</button>' : '') +
@@ -523,7 +596,7 @@ A.markPicked = async (el) => { const s = byId('sales', el.dataset.id); await sav
 A.editSale = (el) => {
   const s = byId('sales', el.dataset.id);
   if (K.cart.lines.length && K.cart.editingId !== s.id) { toast('Finish or clear the current cart first', true); return; }
-  K.cart = { editingId: s.id, customerId: s.customerId, discount: num(s.discount), lines: s.lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, condition: l.condition, working: l.working, manual: true })) };
+  K.cart = { editingId: s.id, customerId: s.customerId, discount: num(s.discount), delivery: s.delivery ? JSON.parse(JSON.stringify(s.delivery)) : null, lines: s.lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, condition: l.condition, working: l.working, manual: true })) };
   if ((s.locationId || 'main') !== K.loc) { if (!myLocs().find((x) => x.id === (s.locationId || 'main'))) { toast('This sale belongs to another location', true); K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; return; } K.loc = s.locationId || 'main'; fixLoc(); }
   saveCart(); while (K.sheets.length) closeSheet(); go('sell');
 };
@@ -590,3 +663,135 @@ function posCustBar() {
 }
 A.custWalkinNow = () => { K.cart.customerId = null; K.cart.lines.forEach(reprice); refreshPOS(); };
 A.custQuickNew = () => editCustomer(null, (id) => { K.cart.customerId = id; K.cart.lines.forEach(reprice); refreshPOS(); refreshSheets(); });
+
+/* ---------- delivery on a sale: card, status buttons, update sheet ---------- */
+/** Receipt lines for a delivery: ['Delivery: Travel agency · General Express → Bafoussam', 'Recipient: …', …] */
+function deliveryLines(s) {
+  if (!KC.isDelivery(s)) return [];
+  const d = s.delivery; const st = (KC.DELIVERY_STATUSES.find((x) => x[0] === d.status) || [0, 'To send'])[1];
+  return ['Delivery: ' + KC.deliveryModeLabel(d.mode).replace(/ \(.*\)/, '') + (d.agency ? ' · ' + d.agency : '') + (d.destination ? ' → ' + d.destination : ''),
+    'Recipient: ' + [d.recipientName, d.recipientPhone].filter(Boolean).join(' · '),
+    d.trackingNo ? 'Agency receipt: ' + d.trackingNo : '', 'Delivery status: ' + st].filter(Boolean);
+}
+const dlStatusBadge = (st) => ({ to_send: '<span class="badge warn">To send</span>', sent: '<span class="badge info">Sent</span>', delivered: '<span class="badge ok">Delivered</span>' }[st || 'to_send']);
+function deliveryCard(s) {
+  if (!KC.isDelivery(s)) return '';
+  const d = s.delivery; const row = (l, v) => v ? '<div class="row between small cl"><span class="muted">' + l + '</span><span class="b" style="text-align:right">' + v + '</span></div>' : '';
+  return '<h3 class="mt mb">Delivery</h3><div class="card pad">' +
+    row('Mode', esc(KC.deliveryModeLabel(d.mode))) + row('Agency', esc(d.agency)) + row('Town / area', esc(d.destination)) + row('Address', esc(d.address)) +
+    row('Recipient', esc(d.recipientName)) + row('Recipient phone', esc(d.recipientPhone)) +
+    row('Delivery fee', num(d.fee) ? F(d.fee) + ' · ' + esc((KC.DELIVERY_PAYERS.find((x) => x[0] === d.payer) || [0, ''])[1]) : '') +
+    row('Tracking / receipt no.', esc(d.trackingNo)) + row('Status', dlStatusBadge(d.status)) +
+    row('Sent', d.sentAt ? esc(fmtDT(d.sentAt)) : '') + row('Delivered', d.deliveredAt ? esc(fmtDT(d.deliveredAt)) : '') + '</div>';
+}
+function deliveryButtons(s) {
+  const st = s.delivery.status || 'to_send';
+  return (st === 'to_send' ? '<button class="btn" data-a="dlSet" data-id="' + s.id + '" data-v="sent">' + ic('ship') + 'Mark sent</button>' : '') +
+    (st !== 'delivered' ? '<button class="btn" data-a="dlSet" data-id="' + s.id + '" data-v="delivered">' + ic('check') + 'Mark delivered</button>' : '') +
+    '<button class="btn" data-a="dlEdit" data-id="' + s.id + '">' + ic('edit') + 'Update delivery</button>';
+}
+async function saveDelivery(saleId, patch) {
+  const cur = byId('sales', saleId); const d = Object.assign({}, cur.delivery, patch); const now = new Date().toISOString();
+  if (d.status !== 'to_send' && !d.sentAt) d.sentAt = now;
+  if (d.status === 'delivered' && !d.deliveredAt) d.deliveredAt = now;
+  const ok = await save('sales', Object.assign({}, cur, { delivery: KC.cleanDelivery(d), delivered: d.status !== 'to_send' }));
+  if (ok) { refreshSheets(); scheduleRender(); }
+  return ok;
+}
+A.dlSet = (el) => saveDelivery(el.dataset.id, { status: el.dataset.v }).then((ok) => ok && toast(el.dataset.v === 'sent' ? 'Marked as sent' : 'Marked as delivered'));
+A.dlEdit = (el) => {
+  const s = byId('sales', el.dataset.id); const d = s.delivery || {};
+  const sh = openSheet({ title: 'Delivery · ' + s.no, body: '<div class="col">' + field('Mode', sel('mode', KC.DELIVERY_MODES, d.mode)) +
+    '<div class="grid2">' + field('Agency / company', inp('agency', d.agency)) + field('Town / area', inp('destination', d.destination)) + '</div>' + field('Address / landmark', inp('address', d.address)) +
+    '<div class="grid2">' + field('Recipient name', inp('recipientName', d.recipientName)) + field('Recipient phone', inp('recipientPhone', d.recipientPhone, 'inputmode="tel"')) + '</div>' +
+    '<div class="grid2">' + field('Delivery fee (F)', inp('fee', d.fee || '', 'inputmode="numeric"')) + field('Who pays', sel('payer', KC.DELIVERY_PAYERS, d.payer || 'client_us')) + '</div>' +
+    '<div class="grid2">' + field('Status', sel('status', KC.DELIVERY_STATUSES, d.status || 'to_send')) + field('Agency receipt / tracking no.', inp('trackingNo', d.trackingNo)) + '</div>' + field('Notes', inp('notes', d.notes)) + '</div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="dlSave">Save delivery</button>' });
+  $('#dlSave', sh).onclick = async () => {
+    const v = formVals(sh); v.fee = num(v.fee);
+    if (v.mode === 'pickup') { const cur = byId('sales', s.id); if (await save('sales', Object.assign({}, cur, { delivery: { mode: 'pickup' } }))) { closeSheet(); refreshSheets(); scheduleRender(); } return; }
+    if (!v.destination) return toast('Type the town / area', true);
+    if (await saveDelivery(s.id, v)) { closeSheet(); toast('Delivery updated'); }
+  };
+};
+
+/* ================= ONLINE ORDERS (sent by clients from the public shop page) ================= */
+const ORDER_ST = { new: '<span class="badge warn">New — to confirm</span>', done: '<span class="badge ok">Sale created</span>', rejected: '<span class="badge">Rejected</span>' };
+const newOrders = () => (K.raw.orders || []).filter((o) => o.status === 'new');
+const orderItems = (o) => (o.lines || []).map((l) => l.name + ' ×' + l.qty).join(', ');
+function ordersTable(list) {
+  const dl = (o) => (o.delivery && o.delivery.mode !== 'pickup' ? o.delivery : null);
+  return dataTable({
+    id: 'orderList', rows: list, noun: 'order', empty: '<div class="big">🛍️</div>No online orders yet. Share your shop link (Settings → Online shop).',
+    rowAttr: (o) => ' data-a="openOrder" data-id="' + o.id + '"', rowClass: (o) => o.status === 'rejected' ? 'cx' : '',
+    cols: [
+      { k: 'at', label: 'Received', core: true, v: (o) => o.createdAt || '', html: (o) => esc(fmtDT(o.createdAt)) },
+      { k: 'no', label: 'Order no.', core: true, v: (o) => o.no, html: (o) => '<b>' + esc(o.no) + '</b>' },
+      { k: 'cust', label: 'Client', core: true, v: (o) => (o.customer || {}).name || '' },
+      { k: 'phone', label: 'Phone', core: true, v: (o) => (o.customer || {}).phone || '' },
+      { k: 'items', label: 'Items', wrap: true, v: orderItems },
+      { k: 'qty', label: 'Qty', num: true, v: (o) => (o.lines || []).reduce((a, l) => a + num(l.qty), 0) },
+      { k: 'total', label: 'Items total', core: true, money: true, cls: 'b', v: (o) => num(o.subtotal), total: (rows) => fmt(dtSum(rows, (o) => o.status === 'rejected' ? 0 : o.subtotal)) },
+      { k: 'mode', label: 'Delivery', core: true, v: (o) => KC.deliveryModeLabel((o.delivery || {}).mode || 'pickup').replace(/ \(.*\)/, '') },
+      { k: 'dest', label: 'Town / area', v: (o) => dl(o) ? dl(o).destination : '' },
+      { k: 'agency', label: 'Agency', v: (o) => dl(o) ? dl(o).agency : '' },
+      { k: 'rname', label: 'Recipient', v: (o) => dl(o) ? dl(o).recipientName : '' },
+      { k: 'rphone', label: 'Recipient phone', v: (o) => dl(o) ? dl(o).recipientPhone : '', cls: 'mut' },
+      { k: 'note', label: 'Note', wrap: true, v: (o) => o.note || '', cls: 'mut' },
+      { k: 'status', label: 'Status', core: true, v: (o) => o.status, html: (o) => ORDER_ST[o.status] || esc(o.status) },
+      { k: 'sale', label: 'Sale', v: (o) => o.saleNo || '' },
+      { k: 'by', label: 'Handled by', v: (o) => o.handledBy || '', cls: 'mut' },
+    ],
+  });
+}
+VIEWS.orders = {
+  render() {
+    const tab = K.ui.ordTab || 'new'; const all = (K.raw.orders || []).slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const list = tab === 'new' ? all.filter((o) => o.status === 'new') : all;
+    const link = S().shopEnabled && S().shopId ? shopLink() : '';
+    return '<div class="kpis mb">' + kpi('New orders', fmt(newOrders().length), 'waiting to be confirmed', true) + kpi('Value of new orders', F(newOrders().reduce((a, o) => a + num(o.subtotal), 0))) + kpi('Turned into sales', fmt(all.filter((o) => o.status === 'done').length)) + '</div>' +
+      (link ? '<div class="alert info mb row between wrap"><span>Your shop: <b>' + esc(link) + '</b></span><span class="row"><button class="btn sm" data-a="shopCopy">' + ic('copy', 'sm') + 'Copy link</button><a class="btn sm" target="_blank" rel="noopener" href="' + esc(link) + '">Open shop</a></span></div>'
+        : '<div class="alert mb">' + (can('settings') ? 'Your online shop is off. Turn it on in <a href="#settings">Settings → Online shop</a> and share the link with clients.' : 'The online shop is off. Ask the owner to turn it on in Settings.') + '</div>') +
+      '<div class="chips mb">' + [['new', 'To confirm'], ['all', 'All orders']].map(([k, l]) => '<button class="chip' + (tab === k ? ' on' : '') + '" data-a="ordTab" data-v="' + k + '">' + l + '</button>').join('') + '</div>' + ordersTable(list);
+  },
+};
+A.ordTab = (el) => { K.ui.ordTab = el.dataset.v; render(true); };
+A.openOrder = (el) => {
+  const sh = openSheet({ title: 'Order', body: '', wide: true });
+  sh._refresh = () => {
+    const o = byId('orders', el.dataset.id); if (!o) return closeSheet(); const c = o.customer || {}; const d = o.delivery || { mode: 'pickup' };
+    $('.sh h2', sh).textContent = 'Order ' + o.no;
+    const wa = phoneWA(c.whatsapp || c.phone); const row = (l, v) => v ? '<div class="row between small cl"><span class="muted">' + l + '</span><span class="b" style="text-align:right">' + esc(v) + '</span></div>' : '';
+    setSheetBody(sh, '<div class="row between mb"><div><div class="b" style="font-size:17px">' + esc(c.name) + '</div><div class="tiny muted">' + esc(c.phone) + ' · received ' + esc(fmtDT(o.createdAt)) + '</div></div>' + (ORDER_ST[o.status] || '') + '</div>' +
+      '<div class="card tw mb"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th><th class="r">In stock now</th></tr></thead><tbody>' +
+      (o.lines || []).map((l) => { const x = K.C.prodX[l.productId]; const av = x ? x.available : 0; return '<tr><td>' + esc(l.name) + '</td><td class="r">' + l.qty + '</td><td class="r money">' + fmt(l.unitPrice) + '</td><td class="r money b">' + fmt(l.qty * l.unitPrice) + '</td><td class="r"' + (av < l.qty ? ' style="color:var(--bad);font-weight:700"' : '') + '>' + fmt(av) + '</td></tr>'; }).join('') +
+      '</tbody><tfoot><tr><td colspan="3" class="b">Items total</td><td class="r money b">' + fmt(o.subtotal) + '</td><td></td></tr></tfoot></table></div>' +
+      '<h3 class="mb">Delivery</h3><div class="card pad mb">' + row('How', KC.deliveryModeLabel(d.mode)) + row('Town / area', d.destination) + row('Agency', d.agency) + row('Address', d.address) + row('Recipient', d.recipientName) + row('Recipient phone', d.recipientPhone) + '</div>' +
+      (o.note ? '<div class="alert info mb">' + esc(o.note) + '</div>' : '') + (o.rejectReason ? '<div class="alert mb">Rejected: ' + esc(o.rejectReason) + '</div>' : '') +
+      (o.saleId && byId('sales', o.saleId) ? '<button class="btn mb" data-a="openSale" data-id="' + o.saleId + '">' + ic('sales') + 'Open sale ' + esc(o.saleNo || '') + '</button>' : '') +
+      '<div class="row wrap">' + (o.status === 'new' && can('sell') ? '<button class="btn pri" data-a="orderToSale" data-id="' + o.id + '">' + ic('sell') + 'Create sale from this order</button>' : '') +
+      (wa ? '<a class="btn" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent('Hello ' + c.name + ', this is ' + S().businessName + ' about your order ' + o.no + '.') + '">' + ic('wa', 'sm') + 'WhatsApp</a>' : '') +
+      (c.phone ? '<a class="btn" href="tel:' + esc(String(c.phone).replace(/\s/g, '')) + '">Call</a>' : '') +
+      (o.status === 'new' ? '<button class="btn danger" data-a="orderReject" data-id="' + o.id + '">' + ic('x') + 'Reject</button>' : '') + '</div>');
+  };
+  sh._refresh();
+};
+/** Load an order into the cart (customer + items + delivery details) so staff check prices, add the delivery fee and complete the sale. */
+A.orderToSale = async (el) => {
+  const o = byId('orders', el.dataset.id); if (!o) return;
+  if (K.cart.lines.length && K.cart.orderId !== o.id && !(await confirmBox('Your current cart will be replaced by this order. Continue?', 'Replace cart'))) return;
+  const c = o.customer || {}; const digits = (p) => String(p || '').replace(/\D/g, '').slice(-9);
+  let cu = K.raw.customers.find((x) => digits(x.phone) && digits(x.phone) === digits(c.phone));
+  if (!cu) { cu = { id: uid('c_'), name: c.name, phone: c.phone, whatsapp: c.whatsapp || c.phone, city: c.city || '', type: 'Retail', source: 'Online shop' }; if (!(await save('customers', cu))) return; }
+  K.cart = { lines: (o.lines || []).map((l) => ({ productId: l.productId, name: l.name, qty: num(l.qty), unitPrice: num(l.unitPrice), manual: true })), customerId: cu.id, editingId: null, discount: 0, orderId: o.id,
+    delivery: o.delivery && o.delivery.mode !== 'pickup' ? Object.assign({}, o.delivery, { fee: 0, payer: 'client_us', status: 'to_send' }) : { mode: 'pickup', payer: 'client_us', status: 'to_send' } };
+  saveCart(); while (K.sheets.length) closeSheet(); go('sell');
+  toast('Order ' + o.no + ' is in the cart — check prices, add the delivery fee at checkout, then Complete sale');
+};
+A.orderReject = async (el) => {
+  const o = byId('orders', el.dataset.id); if (!o) return;
+  const why = await askReason('Reject order ' + o.no + '?', ['Out of stock', 'Client not reachable', 'Duplicate order', 'Client cancelled', 'Other'], 'Reject order'); if (why === null) return;
+  if (await save('orders', Object.assign({}, o, { status: 'rejected', rejectReason: why, handledBy: K.me.name || '', handledAt: new Date().toISOString() }))) { refreshSheets(); scheduleRender(); toast('Order rejected'); }
+};
+const shopLink = () => location.origin + '/s/' + S().shopId;
+A.shopCopy = () => copyText(shopLink());

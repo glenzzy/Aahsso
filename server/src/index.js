@@ -9,6 +9,7 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { q, tx, pool } = require('./db');
 const KC = require('../public/compute.js'); // same business logic as the browser
 if (process.env.MOMO_FEE_TABLES) {
@@ -23,15 +24,16 @@ const PORT = process.env.PORT || 8080;
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 16) { console.error('Set JWT_SECRET (16+ chars) in .env'); process.exit(1); }
 
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders'];
 // Which permissions allow writing each collection (any one of them). Permission model lives in compute.js.
 const WRITE_PERMS = {
   settings: ['settings'], products: ['stockEdit', 'purchases'], lots: ['purchases', 'containers'], shipments: ['containers'],
   adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers', 'sell'], sales: ['sell', 'payments', 'returns', 'cancel'],
   locations: ['settings'], transfers: ['transfers'], handovers: ['payments', 'handover'], suppliers: ['suppliers', 'purchases', 'containers'],
   bills: ['suppliers', 'purchases', 'containers', 'assets'], reminders: ['reminders'], audits: ['audit', 'stockEdit'], assets: ['assets'],
+  orders: ['sell', 'payments'], // online-shop orders: staff confirm / reject them
 };
-const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'] };
+const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'] };
 const perms = (u) => KC.permsFor({ role: u.role, perms: u.perms || {} }, u.customRoles);
 // a client may propose a transaction id (offline-created records); otherwise the server makes one
 const TXN_RE = /^[A-Za-z0-9][A-Za-z0-9\-]{3,39}$/;
@@ -49,6 +51,7 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression({ filter: (req, res) => req.path !== '/api/stream' && compression.filter(req, res) })); // never buffer the live stream
 const origins = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 if (origins.length) app.use(cors({ origin: origins }));
+app.use('/api/shop', express.json({ limit: '64kb' })); // public, no login: keep requests small
 app.use(express.json({ limit: '25mb' }));
 
 const err = (res, status, error, extra) => res.status(status).json(Object.assign({ error }, extra || {}));
@@ -198,6 +201,7 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
   if (col === 'expenses' && !P.expenses && !P.reports) docs = [];
   if ((col === 'bills' || col === 'suppliers') && !P.suppliers && !P.purchases && !P.containers && !P.assets) docs = [];
   if (col === 'handovers' && !P.handover) docs = docs.filter((d) => d.userId === u.id);
+  if (col === 'orders' && !P.sell && !P.payments) docs = [];
   if (col === 'assets' && !P.assets) docs = [];
   res.json({ docs });
 }));
@@ -285,6 +289,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       if (problems.length) return { status: 409, error: 'Not enough stock', details: problems };
     }
     if (col === 'sales') {
+      if (body.delivery) body.delivery = KC.cleanDelivery(body.delivery); else delete body.delivery;
       const old = prev ? prev.data : null;
       if (!P.allLocations && (body.locationId || 'main') !== (u.location_id || 'main')) return { status: 403, error: 'You can only sell at your own location' };
       if (!old) { body.createdById = u.id; body.createdBy = u.name; if (!P.sell) return { status: 403, error: 'You cannot make sales' }; }
@@ -489,6 +494,44 @@ app.get('/api/images/:id', wrap(async (req, res) => {
   res.set('Content-Type', r.content_type).set('Cache-Control', 'public, max-age=31536000, immutable').send(r.data);
 }));
 
+
+/* ---------- public online shop (no login): clients browse items in stock and send an order with their delivery details ---------- */
+const SHOP_KEY_RE = /^[A-Za-z0-9]{6,40}$/;
+const shopReadLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+const shopOrderLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(process.env.SHOP_ORDERS_PER_10MIN || 15), standardHeaders: true, legacyHeaders: false, message: { error: 'Too many orders from this connection — please wait a few minutes' } });
+async function shopTenant(key) {
+  if (!SHOP_KEY_RE.test(String(key || ''))) return null;
+  const r = await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND d.data->>'shopId'=$1 AND (d.data->>'shopEnabled')::boolean IS TRUE AND t.status <> 'suspended'", [key]);
+  return r.rows[0] ? { tid: r.rows[0].tenant_id, settings: Object.assign({}, KC.DEFAULT_SETTINGS, r.rows[0].data) } : null;
+}
+app.get('/api/shop/:key', shopReadLimiter, wrap(async (req, res) => {
+  const t = await shopTenant(req.params.key); if (!t) return err(res, 404, 'This shop is not available');
+  const raw = await loadAll(pool, t.tid); const C = KC.computeAll(raw); const st = t.settings;
+  res.set('Cache-Control', 'no-store').json({
+    business: { name: st.businessName, tagline: st.tagline || '', phone: st.phone || '', whatsapp: st.whatsapp || st.phone || '', address: st.address || '', logo: st.logo || '', currency: st.currency || 'XAF', symbol: st.currencySymbol || 'F', message: st.shopMessage || '' },
+    delivery: { modes: KC.DELIVERY_MODES, agencies: Array.isArray(st.shopAgencies) ? st.shopAgencies.slice(0, 30) : [] },
+    items: KC.shopCatalog(raw, C).map(KC.publicItem),
+  });
+}));
+app.post('/api/shop/:key/orders', shopOrderLimiter, wrap(async (req, res) => {
+  const t = await shopTenant(req.params.key); if (!t) return err(res, 404, 'This shop is not available');
+  const raw = await loadAll(pool, t.tid); const r = KC.validateShopOrder(req.body, KC.shopCatalog(raw, KC.computeAll(raw)));
+  if (r.error) return err(res, 400, r.error);
+  const d = new Date(); const id = 'o_' + crypto.randomBytes(9).toString('hex');
+  const no = 'W' + String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
+  const order = Object.assign({ no, status: 'new', source: 'shop', createdAt: d.toISOString(), updatedAt: d.toISOString() }, r.order);
+  await tx(async (c) => {
+    await c.query('INSERT INTO documents(tenant_id,collection,id,data) VALUES ($1,$2,$3,$4)', [t.tid, 'orders', id, JSON.stringify(order)]);
+    // the audit row is what makes staff screens refresh (live stream) and shows in the activity log
+    await c.query("INSERT INTO audit_log(tenant_id,user_name,location_id,action,collection,doc_id,after) VALUES ($1,'Online shop','main','create','orders',$2,$3)", [t.tid, id, JSON.stringify(order)]);
+  });
+  broadcast(t.tid, 'orders', id);
+  const st = t.settings;
+  res.json({ ok: true, no, total: order.subtotal, whatsapp: st.whatsapp || st.phone || '', business: st.businessName });
+}));
+// pretty shop link: /s/<key>
+app.get('/s/:key', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'shop.html')));
+
 /* ---------- frontend ---------- */
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 // App code (html/js/css) must never be served stale after an update: browsers revalidate every time
@@ -499,6 +542,11 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
 }));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
-app.use((e, req, res, next) => { console.error(e); err(res, 500, 'Server error'); });
+app.use((e, req, res, next) => {
+  // body-parser errors are the client's fault: say so instead of a 500
+  if (e && e.type === 'entity.too.large') return err(res, 413, 'Request too large');
+  if (e && e.type === 'entity.parse.failed') return err(res, 400, 'Invalid JSON');
+  console.error(e); err(res, 500, 'Server error');
+});
 if (require.main === module) { app.listen(PORT, () => console.log('Kargo running on http://localhost:' + PORT)); reminders.startScheduler(); }
 module.exports = { app, importBackup };

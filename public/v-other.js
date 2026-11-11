@@ -201,7 +201,7 @@ VIEWS.settings = {
       '<h2 class="mt2 mb">Stores you buy from</h2>' + field('Comma-separated', inp('vendors', (s.vendors || []).join(', '))) +
       '<h2 class="mt2 mb">Categories</h2><div class="tiny muted mb">One per line: <b>Category: sub1, sub2</b></div><textarea class="inp" name="categories" style="min-height:180px;font-size:14px">' + esc(Object.entries(s.categories || KC.CATEGORIES).map(([k, v]) => k + ': ' + v.join(', ')).join('\n')) + '</textarea>' +
       '<button class="btn pri lg block mt2" data-a="saveSettings">Save settings</button></div>' +
-      locationsCard() + (K.info.mode === 'saas' ? '<div class="card pad2 mb"><div class="row between"><div><h2>Account</h2>' + (K.info.tenant ? '<div class="small muted">Plan: <b>' + esc(K.info.tenant.plan) + '</b>' + (K.info.tenant.trialEndsAt ? ' · trial ends ' + fmtDate(String(K.info.tenant.trialEndsAt).slice(0, 10)) : '') + '</div>' : '') + '</div><button class="btn sm" data-a="logout">Sign out</button></div><div class="grid3 mt">' + field('Current password', '<input class="inp" type="password" id="pwOld">') + field('New password', '<input class="inp" type="password" id="pwNew">') + '<button class="btn" style="align-self:end" data-a="pwChange">Change password</button></div></div>' : '');
+      shopCard() + locationsCard() + (K.info.mode === 'saas' ? '<div class="card pad2 mb"><div class="row between"><div><h2>Account</h2>' + (K.info.tenant ? '<div class="small muted">Plan: <b>' + esc(K.info.tenant.plan) + '</b>' + (K.info.tenant.trialEndsAt ? ' · trial ends ' + fmtDate(String(K.info.tenant.trialEndsAt).slice(0, 10)) : '') + '</div>' : '') + '</div><button class="btn sm" data-a="logout">Sign out</button></div><div class="grid3 mt">' + field('Current password', '<input class="inp" type="password" id="pwOld">') + field('New password', '<input class="inp" type="password" id="pwNew">') + '<button class="btn" style="align-self:end" data-a="pwChange">Change password</button></div></div>' : '');
   },
 };
 const mmCount = () => $$('[data-mm]').length;
@@ -364,3 +364,26 @@ function expTable(list, id, opts = {}) {
     ],
   });
 }
+
+/* ---------- settings: online shop ---------- */
+const newShopKey = () => { const a = new Uint8Array(10); crypto.getRandomValues(a); return Array.from(a, (b) => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join(''); };
+function shopCard() {
+  const s = S(); const on = !!s.shopEnabled && !!s.shopId;
+  if (K.info.mode !== 'saas') return '<div class="card pad2 mb"><h2 class="mb">Online shop</h2><p class="muted small" style="margin:0">Clients can browse your stock and send orders with their delivery details from a public link. This needs the online (server) version of Kargo.</p></div>';
+  return '<div class="card pad2 mb" id="shopCard"><div class="row between wrap mb"><h2>Online shop</h2>' + (on ? '<span class="badge ok">On</span>' : '<span class="badge">Off</span>') + '</div>' +
+    '<p class="muted small" style="margin-top:0">A public page where clients see items in stock with prices and photos, choose quantities and type their own details: name, phone, delivery (pickup, local, travel agency, courier), town, agency, recipient name and number. Orders arrive under <a href="#orders">Online orders</a> for you to confirm. Costs and exact stock are never shown.</p>' +
+    (on ? '<div class="alert info mb row between wrap"><b style="word-break:break-all">' + esc(shopLink()) + '</b><span class="row"><button class="btn sm" data-a="shopCopy">' + ic('copy', 'sm') + 'Copy</button><a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent('Order from ' + s.businessName + ' here: ' + shopLink()) + '">' + ic('wa', 'sm') + 'Share</a><a class="btn sm" target="_blank" rel="noopener" href="' + esc(shopLink()) + '">Open</a></span></div>' : '') +
+    '<label class="toggle mb"><input type="checkbox" id="shopOn"' + (on ? ' checked' : '') + '> Online shop is on</label>' +
+    field('Message at the top of your shop (optional)', '<textarea class="inp" id="shopMsg" rows="2" maxlength="300" placeholder="e.g. Delivery everywhere in Cameroon by travel agency. Pay by MTN MoMo or Orange Money.">' + esc(s.shopMessage || '') + '</textarea>') +
+    field('Travel agencies you use (one per line — clients can pick them)', '<textarea class="inp" id="shopAg" rows="3" placeholder="General Express&#10;Buca Voyages&#10;Touristique Express">' + esc((s.shopAgencies || []).join('\n')) + '</textarea>') +
+    '<div class="row wrap mt"><button class="btn pri" data-a="shopSave">' + ic('check') + 'Save online shop</button>' + (s.shopId ? '<button class="btn" data-a="shopNewLink">New link</button>' : '') + '</div></div>';
+}
+A.shopSave = async () => {
+  const on = $('#shopOn').checked; const s = S();
+  const patch = { shopEnabled: on, shopId: s.shopId || newShopKey(), shopMessage: $('#shopMsg').value.trim().slice(0, 300), shopAgencies: $('#shopAg').value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 30) };
+  await saveSettings(patch); toast(on ? 'Online shop is on — copy the link and share it' : 'Online shop saved (off)'); render(true);
+};
+A.shopNewLink = async () => {
+  if (!(await confirmBox('Make a new shop link? The old link will stop working for anyone who has it.', 'New link', true))) return;
+  await saveSettings({ shopId: newShopKey() }); toast('New link ready'); render(true);
+};

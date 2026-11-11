@@ -134,6 +134,68 @@
   const EXPENSE_CATS = ['Food & drinks', 'Water', 'Local transport', 'Fuel', 'Phone & internet', 'Warehouse rent', 'Salaries & wages', 'Electricity & water', 'Marketing', 'Taxes & licences', 'MoMo / bank fees', 'Security', 'Repairs & maintenance', 'Insurance', 'Other'];
 
   /** Sale totals that don't depend on cost. Payment `amount` pays the sale; `fee` is MoMo/OM charges (separate). */
+  /* ---------- delivery (local or to another region) ---------- */
+  const DELIVERY_MODES = [['pickup', 'Pickup at the shop'], ['local', 'Local delivery (moto / taxi)'], ['agency', 'Travel agency (other town / region)'], ['courier', 'Courier / parcel service']];
+  const DELIVERY_PAYERS = [['client_us', 'Client pays us — added to the bill'], ['client_agency', 'Client pays the agency / driver'], ['business', 'We pay (free delivery)']];
+  const DELIVERY_STATUSES = [['to_send', 'To send'], ['sent', 'Sent'], ['delivered', 'Delivered']];
+  const deliveryModeLabel = (m) => (DELIVERY_MODES.find((x) => x[0] === m) || [0, ''])[1];
+  const isDelivery = (s) => !!(s && s.delivery && s.delivery.mode && s.delivery.mode !== 'pickup');
+  /** Delivery fee the client owes US (kept apart from the sale amount, like MoMo charges). */
+  function deliveryFeeDue(s) { return isDelivery(s) && (s.delivery.payer || 'client_us') === 'client_us' ? Math.max(0, num(s.delivery.fee)) : 0; }
+  const cut = (v, n) => String(v === undefined || v === null ? '' : v).trim().slice(0, n);
+  /** Normalise delivery details from a form or the public shop. Returns null for "no delivery info". */
+  function cleanDelivery(d) {
+    if (!d || typeof d !== 'object') return null;
+    const mode = DELIVERY_MODES.some((x) => x[0] === d.mode) ? d.mode : 'pickup';
+    const out = { mode, agency: cut(d.agency, 80), destination: cut(d.destination, 80), address: cut(d.address, 160), recipientName: cut(d.recipientName, 80), recipientPhone: cut(d.recipientPhone, 30), trackingNo: cut(d.trackingNo, 60), notes: cut(d.notes, 300),
+      fee: Math.max(0, Math.round(num(d.fee))), payer: DELIVERY_PAYERS.some((x) => x[0] === d.payer) ? d.payer : 'client_us',
+      status: DELIVERY_STATUSES.some((x) => x[0] === d.status) ? d.status : 'to_send' };
+    if (d.sentAt) out.sentAt = cut(d.sentAt, 40); if (d.deliveredAt) out.deliveredAt = cut(d.deliveredAt, 40);
+    if (mode === 'pickup') return { mode: 'pickup' };
+    return out;
+  }
+
+  /* ---------- public shop (clients order and type their own details) ---------- */
+  /** What clients may see: items in stock with a price. Never costs; exact stock only when few are left. */
+  function shopCatalog(raw, C) {
+    return (raw.products || []).filter((p) => !p.archived && !p.shopHidden).map((p) => {
+      const x = C.prodX[p.id]; if (!x) return null;
+      const available = Math.max(0, num(x.available) - num(x.reserved || 0));
+      const price = num(x.priceMax);
+      if (available <= 0 || price <= 0) return null;
+      return { id: p.id, name: p.name, category: p.category || 'Other', subcategory: p.subcategory || '', condition: p.condition || 'New', unit: p.unit || '', size: sizeLabel(p) || '', price: Math.round(price), image: p.image || '', available };
+    }).filter(Boolean).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+  }
+  const publicItem = (i) => ({ id: i.id, name: i.name, category: i.category, subcategory: i.subcategory, condition: i.condition, unit: i.unit, size: i.size, price: i.price, image: i.image, few: i.available <= 5 ? i.available : null });
+  /** Check an order sent from the public shop. Prices come from the catalogue, never from the client. */
+  function validateShopOrder(body, catalog) {
+    const b = body && typeof body === 'object' ? body : {};
+    const c = b.customer || {};
+    const name = cut(c.name, 80), phone = cut(c.phone, 30).replace(/[^\d+ ]/g, '');
+    if (name.length < 2) return { error: 'Please type your name' };
+    if (phone.replace(/\D/g, '').length < 8) return { error: 'Please type a phone number we can call or WhatsApp' };
+    const items = Array.isArray(b.items) ? b.items : [];
+    if (!items.length) return { error: 'Your basket is empty' };
+    if (items.length > 50) return { error: 'Too many different items in one order' };
+    const byId = new Map(catalog.map((i) => [i.id, i])); const lines = []; const seen = new Set();
+    for (const it of items) {
+      const p = byId.get(it && it.productId); const qty = Math.floor(num(it && it.qty));
+      if (!p) return { error: 'An item in your basket is no longer available — please refresh the page' };
+      if (qty < 1 || qty > 999) return { error: 'Check the quantity for ' + p.name };
+      if (seen.has(p.id)) return { error: 'Duplicate item: ' + p.name }; seen.add(p.id);
+      if (qty > p.available) return { error: 'Only ' + p.available + ' left of ' + p.name };
+      lines.push({ productId: p.id, name: p.name, qty, unitPrice: p.price });
+    }
+    const delivery = cleanDelivery(Object.assign({}, b.delivery, { fee: 0, payer: 'client_us', status: 'to_send', trackingNo: '', sentAt: '', deliveredAt: '' })) || { mode: 'pickup' };
+    if (delivery.mode !== 'pickup') {
+      if (!delivery.destination) return { error: 'Please type the town / area to deliver to' };
+      if (delivery.mode === 'agency' && !delivery.agency) return { error: 'Please type the travel agency name' };
+      if (!delivery.recipientName) delivery.recipientName = name;
+      if (!delivery.recipientPhone) delivery.recipientPhone = phone;
+    }
+    return { order: { customer: { name, phone, whatsapp: cut(c.whatsapp, 30).replace(/[^\d+ ]/g, '') || phone, city: cut(c.city, 60) }, lines, subtotal: lines.reduce((a, l) => a + l.qty * l.unitPrice, 0), delivery, note: cut(b.note, 500) } };
+  }
+
   function saleTotals(s) {
     const lines = s.lines || [];
     const subtotal = lines.reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
@@ -145,9 +207,11 @@
     const net = total - returned;
     const paid = (s.payments || []).reduce((a, p) => a + num(p.amount), 0);
     const fees = paymentFees(s);
-    const balance = Math.round(net - paid);
+    // delivery fee the client owes us: separate from the sale amount (revenue), but part of what they must pay
+    const deliveryFee = deliveryFeeDue(s); const due = net + deliveryFee;
+    const balance = Math.round(due - paid);
     let status = s.status === 'cancelled' ? 'cancelled' : balance <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
-    return { subtotal, discount, total, factor, returned, net, paid, fees, balance, status, txnId: saleTxnId(s) };
+    return { subtotal, discount, total, factor, returned, net, deliveryFee, due, paid, fees, balance, status, txnId: saleTxnId(s) };
   }
 
   /** Everything derived from raw collections. */
@@ -686,6 +750,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, CONDITIONS, WORKING, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

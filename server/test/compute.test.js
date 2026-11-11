@@ -315,3 +315,49 @@ test('assets: cost in base currency, straight-line & declining depreciation, dis
   const sl = KC.describeChange('assets', st, Object.assign({}, sold, { disposal: { date: '2027-01-01', amount: 1500000, bookValue: 1615054, buyer: 'Ets Ndi', reason: 'Bought a bigger one' } }), L)[0];
   assert.match(sl.text, /Sold asset Stacker to Ets Ndi for 1500000 F .*loss 115054 F/); assert.equal(sl.reason, 'Bought a bigger one');
 });
+test('delivery: fee kept apart from the sale amount; owed only when the client pays us', () => {
+  const base = { no: 'S9', lines: [{ qty: 2, unitPrice: 10000, returns: [] }], payments: [{ amount: 20000 }] };
+  const t = (delivery) => KC.saleTotals(Object.assign({}, base, { delivery }));
+  assert.equal(t({ mode: 'agency', fee: 3000, payer: 'client_us' }).net, 20000);           // revenue unchanged
+  assert.equal(t({ mode: 'agency', fee: 3000, payer: 'client_us' }).deliveryFee, 3000);
+  assert.equal(t({ mode: 'agency', fee: 3000, payer: 'client_us' }).due, 23000);
+  assert.equal(t({ mode: 'agency', fee: 3000, payer: 'client_us' }).balance, 3000);
+  assert.equal(t({ mode: 'agency', fee: 3000, payer: 'client_us' }).status, 'partial');
+  assert.equal(t({ mode: 'agency', fee: 3000, payer: 'client_agency' }).balance, 0);       // client pays the agency directly
+  assert.equal(t({ mode: 'local', fee: 1500, payer: 'business' }).balance, 0);             // free delivery for the client
+  assert.equal(t({ mode: 'pickup', fee: 9999 }).deliveryFee, 0);
+  assert.equal(t(undefined).balance, 0);
+  const d = KC.cleanDelivery({ mode: 'agency', agency: ' General Express ', destination: 'Bafoussam', fee: '-50', payer: 'hacker', status: 'weird', recipientName: 'x'.repeat(500) });
+  assert.equal(d.agency, 'General Express'); assert.equal(d.fee, 0); assert.equal(d.payer, 'client_us'); assert.equal(d.status, 'to_send'); assert.equal(d.recipientName.length, 80);
+  assert.deepEqual(KC.cleanDelivery({ mode: 'pickup', fee: 100 }), { mode: 'pickup' });
+  assert.deepEqual(KC.cleanDelivery({ mode: 'teleport' }), { mode: 'pickup' });
+});
+test('online shop: catalogue hides costs, exact stock only when few; orders checked, prices from the catalogue', () => {
+  const raw = { settings: {}, products: [{ id: 'a', name: 'Oats', category: 'Food', priceMax: 5000 }, { id: 'b', name: 'TV', category: 'Electronics', priceMax: 150000 }, { id: 'c', name: 'Hidden', priceMax: 100, shopHidden: true }, { id: 'd', name: 'Gone', priceMax: 100, archived: true }],
+    lots: [{ id: 'l1', productId: 'a', qty: 40, unitCost: 1000, inWarehouse: true, locationId: 'main' }, { id: 'l2', productId: 'b', qty: 2, unitCost: 90000, inWarehouse: true, locationId: 'main' }, { id: 'l3', productId: 'c', qty: 5, unitCost: 1, inWarehouse: true }, { id: 'l4', productId: 'd', qty: 5, unitCost: 1, inWarehouse: true }],
+    shipments: [], sales: [], adjustments: [], transfers: [] };
+  const cat = KC.shopCatalog(raw, KC.computeAll(raw));
+  assert.deepEqual(cat.map((i) => i.id).sort(), ['a', 'b']);
+  const pub = cat.map(KC.publicItem);
+  assert.ok(pub.every((i) => !('available' in i) && !('cost' in i) && !('unitCost' in i)));
+  assert.equal(pub.find((i) => i.id === 'a').few, null);   // plenty: no exact number
+  assert.equal(pub.find((i) => i.id === 'b').few, 2);      // few left: shown
+  const ok = { customer: { name: 'Awa', phone: '+237 677 12 34 56' }, items: [{ productId: 'a', qty: 3, unitPrice: 1 }], delivery: { mode: 'agency', agency: 'General Express', destination: 'Bafoussam', fee: 99999, status: 'delivered' } };
+  const r = KC.validateShopOrder(ok, cat);
+  assert.equal(r.order.lines[0].unitPrice, 5000);           // client cannot set the price
+  assert.equal(r.order.subtotal, 15000);
+  assert.equal(r.order.delivery.fee, 0);                    // nor the fee or status
+  assert.equal(r.order.delivery.status, 'to_send');
+  assert.equal(r.order.delivery.recipientName, 'Awa');      // recipient defaults to the client
+  const err = (patch) => KC.validateShopOrder(Object.assign({}, ok, patch), cat).error;
+  assert.match(err({ customer: { name: 'A', phone: '677123456' } }), /name/);
+  assert.match(err({ customer: { name: 'Awa', phone: '123' } }), /phone/);
+  assert.match(err({ items: [] }), /empty/);
+  assert.match(err({ items: [{ productId: 'zzz', qty: 1 }] }), /no longer available/);
+  assert.match(err({ items: [{ productId: 'b', qty: 3 }] }), /Only 2 left/);
+  assert.match(err({ items: [{ productId: 'a', qty: 0 }] }), /quantity/);
+  assert.match(err({ items: [{ productId: 'a', qty: 1 }, { productId: 'a', qty: 1 }] }), /Duplicate/);
+  assert.match(err({ delivery: { mode: 'agency', destination: 'Bafoussam' } }), /agency/);
+  assert.match(err({ delivery: { mode: 'local' } }), /town/);
+  assert.equal(KC.validateShopOrder(Object.assign({}, ok, { delivery: { mode: 'pickup' } }), cat).order.delivery.mode, 'pickup');
+});

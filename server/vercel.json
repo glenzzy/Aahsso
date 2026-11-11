@@ -12,6 +12,10 @@
   },
   "rewrites": [
     {
+      "source": "/s/:key",
+      "destination": "/shop.html"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api"
     },

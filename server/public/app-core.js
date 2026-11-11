@@ -244,6 +244,7 @@ function xlsxDownload(filename, sheets) { // sheets: {name: rows[]}
 /* ---------- navigation ---------- */
 const NAV = [
   ['home', 'Home', 'home', () => true], ['sell', 'New sale', 'sell', () => can('sell')], ['sales', 'Sales', 'sales', () => can('sell') || can('salesAll') || can('payments')],
+  ['orders', 'Online orders', 'sell', () => can('sell') || can('payments'), () => (K.raw.orders || []).filter((o) => o.status === 'new').length],
   ['stock', 'Stock', 'stock', () => can('stockView') || can('stockEdit')], ['buy', 'Purchases', 'buy', () => can('purchases')], ['containers', 'Containers', 'ship', () => can('containers')],
   ['customers', 'Customers', 'users', () => can('customers') || can('sell')], ['reports', 'Reports', 'chart', () => can('reports')], ['expenses', 'Expenses', 'wallet', () => can('expenses')],
   ['cash', 'Cash handover', 'wallet', () => can('payments') || can('handover')], ['suppliers', 'Suppliers & bills', 'buy', () => can('suppliers')], ['reminders', 'Debt reminders', 'wa', () => can('reminders')],
@@ -266,11 +267,12 @@ function route() {
   K.route = r; window.scrollTo(0, 0); render(true);
 }
 function logoHTML(cls = 'logo') { const s = S(); return '<div class="' + cls + '">' + (s.logo ? '<img src="' + esc(s.logo) + '" alt="">' : esc(initials(s.businessName).slice(0, 2))) + '</div>'; }
+const navCount = (n) => { const c = n[4] ? n[4]() : 0; return c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : ''; };
 function shell() {
   const s = S();
   const items = NAV.filter((n) => n[3]());
   $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div><div class="bn">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">Import & sales manager</div></div></div>' +
-    items.map((n) => '<a class="nav' + (K.route === n[0] ? ' on' : '') + '" href="#' + n[0] + '">' + ic(n[2]) + n[1] + '</a>').join('') +
+    items.map((n) => '<a class="nav' + (K.route === n[0] ? ' on' : '') + '" href="#' + n[0] + '">' + ic(n[2]) + n[1] + navCount(n) + '</a>').join('') +
     '<div class="sp"></div><div class="who">' + esc(K.me.name || K.info.userLabel || '') + ' · ' + esc(roleLabel()) + '</div>';
   if (!K.member) { $('#bnav').innerHTML = ''; $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div class="bn">' + esc(s.businessName) + '</div></div>'; $('#title').textContent = 'Access'; $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"'); return; }
   const bn = [['home', 'Home', 'home'], ['sales', 'Sales', 'sales'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']].filter((n) => n[0] === 'more' || navOk(n[0]));
@@ -366,7 +368,7 @@ A.go = (el) => { closeSheet(); go(el.dataset.r); };
 A.toggleX = (el) => { const k = el.dataset.k; K.ui.expanded[k] = !K.ui.expanded[k]; render(true); };
 A.moreMenu = () => {
   const items = NAV.filter((n) => n[3]() && !['home', 'sales', 'sell', 'stock'].includes(n[0]));
-  openSheet({ title: 'More', body: '<div class="card list">' + items.map((n) => '<div class="li" data-a="go" data-r="' + n[0] + '"><div class="av ink">' + ic(n[2]) + '</div><div class="grow t">' + n[1] + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</div>' });
+  openSheet({ title: 'More', body: '<div class="card list">' + items.map((n) => '<div class="li" data-a="go" data-r="' + n[0] + '"><div class="av ink">' + ic(n[2]) + '</div><div class="grow t">' + n[1] + '</div>' + navCount(n) + ic('chev', 'sm') + '</div>').join('') + '</div>' });
 };
 const VIEWS = {};
 
