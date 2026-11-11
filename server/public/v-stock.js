@@ -30,16 +30,43 @@ VIEWS.stock = {
       '<div class="row wrap mb">' + (can('stockEdit') ? '<button class="btn pri" data-a="pricing">' + ic('tag') + 'Set prices / markup</button><button class="btn" data-a="labels">' + ic('barcode') + 'Barcode labels</button>' : '') + (can('export') ? '<button class="btn" data-a="exportStock">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + F_.map(([k, l]) => '<button class="chip' + (K.ui.stockFilter === k ? ' on' : '') + '" data-a="stockFilter" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="row mb"><div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search item or barcode" value="' + esc(K.ui.stockQ) + '" data-i="stockQ"></div><select class="inp" style="width:auto;max-width:44%" data-c="stockCat"><option value="">All categories</option>' + catOpts().map((c) => '<option' + (K.ui.stockCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>' +
-      '<div class="card list" id="stockList">' + stockRows(list) + '</div>';
+      stockRows(list);
   },
 };
 function stockRows(list) {
-  if (!list.length) return '<div class="empty"><div class="big">📦</div>Nothing here.' + (can('purchases') && !K.raw.products.length ? '<div class="mt"><a class="btn pri" href="#buy">Record your first purchase</a></div>' : '') + '</div>';
-  return list.slice(0, 400).map((p) => {
-    const x = K.C.prodX[p.id], open = K.ui.expanded['p' + p.id];
-    return '<div><div class="li" data-a="toggleX" data-k="p' + p.id + '">' + thumb(p, 46, 12) + '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(p.name) + '</div><div class="tiny muted ellipsis">' + esc([p.category, p.subcategory, KC.sizeLabel(p)].filter(Boolean).join(' › ')) + (p.condition && p.condition !== 'New' ? ' · ' + esc(p.condition) : '') + '</div><div class="row gap4 wrap" style="margin-top:4px">' + (x.nextExpiry ? expiryBadge(x.nextExpiry) : '') + (x.transit + x.us > 0 ? '<span class="badge info">+' + (x.transit + x.us) + ' incoming</span>' : '') + (x.reserved > 0 ? '<span class="badge acc">' + x.reserved + ' held for clients</span>' : '') + (x.available > 0 && x.available <= (num(S().lowStock) || 3) ? '<span class="badge warn">Low</span>' : '') + (x.oversold > 0 ? '<span class="badge bad">Oversold ' + x.oversold + '</span>' : '') + '</div></div>' +
-      '<div class="right"><div class="b" style="font-size:17px">' + fmt(allLocs().length > 1 ? (x.byLoc[K.loc] || 0) : x.available) + ' <span class="tiny faint">' + esc(p.unit || '') + '</span></div>' + (allLocs().length > 1 ? '<div class="tiny faint">' + fmt(x.available) + ' all locations</div>' : '') + '<div class="tiny muted money">' + F(x.priceMax) + '</div></div>' + ic(open ? 'down' : 'chev', 'sm') + '</div>' + (open ? productExpand(p) : '') + '</div>';
-  }).join('');
+  const X = (p) => K.C.prodX[p.id]; const multi = allLocs().length > 1; const cost = seeCost();
+  const low = num(S().lowStock) || 3; const w = num(S().expiryWarnDays) || 60;
+  const here = (p) => multi ? (X(p).byLoc[K.loc] || 0) : X(p).available;
+  // one status per item: the most important thing to know
+  const status = (p) => { const x = X(p); if (x.oversold > 0) return ['Oversold', 'bad']; if (x.available <= 0) return ['Sold out', '']; if (x.nextExpiry && daysUntil(x.nextExpiry) <= w) return ['Expiring', 'warn']; if (x.available <= low) return ['Low', 'warn']; return ['In stock', 'ok']; };
+  return dataTable({
+    id: 'stockList', rows: list, noun: 'item', limit: 400,
+    empty: '<div class="big">📦</div>Nothing here.' + (can('purchases') && !K.raw.products.length ? '<div class="mt"><a class="btn pri" href="#buy">Record your first purchase</a></div>' : ''),
+    rowAttr: (p) => ' data-a="toggleX" data-k="p' + p.id + '"',
+    expand: { key: (p) => 'p' + p.id, html: (p) => productExpand(p) },
+    cols: [
+      { k: 'photo', label: 'Photo', core: true, cls: 'thumbc', v: () => '', html: (p) => thumb(p, 36, 9) },
+      { k: 'name', label: 'Item', core: true, v: (p) => p.name, html: (p) => '<b>' + esc(p.name) + '</b>' },
+      { k: 'cat', label: 'Category', core: true, v: (p) => p.category || '' },
+      { k: 'sub', label: 'Subcategory', v: (p) => p.subcategory || '', cls: 'mut' },
+      { k: 'cond', label: 'Condition', v: (p) => p.condition || 'New' },
+      { k: 'size', label: 'Size', v: (p) => KC.sizeLabel(p) || '' },
+      { k: 'unit', label: 'Unit', v: (p) => p.unit || '', cls: 'mut' },
+      { k: 'barcode', label: 'Barcode', v: (p) => p.barcode || '', cls: 'mut' },
+      { k: 'qty', label: multi ? 'In stock here' : 'In stock', core: true, num: true, cls: 'b', v: here, total: (rows) => fmt(dtSum(rows, here)) },
+      multi ? { k: 'all', label: 'All branches', num: true, v: (p) => X(p).available } : null,
+      { k: 'inc', label: 'Incoming', core: true, num: true, v: (p) => X(p).transit + X(p).us || '', total: (rows) => fmt(dtSum(rows, (p) => X(p).transit + X(p).us)) },
+      { k: 'held', label: 'Held for clients', num: true, v: (p) => X(p).reserved || '' },
+      { k: 'price', label: 'Price', core: true, money: true, v: (p) => X(p).priceMax },
+      { k: 'ws', label: 'Wholesale price', money: true, v: (p) => X(p).priceWholesale },
+      { k: 'min', label: 'Lowest price', money: true, v: (p) => X(p).priceMin },
+      cost ? { k: 'avg', label: 'Avg landed cost', money: true, v: (p) => Math.round(X(p).avgCost) } : null,
+      cost ? { k: 'val', label: 'Stock value (cost)', money: true, v: (p) => Math.round(X(p).stockValue), total: (rows) => fmt(dtSum(rows, (p) => X(p).stockValue)) } : null,
+      { k: 'sold', label: 'Sold', num: true, v: (p) => X(p).sold || '' },
+      { k: 'exp', label: 'Next expiry', v: (p) => X(p).nextExpiry || '', html: (p) => X(p).nextExpiry ? expiryBadge(X(p).nextExpiry) : dtNil },
+      { k: 'status', label: 'Status', core: true, v: (p) => status(p)[0], html: (p) => '<span class="badge ' + status(p)[1] + '">' + status(p)[0] + '</span>' },
+    ],
+  });
 }
 function productExpand(p) {
   const x = K.C.prodX[p.id]; const lots = x.lotIds.map((id) => byId('lots', id)).filter(Boolean).sort((a, b) => (b.purchaseDate || '').localeCompare(a.purchaseDate || ''));
@@ -56,7 +83,7 @@ function productExpand(p) {
 }
 A.stockFilter = (el) => { K.ui.stockFilter = el.dataset.v; render(true); };
 CH.stockCat = (el) => { K.ui.stockCat = el.value; render(true); };
-I.stockQ = (el) => { K.ui.stockQ = el.value; clearTimeout(I._st); I._st = setTimeout(() => ($('#stockList').innerHTML = stockRows(stockList())), 120); };
+I.stockQ = (el) => { K.ui.stockQ = el.value; clearTimeout(I._st); I._st = setTimeout(() => dtRefresh('stockList'), 120); };
 A.sellThis = (el) => { addToCart(el.dataset.id); go('sell'); };
 A.exportStock = () => {
   const rows = K.raw.products.map((p) => { const x = K.C.prodX[p.id]; const r = { Item: p.name, Category: p.category, Subcategory: p.subcategory, Condition: p.condition, Barcode: p.barcode || '', 'In stock': x.available, Incoming: x.transit + x.us, 'Price max (F)': x.priceMax, 'Price min (F)': x.priceMin, 'Next expiry': x.nextExpiry || '' }; if (seeCost()) Object.assign(r, { 'Avg landed cost (F)': Math.round(x.avgCost), 'Stock value (F)': Math.round(x.stockValue), 'Units sold': x.sold, 'Revenue (F)': Math.round(x.revenue), 'Profit (F)': Math.round(x.profit) }); return r; });
@@ -215,32 +242,41 @@ function purchaseGroups(lots) {
   }).sort((a, b) => (b.date + (b.first.createdAt || '')).localeCompare(a.date + (a.first.createdAt || '')));
 }
 const STAGE_BADGE = { us: '<span class="badge">US storage</span>', transit: '<span class="badge info">In container</span>', warehouse: '<span class="badge ok">Warehouse</span>' };
+const STAGE_NAME = { us: 'US storage', transit: 'In container', warehouse: 'Warehouse' };
 function purchaseTable(groups) {
-  if (!groups.length) return '<div class="empty"><div class="big">🛒</div>No purchases here. Tap <b>Add purchase</b> after each store run, or import a B-Stock manifest.</div>';
-  const rows = groups.slice(0, 300); const T = { x: 0, units: 0, lines: 0 };
-  const body = rows.map((g) => {
-    T.x += g.totalX; T.units += g.units; T.lines += g.lots.length;
-    const cur = (v) => money(v, g.cur);
-    const items = g.lots.map((l) => ((byId('products', l.productId) || {}).name || '?') + ' ×' + num(l.qty)).join(', ');
-    const pays = g.bill ? (g.bill.payments || []).filter((p) => num(p.amount) > 0) : [];
-    const modes = [...new Set(pays.map((p) => p.method || 'Cash'))]; const refs = pays.map((p) => p.ref).filter(Boolean);
-    const owed = g.bx && g.bill.status !== 'cancelled' ? g.bx.balance : 0;
-    const due = g.bill ? (g.bill.dueDate || g.bill.date) : '';
-    return '<tr data-a="openPurchase" data-k="' + esc(g.key) + '">' +
-      '<td>' + esc(dayMon(g.date)) + '<span class="sub">' + esc(g.date.slice(0, 4)) + '</span></td>' +
-      '<td><b>' + (g.po ? '#' + esc(g.po) : esc(g.txnId || '—')) + '</b><span class="sub">' + esc(g.po ? g.txnId : g.lots[0].lotNumber || '') + '</span></td>' +
-      '<td class="cut" title="' + esc(g.vendor) + '">' + esc(g.vendor || '—') + '<span class="sub">' + esc(g.source) + '</span></td>' +
-      '<td class="wrap" title="' + esc(items) + '"><span class="clamp">' + esc(items) + '</span><span class="sub">' + g.lots.length + ' line(s) · ' + fmt(g.units) + ' unit(s)</span></td>' +
-      '<td class="cut"' + (refs.length ? ' title="' + esc(refs.join(', ')) + '"' : '') + '>' + (modes.length ? esc(modes.join(', ')) : g.bill ? '<span class="faint">not paid</span>' : '<span class="faint">—</span>') + (refs.length ? '<span class="sub">' + esc(refs.join(', ')) + '</span>' : '') + '</td>' +
-      '<td class="r money b">' + cur(g.total) + (g.cur !== baseCode() ? '<span class="sub">' + F(g.totalX) + '</span>' : '') + '</td>' +
-      '<td class="r money">' + (g.bx ? cur(g.bx.paid) : '<span class="faint">—</span>') + '</td>' +
-      '<td class="r money">' + (g.bx && g.bx.fees > 0 ? cur(g.bx.fees) : '<span class="faint">—</span>') + '</td>' +
-      '<td class="r money' + (owed > 0.005 ? ' neg b' : '') + '">' + (owed > 0.005 ? cur(owed) + '<span class="sub">' + (due < todayStr() ? 'overdue' : 'due ' + dayMon(due)) + '</span>' : '<span class="faint">—</span>') + '</td>' +
-      '<td class="st">' + (g.atSeller ? '<span class="badge warn">At seller</span> ' : '') + Object.entries(g.stages).map(([s, n]) => (STAGE_BADGE[s] || '') + (Object.keys(g.stages).length > 1 ? ' <span class="tiny muted">' + n + '</span>' : '')).join(' ') + (g.ships.length ? '<span class="sub">' + esc(g.ships.join(', ')) + '</span>' : '') + '</td></tr>';
-  }).join('');
-  return '<table class="t sales"><thead><tr><th>Date</th><th>Order / Txn ID</th><th>Store / seller</th><th>Items</th><th>Payment mode</th><th class="r">Total</th><th class="r">Paid</th><th class="r">MoMo charges</th><th class="r">Owed</th><th>Where</th></tr></thead>' +
-    '<tbody>' + body + '</tbody>' +
-    '<tfoot><tr><td colspan="3">Total · ' + rows.length + ' purchase(s)' + (groups.length > rows.length ? ' (first ' + rows.length + ' of ' + groups.length + ')' : '') + '</td><td>' + T.lines + ' line(s) · ' + fmt(T.units) + ' unit(s)</td><td></td><td class="r money">' + F(T.x) + '</td><td colspan="4" class="tiny muted">totals in ' + esc(baseCode()) + ' at your exchange rates</td></tr></tfoot></table>';
+  const today = todayStr();
+  const pays = (g) => g.bill ? (g.bill.payments || []).filter((p) => num(p.amount) > 0) : [];
+  const owed = (g) => g.bx && g.bill.status !== 'cancelled' && g.bx.balance > 0.005 ? g.bx.balance : 0;
+  const items = (g) => g.lots.map((l) => ((byId('products', l.productId) || {}).name || '?') + ' ×' + num(l.qty)).join(', ');
+  const oneCur = new Set(groups.map((g) => g.cur)).size === 1 ? (groups[0] || {}).cur : null; // totals in purchase currency only when all the same
+  const curTotal = (f) => (rows) => oneCur ? money(dtSum(rows, f), oneCur) : '';
+  return dataTable({
+    id: 'buyList', rows: groups, noun: 'purchase', limit: 300,
+    empty: '<div class="big">🛒</div>No purchases here. Tap <b>Add purchase</b> after each store run, or import a B-Stock manifest.',
+    rowAttr: (g) => ' data-a="openPurchase" data-k="' + esc(g.key) + '"',
+    cols: [
+      { k: 'date', label: 'Date', core: true, v: (g) => g.date, html: (g) => dtDate(g.date) },
+      { k: 'po', label: 'Order no.', v: (g) => g.po },
+      { k: 'txn', label: 'Transaction ID', v: (g) => g.txnId, cls: 'mut' },
+      { k: 'vendor', label: 'Store / seller', core: true, v: (g) => g.vendor },
+      { k: 'source', label: 'Source', v: (g) => g.source, cls: 'mut' },
+      { k: 'items', label: 'Items', core: true, wrap: true, v: items },
+      { k: 'lines', label: 'Lines', num: true, v: (g) => g.lots.length, total: (rows) => fmt(dtSum(rows, (g) => g.lots.length)) },
+      { k: 'units', label: 'Units', num: true, v: (g) => g.units, total: (rows) => fmt(dtSum(rows, (g) => g.units)) },
+      { k: 'cur', label: 'Currency', v: (g) => g.cur, cls: 'mut' },
+      { k: 'total', label: 'Total', core: true, money: true, cls: 'b', v: (g) => g.total, html: (g) => money(g.total, g.cur), total: curTotal((g) => g.total) },
+      { k: 'totalx', label: 'Total (' + baseCode() + ')', money: true, v: (g) => Math.round(g.totalX), total: (rows) => fmt(dtSum(rows, (g) => g.totalX)) },
+      { k: 'mode', label: 'Payment mode', v: (g) => pays(g).length ? [...new Set(pays(g).map((p) => p.method || 'Cash'))].join(', ') : g.bill ? 'Not paid' : '', html: (g) => pays(g).length ? esc([...new Set(pays(g).map((p) => p.method || 'Cash'))].join(', ')) : g.bill ? '<span class="badge warn">Not paid</span>' : dtNil },
+      { k: 'ref', label: 'Payment txn ID', v: (g) => pays(g).map((p) => p.ref).filter(Boolean).join(', '), cls: 'mut' },
+      { k: 'paid', label: 'Paid', core: true, money: true, v: (g) => g.bx ? g.bx.paid : '', html: (g) => g.bx ? money(g.bx.paid, g.cur) : dtNil, total: curTotal((g) => g.bx ? g.bx.paid : 0) },
+      { k: 'fees', label: 'MoMo charges', money: true, v: (g) => g.bx && g.bx.fees > 0 ? g.bx.fees : '', html: (g) => g.bx && g.bx.fees > 0 ? money(g.bx.fees, g.cur) : dtNil },
+      { k: 'owed', label: 'Owed', core: true, money: true, v: (g) => owed(g) || '', html: (g) => owed(g) ? '<span style="color:var(--bad);font-weight:700">' + money(owed(g), g.cur) + '</span>' : dtNil, total: curTotal(owed) },
+      { k: 'due', label: 'Pay by', v: (g) => owed(g) ? (g.bill.dueDate || g.bill.date) : '', html: (g) => { if (!owed(g)) return dtNil; const d = g.bill.dueDate || g.bill.date; return d < today ? '<span class="badge bad">Overdue · ' + esc(dayMon(d)) + '</span>' : dtDate(d); } },
+      { k: 'where', label: 'Where', core: true, v: (g) => Object.keys(g.stages).map((s) => STAGE_NAME[s]).join(', '), html: (g) => Object.keys(g.stages).map((s) => STAGE_BADGE[s] || '').join(' ') },
+      { k: 'coll', label: 'Collected', v: (g) => g.atSeller ? 'No' : 'Yes', html: (g) => g.atSeller ? '<span class="badge warn">' + (g.atSeller === g.lots.length ? 'No · at seller' : 'Partly') + '</span>' : '<span class="badge">Yes</span>' },
+      { k: 'ship', label: 'Container', v: (g) => g.ships.join(', '), cls: 'mut' },
+    ],
+  });
 }
 function purchaseRow(g) { // Excel row
   const pays = g.bill ? (g.bill.payments || []).filter((p) => num(p.amount) > 0) : [];
@@ -261,7 +297,7 @@ VIEWS.buy = {
       '<div class="row wrap between mb"><div class="row wrap"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'Add purchase</button><button class="btn" data-a="importPurch">' + ic('up') + 'Import Excel (B-Stock manifest)</button><button class="btn" data-a="tplPurch">' + ic('dl') + 'Template</button></div>' + (can('export') ? '<button class="btn" data-a="exportPurch">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + [['all', 'All'], ['us', 'US storage'], ['transit', 'In container'], ['warehouse', 'In warehouse']].map(([k, l]) => '<button class="chip' + (f === k ? ' on' : '') + '" data-a="buyF" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search item, store, order no., txn ID" value="' + esc(K.ui.buyQ) + '" data-c="buyQ"></div>' +
-      '<div class="card tw sales-tw">' + purchaseTable(groups) + '</div>';
+      purchaseTable(groups);
   },
 };
 A.purchCollected = async (el) => {
@@ -436,10 +472,7 @@ VIEWS.containers = {
     const us = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us');
     return '<div class="row wrap mb"><button class="btn pri" data-a="newShip">' + ic('plus') + 'New container</button></div>' +
       (us.length ? '<div class="alert info mb">' + ic('buy', 'sm') + '<div><b>' + us.reduce((a, l) => a + num(l.qty), 0) + ' units</b> in US storage are not in a container yet. Open a container and use <b>Add items</b>.</div></div>' : '') +
-      (ships.length ? ships.map((s) => { const x = K.C.shipX[s.id]; const i = stIdx(s.status); return '<div class="card pad mb" data-a="openShip" data-id="' + s.id + '" style="cursor:pointer"><div class="row between"><div class="row"><div class="av acc">' + ic('ship') + '</div><div><div class="b">' + esc(s.name || 'Container') + '</div><div class="tiny muted">' + esc([s.containerNo, s.bookingNo && 'Booking ' + s.bookingNo, s.origin].filter(Boolean).join(' · ')) + '</div></div></div><span class="badge brand">' + esc((KC.SHIP_STATUSES[i] || [0, ''])[1]) + '</span></div>' +
-        '<div class="pipeline">' + KC.SHIP_STATUSES.slice(0, 6).map((_, j) => '<span class="' + (j <= i ? 'on' : '') + '"></span>').join('') + '</div>' +
-        '<div class="grid4 small mt"><div><div class="faint tiny">Units</div><b>' + fmt(x.units) + '</b></div><div><div class="faint tiny">Landed cost</div><b class="money">' + F(x.landedX) + '</b></div><div><div class="faint tiny">Revenue</div><b class="money">' + F(x.revenue) + '</b></div><div><div class="faint tiny">Sold</div><b>' + (x.units ? pct(x.unitsSold / x.units * 100) : '—') + '</b></div></div>' +
-        (x.units ? '<div class="bar mt"><i style="width:' + Math.min(100, x.unitsSold / x.units * 100) + '%"></i></div>' : '') + '</div>'; }).join('') : '<div class="card empty"><div class="big">🚢</div>No containers yet. Create one when you book a container.</div>');
+      shipTable(ships);
   },
 };
 A.newShip = () => shipForm(null);
@@ -595,9 +628,9 @@ VIEWS.transfers = {
     const waiting = list.filter((t) => t.status === 'in_transit' && t.to === K.loc);
     const row = (t) => { const n = (t.lines || []).reduce((a, l) => a + num(l.qty), 0); return '<div class="li" data-a="openTransfer" data-id="' + t.id + '"><div class="av' + (t.status === 'cancelled' ? ' ink' : '') + '">' + ic('ship', 'sm') + '</div><div class="grow"><div class="t">' + esc(locName(t.from)) + ' → ' + esc(locName(t.to)) + '</div><div class="tiny muted">' + fmtDate(t.date) + ' · ' + n + ' unit(s) · ' + esc(t.reason || '') + (t.by ? ' · ' + esc(t.by) : '') + '</div></div>' + trBadge(t) + '</div>'; };
     return '<div class="alert info mb">Stock leaves the sending branch when you tap <b>Send</b>, and arrives only when the receiving branch counts it and taps <b>Receive</b>. Anything missing is recorded as a loss.</div>' +
-      (waiting.length ? '<h2 class="mb">Arriving at ' + esc(locName(K.loc)) + '</h2><div class="card list mb">' + waiting.map(row).join('') + '</div>' : '') +
+      (waiting.length ? '<h2 class="mb">Arriving at ' + esc(locName(K.loc)) + '</h2>' + trTable(waiting, 'trWaiting') : '') +
       (can('transfers') ? '<div class="row wrap mb"><button class="btn pri" data-a="newTransfer">' + ic('plus') + 'Send stock to a branch</button></div>' : '') +
-      '<div class="card list">' + (list.length ? list.map(row).join('') : '<div class="empty">No transfers yet.</div>') + '</div>';
+      trTable(list, 'trList');
   },
 };
 A.newTransfer = () => {
@@ -652,3 +685,56 @@ A.openTransfer = (el) => {
     e.target.disabled = false;
   };
 };
+
+/* ---------- tables: containers, transfers ---------- */
+function shipTable(ships) {
+  const X = (s) => K.C.shipX[s.id]; const cost = seeCost();
+  const stLabel = (s) => (KC.SHIP_STATUSES.find((q) => q[0] === s.status) || [0, s.status || ''])[1];
+  const pctSold = (s) => X(s).units ? X(s).unitsSold / X(s).units * 100 : 0;
+  return dataTable({
+    id: 'shipList', rows: ships, noun: 'container', empty: '<div class="big">🚢</div>No containers yet. Create one when you book a container.',
+    rowAttr: (s) => ' data-a="openShip" data-id="' + s.id + '"',
+    cols: [
+      { k: 'name', label: 'Container', core: true, v: (s) => s.name || 'Container', html: (s) => '<b>' + esc(s.name || 'Container') + '</b>' },
+      { k: 'no', label: 'Container no.', core: true, v: (s) => s.containerNo || '', cls: 'mut' },
+      { k: 'book', label: 'Booking no.', v: (s) => s.bookingNo || '', cls: 'mut' },
+      { k: 'carrier', label: 'Carrier', v: (s) => s.carrier || '' },
+      { k: 'origin', label: 'From', v: (s) => s.origin || '' },
+      { k: 'dest', label: 'To', v: (s) => s.destination || '' },
+      { k: 'status', label: 'Status', core: true, v: (s) => stIdx(s.status), html: (s) => '<span class="badge ' + (s.status === 'received' || s.status === 'closed' ? 'ok' : 'info') + '">' + esc(stLabel(s)) + '</span>' },
+      { k: 'loaded', label: 'Loaded', v: (s) => s.loadedAt || '', html: (s) => dtDate(s.loadedAt) },
+      { k: 'arrived', label: 'Arrived', v: (s) => s.arrivedAt || '', html: (s) => dtDate(s.arrivedAt) },
+      { k: 'units', label: 'Units', core: true, num: true, v: (s) => X(s).units, total: (rows) => fmt(dtSum(rows, (s) => X(s).units)) },
+      { k: 'goods', label: 'Goods', money: true, v: (s) => Math.round(X(s).goodsX) },
+      { k: 'us', label: 'US costs', money: true, v: (s) => Math.round(X(s).usX) },
+      { k: 'cm', label: 'Cameroon costs', money: true, v: (s) => Math.round(X(s).cmX) },
+      { k: 'landed', label: 'Landed cost', core: true, money: true, cls: 'b', v: (s) => Math.round(X(s).landedX), total: (rows) => fmt(dtSum(rows, (s) => X(s).landedX)) },
+      { k: 'rev', label: 'Revenue', core: true, money: true, v: (s) => Math.round(X(s).revenue), total: (rows) => fmt(dtSum(rows, (s) => X(s).revenue)) },
+      cost ? { k: 'gp', label: 'Gross profit', money: true, v: (s) => Math.round(X(s).revenue - X(s).cogs) } : null,
+      { k: 'loss', label: 'Losses', money: true, v: (s) => Math.round(X(s).lossX) || '' },
+      { k: 'left', label: 'Stock left (cost)', money: true, v: (s) => Math.round(X(s).stockX) },
+      { k: 'sold', label: 'Sold', core: true, num: true, v: (s) => Math.round(pctSold(s)), html: (s) => X(s).units ? '<span class="dt-pct"><i style="width:' + Math.min(100, pctSold(s)) + '%"></i></span>' + Math.round(pctSold(s)) + '%' : dtNil },
+    ],
+  });
+}
+function trTable(list, id) {
+  const units = (t) => (t.lines || []).reduce((a, l) => a + num(l.qty), 0);
+  const got = (t) => t.status === 'received' ? (t.lines || []).reduce((a, l) => a + num(l.receivedQty ?? l.qty), 0) : '';
+  return dataTable({
+    id, rows: list, noun: 'transfer', empty: 'No transfers yet.',
+    rowAttr: (t) => ' data-a="openTransfer" data-id="' + t.id + '"', rowClass: (t) => t.status === 'cancelled' ? 'cx' : '',
+    cols: [
+      { k: 'date', label: 'Date', core: true, v: (t) => t.date, html: (t) => dtDate(t.date) },
+      { k: 'from', label: 'From', core: true, v: (t) => locName(t.from), html: (t) => '<b>' + esc(locName(t.from)) + '</b>' },
+      { k: 'to', label: 'To', core: true, v: (t) => locName(t.to), html: (t) => '<b>' + esc(locName(t.to)) + '</b>' },
+      { k: 'items', label: 'Items', wrap: true, v: (t) => (t.lines || []).map((l) => ((byId('products', l.productId) || {}).name || l.name || '?') + ' ×' + l.qty).join(', ') },
+      { k: 'units', label: 'Units', core: true, num: true, v: units, total: (rows) => fmt(dtSum(rows, units)) },
+      { k: 'got', label: 'Received', num: true, v: got },
+      { k: 'short', label: 'Short', num: true, v: (t) => got(t) === '' ? '' : (units(t) - got(t)) || '', html: (t) => got(t) !== '' && units(t) - got(t) > 0 ? '<span class="badge bad">' + (units(t) - got(t)) + ' missing</span>' : dtNil },
+      { k: 'reason', label: 'Reason', core: true, v: (t) => t.reason || '' },
+      { k: 'status', label: 'Status', core: true, v: (t) => t.status || '', html: (t) => trBadge(t) },
+      { k: 'by', label: 'Sent by', core: true, v: (t) => t.by || '', cls: 'mut' },
+      { k: 'rby', label: 'Received by', v: (t) => t.receivedBy || '', cls: 'mut' },
+    ],
+  });
+}

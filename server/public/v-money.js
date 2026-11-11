@@ -21,7 +21,7 @@ VIEWS.cash = {
       K.raw.sales.forEach((s) => (s.payments || []).forEach((p) => { if (p.date === d && p.byId) people[p.byId] = people[p.byId] || p.by || 'Staff'; }));
       K.raw.handovers.filter((h) => h.date === d).forEach((h) => (people[h.userId] = people[h.userId] || h.userName));
       const rows = Object.entries(people).map(([id, name]) => ({ id, name, exp: KC.collectedBy(K.raw, id, d), ho: byId('handovers', hoId(d, id)) }));
-      html += '<h2 class="mb">Team handovers · ' + fmtDate(d) + '</h2><div class="card list mb">' + (rows.length ? rows.map((r) => { const decl = r.ho ? sumObj(r.ho.declared) + num(r.ho.payouts) : null; const diff = r.ho ? decl - r.exp.total : null; return '<div class="li" data-a="hoReview" data-u="' + esc(r.id) + '" data-d="' + d + '"><div class="av">' + esc(initials(r.name)) + '</div><div class="grow"><div class="t">' + esc(r.name) + '</div><div class="tiny muted">Collected ' + F(r.exp.total) + (r.ho ? ' · handed ' + F(decl) : ' · not handed over yet') + '</div></div><div class="right">' + (r.ho ? hoBadge(r.ho) + '<div class="tiny b mt" style="margin-top:4px;color:' + (Math.abs(diff) < 1 ? 'var(--ok)' : diff < 0 ? 'var(--bad)' : 'var(--warn)') + '">' + diffText(diff) + '</div>' : '<span class="badge warn">Pending</span>') + '</div></div>'; }).join('') : '<div class="empty small">No money was recorded on this day.</div>') + '</div>';
+      html += '<h2 class="mb">Team handovers · ' + fmtDate(d) + '</h2><div class="mb">' + hoTable(rows, d) + '</div>';
       // shortages over 30 days
       const from = KC.addDays(todayStr(), -29); const agg = {};
       K.raw.handovers.filter((h) => h.date >= from).forEach((h) => { const o = (agg[h.userId] = agg[h.userId] || { name: h.userName, short: 0, over: 0, days: 0 }); o.days++; if (h.diff < 0) o.short += -h.diff; else o.over += h.diff; });
@@ -81,10 +81,10 @@ VIEWS.suppliers = {
     const m = monthStr(); const paidMonth = K.raw.bills.reduce((a, b) => a + (b.payments || []).filter((p) => (p.date || '').slice(0, 7) === m).reduce((s, p) => s + num(p.amount) * (num(b.fxRate) || KC.rateOf(S(), b.currency)), 0), 0);
     let body = '';
     if (tab === 'suppliers') {
-      body = '<div class="card list">' + (K.raw.suppliers.length ? K.raw.suppliers.slice().sort((a, b) => supplierOwed(b.id) - supplierOwed(a.id)).map((s) => '<div class="li" data-a="supOpen" data-id="' + s.id + '"><div class="av acc">' + esc(initials(s.name)) + '</div><div class="grow"><div class="t">' + esc(s.name) + '</div><div class="tiny muted">' + esc([s.type, s.phone].filter(Boolean).join(' · ')) + '</div></div><div class="right b money" style="color:' + (supplierOwed(s.id) > 0 ? 'var(--bad)' : 'inherit') + '">' + F(supplierOwed(s.id)) + '</div></div>').join('') : '<div class="empty">No suppliers yet.</div>') + '</div>';
+      body = supTable();
     } else {
       const list = (tab === 'open' ? open : K.raw.bills.slice()).sort((a, b) => billDue(a).localeCompare(billDue(b)));
-      body = '<div class="card list">' + (list.length ? list.map(billRow).join('') : '<div class="empty"><div class="big">🧾</div>' + (tab === 'open' ? 'Nothing to pay. 🎉' : 'No bills yet.') + '</div>') + '</div>';
+      body = billsTable(list, tab === 'open' ? '<div class="big">🧾</div>Nothing to pay. 🎉' : 'No bills yet.');
     }
     return '<div class="kpis mb">' + kpi('You owe suppliers', F(totalOwedSuppliers()), open.length + ' open bill(s)', true) + kpi('Overdue', F(overdue.reduce((a, b) => a + billX(b).balanceX, 0)), overdue.length + ' bill(s)') + kpi('Paid this month', F(paidMonth)) + '</div>' +
       '<div class="row wrap mb"><button class="btn pri" data-a="billNew">' + ic('plus') + 'New bill</button><button class="btn" data-a="supNew">' + ic('plus') + 'New supplier</button></div>' +
@@ -167,10 +167,7 @@ VIEWS.reminders = {
       '<div class="alert info mb">' + ic('wa', 'sm') + '<div>Tap <b>WhatsApp</b> or <b>SMS</b> — the message is ready, you just press send. Each reminder is logged so nobody is reminded twice in ' + (num(S().reminderEvery) || 7) + ' days. Fully automatic sending runs in the full version of the app. Edit the message in Settings.</div></div>' +
       (K.info.mode === 'saas' ? '<div class="card pad mb"><div class="row between"><div><h3>Automatic reminders</h3><div class="tiny muted">Sent by the server every day at the chosen hour (provider: <b id="remProv">…</b>).</div></div>' + (can('settings') ? '<label class="toggle"><input type="checkbox" id="autoRem"' + (S().autoReminders ? ' checked' : '') + '>On</label>' : '') + '</div>' + (can('settings') ? '<div class="row wrap mt"><span class="small">Send at</span><select class="inp" style="width:auto" id="remHour">' + Array.from({ length: 15 }, (_, i) => i + 7).map((h) => '<option value="' + h + '"' + (num(S().reminderHour ?? 9) === h ? ' selected' : '') + '>' + h + ':00</option>').join('') + '</select><button class="btn sm" data-a="remRun" data-dry="1">Preview</button><button class="btn sm pri" data-a="remRun">Send now</button></div>' : '') + '</div>' : '') +
       '<div class="chips mb">' + [['due', 'To remind today'], ['overdue', 'Overdue'], ['all', 'Everyone owing']].map(([k, l]) => '<button class="chip' + (f === k ? ' on' : '') + '" data-a="remF" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
-      '<div class="card list">' + (list.length ? list.map((o) => { const wa = phoneWA(o.c.whatsapp || o.c.phone); const txt = reminderText(o); return '<div class="li" style="cursor:default;flex-wrap:wrap"><div class="av">' + esc(initials(o.c.name)) + '</div><div class="grow" style="min-width:150px"><div class="t">' + esc(o.c.name) + '</div><div class="tiny muted">' + esc(o.c.phone || '') + ' · ' + o.sales.length + ' sale(s) · due ' + fmtDate(o.due) + (o.daysLate > 0 ? ' · <b style="color:var(--bad)">' + o.daysLate + ' days late</b>' : '') + (o.last ? ' · reminded ' + fmtDT(o.last.at) : '') + '</div></div><div class="b money" style="color:var(--bad)">' + F(o.balance) + '</div><div class="row gap6" style="width:100%;justify-content:flex-end">' +
-        (wa ? '<a class="btn sm" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(txt) + '" data-a2="remLog" data-c="' + o.id + '" data-ch="whatsapp" data-bal="' + Math.round(o.balance) + '">' + ic('wa', 'sm') + 'WhatsApp</a>' : '') +
-        (o.c.phone ? '<a class="btn sm" href="sms:' + esc(String(o.c.phone).replace(/\s/g, '')) + '?body=' + encodeURIComponent(txt) + '" data-a2="remLog" data-c="' + o.id + '" data-ch="sms" data-bal="' + Math.round(o.balance) + '">SMS</a>' : '') +
-        '<button class="btn sm" data-a="remCopy" data-c="' + o.id + '">' + ic('copy', 'sm') + '</button></div></div>'; }).join('') : '<div class="empty"><div class="big">🎉</div>Nobody to remind.</div>') + '</div>';
+      remTable(list);
   },
 };
 A.remF = (el) => { K.ui.remF = el.dataset.v; render(true); };
@@ -213,7 +210,7 @@ VIEWS.audit = {
     const open = list.find((a) => a.status === 'draft' && a.locationId === K.loc);
     return '<div class="alert info mb">Count everything on the shelves at <b>' + esc(locName(K.loc)) + '</b>. The app compares your count with what it expects and shows the difference in quantity and money. A manager then approves the differences.</div>' +
       '<div class="row wrap mb">' + (open ? '<button class="btn pri" data-a="auditGo" data-id="' + open.id + '">' + ic('check') + 'Continue counting (' + Object.keys(open.counts || {}).length + ' counted)</button>' : '<button class="btn pri" data-a="auditNew">' + ic('plus') + 'Start a stock count</button>') + '</div>' +
-      '<h2 class="mb">Counts</h2><div class="card list">' + (list.length ? list.map((a) => { const s = auditSummary(a); return '<div class="li" data-a="auditGo" data-id="' + a.id + '"><div class="av">' + ic('check', 'sm') + '</div><div class="grow"><div class="t">' + esc(locName(a.locationId)) + (a.category ? ' · ' + esc(a.category) : '') + '</div><div class="tiny muted">' + fmtDT(a.startedAt) + ' · ' + esc(a.by || '') + ' · ' + s.counted + ' item(s)</div></div><div class="right">' + ({ draft: '<span class="badge info">Counting</span>', submitted: '<span class="badge warn">To approve</span>', applied: '<span class="badge ok">Applied</span>' }[a.status] || '') + (s.diffQty && seeCost() ? '<div class="tiny b mt" style="margin-top:4px;color:' + (s.diffValue < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + (s.diffValue < 0 ? '−' : '+') + F(Math.abs(s.diffValue)) + '</div>' : '') + '</div></div>'; }).join('') : '<div class="empty small">No counts yet.</div>') + '</div>';
+      '<h2 class="mb">Counts</h2>' + auditTable(list);
   },
 };
 function auditSummary(a) {
@@ -278,4 +275,111 @@ function drawAuditResult(sh, a) {
     await save('audits', Object.assign({}, byId('audits', a.id), { status: 'applied', appliedAt: new Date().toISOString(), appliedBy: K.me.name || '', adjustments: n }));
     toast('Stock updated (' + n + ' correction(s))'); sh._refresh(); scheduleRender();
   };
+}
+
+/* ---------- tables: cash handover, bills, suppliers, reminders ---------- */
+function hoTable(rows, d) {
+  const decl = (r) => r.ho ? sumObj(r.ho.declared) + num(r.ho.payouts) : null;
+  const diff = (r) => r.ho ? decl(r) - r.exp.total : null;
+  const modes = [...new Set(['Cash'].concat(...rows.map((r) => Object.keys(r.exp.by))))];
+  return dataTable({
+    id: 'hoList', rows, noun: 'person', empty: 'No payments recorded on this day.',
+    rowAttr: (r) => ' data-a="hoReview" data-u="' + esc(r.id) + '" data-d="' + d + '"',
+    cols: [
+      { k: 'name', label: 'Person', core: true, v: (r) => r.name, html: (r) => '<b>' + esc(r.name) + '</b>' },
+      ...modes.map((m) => ({ k: 'm_' + m, label: m, money: true, v: (r) => r.exp.by[m] || '', total: (rs) => fmt(dtSum(rs, (r) => r.exp.by[m] || 0)) })),
+      { k: 'coll', label: 'Collected', core: true, money: true, cls: 'b', v: (r) => r.exp.total, total: (rs) => fmt(dtSum(rs, (r) => r.exp.total)) },
+      { k: 'fees', label: 'MoMo charges', money: true, v: (r) => r.exp.fees || '' },
+      { k: 'out', label: 'Paid out', core: true, money: true, v: (r) => r.ho ? num(r.ho.payouts) : '' },
+      { k: 'handed', label: 'Handed over', core: true, money: true, v: (r) => r.ho ? sumObj(r.ho.declared) : '', total: (rs) => fmt(dtSum(rs, (r) => r.ho ? sumObj(r.ho.declared) : 0)) },
+      { k: 'diff', label: 'Difference', core: true, money: true, v: (r) => r.ho ? Math.round(diff(r)) : '', html: (r) => !r.ho ? dtNil : '<span style="font-weight:700;color:' + (Math.abs(diff(r)) < 1 ? 'var(--ok)' : diff(r) < 0 ? 'var(--bad)' : 'var(--warn)') + '">' + (Math.abs(diff(r)) < 1 ? 'Balanced' : fmt(diff(r))) + '</span>' },
+      { k: 'status', label: 'Status', core: true, v: (r) => r.ho ? r.ho.status : 'pending', html: (r) => r.ho ? hoBadge(r.ho) : '<span class="badge warn">Pending</span>' },
+      { k: 'at', label: 'Submitted', v: (r) => r.ho ? r.ho.submittedAt || '' : '', html: (r) => r.ho && r.ho.submittedAt ? esc(fmtDT(r.ho.submittedAt)) : dtNil },
+      { k: 'conf', label: 'Confirmed by', v: (r) => r.ho ? r.ho.confirmedBy || '' : '', cls: 'mut' },
+    ],
+  });
+}
+const billStatus = (b) => { const x = billX(b); const od = x.balance > 0.005 && billDue(b) < todayStr() && b.status !== 'cancelled'; return b.status === 'cancelled' ? ['cancelled', '<span class="badge">Cancelled</span>'] : x.status === 'paid' ? ['paid', '<span class="badge ok">Paid</span>'] : od ? ['overdue', '<span class="badge bad">Overdue</span>'] : x.status === 'partial' ? ['partial', '<span class="badge warn">Part paid</span>'] : ['unpaid', '<span class="badge">Unpaid</span>']; };
+function billsTable(list, empty) {
+  const owed = (b) => b.status !== 'cancelled' && billX(b).balance > 0.005 ? billX(b).balance : 0;
+  const pays = (b) => (b.payments || []).filter((p) => num(p.amount) > 0);
+  return dataTable({
+    id: 'billList', rows: list, noun: 'bill', empty: empty || 'No bills yet.',
+    rowAttr: (b) => ' data-a="billOpen" data-id="' + b.id + '"', rowClass: (b) => b.status === 'cancelled' ? 'cx' : '',
+    cols: [
+      { k: 'sup', label: 'Supplier', core: true, v: (b) => supName(b.supplierId), html: (b) => '<b>' + esc(supName(b.supplierId)) + '</b>' },
+      { k: 'txn', label: 'Transaction ID', v: (b) => KC.billTxnId(b), cls: 'mut' },
+      { k: 'desc', label: 'What for', core: true, v: (b) => b.description || '' },
+      { k: 'date', label: 'Bill date', v: (b) => b.date, html: (b) => dtDate(b.date) },
+      { k: 'due', label: 'Pay by', core: true, v: (b) => billDue(b), html: (b) => dtDate(billDue(b)) },
+      { k: 'cur', label: 'Currency', v: (b) => b.currency || baseCode(), cls: 'mut' },
+      { k: 'amt', label: 'Amount', core: true, money: true, cls: 'b', v: (b) => num(b.amount), html: (b) => money(b.amount, b.currency) },
+      { k: 'paid', label: 'Paid', core: true, money: true, v: (b) => billX(b).paid, html: (b) => money(billX(b).paid, b.currency) },
+      { k: 'fees', label: 'MoMo charges', money: true, v: (b) => billX(b).fees || '', html: (b) => billX(b).fees > 0 ? money(billX(b).fees, b.currency) : dtNil },
+      { k: 'owed', label: 'Owed', core: true, money: true, v: (b) => owed(b) || '', html: (b) => owed(b) ? '<span style="color:var(--bad);font-weight:700">' + money(owed(b), b.currency) + '</span>' : dtNil },
+      { k: 'owedx', label: 'Owed (' + baseCode() + ')', money: true, v: (b) => owed(b) ? Math.round(billX(b).balanceX) : '', total: (rows) => fmt(dtSum(rows, (b) => owed(b) ? billX(b).balanceX : 0)) },
+      { k: 'mode', label: 'Payment mode', v: (b) => [...new Set(pays(b).map((p) => p.method))].join(', ') },
+      { k: 'last', label: 'Last payment', v: (b) => (pays(b).slice(-1)[0] || {}).date || '', html: (b) => dtDate((pays(b).slice(-1)[0] || {}).date) },
+      { k: 'ship', label: 'Container', v: (b) => b.shipmentId ? (byId('shipments', b.shipmentId) || {}).name || '' : '', cls: 'mut' },
+      { k: 'status', label: 'Status', core: true, v: (b) => billStatus(b)[0], html: (b) => billStatus(b)[1] },
+    ],
+  });
+}
+function supTable() {
+  const bills = (s) => K.raw.bills.filter((b) => b.supplierId === s.id && b.status !== 'cancelled');
+  return dataTable({
+    id: 'supList', rows: K.raw.suppliers.slice().sort((a, b) => supplierOwed(b.id) - supplierOwed(a.id)), noun: 'supplier', empty: 'No suppliers yet.',
+    rowAttr: (s) => ' data-a="supOpen" data-id="' + s.id + '"',
+    cols: [
+      { k: 'name', label: 'Supplier', core: true, v: (s) => s.name, html: (s) => '<b>' + esc(s.name) + '</b>' },
+      { k: 'type', label: 'Type', core: true, v: (s) => s.type || '' },
+      { k: 'phone', label: 'Phone', core: true, v: (s) => s.phone || '' },
+      { k: 'n', label: 'Bills', core: true, num: true, v: (s) => bills(s).length },
+      { k: 'open', label: 'Open bills', core: true, num: true, v: (s) => bills(s).filter((b) => billX(b).balance > 0.005).length },
+      { k: 'owed', label: 'You owe', core: true, money: true, v: (s) => supplierOwed(s.id) || '', html: (s) => supplierOwed(s.id) > 0 ? '<span style="color:var(--bad);font-weight:700">' + fmt(supplierOwed(s.id)) + '</span>' : dtNil, total: (rows) => fmt(dtSum(rows, (s) => supplierOwed(s.id))) },
+      { k: 'notes', label: 'Notes', v: (s) => s.notes || '', cls: 'mut' },
+    ],
+  });
+}
+function remTable(list) {
+  const act = (o) => { const wa = phoneWA(o.c.whatsapp || o.c.phone); const txt = reminderText(o); return '<div class="act">' +
+    (wa ? '<a class="btn sm" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(txt) + '" data-a2="remLog" data-c="' + o.id + '" data-ch="whatsapp" data-bal="' + Math.round(o.balance) + '">' + ic('wa', 'sm') + 'WhatsApp</a>' : '') +
+    (o.c.phone ? '<a class="btn sm" href="sms:' + esc(String(o.c.phone).replace(/\s/g, '')) + '?body=' + encodeURIComponent(txt) + '" data-a2="remLog" data-c="' + o.id + '" data-ch="sms" data-bal="' + Math.round(o.balance) + '">SMS</a>' : '') +
+    '<button class="btn sm" data-a="remCopy" data-c="' + o.id + '" title="Copy message">' + ic('copy', 'sm') + '</button></div>'; };
+  return dataTable({
+    id: 'remList', rows: list, noun: 'customer', empty: '<div class="big">🎉</div>Nobody to remind.',
+    cols: [
+      { k: 'name', label: 'Customer', core: true, v: (o) => o.c.name, html: (o) => '<b>' + esc(o.c.name) + '</b>' },
+      { k: 'phone', label: 'Phone', core: true, v: (o) => o.c.phone || '' },
+      { k: 'bal', label: 'Owes', core: true, money: true, v: (o) => o.balance, html: (o) => '<span style="color:var(--bad);font-weight:700">' + fmt(o.balance) + '</span>', total: (rows) => fmt(dtSum(rows, (o) => o.balance)) },
+      { k: 'n', label: 'Sales', num: true, v: (o) => o.sales.length },
+      { k: 'rc', label: 'Receipts', wrap: true, v: (o) => o.sales.map((s) => s.no).join(', '), cls: 'mut' },
+      { k: 'due', label: 'Due', core: true, v: (o) => o.due, html: (o) => dtDate(o.due) },
+      { k: 'late', label: 'Days late', core: true, num: true, v: (o) => o.daysLate > 0 ? o.daysLate : '', html: (o) => o.daysLate > 0 ? '<span class="badge bad">' + o.daysLate + ' days</span>' : dtNil },
+      { k: 'last', label: 'Last reminded', core: true, v: (o) => o.last ? o.last.at : '', html: (o) => o.last ? esc(fmtDT(o.last.at)) : '<span class="mut">Never</span>' },
+      { k: 'ch', label: 'Channel', v: (o) => o.last ? o.last.channel || '' : '', cls: 'mut' },
+      { k: 'by', label: 'Reminded by', v: (o) => o.last ? o.last.by || (o.last.auto ? 'Automatic' : '') : '', cls: 'mut' },
+      { k: 'act', label: 'Send reminder', core: true, cls: 'actc', v: () => '', html: act },
+    ],
+  });
+}
+
+function auditTable(list) {
+  const S_ = (a) => auditSummary(a); const cost = seeCost();
+  const ST = { draft: '<span class="badge info">Counting</span>', submitted: '<span class="badge warn">To approve</span>', applied: '<span class="badge ok">Applied</span>' };
+  return dataTable({
+    id: 'auditList', rows: list, noun: 'count', empty: 'No counts yet.',
+    rowAttr: (a) => ' data-a="auditGo" data-id="' + a.id + '"',
+    cols: [
+      { k: 'at', label: 'Started', core: true, v: (a) => a.startedAt || '', html: (a) => esc(fmtDT(a.startedAt)) },
+      { k: 'loc', label: 'Branch', core: true, v: (a) => locName(a.locationId), html: (a) => '<b>' + esc(locName(a.locationId)) + '</b>' },
+      { k: 'cat', label: 'Category', core: true, v: (a) => a.category || 'Everything' },
+      { k: 'n', label: 'Items counted', core: true, num: true, v: (a) => S_(a).counted },
+      { k: 'dq', label: 'Difference (units)', core: true, num: true, v: (a) => S_(a).diffQty || '', html: (a) => S_(a).diffQty ? '<span style="font-weight:700;color:' + (S_(a).diffQty < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + (S_(a).diffQty > 0 ? '+' : '') + fmt(S_(a).diffQty) + '</span>' : dtNil },
+      cost ? { k: 'dv', label: 'Difference (value)', money: true, v: (a) => Math.round(S_(a).diffValue) || '', html: (a) => S_(a).diffValue ? '<span style="font-weight:700;color:' + (S_(a).diffValue < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + fmt(S_(a).diffValue) + '</span>' : dtNil } : null,
+      cost ? { k: 'short', label: 'Missing (value)', money: true, v: (a) => Math.round(S_(a).short) || '' } : null,
+      { k: 'status', label: 'Status', core: true, v: (a) => a.status || '', html: (a) => ST[a.status] || '' },
+      { k: 'by', label: 'Counted by', core: true, v: (a) => a.by || '', cls: 'mut' },
+    ],
+  });
 }

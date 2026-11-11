@@ -40,7 +40,7 @@ VIEWS.activity = {
       (can('export') ? '<button class="btn" data-a="actXlsx">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search: receipt no., item, customer, reason…" value="' + esc(K.ui.actQ || '') + '" data-c="actQ"></div>' +
       (!all ? '<div class="empty">Loading history…</div>' : !list.length ? '<div class="card empty"><div class="big">🗒️</div>Nothing recorded for this period.</div>' :
-        '<div class="small muted mb">' + list.length + ' action(s)</div>' + Object.entries(days).map(([d, es]) => '<h3 class="mb mt">' + fmtDate(d) + '</h3><div class="card list mb">' + es.map((e, i) => actRow(e, list.indexOf(e))).join('') + '</div>').join(''));
+        actTable(list));
   },
 };
 const ACT_ICON = { Sales: 'sell', Payments: 'wallet', Purchases: 'buy', 'Items & prices': 'tag', Containers: 'ship', 'Stock & losses': 'alert', Transfers: 'ship', 'Stock counts': 'check', Customers: 'users', 'Cash handover': 'wallet', 'Suppliers & bills': 'buy', Expenses: 'wallet', 'Settings & team': 'gear', Reminders: 'wa' };
@@ -60,3 +60,24 @@ A.actOpen = (el) => {
     (e.ref ? '<button class="btn block mt" data-a="actFor" data-q="' + esc(e.ref) + '">' + ic('clock') + 'Everything about ' + esc(e.ref) + '</button>' : '') });
 };
 A.actXlsx = () => xlsxDownload('Activity-' + actRange().join('_') + '.xlsx', { Activity: (K._actRows || []).map((e) => ({ Date: todayStr(new Date(e.at)), Time: new Date(e.at).toLocaleTimeString('en-GB'), Who: e.user, Role: e.role, Branch: locName(e.loc), Type: e.type, What: e.text, Why: e.reason || '', Reference: e.ref || '', 'Amount': e.amount || '', Offline: e.offline ? 'yes' : '' })) });
+
+function actTable(list) {
+  const time = (e) => { const t = new Date(e.at); return pad2(t.getHours()) + ':' + pad2(t.getMinutes()); };
+  const warn = (e) => /Cancelled|Deleted|Removed|missing|short|theft|Unaccounted|written off|Refunded/i.test(e.text + ' ' + (e.reason || ''));
+  return dataTable({
+    id: 'actList', rows: list, noun: 'action', limit: 500,
+    rowAttr: (e) => ' data-a="actOpen" data-i="' + list.indexOf(e) + '"',
+    cols: [
+      { k: 'date', label: 'Date', core: true, v: (e) => e.at, html: (e) => dtDate(todayStr(new Date(e.at))) },
+      { k: 'time', label: 'Time', core: true, v: (e) => e.at, html: (e) => '<span class="mut">' + time(e) + '</span>' },
+      { k: 'who', label: 'Who', core: true, v: (e) => e.user || '', html: (e) => '<b>' + esc(e.user || '—') + '</b>' },
+      { k: 'role', label: 'Role', v: (e) => e.role || '', cls: 'mut' },
+      { k: 'type', label: 'Type', core: true, v: (e) => e.type || '', html: (e) => '<span class="badge' + (warn(e) ? ' warn' : '') + '">' + esc(e.type || '') + '</span>' },
+      { k: 'what', label: 'What happened', core: true, wrap: true, v: (e) => e.text || '' },
+      { k: 'why', label: 'Why', core: true, wrap: true, v: (e) => e.reason || '' },
+      { k: 'loc', label: 'Branch', v: (e) => locName(e.loc || 'main'), cls: 'mut' },
+      { k: 'ref', label: 'Reference', v: (e) => e.ref || '', cls: 'mut' },
+      { k: 'off', label: 'Made offline', v: (e) => e.offline ? 'Yes' : '' },
+    ],
+  });
+}

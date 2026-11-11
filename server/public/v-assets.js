@@ -28,11 +28,29 @@ function assetList() {
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 function assetRows(list) {
-  if (!list.length) return '<div class="empty small">No assets match.</div>';
-  return list.map((a) => { const v = assetV(a); const due = assetDue(a);
-    return '<div class="li" data-a="assetOpen" data-id="' + a.id + '">' + assetPhoto(a, 44) + '<div class="grow"><div class="t">' + esc(a.name) + '</div><div class="tiny muted">' + [a.tag, a.category, locName(a.locationId), a.assignedTo ? 'with ' + esc(a.assignedTo) : ''].filter(Boolean).map(String).join(' · ') + '</div>' +
-      '<div class="row gap6 wrap" style="margin-top:3px">' + assetBadge(a) + due.map((x) => '<span class="badge ' + (x.days < 0 ? 'bad' : 'warn') + '">' + esc(dueText(x)) + '</span>').join('') + '</div></div>' +
-      '<div class="right"><b class="money">' + F(v.gone ? v.proceeds : v.book) + '</b><div class="tiny faint">' + (v.gone ? (a.status === 'sold' ? 'sold for' : 'written off') : 'value today') + '</div></div></div>'; }).join('');
+  const V = (a) => assetV(a);
+  return dataTable({
+    id: 'assetList', rows: list, noun: 'asset', empty: 'No assets match.',
+    rowAttr: (a) => ' data-a="assetOpen" data-id="' + a.id + '"',
+    cols: [
+      { k: 'photo', label: 'Photo', core: true, cls: 'thumbc', v: () => '', html: (a) => assetPhoto(a, 36) },
+      { k: 'tag', label: 'Asset no.', core: true, v: (a) => a.tag || '', html: (a) => '<b>' + esc(a.tag || '—') + '</b>' },
+      { k: 'name', label: 'Name', core: true, v: (a) => a.name },
+      { k: 'cat', label: 'Type', core: true, v: (a) => a.category || '' },
+      { k: 'make', label: 'Make', v: (a) => a.make || '' },
+      { k: 'model', label: 'Model', v: (a) => a.model || '' },
+      { k: 'serial', label: 'Serial / plate', v: (a) => a.serialNo || '', cls: 'mut' },
+      { k: 'loc', label: 'Location', core: true, v: (a) => locName(a.locationId || 'main') },
+      { k: 'with', label: 'Who has it', v: (a) => a.assignedTo || '' },
+      { k: 'bought', label: 'Bought on', v: (a) => a.purchaseDate || '', html: (a) => dtDate(a.purchaseDate) },
+      { k: 'cost', label: 'Cost (' + baseCode() + ')', money: true, v: (a) => Math.round(V(a).cost), total: (rows) => fmt(dtSum(rows, (a) => V(a).cost)) },
+      { k: 'lost', label: 'Value lost', money: true, v: (a) => Math.round(V(a).accumulated || 0) },
+      { k: 'status', label: 'Status', core: true, v: (a) => a.status || 'in_use', html: (a) => assetBadge(a) },
+      { k: 'value', label: 'Value today', core: true, money: true, cls: 'b', v: (a) => V(a).gone ? '' : Math.round(V(a).book), total: (rows) => fmt(dtSum(rows, (a) => V(a).gone ? 0 : V(a).book)) },
+      { k: 'sold', label: 'Sold for', money: true, v: (a) => V(a).gone && a.status === 'sold' ? Math.round(V(a).proceeds) : '' },
+      { k: 'due', label: 'Reminders', wrap: true, v: (a) => assetDue(a).map(dueText).join('; '), html: (a) => assetDue(a).map((x) => '<span class="badge ' + (x.days < 0 ? 'bad' : 'warn') + '">' + esc(dueText(x)) + '</span>').join(' ') || dtNil },
+    ],
+  });
 }
 VIEWS.assets = {
   render() {
@@ -52,13 +70,13 @@ VIEWS.assets = {
     html += '<div class="row wrap mb"><input class="inp grow" style="min-width:180px" placeholder="Search name, number, serial, person…" value="' + esc(K.ui.assetQ || '') + '" data-i="assetQ">' +
       (cats.length > 1 ? '<select class="inp" style="width:auto" data-c="assetCat"><option value="">All types</option>' + cats.map((c) => '<option' + (K.ui.assetCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select>' : '') +
       (allLocs().length > 1 ? '<select class="inp" style="width:auto" data-c="assetLoc"><option value="">All branches</option>' + allLocs().map((l) => '<option value="' + l.id + '"' + (loc === l.id ? ' selected' : '') + '>' + esc(l.name) + '</option>').join('') + '</select>' : '') + '</div>';
-    return html + '<div class="card list" id="assetList">' + assetRows(assetList()) + '</div>';
+    return html + assetRows(assetList());
   },
 };
 A.assetF = (el) => { K.ui.assetF = el.dataset.v; render(true); };
 CH.assetCat = (el) => { K.ui.assetCat = el.value; render(true); };
 CH.assetLoc = (el) => { K.ui.assetLoc = el.value; render(true); };
-I.assetQ = (el) => { K.ui.assetQ = el.value; clearTimeout(I._aq); I._aq = setTimeout(() => { const l = $('#assetList'); if (l) l.innerHTML = assetRows(assetList()); }, 120); };
+I.assetQ = (el) => { K.ui.assetQ = el.value; clearTimeout(I._aq); I._aq = setTimeout(() => { dtRefresh('assetList'); }, 120); };
 
 /* ---------- register / edit ---------- */
 A.assetNew = () => assetForm(null);

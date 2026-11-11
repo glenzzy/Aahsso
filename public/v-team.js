@@ -20,7 +20,7 @@ VIEWS.team = {
     return '<div class="alert info mb">' + ic('key', 'sm') + '<div><b>How to add someone:</b> share this app from its claude.ai page, then they open the link and tap <b>Request access</b>. Their request appears here; choose their role and approve.</div></div>' +
       (reqs.length ? '<h2 class="mb">Waiting for approval (' + reqs.length + ')</h2><div class="card list mb">' + reqs.map((r) => '<div class="li" style="cursor:default"><div class="av acc">' + esc(initials(r.name || '?')) + '</div><div class="grow"><div class="t">' + esc(r.name || 'Unnamed person') + '</div><div class="tiny muted">Requested ' + fmtDT(r.at) + '</div></div><button class="btn sm" data-a="reqDismiss" data-id="' + r.id + '">Dismiss</button><button class="btn sm pri" data-a="reqApprove" data-id="' + r.id + '">Approve</button></div>').join('') + '</div>' : '') +
       '<h2 class="mb">Team</h2><div class="card list mb"><div class="li" style="cursor:default"><div class="av">' + esc(initials(K.info.isOwner ? K.me.name || 'Owner' : 'Owner')) + '</div><div class="grow"><div class="t">' + (K.info.isOwner ? esc(K.me.name || 'You') + ' (you)' : 'Business owner') + '</div><div class="tiny muted">Owner · full access</div></div></div>' +
-      members.map((m) => '<div class="li" data-a="memberEdit" data-id="' + m.id + '"><div class="av' + (m.active === false ? ' ink' : '') + '">' + esc(initials(m.name)) + '</div><div class="grow"><div class="t">' + esc(m.name || 'Team member') + (m.id === K.me.id ? ' (you)' : '') + '</div><div class="tiny muted">' + esc((ROLES_NOW()[m.role] || {}).label || m.role) + (m.perms && Object.keys(m.perms).length ? ' (custom)' : '') + ' · ' + permSummary(m) + (m.active === false ? ' · <b style="color:var(--bad)">disabled</b>' : '') + '</div></div>' + ic('chev', 'sm') + '</div>').join('') + '</div>' +
+      '</div>' + teamTable(members) +
       roleTable();
   },
 };
@@ -67,11 +67,16 @@ A.memberEdit = (el) => {
 };
 
 /* SaaS server team */
+function drawSaasTeam() {
+  const box = $('#saasTeam'); if (!box || !K._users) return;
+  box.innerHTML = '<div class="row wrap mb"><button class="btn pri" data-a="saasAdd">' + ic('plus') + 'Add team member</button></div><div class="mb">' + teamTable(K._users, { action: 'saasEdit' }) + '</div>' + roleTable();
+}
+DT_REDRAW.teamList = () => (K.info.mode === 'saas' ? drawSaasTeam() : render(true));
 async function loadSaasTeam() {
   const box = $('#saasTeam'); if (!box) return;
   try {
     const r = await K.store.req('GET', '/api/users'); K._users = r.users;
-    box.innerHTML = '<div class="row wrap mb"><button class="btn pri" data-a="saasAdd">' + ic('plus') + 'Add team member</button></div><div class="card list mb">' + r.users.map((u) => '<div class="li" ' + (u.role === 'owner' ? 'style="cursor:default"' : 'data-a="saasEdit" data-id="' + u.id + '"') + '><div class="av' + (u.active ? '' : ' ink') + '">' + esc(initials(u.name)) + '</div><div class="grow"><div class="t">' + esc(u.name) + (u.id === K.me.id ? ' (you)' : '') + '</div><div class="tiny muted">' + esc(u.login) + ' · ' + esc((ROLES_NOW()[u.role] || {}).label || u.role) + (u.perms && Object.keys(u.perms).length ? ' (custom)' : '') + (u.active ? '' : ' · disabled') + (u.last_login_at ? ' · last seen ' + fmtDT(u.last_login_at) : '') + '</div></div>' + (u.role === 'owner' ? '' : ic('chev', 'sm')) + '</div>').join('') + '</div>' + roleTable();
+    drawSaasTeam();
   } catch (e) { box.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; }
 }
 A.saasAdd = () => memberSheet({ role: 'sales', login: '' }, 'Add team member', async (v) => {
@@ -106,3 +111,21 @@ A.roleEdit = (el) => {
   if ($('#rlReset', sh)) $('#rlReset', sh).onclick = async () => { const o = Object.assign({}, S().roles || {}); delete o[key]; await write(o); };
   if ($('#rlDel', sh)) $('#rlDel', sh).onclick = async () => { if (used) return toast('Move its ' + used + ' person(s) to another role first', true); if (!(await confirmBox('Delete the role "' + r.label + '"?', 'Delete', true))) return; const o = Object.assign({}, S().roles || {}); delete o[key]; await write(o); };
 };
+
+function teamTable(members, opts = {}) {
+  const action = opts.action || 'memberEdit';
+  return dataTable({
+    id: 'teamList', rows: members, noun: 'team member', empty: 'No team members yet.',
+    rowAttr: (m) => m.role === 'owner' ? '' : ' data-a="' + action + '" data-id="' + m.id + '"', rowClass: (m) => m.active === false ? 'cx' : '',
+    cols: [
+      { k: 'name', label: 'Name', core: true, v: (m) => m.name || '', html: (m) => '<b>' + esc(m.name || 'Team member') + '</b>' + (m.id === K.me.id ? ' <span class="mut">(you)</span>' : '') },
+      { k: 'login', label: 'Login', core: true, v: (m) => m.login || m.email || '', cls: 'mut' },
+      { k: 'role', label: 'Role', core: true, v: (m) => (ROLES_NOW()[m.role] || {}).label || m.role || '' },
+      { k: 'custom', label: 'Custom rights', v: (m) => m.perms && Object.keys(m.perms).length ? 'Yes' : '' },
+      { k: 'perms', label: 'Permissions', core: true, v: (m) => m.role === 'owner' ? 'Full access' : permSummary(m) },
+      { k: 'loc', label: 'Branch', core: true, v: (m) => (m.locationId || m.location_id) ? locName(m.locationId || m.location_id) : 'All branches' },
+      { k: 'seen', label: 'Last seen', v: (m) => m.last_login_at || '', html: (m) => m.last_login_at ? esc(fmtDT(m.last_login_at)) : dtNil },
+      { k: 'status', label: 'Status', core: true, v: (m) => m.active === false ? 'Disabled' : 'Active', html: (m) => m.active === false ? '<span class="badge bad">Disabled</span>' : '<span class="badge ok">Active</span>' },
+    ],
+  });
+}

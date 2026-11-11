@@ -60,7 +60,7 @@ VIEWS.customers = {
     const list = K.raw.customers.filter((c) => !q || (c.name + ' ' + (c.phone || '') + ' ' + (c.city || '')).toLowerCase().includes(q)).sort((a, b) => ((stats[b.id] || {}).total || 0) - ((stats[a.id] || {}).total || 0));
     return '<div class="row wrap mb">' + (can('customers') ? '<button class="btn pri" data-a="newCust">' : '<button class="btn pri hide">') + '' + ic('plus') + 'New customer</button>' + (can('customers') ? '<button class="btn" data-a="importCust">' + ic('up') + 'Import Excel</button>' : '') + (can('export') ? '<button class="btn" data-a="exportCust">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search name, phone, town" value="' + esc(K.ui.custQ) + '" data-c="custQ"></div>' +
-      '<div class="card list">' + (list.length ? list.map((c) => { const st = stats[c.id] || { n: 0, total: 0, owed: 0 }; return '<div class="li" data-a="openCust" data-id="' + c.id + '"><div class="av">' + esc(initials(c.name)) + '</div><div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(c.name) + (c.type && c.type !== 'Retail' ? ' <span class="badge brand">' + esc(c.type) + '</span>' : '') + '</div><div class="tiny muted">' + esc([c.phone, c.city].filter(Boolean).join(' · ')) + '</div></div><div class="right"><div class="b money">' + F(st.total) + '</div><div class="tiny muted">' + st.n + ' purchase(s)</div>' + (st.owed > 0 ? '<div class="tiny b" style="color:var(--bad)">owes ' + fmt(st.owed) + '</div>' : '') + '</div></div>'; }).join('') : '<div class="empty"><div class="big">👥</div>No customers yet.</div>') + '</div>';
+      custTable(list, stats);
   },
 };
 CH.custQ = (el) => { K.ui.custQ = el.value; render(true); };
@@ -134,7 +134,7 @@ function endOfDayCard() {
       '<div><h3 class="mb">Add today\'s expenses</h3><div class="tiny muted mb">Water, food, transport, fuel… one line each. Leave unused lines empty.</div><div id="eodRows" class="col" style="gap:8px">' + draft.map((r, i) => eodRow(i, r)).join('') + '</div>' +
       '<div class="row wrap mt"><button class="btn sm" data-a="eodMore">' + ic('plus', 'sm') + 'Another line</button><button class="btn pri grow" data-a="eodSave">' + ic('check') + 'Save expenses</button></div>' +
       '<h3 class="mt2 mb">Expenses on ' + fmtDate(d) + '</h3>' +
-      (c.exps.length ? '<div class="card tw"><table class="t"><thead><tr><th>What for</th><th>Paid by</th><th>By</th><th class="r">Amount</th></tr></thead><tbody>' + c.exps.map((e) => '<tr data-a="expEdit" data-id="' + e.id + '" style="cursor:pointer"><td>' + esc(e.category) + (e.description ? '<div class="tiny muted">' + esc(e.description) + '</div>' : '') + '</td><td>' + esc(e.method || 'Cash') + '</td><td class="small muted">' + esc(e.by || '—') + '</td><td class="r money b">' + fmt(e.amount) + '</td></tr>').join('') + '</tbody><tfoot><tr><td colspan="3" class="b">Total</td><td class="r money b">' + fmt(c.expT) + '</td></tr></tfoot></table></div>' : '<div class="muted small">No expenses recorded for this day yet.</div>') + '</div>' +
+      expTable(c.exps, 'eodList', { noDate: true, empty: 'No expenses recorded for this day yet.' }) + '</div>' +
       // right: the subtractions
       '<div class="card pad" style="background:var(--bg)"><h3 class="mb">The day\'s sums</h3>' +
         line('Sales made · ' + c.st.n + ' receipt(s)', c.st.revenue) +
@@ -170,7 +170,7 @@ VIEWS.expenses = {
       '<div class="row wrap between mb"><h2>All expenses</h2><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth"><button class="btn" data-a="expEdit">' + ic('plus') + 'Add one expense</button></div></div>' +
       '<div class="alert info mb">For running costs in Cameroon (rent, wages, transport, repairs, fuel…). Container costs go inside each container. Buying equipment or a vehicle? Register it under <a href="#assets">Assets</a> instead — it is spread over its life.</div>' +
       '<div class="kpis mb">' + kpi('Expenses this month', F(list.reduce((a, e) => a + num(e.amount), 0)), list.length + ' entries', true) + '</div>' +
-      '<div class="card list">' + (list.length ? list.map((e) => '<div class="li" data-a="expEdit" data-id="' + e.id + '"><div class="av ink">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(e.category) + '</div><div class="tiny muted">' + fmtDate(e.date) + (e.description ? ' · ' + esc(e.description) : '') + (e.assetId ? ' · ' + esc(assetName(e.assetId)) : '') + ' · ' + esc(e.method || '') + (e.by ? ' · ' + esc(e.by) : '') + '</div></div><b class="money">' + F(e.amount) + '</b></div>').join('') : '<div class="empty small">No expenses this month.</div>') + '</div>';
+      expTable(list, 'expList', { empty: 'No expenses this month.' });
   },
 };
 CH.expMonth = (el) => { K.ui.expMonth = el.value; render(true); };
@@ -324,3 +324,43 @@ function journeyCard() {
 }
 
 A.pwChange = async () => { try { await K.store.req('POST', '/api/me/password', { current: $('#pwOld').value, password: $('#pwNew').value }); $('#pwOld').value = $('#pwNew').value = ''; toast('Password changed'); } catch (e) { toast(e.message, true); } };
+
+/* ---------- tables: customers, expenses ---------- */
+function custTable(list, stats) {
+  const st = (c) => stats[c.id] || { n: 0, total: 0, owed: 0, last: '' };
+  return dataTable({
+    id: 'custList', rows: list, noun: 'customer', empty: '<div class="big">👥</div>No customers yet.',
+    rowAttr: (c) => ' data-a="openCust" data-id="' + c.id + '"',
+    cols: [
+      { k: 'name', label: 'Name', core: true, v: (c) => c.name, html: (c) => '<b>' + esc(c.name) + '</b>' },
+      { k: 'phone', label: 'Phone', core: true, v: (c) => c.phone || '' },
+      { k: 'wa', label: 'WhatsApp', v: (c) => c.whatsapp && c.whatsapp !== c.phone ? c.whatsapp : '', cls: 'mut' },
+      { k: 'type', label: 'Type', core: true, v: (c) => c.type || 'Retail', html: (c) => c.type && c.type !== 'Retail' ? '<span class="badge brand">' + esc(c.type) + '</span>' : '<span class="mut">Retail</span>' },
+      { k: 'city', label: 'Town', v: (c) => c.city || '' },
+      { k: 'email', label: 'Email', v: (c) => c.email || '', cls: 'mut' },
+      { k: 'n', label: 'Purchases', core: true, num: true, v: (c) => st(c).n, total: (rows) => fmt(dtSum(rows, (c) => st(c).n)) },
+      { k: 'total', label: 'Total bought', core: true, money: true, cls: 'b', v: (c) => st(c).total, total: (rows) => fmt(dtSum(rows, (c) => st(c).total)) },
+      { k: 'owed', label: 'Owes', core: true, money: true, v: (c) => st(c).owed || '', html: (c) => st(c).owed > 0 ? '<span style="color:var(--bad);font-weight:700">' + fmt(st(c).owed) + '</span>' : dtNil, total: (rows) => fmt(dtSum(rows, (c) => st(c).owed)) },
+      { k: 'lim', label: 'Credit limit', money: true, v: (c) => { const l = KC.creditLimitOf(S(), c); return l === null ? '' : l; } },
+      { k: 'left', label: 'Credit left', money: true, v: (c) => { const l = KC.creditLimitOf(S(), c); return l === null ? '' : Math.max(0, l - st(c).owed); } },
+      { k: 'last', label: 'Last purchase', core: true, v: (c) => st(c).last, html: (c) => dtDate(st(c).last) },
+      { k: 'since', label: 'Customer since', v: (c) => (c.createdAt || '').slice(0, 10), html: (c) => dtDate((c.createdAt || '').slice(0, 10)) },
+    ],
+  });
+}
+function expTable(list, id, opts = {}) {
+  return dataTable({
+    id, rows: list, noun: 'expense', empty: opts.empty || 'No expenses here.',
+    rowAttr: (e) => ' data-a="expEdit" data-id="' + e.id + '"',
+    cols: [
+      opts.noDate ? null : { k: 'date', label: 'Date', core: true, v: (e) => e.date, html: (e) => dtDate(e.date) },
+      { k: 'cat', label: 'What for', core: true, v: (e) => e.category, html: (e) => '<b>' + esc(e.category) + '</b>' },
+      { k: 'desc', label: 'Details', core: true, v: (e) => e.description || '' },
+      { k: 'method', label: 'Paid by', core: true, v: (e) => e.method || 'Cash' },
+      { k: 'amount', label: 'Amount', core: true, money: true, cls: 'b', v: (e) => num(e.amount), total: (rows) => fmt(dtSum(rows, (e) => e.amount)) },
+      { k: 'by', label: 'Recorded by', v: (e) => e.by || '', cls: 'mut' },
+      allLocs().length > 1 ? { k: 'branch', label: 'Branch', v: (e) => locName(e.locationId || 'main'), cls: 'mut' } : null,
+      K.raw.assets.length ? { k: 'asset', label: 'Asset', v: (e) => e.assetId ? assetName(e.assetId) : '', cls: 'mut' } : null,
+    ],
+  });
+}

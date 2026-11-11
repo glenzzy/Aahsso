@@ -438,7 +438,7 @@ VIEWS.sales = {
       '<div class="chips mb">' + SS.map(([k, l]) => '<button class="chip' + (st === k ? ' on' : '') + '" data-a="salesStatus" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="kpis mb">' + kpi('Sales', F(tot), live.length + ' receipt(s)', true) + kpi('Collected', F(paid)) + kpi('Balance owed', F(bal)) + (seeCost() ? kpi('Gross profit', F(prof), tot ? pct(prof / tot * 100) + ' margin' : '') : kpi('Items', fmt(live.reduce((a, s) => a + (s.lines || []).reduce((b, l) => b + num(l.qty), 0), 0)))) + '</div>' +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search customer, receipt no., item" value="' + esc(K.ui.salesQ) + '" data-i="salesQ"></div>' +
-      '<div class="card tw sales-tw" id="salesList">' + salesRows(list) + '</div>';
+      salesRows(list);
   },
 };
 /** Compact sales list for narrow places (home "Recent sales", customer panel). The Sales page uses the table below. */
@@ -454,39 +454,42 @@ function saleCards(list) {
 const dayMon = (d) => fmtDate(d).split(' ').slice(0, 2).join(' ');
 /** Sales as a table: one row per sale, every important figure in its own column. */
 function salesRows(list) {
-  if (!list.length) return '<div class="empty"><div class="big">🧾</div>No sales here yet.</div>';
   const multi = allLocs().length > 1, cost = seeCost(), today = todayStr();
-  const rows = list.slice(0, 300); const T = { net: 0, paid: 0, fees: 0, bal: 0, profit: 0, qty: 0 };
-  const body = rows.map((s) => {
-    const x = K.C.saleX[s.id]; const cx = x.status === 'cancelled';
-    const qty = (s.lines || []).reduce((a, l) => a + num(l.qty), 0);
-    const pays = (s.payments || []).filter((p) => num(p.amount) > 0);
-    const modes = Array.from(new Set(pays.map((p) => p.method || 'Cash')));
-    const refs = pays.map((p) => p.ref).filter(Boolean);
-    const items = (s.lines || []).map((l) => l.name + ' ×' + l.qty + (itemNote(l) ? ' (' + itemNote(l) + ')' : '')).join(', ');
-    const due = KC.dueDateOf(s, S()); const overdue = !cx && x.balance > 0 && due < today;
-    if (!cx) { T.net += x.net; T.paid += x.paid; T.fees += x.fees || 0; T.bal += Math.max(0, x.balance); T.profit += x.profit || 0; T.qty += qty; }
-    return '<tr data-a="openSale" data-id="' + s.id + '"' + (cx ? ' class="cx"' : '') + '>' +
-      '<td>' + esc(dayMon(saleDate(s))) + '<span class="sub">' + esc(String(saleDate(s)).slice(0, 4)) + '</span></td>' +
-      '<td><b>' + esc(s.no) + '</b><span class="sub">' + esc(x.txnId || '') + '</span></td>' +
-      '<td class="cut" title="' + esc(s.customerName) + '">' + esc(s.customerName) + (s.customerPhone ? '<span class="sub">' + esc(s.customerPhone) + '</span>' : '') + '</td>' +
-      '<td class="wrap" title="' + esc(items) + '"><span class="clamp">' + esc(items) + '</span><span class="sub">' + fmt(qty) + ' item(s)</span></td>' +
-      '<td class="cut"' + (refs.length ? ' title="' + esc(refs.join(', ')) + '"' : '') + '>' + (modes.length ? esc(modes.join(', ')) : '<span class="faint">—</span>') + (refs.length ? '<span class="sub">' + esc(refs.join(', ')) + '</span>' : '') + '</td>' +
-      '<td class="r money b">' + fmt(x.net) + '</td>' +
-      '<td class="r money">' + fmt(x.paid) + '</td>' +
-      '<td class="r money">' + (x.fees > 0 ? fmt(x.fees) : '<span class="faint">—</span>') + '</td>' +
-      '<td class="r money' + (x.balance > 0 && !cx ? ' neg b' : '') + '">' + (x.balance > 0 && !cx ? fmt(x.balance) + '<span class="sub">' + (overdue ? 'overdue' : 'due ' + dayMon(due)) + '</span>' : '<span class="faint">—</span>') + '</td>' +
-      (cost ? '<td class="r money">' + (cx ? '<span class="faint">—</span>' : fmt(x.profit)) + '</td>' : '') +
-      '<td class="st">' + statusBadge(x.status) + (!cx ? (s.delivered ? ' <span class="badge">Collected</span>' : ' <span class="badge info">At shop</span>') : '') + '<span class="sub">' + esc(s.createdBy || '—') + (multi ? ' · ' + esc(locName(s.locationId)) : '') + '</span></td></tr>';
-  }).join('');
-  const F_ = (v) => '<td class="r money">' + fmt(v) + '</td>';
-  return '<table class="t sales"><thead><tr><th>Date</th><th>Receipt / Txn ID</th><th>Customer</th><th>Items</th><th>Payment mode</th><th class="r">Total</th><th class="r">Paid</th><th class="r">MoMo charges</th><th class="r">Balance</th>' + (cost ? '<th class="r">Profit</th>' : '') + '<th>Status</th></tr></thead>' +
-    '<tbody>' + body + '</tbody>' +
-    '<tfoot><tr><td colspan="3">Total · ' + rows.filter((s) => K.C.saleX[s.id].status !== 'cancelled').length + ' sale(s)' + (list.length > rows.length ? ' (first ' + rows.length + ' of ' + list.length + ')' : '') + '</td><td>' + fmt(T.qty) + ' item(s)</td><td></td>' + F_(T.net) + F_(T.paid) + F_(T.fees) + F_(T.bal) + (cost ? F_(T.profit) : '') + '<td></td></tr></tfoot></table>';
+  const X = (s) => K.C.saleX[s.id]; const live = (s) => X(s).status !== 'cancelled';
+  const pays = (s) => (s.payments || []).filter((p) => num(p.amount) > 0);
+  const qty = (s) => (s.lines || []).reduce((a, l) => a + num(l.qty), 0);
+  const sumLive = (f) => (rows) => fmt(dtSum(rows.filter(live), f));
+  const owes = (s) => live(s) && X(s).balance > 0;
+  return dataTable({
+    id: 'salesList', rows: list, noun: 'sale', limit: 300,
+    empty: '<div class="big">🧾</div>No sales here yet.',
+    rowAttr: (s) => ' data-a="openSale" data-id="' + s.id + '"', rowClass: (s) => live(s) ? '' : 'cx',
+    cols: [
+      { k: 'date', label: 'Date', core: true, v: (s) => saleDate(s), html: (s) => dtDate(saleDate(s)) },
+      { k: 'no', label: 'Receipt', core: true, v: (s) => s.no, html: (s) => '<b>' + esc(s.no) + '</b>' },
+      { k: 'txn', label: 'Transaction ID', v: (s) => KC.saleTxnId(s), cls: 'mut' },
+      { k: 'cust', label: 'Customer', core: true, v: (s) => s.customerName },
+      { k: 'phone', label: 'Phone', v: (s) => s.customerPhone || '', cls: 'mut' },
+      { k: 'items', label: 'Items', wrap: true, v: (s) => (s.lines || []).map((l) => l.name + ' ×' + l.qty + (itemNote(l) ? ' (' + itemNote(l) + ')' : '')).join(', ') },
+      { k: 'qty', label: 'Qty', num: true, v: qty, total: sumLive(qty) },
+      { k: 'mode', label: 'Payment mode', v: (s) => [...new Set(pays(s).map((p) => p.method || 'Cash'))].join(', ') },
+      { k: 'ref', label: 'Payment txn ID', v: (s) => pays(s).map((p) => p.ref).filter(Boolean).join(', '), cls: 'mut' },
+      { k: 'total', label: 'Total', core: true, money: true, cls: 'b', v: (s) => X(s).net, total: sumLive((s) => X(s).net) },
+      { k: 'paid', label: 'Paid', core: true, money: true, v: (s) => X(s).paid, total: sumLive((s) => X(s).paid) },
+      { k: 'fees', label: 'MoMo charges', money: true, v: (s) => X(s).fees || '', total: sumLive((s) => X(s).fees || 0) },
+      { k: 'bal', label: 'Balance', core: true, money: true, v: (s) => owes(s) ? X(s).balance : '', html: (s) => owes(s) ? '<span style="color:var(--bad);font-weight:700">' + fmt(X(s).balance) + '</span>' : dtNil, total: sumLive((s) => Math.max(0, X(s).balance)) },
+      { k: 'due', label: 'Pay by', v: (s) => owes(s) ? KC.dueDateOf(s, S()) : '', html: (s) => { if (!owes(s)) return dtNil; const d = KC.dueDateOf(s, S()); return d < today ? '<span class="badge bad">Overdue · ' + esc(dayMon(d)) + '</span>' : dtDate(d); } },
+      cost ? { k: 'profit', label: 'Profit', money: true, v: (s) => live(s) ? X(s).profit : '', total: sumLive((s) => X(s).profit) } : null,
+      { k: 'status', label: 'Status', core: true, v: (s) => X(s).status, html: (s) => statusBadge(X(s).status) },
+      { k: 'coll', label: 'Collected', v: (s) => live(s) ? (s.delivered ? 'Yes' : 'No') : '', html: (s) => !live(s) ? dtNil : s.delivered ? '<span class="badge">Yes</span>' : '<span class="badge info">No · at shop</span>' },
+      { k: 'by', label: 'Sold by', v: (s) => s.createdBy || '', cls: 'mut' },
+      multi ? { k: 'branch', label: 'Branch', v: (s) => locName(s.locationId), cls: 'mut' } : null,
+    ],
+  });
 }
 A.salesRange = (el) => { K.ui.salesRange = el.dataset.v; if (K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup') K.ui.salesStatus = 'all'; render(true); };
 A.salesStatus = (el) => { K.ui.salesStatus = el.dataset.v; render(true); };
-I.salesQ = (el) => { K.ui.salesQ = el.value; clearTimeout(I._sq); I._sq = setTimeout(() => { const v = VIEWS.sales.render(); const tmp = document.createElement('div'); tmp.innerHTML = v; $('#salesList').innerHTML = $('#salesList', tmp).innerHTML; }, 150); };
+I.salesQ = (el) => { K.ui.salesQ = el.value; clearTimeout(I._sq); I._sq = setTimeout(() => dtRefresh('salesList'), 150); };
 
 /* ---------- sale detail ---------- */
 A.openSale = (el) => openSale(el.dataset.id);

@@ -427,3 +427,84 @@ async function askReason(title, options, okLabel) {
     $('#rsnOk', sh).onclick = () => { const v = formVals(sh); sh._onClose = null; closeSheet(); res([v.rsn, v.rsnNote].filter(Boolean).join(' · ')); };
   });
 }
+
+/* ================= data tables (one component for every list in the app) =================
+ * One value per column. Each table has a Compact view (the key columns, marked core) and a Full view (every column),
+ * remembered per table on this device. Click a header to sort. Numbers are right-aligned with even-width digits.
+ *
+ * dataTable({
+ *   id,                       unique id (also the wrapper element's id)
+ *   rows,                     array of records
+ *   cols: [{ k, label,        column key + header
+ *            v: (r) => value, raw value — used for sorting and as the cell text when no html()
+ *            html: (r) => '',  optional cell html (one value: text, a badge, a link…)
+ *            num | money,      right-aligned numbers (money: formatted with fmt())
+ *            core,             shown in Compact view
+ *            wrap,             allow 2 lines (long text such as item lists); otherwise one line with … and a tooltip
+ *            total: (rows) => html for the footer }],
+ *   rowAttr: (r) => ' data-a="…" data-id="…"',  makes rows clickable
+ *   rowClass: (r) => '',      e.g. 'cx' for cancelled
+ *   expand: { key: (r) => 'k', html: (r) => '' },  optional detail row (toggled with data-a="toggleX")
+ *   empty: 'html when there are no rows', limit: 300, footLabel: 'Total' })
+ */
+const DT_STORE = 'kargo-tables';
+function dtPrefs() { if (!K.ui.dt) { try { K.ui.dt = JSON.parse(localStorage.getItem(DT_STORE) || '{}') || {}; } catch (e) { K.ui.dt = {}; } } return K.ui.dt; }
+function dtSet(id, patch) { const p = dtPrefs(); p[id] = Object.assign({}, p[id], patch); try { localStorage.setItem(DT_STORE, JSON.stringify(p)); } catch (e) { } }
+const dtMode = (id) => (dtPrefs()[id] || {}).mode || 'compact';
+function dataTable(cfg) {
+  const { id, rows } = cfg; const pref = dtPrefs()[id] || {};
+  const mode = dtMode(id);
+  const allCols = cfg.cols.filter(Boolean);
+  const cols = mode === 'full' ? allCols : allCols.filter((c) => c.core);
+  const hidden = allCols.length - cols.length;
+  const cellText = (c, r) => { const v = c.v ? c.v(r) : ''; return v === null || v === undefined || v === '' ? '' : String(v); };
+  let list = rows.slice();
+  const sc = pref.sort && allCols.find((c) => c.k === pref.sort.k);
+  if (sc) {
+    const dir = pref.sort.dir === 'desc' ? -1 : 1;
+    list.sort((a, b) => { const x = sc.v ? sc.v(a) : '', y = sc.v ? sc.v(b) : ''; if (x === y) return 0; if (x === '' || x === null || x === undefined) return 1; if (y === '' || y === null || y === undefined) return -1; return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' })) * dir; });
+  }
+  const limit = cfg.limit || 300; const shown = list.slice(0, limit);
+  const isNum = (c) => c.num || c.money;
+  const cell = (c, r) => {
+    let inner;
+    if (c.html) inner = c.html(r);
+    else { const v = c.v ? c.v(r) : ''; inner = v === null || v === undefined || v === '' ? '<span class="dt-nil">—</span>' : c.money ? fmt(v) : typeof v === 'number' ? fmt(v) : esc(v); }
+    const t = !isNum(c) && !c.html ? cellText(c, r) : '';
+    return '<td class="' + [isNum(c) ? 'n' : '', c.wrap ? 'w' : '', c.cls || ''].filter(Boolean).join(' ') + '"' + (t && t.length > 18 ? ' title="' + esc(t) + '"' : '') + '>' + (c.wrap ? '<span class="dt-clamp">' + inner + '</span>' : inner) + '</td>';
+  };
+  const head = cols.map((c) => { const on = sc && sc.k === c.k; return '<th class="' + (isNum(c) ? 'n' : '') + (on ? ' on' : '') + '" data-a="dtSort" data-t="' + id + '" data-k="' + c.k + '" aria-sort="' + (on ? (pref.sort.dir === 'desc' ? 'descending' : 'ascending') : 'none') + '" title="Sort by ' + esc(c.label) + '">' + esc(c.label) + '<span class="dt-arrow">' + (on ? (pref.sort.dir === 'desc' ? '▼' : '▲') : '') + '</span></th>'; }).join('');
+  const body = shown.map((r) => {
+    const open = cfg.expand && K.ui.expanded[cfg.expand.key(r)];
+    return '<tr class="' + [cfg.rowClass ? cfg.rowClass(r) : '', open ? 'open' : ''].filter(Boolean).join(' ') + '"' + (cfg.rowAttr ? cfg.rowAttr(r) : '') + '>' + cols.map((c) => cell(c, r)).join('') + '</tr>' +
+      (open ? '<tr class="dt-detail"><td colspan="' + cols.length + '">' + cfg.expand.html(r) + '</td></tr>' : '');
+  }).join('');
+  const hasFoot = cols.some((c) => c.total);
+  const foot = hasFoot ? '<tfoot><tr>' + cols.map((c, i) => '<td class="' + (isNum(c) ? 'n' : '') + '">' + (c.total ? c.total(list) : i === 0 ? (cfg.footLabel || 'Total') + ' · ' + fmt(list.length) : '') + '</td>').join('') + '</tr></tfoot>' : '';
+  const bar = '<div class="dt-bar"><span class="dt-count">' + fmt(list.length) + ' ' + (cfg.noun || 'row') + (list.length === 1 ? '' : 's') + (list.length > limit ? ' · showing first ' + limit : '') + '</span>' +
+    '<span class="dt-cols">' + (hidden ? hidden + ' more column' + (hidden === 1 ? '' : 's') + ' in Full view' : mode === 'full' && allCols.some((c) => !c.core) ? 'All ' + allCols.length + ' columns' : '') + '</span>' +
+    (allCols.some((c) => !c.core) ? '<div class="seg dt-mode" role="group" aria-label="Table view"><button type="button" class="' + (mode === 'compact' ? 'on' : '') + '" data-a="dtMode" data-t="' + id + '" data-v="compact" aria-pressed="' + (mode === 'compact') + '">Compact</button><button type="button" class="' + (mode === 'full' ? 'on' : '') + '" data-a="dtMode" data-t="' + id + '" data-v="full" aria-pressed="' + (mode === 'full') + '">Full view</button></div>' : '') + '</div>';
+  return '<div class="card dt dt-' + mode + '" id="' + id + '">' + bar +
+    (rows.length ? '<div class="dt-scroll"><table class="dt-t"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody>' + foot + '</table></div>' : '<div class="empty">' + (cfg.empty || 'Nothing here yet.') + '</div>') + '</div>';
+}
+/** Redraw only one table (sorting / view toggle) without losing what is typed elsewhere on the page. */
+const DT_REDRAW = {}; // id → function, for tables drawn outside a view's render() (e.g. loaded from the server)
+function dtRefresh(id) {
+  if (DT_REDRAW[id] && document.getElementById(id)) return DT_REDRAW[id]();
+  const old = document.getElementById(id); if (!old || !VIEWS[K.route]) return render(true);
+  const sheet = old.closest('.scrim');
+  if (sheet && sheet._refresh) return sheet._refresh();
+  const tmp = document.createElement('div'); tmp.innerHTML = VIEWS[K.route].render();
+  const neu = tmp.querySelector('#' + CSS.escape(id)); if (neu) old.replaceWith(neu); else render(true);
+}
+A.dtMode = (el) => { dtSet(el.dataset.t, { mode: el.dataset.v }); dtRefresh(el.dataset.t); };
+A.dtSort = (el) => {
+  const id = el.dataset.t, k = el.dataset.k; const cur = (dtPrefs()[id] || {}).sort;
+  // asc → desc → original order
+  const next = !cur || cur.k !== k ? { k, dir: 'asc' } : cur.dir === 'asc' ? { k, dir: 'desc' } : null;
+  dtSet(id, { sort: next }); dtRefresh(id);
+};
+/* small cell helpers */
+const dtDate = (d) => d ? '<span class="nowrap">' + esc(fmtDate(d)) + '</span>' : '<span class="dt-nil">—</span>';
+const dtNil = '<span class="dt-nil">—</span>';
+const dtSum = (rows, f) => rows.reduce((a, r) => a + (num(f(r)) || 0), 0);
