@@ -216,6 +216,7 @@ VIEWS.settings = {
   render() {
     const s = S();
     K.ui.feeDraft = feeCopy(s.momoFeeTables);
+    K.ui.storeDraft = (s.vendors || []).slice(); K.ui.catDraft = catDraftFrom(s.categories); K.ui.catOpen = K.ui.catOpen || {}; K.ui.catRen = null;
     if (!can('settings')) return '<div class="card pad2 mb"><h2 class="mb">Downloads</h2><div class="row wrap"><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="backupJson">' + ic('dl') + 'Full backup</button></div></div>';
     const cats = s.categories || KC.CATEGORIES; const subN = Object.values(cats).reduce((a, v) => a + v.length, 0);
     const secs = SET_SECTIONS.filter(([k]) => k !== 'account' || K.info.mode === 'saas');
@@ -241,8 +242,8 @@ VIEWS.settings = {
         '<div class="rem-prev"><div class="hint b">Preview</div><div id="remPrev"></div></div>' +
         '<div class="set-grid mt">' + sf('Remind the same customer at most every', unitIn('reminderEvery', s.reminderEvery, 'days', 'inputmode="numeric"'), 'Nobody is reminded twice within this time.') + '</div>') +
       setCard('catalogue', 'Stores & categories', 'Lists that make adding purchases and items faster.',
-        sf('Stores you buy from', inp('vendors', (s.vendors || []).join(', ')), 'Separate with commas. They are suggested when you add a purchase.') +
-        sf('Categories', '<textarea class="inp cat-ta" name="categories" rows="9">' + esc(Object.entries(cats).map(([k, v]) => k + ': ' + v.join(', ')).join('\n')) + '</textarea>', 'One category per line, then its subcategories: <b>Category: sub1, sub2</b> · now ' + Object.keys(cats).length + ' categories, ' + subN + ' subcategories.', 'mt') +
+        '<h3>Stores you buy from</h3><p class="hint" style="margin:2px 0 10px">Suggested when you add a purchase. Type a name and press Enter.</p>' + storeEditor() +
+        '<div class="set-sub"><h3>Categories</h3><p class="hint" style="margin:2px 0 12px">Used to group your items in stock, sales reports and the online shop. Open a category to manage its subcategories.</p>' + catEditor() + '</div>' +
         '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>') +
       '</div>';
     const rest = '<div id="set-shop" class="set-anchor">' + shopCard() + '</div><div id="set-branches" class="set-anchor">' + locationsCard() + '</div>' +
@@ -271,6 +272,7 @@ function remPreview() {
 const setDirty = () => { K.viewDirty = true; const b = $('#setBar'); if (b) b.classList.add('show'); };
 ['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
   if (!e.target.closest || !e.target.closest('#setForm')) return;
+  if (e.target.matches('#catQ, #catNew, #storeIn, #catRen, [data-subin]')) return;
   setDirty();
   if (e.target.closest('#set-currency')) fxExamples();
   if (e.target.id === 'remTpl' || e.target.closest('#set-money') || e.target.name === 'businessName') remPreview();
@@ -296,14 +298,20 @@ async function saveSettings(patch) {
 }
 A.saveSettings = async () => {
   const v = formVals($('#setForm'));
-  const cats = {}; v.categories.split('\n').forEach((line) => { const [k, rest] = line.split(':'); if (k && k.trim()) cats[k.trim()] = (rest || '').split(',').map((x) => x.trim()).filter(Boolean); });
+  const cd = catDraftForSave(); const cats = cd.cats;
+  if (!Object.keys(cats).length) { toast('Keep at least one category', true); return; }
+  if (cd.items.length && !(await confirmBox('Renaming moves ' + cd.items.length + ' item' + (cd.items.length === 1 ? '' : 's') + ' to the new name. Continue?', 'Save and move items'))) return;
   const mm = $$('#momoList [data-mm]').map((r) => ({ method: $('select', r).value, number: $('[data-mmn]', r).value.trim(), label: $('[data-mml]', r).value.trim() })).filter((m) => m.number);
   const fee = feeDraftForSave(); if (fee.error) { toast(fee.error, true); const ed = $('#feeEd'); if (ed) ed.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
   const momoFeeTables = fee.tables;
   const rates = {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
   const curInfo = KC.CURRENCIES.find((c) => c[0] === v.baseCurrency) || [v.baseCurrency, v.baseCurrency];
-  const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, momoFeeTables, vendors: v.vendors.split(',').map((x) => x.trim()).filter(Boolean), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
-  if (await saveSettings(patch)) { toast('Settings saved'); render(true); }
+  const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, momoFeeTables, vendors: K.ui.storeDraft.slice(), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
+  if (await saveSettings(patch)) {
+    // items that used a renamed category / subcategory follow the new name
+    for (const pr of cd.items) { const m = cd.moves.find((x) => (pr.category || 'Other') === x.from && (x.sub === undefined || (pr.subcategory || '') === x.sub)); await save('products', Object.assign({}, pr, { category: m.to }, m.toSub !== undefined ? { subcategory: m.toSub } : {})); }
+    toast(cd.items.length ? 'Settings saved · ' + cd.items.length + ' item(s) moved to the new name' : 'Settings saved'); render(true);
+  }
 };
 A.logoUp = async () => {
   const f = await pickFile('image/*'); if (!f) return;
@@ -544,4 +552,125 @@ function feeDraftForSave() {
       : { min: num(t.min), max: t.max === '' || t.max == null ? null : num(t.max), type: 'fixed', fee: num(t.fee) }).sort((a, b) => a.min - b.min);
   }
   return { tables: out };
+}
+
+/* ---------- settings: stores (chips) and categories (list editor) ---------- */
+// Working copies, refreshed each time Settings is drawn. Saved with the Settings "Save" button.
+// Each category / subcategory remembers its original name so renames can move the items that use it.
+function catDraftFrom(cats) { return Object.entries(cats || KC.CATEGORIES).map(([name, subs]) => ({ name, orig: name, subs: (subs || []).map((x) => ({ name: x, orig: x })) })); }
+const catUse = (cat) => K.raw.products.filter((p) => !p.archived && (p.category || 'Other') === cat).length;
+const subUse = (cat, sub) => K.raw.products.filter((p) => !p.archived && (p.category || 'Other') === cat && (p.subcategory || '') === sub).length;
+const sameName = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+
+/* stores: chips + "type and press Enter" */
+function storeEditor() {
+  return '<div class="tag-box" id="storeBox">' + K.ui.storeDraft.map((s, i) => '<span class="tag">' + esc(s) + '<button type="button" data-a="storeDel" data-i="' + i + '" aria-label="Remove ' + esc(s) + '">×</button></span>').join('') +
+    '<input id="storeIn" placeholder="' + (K.ui.storeDraft.length ? 'Add another store…' : 'Type a store and press Enter') + '" aria-label="Add a store" autocomplete="off"></div>';
+}
+function storeAdd(raw) {
+  const names = String(raw || '').split(',').map((x) => x.trim()).filter(Boolean); let added = 0;
+  names.forEach((n) => { if (!K.ui.storeDraft.some((s) => sameName(s, n))) { K.ui.storeDraft.push(n.slice(0, 60)); added++; } });
+  if (added) { setDirty(); const box = $('#storeBox'); box.outerHTML = storeEditor(); $('#storeIn').focus(); }
+  return added;
+}
+A.storeDel = (el) => { K.ui.storeDraft.splice(+el.dataset.i, 1); setDirty(); $('#storeBox').outerHTML = storeEditor(); $('#storeIn').focus(); };
+document.addEventListener('keydown', (e) => {
+  if (e.target.id === 'storeIn') {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); const v = e.target.value; if (v.trim()) { if (!storeAdd(v)) { e.target.value = ''; toast('Already in the list'); } } }
+    else if (e.key === 'Backspace' && !e.target.value && K.ui.storeDraft.length) { K.ui.storeDraft.pop(); setDirty(); $('#storeBox').outerHTML = storeEditor(); $('#storeIn').focus(); }
+  }
+});
+document.addEventListener('focusout', (e) => { if (e.target.id === 'storeIn' && e.target.value.trim()) storeAdd(e.target.value); });
+document.addEventListener('click', (e) => { if (e.target.id === 'storeBox') $('#storeIn').focus(); });
+
+/* categories */
+function catEditor() { return '<div id="catEd">' + catEditorInner() + '</div>'; }
+function catEditorInner() {
+  const d = K.ui.catDraft; const q = (K.ui.catQ || '').trim().toLowerCase();
+  const subTotal = d.reduce((a, c) => a + c.subs.length, 0);
+  const list = d.map((c, i) => ({ c, i })).filter(({ c }) => !q || c.name.toLowerCase().includes(q) || c.subs.some((s) => s.name.toLowerCase().includes(q)));
+  const row = ({ c, i }) => {
+    const open = q ? true : !!K.ui.catOpen[c.orig || c.name]; const used = catUse(c.orig || c.name); const renaming = K.ui.catRen === i;
+    const subs = c.subs.map((s, j) => { const u = subUse(c.orig || c.name, s.orig || s.name); const hit = q && s.name.toLowerCase().includes(q);
+      return '<span class="tag' + (hit ? ' hit' : '') + '">' + esc(s.name) + (u ? '<em>' + u + '</em>' : '') + '<button type="button" data-a="subDel" data-i="' + i + '" data-j="' + j + '" aria-label="Remove ' + esc(s.name) + '">×</button></span>'; }).join('');
+    return '<div class="cat-row' + (open ? ' open' : '') + '" data-ci="' + i + '">' +
+      '<div class="cat-head">' +
+        '<button type="button" class="cat-tog" data-a="catTog" data-i="' + i + '" aria-expanded="' + open + '" aria-label="Show subcategories of ' + esc(c.name) + '">' + ic(open ? 'down' : 'chev', 'sm') + '</button>' +
+        (renaming ? '<input class="inp cat-ren" id="catRen" value="' + esc(c.name) + '" aria-label="New name" maxlength="60">' + '<button type="button" class="btn sm pri" data-a="catRenOk" data-i="' + i + '">Save name</button><button type="button" class="btn sm ghost" data-a="catRenNo">Cancel</button>'
+          : '<button type="button" class="cat-name" data-a="catTog" data-i="' + i + '">' + esc(c.name) + (c.orig && c.orig !== c.name ? ' <span class="badge info">renamed</span>' : '') + (!c.orig ? ' <span class="badge ok">new</span>' : '') + '</button>' +
+            '<span class="cat-meta">' + c.subs.length + ' subcategor' + (c.subs.length === 1 ? 'y' : 'ies') + ' · ' + (used ? used + ' item' + (used === 1 ? '' : 's') : 'no items yet') + '</span>' +
+            '<span class="cat-acts"><button type="button" class="btn sm ghost" data-a="catRen" data-i="' + i + '" title="Rename" aria-label="Rename ' + esc(c.name) + '">' + ic('edit', 'sm') + '<span class="ren-t">Rename</span></button><button type="button" class="icon-btn" data-a="catDel" data-i="' + i + '" title="Delete category" aria-label="Delete ' + esc(c.name) + '">' + ic('trash', 'sm') + '</button></span>') +
+      '</div>' +
+      (open ? '<div class="cat-body"><div class="tag-box">' + subs + '<input data-subin="' + i + '" placeholder="Add a subcategory and press Enter" aria-label="Add a subcategory to ' + esc(c.name) + '" autocomplete="off"></div><div class="hint">Numbers show how many items use each subcategory.</div></div>' : '') + '</div>';
+  };
+  return '<div class="cat-tools"><div class="search grow">' + ic('search') + '<input class="inp" id="catQ" placeholder="Search categories and subcategories" value="' + esc(K.ui.catQ || '') + '" autocomplete="off"></div>' +
+      '<button type="button" class="btn sm" data-a="catSort">Sort A–Z</button><button type="button" class="btn sm" data-a="catSuggest">' + ic('plus', 'sm') + 'Add suggested</button></div>' +
+    '<div class="cat-sum hint">' + d.length + ' categories · ' + subTotal + ' subcategories' + (q ? ' · showing ' + list.length + ' matching' : '') + '</div>' +
+    '<div class="cat-list">' + (list.length ? list.map(row).join('') : '<div class="empty small">No category or subcategory matches “' + esc(K.ui.catQ) + '”.</div>') + '</div>' +
+    '<div class="cat-new"><input class="inp" id="catNew" placeholder="New category, e.g. Baby & Kids" maxlength="60" autocomplete="off" aria-label="New category name"><button type="button" class="btn" data-a="catAdd">' + ic('plus') + 'Add category</button></div>';
+}
+const catRedraw = (focusSel) => { const e = $('#catEd'); if (!e) return; e.innerHTML = catEditorInner(); if (focusSel) { const f = $(focusSel); if (f) { f.focus(); if (f.select && focusSel === '#catRen') f.select(); } } };
+const catExists = (name, exceptIndex) => K.ui.catDraft.some((c, i) => i !== exceptIndex && sameName(c.name, name));
+A.catTog = (el) => { const c = K.ui.catDraft[+el.dataset.i]; const k = c.orig || c.name; K.ui.catOpen[k] = !K.ui.catOpen[k]; catRedraw(K.ui.catOpen[k] ? '[data-subin="' + el.dataset.i + '"]' : null); };
+A.catAdd = () => {
+  const inp_ = $('#catNew'); const name = inp_.value.trim();
+  if (!name) { inp_.focus(); return toast('Type the new category name', true); }
+  if (catExists(name)) return toast('“' + name + '” already exists', true);
+  K.ui.catDraft.push({ name, orig: '', subs: [] }); K.ui.catOpen[name] = true; K.ui.catQ = ''; setDirty();
+  catRedraw('[data-subin="' + (K.ui.catDraft.length - 1) + '"]');
+};
+A.catRen = (el) => { K.ui.catRen = +el.dataset.i; catRedraw('#catRen'); };
+A.catRenNo = () => { K.ui.catRen = null; catRedraw(); };
+A.catRenOk = (el) => {
+  const i = +el.dataset.i; const name = ($('#catRen').value || '').trim();
+  if (!name) return toast('The name cannot be empty', true);
+  if (catExists(name, i)) return toast('“' + name + '” already exists', true);
+  const c = K.ui.catDraft[i]; const k = c.orig || c.name; c.name = name; K.ui.catRen = null; K.ui.catOpen[c.orig || name] = K.ui.catOpen[k]; setDirty(); catRedraw();
+};
+A.catDel = async (el) => {
+  const i = +el.dataset.i; const c = K.ui.catDraft[i]; const used = c.orig ? catUse(c.orig) : 0;
+  if (used) return toast(used + ' item' + (used === 1 ? ' uses' : 's use') + ' “' + c.name + '”. Move them to another category first, or rename it instead.', true);
+  if (c.subs.length && !(await confirmBox('Delete “' + c.name + '” and its ' + c.subs.length + ' subcategories?', 'Delete', true))) return;
+  K.ui.catDraft.splice(i, 1); setDirty(); catRedraw();
+};
+A.subDel = (el) => {
+  const c = K.ui.catDraft[+el.dataset.i]; const s = c.subs[+el.dataset.j]; const used = c.orig && s.orig ? subUse(c.orig, s.orig) : 0;
+  if (used) return toast(used + ' item' + (used === 1 ? ' uses' : 's use') + ' “' + s.name + '”. Change them first.', true);
+  c.subs.splice(+el.dataset.j, 1); setDirty(); catRedraw('[data-subin="' + el.dataset.i + '"]');
+};
+A.catSort = () => { K.ui.catDraft.sort((a, b) => a.name.localeCompare(b.name)); K.ui.catDraft.forEach((c) => c.subs.sort((a, b) => a.name.localeCompare(b.name))); setDirty(); catRedraw(); toast('Sorted A–Z'); };
+A.catSuggest = () => {
+  let nc = 0, ns = 0;
+  Object.entries(KC.CATEGORIES).forEach(([name, subs]) => {
+    // a category you renamed from a suggested one counts as already there
+    let c = K.ui.catDraft.find((x) => sameName(x.name, name) || (x.orig && sameName(x.orig, name)));
+    if (!c) { c = { name, orig: '', subs: [] }; K.ui.catDraft.push(c); nc++; }
+    subs.forEach((s) => { if (!c.subs.some((x) => sameName(x.name, s))) { c.subs.push({ name: s, orig: '' }); ns++; } });
+  });
+  if (!nc && !ns) return toast('You already have all the suggested categories');
+  setDirty(); catRedraw(); toast('Added ' + nc + ' categor' + (nc === 1 ? 'y' : 'ies') + ' and ' + ns + ' subcategories — press Save to keep them');
+};
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.subin !== undefined && (e.key === 'Enter' || e.key === ',')) {
+    e.preventDefault(); const i = +t.dataset.subin; const c = K.ui.catDraft[i]; const names = t.value.split(',').map((x) => x.trim()).filter(Boolean);
+    if (!names.length) return; let dup = '';
+    names.forEach((n) => { if (c.subs.some((s) => sameName(s.name, n))) dup = n; else c.subs.push({ name: n.slice(0, 60), orig: '' }); });
+    if (dup) toast('“' + dup + '” is already in ' + c.name);
+    setDirty(); catRedraw('[data-subin="' + i + '"]');
+  } else if (t.id === 'catNew' && e.key === 'Enter') { e.preventDefault(); A.catAdd(); }
+  else if (t.id === 'catRen' && e.key === 'Enter') { e.preventDefault(); A.catRenOk({ dataset: { i: K.ui.catRen } }); }
+  else if (t.id === 'catRen' && e.key === 'Escape') { e.preventDefault(); A.catRenNo(); }
+});
+document.addEventListener('input', (e) => { if (e.target.id === 'catQ') { K.ui.catQ = e.target.value; const pos = e.target.selectionStart; catRedraw('#catQ'); const q = $('#catQ'); if (q) q.setSelectionRange(pos, pos); } });
+/** For Save: the categories object, and the renames to apply to items. */
+function catDraftForSave() {
+  const d = K.ui.catDraft; const cats = {}; const moves = [];
+  d.forEach((c) => {
+    cats[c.name] = c.subs.map((s) => s.name);
+    if (c.orig && c.orig !== c.name) moves.push({ from: c.orig, to: c.name });
+    c.subs.forEach((s) => { if (s.orig && s.orig !== s.name) moves.push({ from: c.orig, sub: s.orig, to: c.name, toSub: s.name }); });
+  });
+  const items = K.raw.products.filter((p) => moves.some((m) => (p.category || 'Other') === m.from && (m.sub === undefined || (p.subcategory || '') === m.sub)));
+  return { cats, moves, items };
 }
