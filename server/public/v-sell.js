@@ -39,9 +39,9 @@ function gridHTML() {
     const px = K.C.prodX[p.id], q = cartQty(p.id), av = availFor(p.id);
     const src = imgSrc(p.image);
     return '<div class="pt' + (q ? ' incart' : '') + (av - q <= 0 ? ' out' : '') + '" data-a="addCart" data-id="' + p.id + '">' + (q ? '<div class="q" style="z-index:2">' + q + '</div>' : '') +
-      (src ? '<div class="pimg"><img src="' + esc(src) + '" alt="" loading="lazy"></div>' : '<div class="pimg ph" style="background:' + catColor(p.category) + '">' + esc(initials(p.name)) + '</div>') +
+      (src ? '<div class="pimg"><img src="' + esc(src) + '" alt="" loading="lazy"></div>' : '<div class="pimg ph">' + esc(initials(p.name)) + '</div>') +
       '<div class="nm">' + esc(p.name) + '</div>' + (KC.sizeLabel(p) ? '<div class="tiny muted">' + esc(KC.sizeLabel(p)) + '</div>' : '') + '<div class="row gap6 wrap">' + (p.condition && p.condition !== 'New' ? '<span class="badge acc">' + esc(p.condition) + '</span>' : '') + (heldForCart(p.id) ? '<span class="badge info">Client order</span>' : '') + (px.nextExpiry && daysUntil(px.nextExpiry) <= (num(S().expiryWarnDays) || 60) ? expiryBadge(px.nextExpiry) : '') + '</div>' +
-      '<div class="pr money">' + F(px.priceMax) + '</div><div class="st">' + (av - q) + ' left' + (px.priceMin < px.priceMax ? ' · min ' + fmt(px.priceMin) : '') + '</div></div>';
+      '<div class="pr money">' + F(px.priceMax) + '</div><div class="st">' + fmt(av - q) + ' in stock</div></div>';
   }).join('');
 }
 function cartHTML(inSheet) {
@@ -55,7 +55,7 @@ function cartHTML(inSheet) {
     return '<div class="cl"><div class="row between">' + thumb(p, 34, 8) + '<div class="grow b ellipsis">' + esc(p.name) + '</div><button class="icon-btn" data-a="cartDel" data-i2="' + i + '">' + ic('trash', 'sm') + '</button></div>' +
       '<div class="row between mt" style="margin-top:6px"><div class="stepper"><button data-a="cartStep" data-i2="' + i + '" data-d="-1">−</button><input inputmode="numeric" value="' + l.qty + '" data-i="cartQty" data-i2="' + i + '"><button data-a="cartStep" data-i2="' + i + '" data-d="1">+</button></div>' +
       '<div class="row gap6"><span class="tiny faint">@</span><input class="inp price-in" inputmode="numeric" value="' + l.unitPrice + '" data-i="cartPrice" data-i2="' + i + '"></div></div>' +
-      '<div class="row between"><div>' + warn + '<div class="tiny faint">Retail ' + fmt(px.priceMax) + ' · wholesale ' + fmt(px.priceWholesale) + ' · ' + availFor(l.productId) + ' here</div></div><div class="b money" data-lt="' + i + '">' + F(num(l.qty) * price) + '</div></div></div>';
+      '<div class="row between"><div>' + warn + (price !== num(px.priceMax) ? '<div class="tiny faint">Usual price ' + fmt(px.priceMax) + '</div>' : '') + '</div><div class="b money" data-lt="' + i + '">' + F(num(l.qty) * price) + '</div></div></div>';
   }).join('');
   return '<div class="' + (inSheet ? '' : 'card pad') + '">' +
     (inSheet ? '' : '<div class="row between mb"><h2>Cart</h2>' + (c.lines.length ? '<button class="btn sm ghost" data-a="cartClear">Clear</button>' : '') + '</div>') +
@@ -76,7 +76,7 @@ function refreshPOS() {
 VIEWS.sell = {
   render() {
     const cats = [...new Set(K.raw.products.filter((p) => availFor(p.id) > 0).map((p) => p.category).filter(Boolean))].sort();
-    return '<div class="pos"><div><div class="row mb gap6" id="posCust">' + posCustBar() + '</div><div class="search mb">' + ic('search') + '<input class="inp" id="posQ" placeholder="Search item or scan barcode…" value="' + esc(K.ui.posQ) + '" data-i="posQ" autocomplete="off"></div>' +
+    return '<div class="pos"><div><div class="row mb gap6 pos-cust" id="posCust">' + posCustBar() + '</div><div class="search mb">' + ic('search') + '<input class="inp" id="posQ" placeholder="Search item or scan barcode…" value="' + esc(K.ui.posQ) + '" data-i="posQ" autocomplete="off"></div>' +
       (cats.length > 1 ? '<div class="chips mb"><button class="chip' + (!K.ui.posCat ? ' on' : '') + '" data-a="posCat" data-v="">All</button>' + cats.map((c) => '<button class="chip' + (K.ui.posCat === c ? ' on' : '') + '" data-a="posCat" data-v="' + esc(c) + '">' + esc(c) + '</button>').join('') + '</div>' : '') +
       '<div class="pgrid" id="pgrid">' + gridHTML() + '</div></div><div class="cartbox" id="cartbox">' + cartHTML() + '</div></div><div class="cartbar hide" id="cartbar" data-a="openCart"></div>';
   },
@@ -153,10 +153,10 @@ const lineCond = (l) => l.condition || (byId('products', l.productId) || {}).con
 const lineWork = (l) => l.working || 'Working';
 /** 'Used · Not tested' — only when it is worth saying (anything other than new & working). */
 const itemNote = (l) => (lineCond(l) === 'New' && lineWork(l) === 'Working') ? '' : lineCond(l) + ' · ' + lineWork(l);
-function cartConditionFields() {
+function cartConditionFields(bare) {
   if (!K.cart.lines.length) return '';
   const opt = (list, v) => list.map((o) => '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
-  return '<h3 class="mt">Items — condition</h3><div class="card pad col" style="gap:8px">' + K.cart.lines.map((l, i) =>
+  return (bare ? '' : '<h3 class="mt">Items — condition</h3>') + '<div class="' + (bare ? '' : 'card pad ') + 'col" style="gap:8px">' + K.cart.lines.map((l, i) =>
     '<div><div class="b small ellipsis">' + esc(l.name) + ' <span class="muted">× ' + fmt(l.qty) + '</span></div><div class="grid2" style="margin-top:4px">' +
     '<select class="inp" data-lc="' + i + '" data-k="condition" aria-label="Condition of ' + esc(l.name) + '">' + opt(KC.CONDITIONS, lineCond(l)) + '</select>' +
     '<select class="inp" data-lc="' + i + '" data-k="working" aria-label="Is ' + esc(l.name) + ' working?">' + opt(KC.WORKING, lineWork(l)) + '</select></div></div>').join('') + '</div>';
@@ -185,7 +185,7 @@ function payFields(defAmount, opts = {}) {
       '<div class="grid2">' + field('Withdrawal / MoMo charges (' + sym + ')', inp('payFee', sug || '', 'inputmode="decimal" id="payFee" placeholder="0"')) +
         field(sale ? 'Customer sends' : 'You send', '<div class="inp" id="payGross" style="display:flex;align-items:center;background:var(--bg, #f6f6f6)">' + money(num(defAmount) + sug, cur) + '</div>') + '</div>' +
     '</div>' +
-    '<div class="grid2" id="pmExtra"' + (defMethod === 'Cash' ? ' style="opacity:.5"' : '') + '>' +
+    '<div class="grid2' + (defMethod === 'Cash' ? ' hide' : '') + '" id="pmExtra">' +
       (sale ? field('Money sent to (number)', '<select class="inp" name="payAccount" id="payAccount">' + accountOpts(defMethod).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>')
         : field('Paid to (number / account)', inp('payAccount', opts.account || '', 'placeholder="Optional"'))) +
       field('Transaction ID', inp('payRef', '', 'id="payRef" placeholder="' + (mm ? 'Required — ' + esc(defMethod) + ' txn ID' : 'Optional ref') + '"')) + '</div>' +
@@ -225,7 +225,7 @@ A.pmPick = (el) => {
   $('[name=payMethod]', root).value = el.dataset.v;
   const accSel = $('select#payAccount', root);
   if (accSel) { accSel.innerHTML = accountOpts(el.dataset.v).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option>'; const o = $('#payAccOther', root); if (o) o.classList.add('hide'); }
-  $('#pmExtra', root).style.opacity = el.dataset.v === 'Cash' ? .5 : 1;
+  $('#pmExtra', root).classList.toggle('hide', el.dataset.v === 'Cash'); // cash needs no number or transaction ID
   const feeEl = $('#payFee', root); if (feeEl) feeEl.dataset.auto = '1';
   syncPayCharges(root);
 };
@@ -258,11 +258,11 @@ function applySaleTxnId(sale, isNew) {
 
 /* ---------- delivery at checkout (kept on the cart so it survives redraws and comes back when editing) ---------- */
 const cartDelivery = () => (K.cart.delivery = K.cart.delivery || { mode: 'pickup', payer: 'client_us', status: 'to_send' });
-function deliveryFields(d) {
+function deliveryFields(d, bare) {
   const opt = (list, v) => list.map(([k, l]) => '<option value="' + k + '"' + (k === v ? ' selected' : '') + '>' + esc(l) + '</option>').join('');
   const f = (k, label, attrs) => field(label, '<input class="inp" data-dl="' + k + '" value="' + esc(d[k] === undefined || d[k] === null || d[k] === 0 ? '' : d[k]) + '" ' + (attrs || '') + '>');
   const s_ = (k, label, list) => field(label, '<select class="inp" data-dl="' + k + '">' + opt(list, d[k]) + '</select>');
-  return '<h3 class="mt">Delivery</h3><div class="col" id="dlBox">' + s_('mode', 'How does the client get the goods?', KC.DELIVERY_MODES) +
+  return (bare ? '' : '<h3 class="mt">Delivery</h3>') + '<div class="col" id="dlBox">' + s_('mode', 'How does the client get the goods?', KC.DELIVERY_MODES) +
     '<div id="dlMore" class="col">' +
       '<div class="grid2"><div data-dlshow="agency courier">' + f('agency', 'Agency / company name', 'placeholder="e.g. General Express"') + '</div>' + f('destination', 'Town / area', 'placeholder="e.g. Bafoussam"') + '</div>' +
       f('address', 'Address / landmark (optional)', 'placeholder="e.g. near the main market"') +
@@ -285,7 +285,7 @@ function syncCheckout(root, setPay) {
   const tot = $('#totOut', root); if (tot) tot.textContent = F(goods);
   const fr = $('#dlFeeRow', root); if (fr) { fr.classList.toggle('hide', !fee); $('#dlFeeOut', root).textContent = F(fee); $('#dueRow', root).classList.toggle('hide', !fee); $('#dueOut', root).textContent = F(goods + fee); }
   if (setPay) { const pa = $('#payAmount', root); if (pa) { pa.value = Math.max(0, goods + fee - (root._paid || 0)); const feeEl = $('#payFee', root); if (feeEl) feeEl.dataset.auto = '1'; syncPayCharges(root); } }
-  saveCart();
+  saveCart(); coSummaries(root);
 }
 ['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
   const k = e.target.dataset && e.target.dataset.dl; if (!k) return;
@@ -301,6 +301,25 @@ function readCartDelivery() {
   if (!d.recipientName || !d.recipientPhone) return { error: 'Type the recipient name and phone' };
   return { delivery: d };
 }
+
+
+/* ---------- checkout: folded sections with a one-line summary ---------- */
+function coSection(key, title, body) {
+  const open = !!(K.ui.coOpen || {})[key];
+  return '<details class="co-sec" data-sec="' + key + '"' + (open ? ' open' : '') + '><summary><span class="co-t">' + title + '</span><span class="co-s" data-sum="' + key + '"></span><span class="co-x">' + (open ? 'Hide' : 'Change') + '</span></summary><div class="co-body">' + body + '</div></details>';
+}
+document.addEventListener('toggle', (e) => { const d = e.target; if (!d.matches || !d.matches('details.co-sec')) return; (K.ui.coOpen = K.ui.coOpen || {})[d.dataset.sec] = d.open; const x = d.querySelector('.co-x'); if (x) x.textContent = d.open ? 'Hide' : 'Change'; }, true);
+function coSummaries(root) {
+  if (!root) return; const set = (k, t) => { const e = $('[data-sum="' + k + '"]', root); if (e) e.textContent = t; };
+  const d = cartDelivery();
+  if (d.mode === 'pickup') { const v = ($('[name=delivered]', root) || {}).value; set('delivery', 'Pickup at the shop · ' + (v === 'no' ? 'to pick up later' : 'collected now')); }
+  else set('delivery', KC.deliveryModeLabel(d.mode).replace(/ \(.*\)/, '') + (d.destination ? ' → ' + d.destination : '') + (num(d.fee) ? ' · fee ' + F(d.fee) : ''));
+  const odd = K.cart.lines.filter((l) => itemNote(l));
+  set('cond', !odd.length ? 'All new and working' : odd.length + ' item' + (odd.length === 1 ? '' : 's') + ': ' + odd.map((l) => itemNote(l)).filter((v, i, a) => a.indexOf(v) === i).join(', '));
+  const sd = ($('[name=saleDate]', root) || {}).value; const note = (($('[name=notes]', root) || {}).value || '').trim();
+  set('more', (sd && sd !== todayStr() ? fmtDate(sd) : 'Today') + (note ? ' · note added' : ''));
+}
+['input', 'change'].forEach((t) => document.addEventListener(t, (e) => { if (e.target.closest && e.target.closest('.co-sec')) coSummaries(e.target.closest('.scrim')); }));
 
 /* ---------- checkout ---------- */
 A.checkout = () => {
@@ -322,13 +341,12 @@ A.checkout = () => {
       '<hr class="sep"><div class="row between"><span class="b">Total</span><span class="money b" style="font-size:22px" id="totOut">' + F(total) + '</span></div>' +
       '<div id="dlFeeRow" class="row between small mt hide"><span class="muted">Delivery fee</span><span class="money" id="dlFeeOut"></span></div><div id="dueRow" class="row between b mt hide"><span>Total to pay</span><span class="money" id="dueOut"></span></div>' +
       (editing ? '<div class="row between small mt"><span class="muted">Already paid</span><span class="money">' + F(t.paid) + '</span></div>' : '') + '</div>' +
-      '<div class="grid2">' + field('Sale date', inp('saleDate', editing ? saleDate(editing) : todayStr(), 'type="date"')) + '<div id="pickField">' + field('Collected by the customer?', sel('delivered', [['yes', 'Yes — collected now'], ['no', 'No — left at the shop, to pick up later']], editing ? (editing.delivered ? 'yes' : 'no') : 'yes')) + '</div></div>' +
-      cartConditionFields() + deliveryFields(cartDelivery()) +
-      (can('payments') ? '<h3 class="mt">Payment ' + (editing ? '(additional)' : '') + '</h3><div class="tiny muted" style="margin-top:-6px">Enter less than the total for a deposit, or 0 for an unpaid reserved order.</div>' + payFields(Math.max(0, due)) : '<div class="alert info">The order will be saved unpaid. A cashier records the payment.</div>') +
-      field('If not fully paid: pay by', inp('dueDate', editing && editing.dueDate ? editing.dueDate : KC.addDays(todayStr(), num(S().creditDays) || 14), 'type="date"')) +
-      field('Note (optional)', inp('notes', editing ? editing.notes : '')) + '</div>');
+      (can('payments') ? '<div class="co-pay"><h3>Payment' + (editing ? ' <span class="hint">(additional)</span>' : '') + '</h3><span class="hint">Less than the total = deposit · 0 = unpaid order</span></div>' + payFields(Math.max(0, due)) : '<div class="alert info">The order will be saved unpaid. A cashier records the payment.</div>') +
+      coSection('delivery', 'Delivery', '<div id="pickField">' + field('Collected by the customer?', sel('delivered', [['yes', 'Yes — collected now'], ['no', 'No — left at the shop, to pick up later']], editing ? (editing.delivered ? 'yes' : 'no') : 'yes')) + '</div>' + deliveryFields(cartDelivery(), true)) +
+      coSection('cond', 'Item condition', cartConditionFields(true)) +
+      coSection('more', 'Date, pay-by & note', '<div class="grid2">' + field('Sale date', inp('saleDate', editing ? saleDate(editing) : todayStr(), 'type="date"')) + field('If not fully paid: pay by', inp('dueDate', editing && editing.dueDate ? editing.dueDate : KC.addDays(todayStr(), num(S().creditDays) || 14), 'type="date"')) + '</div>' + field('Note (optional)', inp('notes', editing ? editing.notes : ''))) + '</div>');
     if ($('#discIn', el)) $('#discIn', el).addEventListener('input', (e) => { K.cart.discount = Math.max(0, num(e.target.value)); syncCheckout(el, true); });
-    syncPayCharges(el); syncCheckout(el, false);
+    syncPayCharges(el); syncCheckout(el, false); coSummaries(el);
   };
   el._refresh();
   $('.sf', el) || el.querySelector('.sheet').insertAdjacentHTML('beforeend', '<div class="sf"></div>');

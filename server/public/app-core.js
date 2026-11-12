@@ -301,12 +301,21 @@ function route() {
   K.route = r; window.scrollTo(0, 0); render(true);
 }
 function logoHTML(cls = 'logo') { const s = S(); return '<div class="' + cls + '">' + (s.logo ? '<img src="' + esc(s.logo) + '" alt="">' : esc(initials(s.businessName).slice(0, 2))) + '</div>'; }
+// menu groups (order + quiet headings) so the sidebar reads in four short blocks
+const NAV_GROUPS = [['', ['home']], ['Sell', ['sell', 'sales', 'orders', 'customers', 'reminders']], ['Stock', ['stock', 'buy', 'containers', 'transfers', 'audit']], ['Money', ['expenses', 'cash', 'suppliers', 'reports', 'assets']], ['Admin', ['activity', 'team', 'settings']]];
+/** Visible menu items grouped: [[groupLabel, [navItem…]], …] (items not listed in a group go last). */
+function navGrouped(items) {
+  const seen = new Set(); const out = NAV_GROUPS.map(([g, keys]) => [g, keys.map((k) => items.find((n) => n[0] === k)).filter(Boolean)]);
+  out.forEach(([, l]) => l.forEach((n) => seen.add(n[0])));
+  const rest = items.filter((n) => !seen.has(n[0])); if (rest.length) out.push(['More', rest]);
+  return out.filter(([, l]) => l.length);
+}
 const navCount = (n) => { const c = n[4] ? n[4]() : 0; return c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : ''; };
 function shell() {
   const s = S();
   const items = NAV.filter((n) => n[3]());
   $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div><div class="bn">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">Import & sales manager</div></div></div>' +
-    items.map((n) => '<a class="nav' + (K.route === n[0] ? ' on' : '') + '" href="#' + n[0] + '">' + ic(n[2]) + n[1] + navCount(n) + '</a>').join('') +
+    navGrouped(items).map(([g, l]) => (g ? '<div class="nav-g">' + g + '</div>' : '') + l.map((n) => '<a class="nav' + (K.route === n[0] ? ' on' : '') + '" href="#' + n[0] + '">' + ic(n[2]) + n[1] + navCount(n) + '</a>').join('')).join('') +
     '<div class="sp"></div><div class="who">' + esc(K.me.name || K.info.userLabel || '') + ' · ' + esc(roleLabel()) + '</div>';
   if (!K.member) { $('#bnav').innerHTML = ''; $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div class="bn">' + esc(s.businessName) + '</div></div>'; $('#title').textContent = 'Access'; $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"'); return; }
   const bn = [['home', 'Home', 'home'], ['sales', 'Sales', 'sales'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']].filter((n) => n[0] === 'more' || navOk(n[0]));
@@ -402,7 +411,7 @@ A.go = (el) => { closeSheet(); go(el.dataset.r); };
 A.toggleX = (el) => { const k = el.dataset.k; K.ui.expanded[k] = !K.ui.expanded[k]; render(true); };
 A.moreMenu = () => {
   const items = NAV.filter((n) => n[3]() && !['home', 'sales', 'sell', 'stock'].includes(n[0]));
-  openSheet({ title: 'More', body: '<div class="card list">' + items.map((n) => '<div class="li" data-a="go" data-r="' + n[0] + '"><div class="av ink">' + ic(n[2]) + '</div><div class="grow t">' + n[1] + '</div>' + navCount(n) + ic('chev', 'sm') + '</div>').join('') + '</div>' });
+  openSheet({ title: 'More', body: navGrouped(items).map(([g, l]) => (g ? '<div class="more-g">' + g + '</div>' : '') + '<div class="card list mb">' + l.map((n) => '<div class="li" data-a="go" data-r="' + n[0] + '"><div class="av ink">' + ic(n[2]) + '</div><div class="grow t">' + n[1] + '</div>' + navCount(n) + ic('chev', 'sm') + '</div>').join('') + '</div>').join('') });
 };
 const VIEWS = {};
 
@@ -489,7 +498,7 @@ function dtSet(id, patch) { const p = dtPrefs(); p[id] = Object.assign({}, p[id]
 const dtMode = (id) => (dtPrefs()[id] || {}).mode || 'compact';
 function dataTable(cfg) {
   const { id, rows } = cfg; const pref = dtPrefs()[id] || {};
-  const mode = dtMode(id);
+  const mode = cfg.bar === false ? 'compact' : dtMode(id); // a plain small table: its key columns only, no view switch
   const allCols = cfg.cols.filter(Boolean);
   const cols = mode === 'full' ? allCols : allCols.filter((c) => c.core);
   const hidden = allCols.length - cols.length;
@@ -517,7 +526,7 @@ function dataTable(cfg) {
   }).join('');
   const hasFoot = cols.some((c) => c.total);
   const foot = hasFoot ? '<tfoot><tr>' + cols.map((c, i) => '<td class="' + (isNum(c) ? 'n' : '') + '">' + (c.total ? c.total(list) : i === 0 ? (cfg.footLabel || 'Total') + ' · ' + fmt(list.length) : '') + '</td>').join('') + '</tr></tfoot>' : '';
-  const bar = '<div class="dt-bar"><span class="dt-count">' + fmt(list.length) + ' ' + (cfg.noun || 'row') + (list.length === 1 ? '' : 's') + (list.length > limit ? ' · showing first ' + limit : '') + '</span>' +
+  const bar = cfg.bar === false ? '' : '<div class="dt-bar"><span class="dt-count">' + fmt(list.length) + ' ' + (cfg.noun || 'row') + (list.length === 1 ? '' : 's') + (list.length > limit ? ' · showing first ' + limit : '') + '</span>' +
     '<span class="dt-cols">' + (hidden ? hidden + ' more column' + (hidden === 1 ? '' : 's') + ' in Full view' : mode === 'full' && allCols.some((c) => !c.core) ? 'All ' + allCols.length + ' columns' : '') + '</span>' +
     (allCols.some((c) => !c.core) ? '<div class="seg dt-mode" role="group" aria-label="Table view"><button type="button" class="' + (mode === 'compact' ? 'on' : '') + '" data-a="dtMode" data-t="' + id + '" data-v="compact" aria-pressed="' + (mode === 'compact') + '">Compact</button><button type="button" class="' + (mode === 'full' ? 'on' : '') + '" data-a="dtMode" data-t="' + id + '" data-v="full" aria-pressed="' + (mode === 'full') + '">Full view</button></div>' : '') + '</div>';
   return '<div class="card dt dt-' + mode + '" id="' + id + '">' + bar +

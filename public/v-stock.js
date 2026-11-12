@@ -472,7 +472,7 @@ VIEWS.containers = {
     const us = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us');
     return '<div class="row wrap mb"><button class="btn pri" data-a="newShip">' + ic('plus') + 'New container</button></div>' +
       (us.length ? '<div class="alert info mb">' + ic('buy', 'sm') + '<div><b>' + us.reduce((a, l) => a + num(l.qty), 0) + ' units</b> in US storage are not in a container yet. Open a container and use <b>Add items</b>.</div></div>' : '') +
-      shipTable(ships);
+      shipTable(ships) + ((can('containers') || can('purchases')) && K.raw.lots.length ? '<div class="mt2">' + journeyCard() + '</div>' : '');
   },
 };
 A.newShip = () => shipForm(null);

@@ -12,42 +12,60 @@ function periodStats(pred) {
 const receivables = () => visibleSales().reduce((a, s) => { const x = K.C.saleX[s.id]; return a + (x.status !== 'cancelled' ? Math.max(0, x.balance) : 0); }, 0);
 
 /* ---------- dashboard ---------- */
+/* ---------- home: 4 numbers, one "to do" list, recent sales ---------- */
+/** Everything that needs someone to act, as short rows. level: bad (red) / warn (amber) / info (teal). */
+function homeTodos() {
+  const t = todayStr(); const w = num(S().expiryWarnDays) || 60, low = num(S().lowStock) || 3; const out = [];
+  const add = (level, icon, title, detail, attrs) => out.push({ level, icon, title, detail, attrs });
+  if (can('sell') || can('payments')) { const o = newOrders(); if (o.length) add('info', 'sell', o.length + ' online order' + (o.length === 1 ? '' : 's') + ' to confirm', F(o.reduce((a, x) => a + num(x.subtotal), 0)), 'data-a="go" data-r="orders"'); }
+  const toSend = visibleSales().filter((s) => KC.isDelivery(s) && s.delivery.status === 'to_send' && K.C.saleX[s.id].status !== 'cancelled');
+  if (toSend.length) add('warn', 'ship', toSend.length + ' deliver' + (toSend.length === 1 ? 'y' : 'ies') + ' to send', toSend.slice(0, 2).map((s) => s.delivery.destination).filter(Boolean).join(', '), 'data-a="goSales" data-f="deliver"');
+  if (can('reminders')) { const od = owingCustomers().filter((o) => o.daysLate > 0); if (od.length) add('bad', 'wa', od.length + ' customer' + (od.length === 1 ? '' : 's') + ' overdue', F(od.reduce((a, o) => a + o.balance, 0)) + ' to collect', 'data-a="go" data-r="reminders"'); }
+  if (can('handover')) { const pend = K.raw.handovers.filter((h) => h.status === 'submitted'); if (pend.length) add('info', 'wallet', pend.length + ' cash handover' + (pend.length === 1 ? '' : 's') + ' to confirm', '', 'data-a="go" data-r="cash"'); }
+  if (can('payments') && !byId('handovers', hoId(t, K.me.id))) { const mine = KC.collectedBy(K.raw, K.me.id, t).total; if (mine) add('info', 'wallet', 'Close your day', 'You collected ' + F(mine) + ' today', 'data-a="go" data-r="cash"'); }
+  const pick = visibleSales().filter((s) => !KC.isDelivery(s) && !s.delivered && K.C.saleX[s.id].status !== 'cancelled');
+  if (pick.length) add('info', 'clock', pick.length + ' order' + (pick.length === 1 ? '' : 's') + ' waiting for pickup', '', 'data-a="goSales" data-f="pickup"');
+  if (can('stockView') || can('stockEdit')) {
+    const ov = K.raw.products.filter((p) => (K.C.prodX[p.id] || {}).oversold > 0); if (ov.length) add('bad', 'alert', ov.length + ' item' + (ov.length === 1 ? '' : 's') + ' oversold', 'Sold more than in stock — do a stock count', 'data-a="goStock" data-f="problems"');
+    const exp = K.raw.lots.filter((l) => { const x = K.C.lotX[l.id]; return x.stage === 'warehouse' && x.available > 0 && l.expiry && daysUntil(l.expiry) <= w; });
+    const expired = exp.filter((l) => daysUntil(l.expiry) < 0).length;
+    if (expired) add('bad', 'alert', expired + ' batch' + (expired === 1 ? '' : 'es') + ' expired', 'Remove from sale or discount', 'data-a="goStock" data-f="expiring"');
+    if (exp.length - expired > 0) add('warn', 'clock', (exp.length - expired) + ' batch' + (exp.length - expired === 1 ? '' : 'es') + ' expiring soon', 'Within ' + w + ' days — sell these first', 'data-a="goStock" data-f="expiring"');
+    const lowP = K.raw.products.filter((p) => !p.archived && K.C.prodX[p.id].available > 0 && K.C.prodX[p.id].available <= low);
+    if (lowP.length) add('warn', 'stock', lowP.length + ' item' + (lowP.length === 1 ? '' : 's') + ' running low', lowP.slice(0, 2).map((p) => p.name).join(', ') + (lowP.length > 2 ? '…' : ''), 'data-a="goStock" data-f="low"');
+  }
+  if (can('suppliers')) { const od = K.raw.bills.filter((b) => b.status !== 'cancelled' && billX(b).balance > 0.005 && billDue(b) < t); if (od.length) add('warn', 'buy', od.length + ' supplier bill' + (od.length === 1 ? '' : 's') + ' overdue', F(od.reduce((a, b) => a + billX(b).balanceX, 0)), 'data-a="go" data-r="suppliers"'); }
+  if (can('assets')) { const due = K.raw.assets.filter((a) => assetDue(a).length); if (due.length) add('warn', 'truck', due.length + ' asset reminder' + (due.length === 1 ? '' : 's'), due[0].name + ': ' + dueText(assetDue(due[0])[0]), 'data-a="go" data-r="assets"'); }
+  const rank = { bad: 0, warn: 1, info: 2 }; return out.sort((a, b) => rank[a.level] - rank[b.level]);
+}
 VIEWS.home = {
   render() {
-    const t = todayStr(), m = monthStr();
-    const d = periodStats((x) => x === t), mo = periodStats((x) => (x || '').slice(0, 7) === m);
-    const w = num(S().expiryWarnDays) || 60, low = num(S().lowStock) || 3;
-    const exp = K.raw.lots.filter((l) => { const x = K.C.lotX[l.id]; return x.stage === 'warehouse' && x.available > 0 && l.expiry && daysUntil(l.expiry) <= w; });
-    const expired = exp.filter((l) => daysUntil(l.expiry) < 0);
-    const lowP = K.raw.products.filter((p) => !p.archived && K.C.prodX[p.id].available > 0 && K.C.prodX[p.id].available <= low);
-    const pick = visibleSales().filter((s) => !s.delivered && K.C.saleX[s.id].status !== 'cancelled');
-    const ships = K.raw.shipments.filter((s) => stIdx(s.status) < 5);
-    const stock = K.raw.products.reduce((a, p) => a + K.C.prodX[p.id].stockValue, 0);
-    const recent = visibleSales().slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 6);
+    const t = todayStr(), m = monthStr(); const d = periodStats((x) => x === t), mo = periodStats((x) => (x || '').slice(0, 7) === m);
+    const h = new Date().getHours(); const hello = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+    const owing = visibleSales().filter((s) => ['partial', 'unpaid'].includes(K.C.saleX[s.id].status)).length;
+    const recent = visibleSales().slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 5);
+    const ships = can('containers') ? K.raw.shipments.filter((s) => stIdx(s.status) < 5) : [];
+    const todos = homeTodos();
     const empty = !K.raw.products.length && can('purchases');
+    const byMode = Object.entries(d.byMethod).filter(([, v]) => v).map(([k, v]) => k.replace('Orange Money', 'OM').replace('MTN MoMo', 'MoMo') + ' ' + fmt(v)).join(' · ');
     return (empty ? '<div class="card pad2 mb"><h2>Welcome 👋</h2><p class="muted">Set up in 4 steps:</p><div class="list card">' +
       [['settings', '1. Add your business name, logo & MoMo numbers'], ['containers', '2. Create your container'], ['buy', '3. Record purchases (or import a B-Stock manifest)'], ['sell', '4. Start selling']].map(([r, l]) => '<div class="li" data-a="go" data-r="' + r + '"><div class="grow t">' + l + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</div></div>' : '') +
-      '<div class="row between mb"><div><div class="tiny muted">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + (K.me.name ? 'Hello, ' + esc(K.me.name.split(' ')[0]) : 'Today') + '</h1></div>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div>' +
-      '<div class="kpis">' + kpi('Sales today', F(d.revenue), d.n + ' receipt(s) · ' + d.items + ' items', true) + kpi('Money collected', F(d.collected), Object.entries(d.byMethod).map(([k, v]) => k + ' ' + fmt(v)).join(' · ') || '—') +
-      (seeCost() ? kpi('Profit today', F(d.profit), d.revenue ? pct(d.profit / d.revenue * 100) + ' margin' : '') + kpi('This month', F(mo.revenue), 'profit ' + fmt(mo.profit)) : kpi('This month', F(mo.revenue)) + kpi('Owed to you', F(receivables()))) + '</div>' +
-      (seeCost() ? '<div class="kpis mt">' + kpi('Owed to you', F(receivables()), visibleSales().filter((s) => ['partial', 'unpaid'].includes(K.C.saleX[s.id].status)).length + ' open sale(s)') + kpi('Stock value (cost)', F(stock)) + kpi('Month collected', F(mo.collected)) + (can('suppliers') ? kpi('You owe suppliers', F(totalOwedSuppliers())) : kpi('Containers active', fmt(ships.length))) + '</div>' : '') +
-      (() => { const extra = []; if (can('reminders')) { const od = owingCustomers().filter((o) => o.daysLate > 0); if (od.length) extra.push('<div class="alert bad" data-a="go" data-r="reminders" style="cursor:pointer">' + ic('wa', 'sm') + '<div><b>' + od.length + ' customer(s) overdue</b> — ' + F(od.reduce((a, o) => a + o.balance, 0)) + '. Send reminders.</div></div>'); }
-        if (can('stockView') || can('stockEdit')) { const ov = K.raw.products.filter((p) => (K.C.prodX[p.id] || {}).oversold > 0); if (ov.length) extra.push('<div class="alert bad" data-a="goStock" data-f="problems" style="cursor:pointer">' + ic('alert', 'sm') + '<div><b>' + ov.length + ' item(s) oversold</b> (sold more than in stock): ' + esc(ov.slice(0, 3).map((p) => p.name).join(', ')) + '. Check the sales and do a stock count.</div></div>'); }
-        if (can('handover')) { const pend = K.raw.handovers.filter((h) => h.status === 'submitted'); if (pend.length) extra.push('<div class="alert info" data-a="go" data-r="cash" style="cursor:pointer">' + ic('wallet', 'sm') + '<div><b>' + pend.length + ' cash handover(s)</b> waiting for you to confirm.</div></div>'); }
-        if (can('suppliers')) { const od = K.raw.bills.filter((b) => b.status !== 'cancelled' && billX(b).balance > 0.005 && billDue(b) < todayStr()); if (od.length) extra.push('<div class="alert" data-a="go" data-r="suppliers" style="cursor:pointer">' + ic('buy', 'sm') + '<div><b>' + od.length + ' supplier bill(s) overdue</b> — ' + F(od.reduce((a, b) => a + billX(b).balanceX, 0)) + '.</div></div>'); }
-        if (can('assets')) { const due = K.raw.assets.filter((a) => assetDue(a).length); if (due.length) extra.push('<div class="alert" data-a="go" data-r="assets" style="cursor:pointer">' + ic('truck', 'sm') + '<div><b>' + due.length + ' asset reminder(s)</b> — ' + esc(due.slice(0, 2).map((a) => a.name + ': ' + dueText(assetDue(a)[0])).join('; ')) + '.</div></div>'); }
-        if (can('payments') && !byId('handovers', hoId(todayStr(), K.me.id)) && KC.collectedBy(K.raw, K.me.id, todayStr()).total) extra.push('<div class="alert info" data-a="go" data-r="cash" style="cursor:pointer">' + ic('wallet', 'sm') + '<div>You collected <b>' + F(KC.collectedBy(K.raw, K.me.id, todayStr()).total) + '</b> today. Close your day when you finish.</div></div>');
-        return extra.length ? '<div class="sec"><div class="col">' + extra.join('') + '</div></div>' : ''; })() +
-      ((expired.length || exp.length || lowP.length || pick.length) ? '<div class="sec"><div class="sech"><h2>Needs attention</h2></div><div class="col">' +
-        (expired.length ? '<div class="alert bad" data-a="goStock" data-f="expiring" style="cursor:pointer">' + ic('alert', 'sm') + '<div><b>' + expired.length + ' batch(es) expired</b> — remove from sale or discount.</div></div>' : '') +
-        (exp.length - expired.length > 0 ? '<div class="alert" data-a="goStock" data-f="expiring" style="cursor:pointer">' + ic('clock', 'sm') + '<div><b>' + (exp.length - expired.length) + ' batch(es) expire within ' + w + ' days.</b> Sell these first.</div></div>' : '') +
-        (lowP.length ? '<div class="alert info" data-a="goStock" data-f="low" style="cursor:pointer">' + ic('stock', 'sm') + '<div><b>' + lowP.length + ' item(s) low</b> (≤' + low + ' left): ' + esc(lowP.slice(0, 4).map((p) => p.name).join(', ')) + (lowP.length > 4 ? '…' : '') + '</div></div>' : '') +
-        (pick.length ? '<div class="alert info" data-a="goSales" data-f="pickup" style="cursor:pointer">' + ic('clock', 'sm') + '<div><b>' + pick.length + ' reserved order(s)</b> waiting for pickup.</div></div>' : '') + '</div></div>' : '') +
-      ((can('containers') || can('purchases')) && K.raw.lots.length ? journeyCard() : '') +
-      (ships.length && can('containers') ? '<div class="sec"><div class="sech"><h2>Containers</h2><a href="#containers" class="small b">All</a></div>' + ships.map((s) => { const i = stIdx(s.status); return '<div class="card pad mb" data-a="openShipD" data-id="' + s.id + '" style="cursor:pointer"><div class="row between"><b>' + esc(s.name) + '</b><span class="badge brand">' + esc(KC.SHIP_STATUSES[i][1]) + '</span></div><div class="pipeline">' + KC.SHIP_STATUSES.slice(0, 6).map((_, j) => '<span class="' + (j <= i ? 'on' : '') + '"></span>').join('') + '</div></div>'; }).join('') + '</div>' : '') +
-      '<div class="sec"><div class="sech"><h2>Recent sales</h2><a href="#sales" class="small b">All</a></div><div class="card list">' + saleCards(recent) + '</div></div>';
+      '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div>' +
+      '<div class="kpis mb2">' + kpi('Sales today', F(d.revenue), d.n + ' receipt' + (d.n === 1 ? '' : 's') + (seeCost() && d.revenue ? ' · profit ' + fmt(d.profit) : '')) + kpi('Collected today', F(d.collected), byMode || 'Nothing yet') +
+        kpi('Owed to you', F(receivables()), owing + ' open sale' + (owing === 1 ? '' : 's')) + kpi('This month', F(mo.revenue), seeCost() ? 'profit ' + fmt(mo.profit) : mo.n + ' receipts') + '</div>' +
+      '<div class="home-grid">' +
+        '<section class="card home-card"><div class="home-card-h"><h2>To do</h2>' + (todos.length ? '<span class="hint">' + todos.length + ' thing' + (todos.length === 1 ? '' : 's') + '</span>' : '') + '</div>' +
+          (todos.length ? '<div class="todo-list">' + todos.map((x) => '<div class="todo ' + x.level + '" ' + x.attrs + ' role="button" tabindex="0"><span class="todo-ic">' + ic(x.icon, 'sm') + '</span><div class="grow"><div class="todo-t">' + esc(x.title) + '</div>' + (x.detail ? '<div class="todo-d">' + esc(x.detail) + '</div>' : '') + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</div>'
+            : '<div class="all-clear">' + ic('check') + '<div><b>All clear</b><div class="hint">Nothing needs your attention right now.</div></div></div>') + '</section>' +
+        '<div class="col" style="gap:16px">' +
+          '<section class="card home-card"><div class="home-card-h"><h2>Recent sales</h2><a href="#sales" class="hint">See all</a></div>' + (recent.length ? '<div class="mini-list">' + recent.map((s) => { const x = K.C.saleX[s.id]; return '<div class="mini" data-a="openSale" data-id="' + s.id + '" role="button" tabindex="0"><div class="grow"><div class="mini-t">' + esc(s.customerName) + '</div><div class="mini-d">' + esc(s.no) + ' · ' + esc(fmtDate(saleDate(s))) + '</div></div><div class="right"><div class="mini-v">' + fmt(x.net) + '</div>' + (x.status !== 'paid' ? statusBadge(x.status) : '') + '</div></div>'; }).join('') + '</div>' : '<div class="hint pad">No sales yet.</div>') + '</section>' +
+          (ships.length ? '<section class="card home-card"><div class="home-card-h"><h2>On the way</h2><a href="#containers" class="hint">Containers</a></div><div class="mini-list">' + ships.map((s) => '<div class="mini" data-a="openShipD" data-id="' + s.id + '" role="button" tabindex="0"><div class="grow"><div class="mini-t">' + esc(s.name || s.containerNo || 'Container') + '</div><div class="mini-d">' + fmt(K.C.shipX[s.id].units) + ' units</div></div><span class="badge info">' + esc(KC.SHIP_STATUSES[stIdx(s.status)][1]) + '</span></div>').join('') + '</div></section>' : '') +
+        '</div>' +
+      '</div>';
   },
 };
+// keyboard: Enter on a focusable row behaves like a click
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches && e.target.matches('.todo[role=button], .mini[role=button]')) e.target.click(); });
 A.goStock = (el) => { K.ui.stockFilter = el.dataset.f; go('stock'); };
 A.goSales = (el) => { K.ui.salesStatus = el.dataset.f; go('sales'); };
 A.openShipD = (el) => openShip(el.dataset.id);
@@ -119,57 +137,49 @@ function dayCloseText(c) {
     c.perMode.filter((r) => r.inn || r.out).map((r) => '  ' + r.m + ' left: ' + F(r.left)).join('\n') +
     (seeCost() ? '\nGross profit: ' + F(c.st.profit) + '\n*Profit after expenses: ' + F(c.profitLeft) + '*' : '');
 }
-// lines being typed are kept in K.ui.eodDraft, so a background refresh redraws them instead of wiping them
-const eodRow = (i, r) => { r = r || {}; return '<div class="grid4 eod-row" data-eod="' + i + '">' + sel('eodCat' + i, KC.EXPENSE_CATS, r.category || (i < 3 ? KC.EXPENSE_CATS[i] : 'Other'), 'aria-label="What for"') +
-  inp('eodDesc' + i, r.description || '', 'placeholder="Details (optional)" aria-label="Details"') + inp('eodAmt' + i, r.amount || '', 'inputmode="numeric" placeholder="Amount (F)" aria-label="Amount"') + sel('eodMethod' + i, KC.PAY_METHODS, r.method || 'Cash', 'aria-label="Paid by"') + '</div>'; };
-const eodReadRows = () => { const box = $('#eodRows'); if (!box) return []; const v = formVals(box); return $$('[data-eod]', box).map((r) => r.dataset.eod).map((i) => ({ category: v['eodCat' + i], description: v['eodDesc' + i] || '', amount: v['eodAmt' + i] || '', method: v['eodMethod' + i] || 'Cash' })); };
-['input', 'change'].forEach((t) => document.addEventListener(t, (e) => { if (e.target.closest && e.target.closest('#eodRows')) K.ui.eodDraft = eodReadRows(); }));
-function endOfDayCard() {
-  const d = K.ui.eodDate || todayStr(); const c = dayClose(d); const neg = (v) => v < 0 ? ' style="color:var(--bad)"' : '';
-  const line = (label, v, opt = {}) => '<div class="row between cl' + (opt.b ? ' b' : '') + '"' + (opt.sub ? ' style="padding-left:14px"' : '') + '><span class="' + (opt.sub ? 'small muted' : '') + '">' + label + '</span><span class="money"' + neg(v) + '>' + F(v) + '</span></div>';
-  const draft = K.ui.eodDraft && K.ui.eodDraft.length ? K.ui.eodDraft : [{}, {}, {}];
-  return '<div class="card pad2 mb"><div class="row wrap between mb"><h2>End of day</h2><div class="row wrap"><input type="date" class="inp" style="width:auto" value="' + d + '" data-c="eodDate"><button class="btn" data-a="eodCopy">' + ic('copy') + 'Copy for WhatsApp</button></div></div>' +
-    '<div class="grid2 eod" style="align-items:start">' +
-      // left: add the day's expenses
-      '<div><h3 class="mb">Add today\'s expenses</h3><div class="tiny muted mb">Water, food, transport, fuel… one line each. Leave unused lines empty.</div><div id="eodRows" class="col" style="gap:8px">' + draft.map((r, i) => eodRow(i, r)).join('') + '</div>' +
-      '<div class="row wrap mt"><button class="btn sm" data-a="eodMore">' + ic('plus', 'sm') + 'Another line</button><button class="btn pri grow" data-a="eodSave">' + ic('check') + 'Save expenses</button></div>' +
-      '<h3 class="mt2 mb">Expenses on ' + fmtDate(d) + '</h3>' +
-      expTable(c.exps, 'eodList', { noDate: true, empty: 'No expenses recorded for this day yet.' }) + '</div>' +
-      // right: the subtractions
-      '<div class="card pad" style="background:var(--bg)"><h3 class="mb">The day\'s sums</h3>' +
-        line('Sales made · ' + c.st.n + ' receipt(s)', c.st.revenue) +
-        line('Money collected', c.st.collected, { b: 1 }) +
-        c.perMode.filter((r) => r.inn).map((r) => line(esc(r.m), r.inn, { sub: 1 })).join('') +
-        line('Expenses (' + c.exps.length + ')', -c.expT) +
-        '<hr class="sep">' + line('= Money left after expenses', c.left, { b: 1 }) +
-        c.perMode.filter((r) => r.inn || r.out).map((r) => line(esc(r.m) + ': ' + fmt(r.inn) + ' in − ' + fmt(r.out) + ' spent', r.left, { sub: 1 })).join('') +
-        (seeCost() ? '<hr class="sep">' + line('Gross profit on sales', c.st.profit) + line('Expenses', -c.expT) + line('= Profit after expenses', c.profitLeft, { b: 1 }) : '') +
-        (c.st.owed > 0 ? '<div class="tiny muted mt">Customers still owe ' + F(c.st.owed) + ' from this day\'s sales (not counted above).</div>' : '') +
-      '</div>' +
-    '</div></div>';
+// quick-add row: what was typed survives a background refresh (K.ui.eodQuick)
+const eodQ = () => (K.ui.eodQuick = K.ui.eodQuick || { category: KC.EXPENSE_CATS[0], amount: '', method: 'Cash', description: '' });
+function eodQuickForm() {
+  const q = eodQ();
+  return '<div class="quick-add" id="eodQuick">' +
+    '<label class="f"><span class="lbl">What for</span>' + sel('qCat', KC.EXPENSE_CATS, q.category, 'id="qCat"') + '</label>' +
+    '<label class="f"><span class="lbl">Amount</span><div class="in-unit"><input class="inp" id="qAmt" inputmode="numeric" value="' + esc(q.amount) + '" placeholder="0" autocomplete="off"><span>' + esc(S().currencySymbol || 'F') + '</span></div></label>' +
+    '<label class="f"><span class="lbl">Paid by</span>' + sel('qMethod', KC.PAY_METHODS, q.method, 'id="qMethod"') + '</label>' +
+    '<label class="f grow"><span class="lbl">Details <span class="hint">(optional)</span></span><input class="inp" id="qDesc" value="' + esc(q.description) + '" placeholder="e.g. lunch for staff" autocomplete="off"></label>' +
+    '<button type="button" class="btn pri" data-a="eodAdd">' + ic('plus') + 'Add</button></div>';
 }
-CH.eodDate = (el) => { K.ui.eodDate = el.value; render(true); };
-A.eodMore = () => { const box = $('#eodRows'); const i = $$('[data-eod]', box).length; box.insertAdjacentHTML('beforeend', eodRow(i, { category: 'Other' })); K.ui.eodDraft = eodReadRows(); box.lastElementChild.querySelector('[name^=eodAmt]').focus(); };
-A.eodCopy = () => copyText(dayCloseText(dayClose(K.ui.eodDate || todayStr())));
-A.eodSave = async () => {
-  const d = K.ui.eodDate || todayStr();
-  const rows = eodReadRows().map((r) => Object.assign(r, { amount: num(r.amount) }));
-  if (rows.some((r) => r.amount < 0)) return toast('Amounts cannot be negative', true);
-  const noAmt = rows.find((r) => r.description && !r.amount); if (noAmt) return toast('Enter the amount for "' + noAmt.description + '"', true);
-  const todo = rows.filter((r) => r.amount > 0);
-  if (!todo.length) return toast('Enter at least one amount', true);
-  let ok = 0;
-  for (const r of todo) if (await save('expenses', Object.assign(r, { id: uid('e_'), date: d, locationId: K.loc, by: K.me.name || '', byId: K.me.id || '' }))) ok++;
-  K.ui.eodDraft = null; render(true);
-  toast(ok + ' expense(s) saved · ' + F(todo.reduce((a, r) => a + r.amount, 0)));
+['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
+  const m = { qCat: 'category', qAmt: 'amount', qMethod: 'method', qDesc: 'description' }[e.target.id]; if (m) eodQ()[m] = e.target.value;
+}));
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && ['qAmt', 'qDesc'].includes(e.target.id)) { e.preventDefault(); A.eodAdd(); } });
+A.eodAdd = async () => {
+  const q = eodQ(); const amount = num(q.amount); const d = K.ui.eodDate || todayStr();
+  if (!(amount > 0)) { const a = $('#qAmt'); if (a) a.focus(); return toast('Type the amount', true); }
+  if (await save('expenses', { id: uid('e_'), date: d, category: q.category, amount, method: q.method, description: (q.description || '').trim(), locationId: K.loc, by: K.me.name || '', byId: K.me.id || '' })) {
+    K.ui.eodQuick = { category: q.category, amount: '', method: q.method, description: '' };
+    render(true); const a = $('#qAmt'); if (a) a.focus(); toast(q.category + ' · ' + F(amount) + ' added');
+  }
 };
+CH.eodDate = (el) => { K.ui.eodDate = el.value; render(true); };
+A.eodCopy = () => copyText(dayCloseText(dayClose(K.ui.eodDate || todayStr())));
 VIEWS.expenses = {
   render() {
+    const d = K.ui.eodDate || todayStr(); const c = dayClose(d); const isToday = d === todayStr();
     const m = K.ui.expMonth || monthStr(); const list = K.raw.expenses.filter((e) => (e.date || '').slice(0, 7) === m).sort((a, b) => b.date.localeCompare(a.date));
-    return endOfDayCard() +
-      '<div class="row wrap between mb"><h2>All expenses</h2><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth"><button class="btn" data-a="expEdit">' + ic('plus') + 'Add one expense</button></div></div>' +
-      '<div class="alert info mb">For running costs in Cameroon (rent, wages, transport, repairs, fuel…). Container costs go inside each container. Buying equipment or a vehicle? Register it under <a href="#assets">Assets</a> instead — it is spread over its life.</div>' +
-      '<div class="kpis mb">' + kpi('Expenses this month', F(list.reduce((a, e) => a + num(e.amount), 0)), list.length + ' entries', true) + '</div>' +
+    const monthTotal = list.reduce((a, e) => a + num(e.amount), 0);
+    const neg = (v) => v < 0 ? ' neg' : '';
+    const modes = c.perMode.filter((r) => r.inn || r.out);
+    return '<div class="page-head"><div><div class="hint">' + (isToday ? 'Today' : 'Day') + '</div><h1>' + fmtDate(d) + '</h1></div><div class="row wrap"><input type="date" class="inp" style="width:auto" value="' + d + '" data-c="eodDate" aria-label="Choose the day"><button class="btn" data-a="eodCopy" title="Copy the day\'s summary for WhatsApp">' + ic('copy') + 'Copy summary</button></div></div>' +
+      // the day's result: what came in, what went out, what is left
+      '<div class="kpis mb2">' + kpi('Collected', F(c.st.collected), c.st.n + ' sale' + (c.st.n === 1 ? '' : 's')) + kpi('Expenses', F(c.expT), c.exps.length + ' entr' + (c.exps.length === 1 ? 'y' : 'ies')) +
+        '<div class="card kpi kpi-result' + neg(c.left) + '"><div class="l">Left after expenses</div><div class="v">' + F(c.left) + '</div><div class="s">collected − expenses</div></div>' +
+        (seeCost() ? '<div class="card kpi' + neg(c.profitLeft) + '"><div class="l">Profit after expenses</div><div class="v">' + F(c.profitLeft) + '</div><div class="s">gross profit ' + fmt(c.st.profit) + '</div></div>' : '') + '</div>' +
+      '<section class="card exp-card"><div class="home-card-h"><h2>' + (isToday ? 'Today\'s expenses' : 'Expenses on ' + fmtDate(d)) + '</h2><span class="hint">Water, food, transport, fuel…</span></div>' +
+        '<div class="pad-x">' + eodQuickForm() + '</div>' +
+        (c.exps.length ? '<div class="pad-x mt">' + expTable(c.exps, 'eodList', { noDate: true, plain: true }) + '</div>' : '<div class="hint pad-x mt">Nothing recorded for this day yet.</div>') +
+        (modes.length ? '<details class="fold pad-x"><summary>Cash & mobile money breakdown</summary><div class="fold-body">' + modes.map((r) => '<div class="row between cl"><span>' + esc(r.m) + '</span><span class="hint">' + fmt(r.inn) + ' in · ' + fmt(r.out) + ' out</span><b class="money' + neg(r.left) + '">' + F(r.left) + '</b></div>').join('') + '</div></details>' : '') +
+      '</section>' +
+      '<div class="page-head mt2"><div><h2>' + MONTHS[+m.slice(5) - 1] + ' ' + m.slice(0, 4) + ' · ' + F(monthTotal) + '</h2><div class="hint">Running costs. Container costs go in each container; equipment and vehicles go in <a href="#assets">Assets</a>.</div></div><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth" aria-label="Choose the month"><button class="btn ghost" data-a="expEdit">' + ic('plus') + 'Other date</button></div></div>' +
       expTable(list, 'expList', { empty: 'No expenses this month.' });
   },
 };
@@ -426,7 +436,7 @@ function custTable(list, stats) {
 }
 function expTable(list, id, opts = {}) {
   return dataTable({
-    id, rows: list, noun: 'expense', empty: opts.empty || 'No expenses here.',
+    id, rows: list, noun: 'expense', empty: opts.empty || 'No expenses here.', bar: opts.plain ? false : undefined,
     rowAttr: (e) => ' data-a="expEdit" data-id="' + e.id + '"',
     cols: [
       opts.noDate ? null : { k: 'date', label: 'Date', core: true, v: (e) => e.date, html: (e) => dtDate(e.date) },
@@ -434,7 +444,7 @@ function expTable(list, id, opts = {}) {
       { k: 'desc', label: 'Details', core: true, v: (e) => e.description || '' },
       { k: 'method', label: 'Paid by', core: true, v: (e) => e.method || 'Cash' },
       { k: 'amount', label: 'Amount', core: true, money: true, cls: 'b', v: (e) => num(e.amount), total: (rows) => fmt(dtSum(rows, (e) => e.amount)) },
-      { k: 'by', label: 'Recorded by', v: (e) => e.by || '', cls: 'mut' },
+      { k: 'by', label: 'Recorded by', core: !!opts.plain, v: (e) => e.by || '', cls: 'mut' },
       allLocs().length > 1 ? { k: 'branch', label: 'Branch', v: (e) => locName(e.locationId || 'main'), cls: 'mut' } : null,
       K.raw.assets.length ? { k: 'asset', label: 'Asset', v: (e) => e.assetId ? assetName(e.assetId) : '', cls: 'mut' } : null,
     ],
