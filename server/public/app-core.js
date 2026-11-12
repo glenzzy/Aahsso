@@ -16,9 +16,43 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = (p = '') => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-const grp = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const grp = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
 const fmt = (n) => (n < 0 ? '−' : '') + grp(Math.abs(num(n)));
 const F = (n) => fmt(n) + ' ' + (S().currencySymbol || 'F');
+/* ---------- number inputs show thousands separators: 150,000 · 655.957 · 1,250.5 ----------
+ * Every amount / quantity box (inputmode numeric or decimal) is grouped with commas when it appears,
+ * when the app fills it, and while you type (the cursor stays where you are typing).
+ * Values are read with num(), which ignores the commas. Phone / barcode boxes are not touched. */
+const isNumIn = (el) => el && el.tagName === 'INPUT' && /^(numeric|decimal)$/.test(el.getAttribute('inputmode') || '') && !el.hasAttribute('data-nofmt');
+function groupNum(v) {
+  let s = String(v === undefined || v === null ? '' : v).replace(/[^\d.\-]/g, '');
+  if (!s) return '';
+  const neg = s[0] === '-'; s = s.replace(/-/g, '');
+  const dot = s.indexOf('.'); let int = dot < 0 ? s : s.slice(0, dot); const dec = dot < 0 ? '' : '.' + s.slice(dot + 1).replace(/\./g, '');
+  int = int.replace(/^0+(?=\d)/, '');
+  return (neg ? '-' : '') + int.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + dec;
+}
+(() => {
+  const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  Object.defineProperty(HTMLInputElement.prototype, 'value', {
+    configurable: true, enumerable: d.enumerable, get() { return d.get.call(this); },
+    set(v) { d.set.call(this, isNumIn(this) ? groupNum(v) : v); },
+  });
+  // while typing: regroup and keep the cursor after the same number of digits
+  document.addEventListener('input', (e) => {
+    const el = e.target; if (!isNumIn(el)) return;
+    const raw = d.get.call(el); const caret = el.selectionStart == null ? raw.length : el.selectionStart;
+    const sig = raw.slice(0, caret).replace(/[^\d.\-]/g, '').length; const out = groupNum(raw);
+    if (out === raw) return; d.set.call(el, out);
+    let pos = 0, n = 0; while (pos < out.length && n < sig) { if (/[\d.\-]/.test(out[pos])) n++; pos++; }
+    try { el.setSelectionRange(pos, pos); } catch (err) { }
+  }, true);
+  // boxes drawn from HTML strings: group their starting value
+  const fix = (root) => { if (!root || !root.querySelectorAll) return; (root.matches && isNumIn(root) ? [root] : []).concat(Array.from(root.querySelectorAll('input[inputmode=numeric],input[inputmode=decimal]'))).forEach((el) => { if (isNumIn(el)) { const v = d.get.call(el); const g = groupNum(v); if (g !== v) d.set.call(el, g); } }); };
+  new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => n.nodeType === 1 && fix(n)))).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener('DOMContentLoaded', () => fix(document.body));
+})();
+
 const baseCode = () => S().currency || 'XAF';
 const curSym = (c) => { c = c || 'USD'; if (c === baseCode()) return S().currencySymbol || c; const k = KC.CURRENCIES.find((x) => x[0] === c); return k ? k[1] : c; };
 /** Amount in any currency (purchase side). Sales & reports always use F() = base currency. */

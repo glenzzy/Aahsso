@@ -207,7 +207,7 @@ function currencyBlock(s) {
   const base = s.currency || 'XAF'; const rates = Object.entries(s.fxRates || { USD: s.fxRate || 600 });
   return '<div class="set-grid">' +
     sf('Your currency', '<select class="inp" name="baseCurrency" id="baseCur">' + KC.CURRENCIES.map((c) => '<option value="' + c[0] + '"' + (c[0] === base ? ' selected' : '') + '>' + c[0] + ' — ' + esc(c[2]) + '</option>').join('') + '</select>', 'Sales, prices, profit and reports are always in this currency.', 'span2') +
-    sf('Symbol on receipts', '<input class="inp" name="currencySymbol" id="curSym" value="' + esc(s.currencySymbol || 'F') + '" maxlength="5">', 'Prices show as <b id="curEg">25 000 ' + esc(s.currencySymbol || 'F') + '</b>') + '</div>' +
+    sf('Symbol on receipts', '<input class="inp" name="currencySymbol" id="curSym" value="' + esc(s.currencySymbol || 'F') + '" maxlength="5">', 'Prices show as <b id="curEg">25,000 ' + esc(s.currencySymbol || 'F') + '</b>') + '</div>' +
     '<div class="set-sub"><h3>Exchange rates</h3><p class="hint">For purchases made abroad ($, €…). A rate set on a container is used instead for that container.</p>' +
     '<div id="fxBox">' + rates.map(([c, r]) => fxRow(c, r, base)).join('') + '</div><button type="button" class="btn sm" data-a="fxAdd">' + ic('plus', 'sm') + 'Add a currency</button></div>';
 }
@@ -228,7 +228,7 @@ VIEWS.settings = {
         sf('Receipt footer', inp('receiptFooter', s.receiptFooter), 'Printed at the bottom of every receipt.', 'mt')) +
       setCard('currency', 'Currency', 'Your money, and how purchases in other currencies are converted.', currencyBlock(s)) +
       setCard('pricing', 'Pricing', 'How selling prices are worked out from what each item cost you, and when to warn you.',
-        '<div class="set-grid">' + sf('Default markup', unitIn('defaultMarkup', s.defaultMarkup, '%'), 'Selling price = landed cost + this %.') + sf('Lowest markup', unitIn('minMarkup', s.minMarkup, '%'), 'Staff cannot sell below this without permission.') + sf('Round prices up to', unitIn('roundTo', s.roundTo, 'F', 'inputmode="numeric"'), 'e.g. 50 → 12 330 becomes 12 350.') +
+        '<div class="set-grid">' + sf('Default markup', unitIn('defaultMarkup', s.defaultMarkup, '%'), 'Selling price = landed cost + this %.') + sf('Lowest markup', unitIn('minMarkup', s.minMarkup, '%'), 'Staff cannot sell below this without permission.') + sf('Round prices up to', unitIn('roundTo', s.roundTo, 'F', 'inputmode="numeric"'), 'e.g. 50 → 12,330 becomes 12,350.') +
         sf('Low stock alert at', unitIn('lowStock', s.lowStock, 'units', 'inputmode="numeric"'), 'Items at or below this show as Low.') + sf('Expiry warning', unitIn('expiryWarnDays', s.expiryWarnDays, 'days', 'inputmode="numeric"'), 'Warn this many days before expiry.') + '</div>') +
       setCard('credit', 'Wholesale & credit', 'Prices for resellers and how much customers may owe. Who sees costs and profit is set per person in <a href="#team">Team & access</a>.',
         '<div class="set-grid">' + sf('Wholesale markup', unitIn('wholesaleMarkup', s.wholesaleMarkup, '%'), 'For customers marked Wholesale or Reseller.') + sf('Bulk price from', unitIn('bulkQty', s.bulkQty, 'units', 'inputmode="numeric"'), '0 = off. Buying this many gets the wholesale price.') +
@@ -262,7 +262,7 @@ function setAfterRender() { fxExamples(); remPreview(); }
 function fxExamples() {
   const base = ($('#baseCur') || {}).value || baseCode(); const sym = ($('#curSym') || {}).value || 'F';
   $$('[data-fxrow]').forEach((r) => { const c = $('select', r).value; const v = num($('[data-fxr]', r).value); const sy = (KC.CURRENCIES.find((x) => x[0] === c) || [0, c])[1]; $('.fx-eg', r).textContent = v > 0 ? sy + ' 100 = ' + fmt(v * 100) + ' ' + sym : ''; $('.fx-base', r).textContent = base; });
-  const eg = $('#curEg'); if (eg) eg.textContent = '25 000 ' + sym;
+  const eg = $('#curEg'); if (eg) eg.textContent = '25,000 ' + sym;
 }
 function remPreview() {
   const ta = $('#remTpl'), out = $('#remPrev'); if (!ta || !out) return; const st = S();
@@ -497,7 +497,7 @@ function feeEditorInner() {
   const tryAmt = K.ui.feeTry === undefined ? 50000 : K.ui.feeTry; const tryFee = KC.calcMomoFee(op, tryAmt, { momoFeeTables: tables });
   return '<div class="row wrap between mb"><div class="seg" role="tablist">' + FEE_OPS.map((o) => '<button type="button" role="tab" aria-selected="' + (o === op) + '" class="' + (o === op ? 'on' : '') + '" data-a="feeOp" data-v="' + esc(o) + '">' + esc(o) + ' <span class="tiny muted">' + (K.ui.feeDraft[o] || []).length + '</span></button>').join('') + '</div>' +
       '<div class="row wrap"><button type="button" class="btn sm" data-a="feeAdd">' + ic('plus', 'sm') + 'Add a range</button><button type="button" class="btn sm" data-a="feeReset">Reset to standard grid</button></div></div>' +
-    (tiers.length ? '<div class="card tw"><table class="t fee-tbl"><thead><tr><th>#</th><th>From</th><th>To</th><th>Charge type</th><th>Charge</th><th>+ Tax</th><th>+ Extra</th><th class="r">Charge at top of range</th><th></th></tr></thead><tbody>' +
+    (tiers.length ? '<div class="card tw"><table class="t fee-tbl"><thead><tr><th>#</th><th>From</th><th>To</th><th>Charge type</th><th>Charge</th><th>+ Tax</th><th>+ Extra</th><th class="r" title="The charge for the largest amount in this range">At top of range</th><th></th></tr></thead><tbody>' +
       tiers.map((t, i) => { const pct = t.type === 'pct'; return '<tr><td class="muted">' + (i + 1) + '</td>' +
         '<td>' + numIn(i, 'min', t.min, 'F', '0') + '</td><td>' + numIn(i, 'max', t.max, 'F', 'No limit') + '</td>' +
         '<td><select class="inp" data-ft="type" data-fi="' + i + '" aria-label="Charge type for range ' + (i + 1) + '"><option value="fixed"' + (pct ? '' : ' selected') + '>Fixed amount</option><option value="pct"' + (pct ? ' selected' : '') + '>Percentage</option></select></td>' +

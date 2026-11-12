@@ -79,7 +79,7 @@ test('credit limit: rep blocked, manager allowed', async () => {
   assert.equal(sold, 10, 'stock is exhausted after race; add stock');
   await call('PUT', '/api/data/lots/l2', S.manager, { productId: 'p1', qty: 5, unitCost: 10, currency: 'USD', sourceType: 'Local (Cameroon)', inWarehouse: true, purchaseDate: '2026-11-02' });
   const mk = (id, qty) => ({ no: id, date: '2026-11-07', status: 'open', customerId: 'cA', discount: 0, lines: [{ productId: 'p1', qty, unitPrice: 12000, alloc: [{ lotId: 'l2', qty }], returns: [] }], payments: [] });
-  assert.equal((await call('PUT', '/api/data/sales/cr1', S.sales, mk('cr1', 2))).status, 403, '24 000 on credit > 10 000 limit');
+  assert.equal((await call('PUT', '/api/data/sales/cr1', S.sales, mk('cr1', 2))).status, 403, '24,000 on credit > 10,000 limit');
   const r = await call('PUT', '/api/data/sales/cr2', S.manager, mk('cr2', 2)); assert.equal(r.status, 200, 'manager can override');
 });
 test('photos upload and serve', async () => {
@@ -146,7 +146,7 @@ test('automatic reminders via SMS gateway: sends once, then waits', async () => 
   assert.equal((await call('PUT', '/api/data/sales/debt', S.manager, { no: 'D1', date: '2026-10-01', dueDate: '2026-10-15', status: 'open', customerId: 'debt1', lines: [{ productId: 'p1', qty: 1, unitPrice: 12000, alloc: [{ lotId: 'l6', qty: 1 }] }], payments: [] })).status, 200);
   assert.equal((await call('POST', '/api/reminders/run', S.sales, {})).status, 403);
   const dry = await call('POST', '/api/reminders/run', S.manager, { dryRun: true });
-  assert.ok(dry.body.items.some((i) => i.name === 'Late Larry' && /12 000/.test(i.text)), JSON.stringify(dry.body));
+  assert.ok(dry.body.items.some((i) => i.name === 'Late Larry' && /12,000/.test(i.text)), JSON.stringify(dry.body));
   const run = await call('POST', '/api/reminders/run', S.manager, {});
   const larry = run.body.items.find((i) => i.name === 'Late Larry'); assert.equal(larry.status, 'sent', JSON.stringify(larry));
   const again = await call('POST', '/api/reminders/run', S.manager, {});
@@ -187,7 +187,7 @@ test('activity log: who/what/where/why; reps see only their own', async () => {
   const sold = mgr.find((e) => /Sold 1 × Oats/.test(e.text) && e.ref === 'ACT1'); assert.ok(sold, JSON.stringify(mgr.slice(0, 5)));
   assert.equal(sold.user, 'sales'); assert.ok(sold.at); assert.equal(sold.loc, 'main');
   const canc = mgr.find((e) => /Cancelled sale ACT1/.test(e.text)); assert.equal(canc.reason, 'Wrong entry / mistake'); assert.equal(canc.user, 'manager');
-  assert.ok(mgr.some((e) => /Refunded 12 000/.test(e.text)), 'refund line');
+  assert.ok(mgr.some((e) => /Refunded 12,000/.test(e.text)), 'refund line');
   assert.ok(mgr.some((e) => e.text === 'Signed in'));
   const rep = (await call('GET', '/api/activity?from=' + today + '&to=' + today, S.sales)).body.entries;
   assert.ok(rep.length > 0 && rep.every((e) => e.user === 'sales'), 'rep only sees own: ' + Array.from(new Set(rep.map((e) => e.user))));

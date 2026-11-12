@@ -34,6 +34,7 @@ const WRITE_PERMS = {
   orders: ['sell', 'payments'], // online-shop orders: staff confirm / reject them
 };
 const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'] };
+const grp = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
 const perms = (u) => KC.permsFor({ role: u.role, perms: u.perms || {} }, u.customRoles);
 // a client may propose a transaction id (offline-created records); otherwise the server makes one
 const TXN_RE = /^[A-Za-z0-9][A-Za-z0-9\-]{3,39}$/;
@@ -341,7 +342,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
         const lim = KC.creditLimitOf(C1.S, cust && cust.data);
         const owed = KC.customerBalance(Object.assign({}, raw, { sales: raw.sales.filter((x) => x.id !== id).concat([Object.assign({}, body, { id })]) }), C1, body.customerId);
         const before = KC.customerBalance(raw, KC.computeAll(raw), body.customerId);
-        if (lim !== null && owed > lim + 0.5 && owed > before + 0.5) return { status: 403, error: 'Credit limit exceeded (' + Math.round(owed) + ' > ' + Math.round(lim) + ' F). A manager must approve.' };
+        if (lim !== null && owed > lim + 0.5 && owed > before + 0.5) return { status: 403, error: 'Credit limit exceeded (' + grp(owed) + ' > ' + grp(lim) + ' F). A manager must approve.' };
       }
       if (problems.length) return { status: 409, error: 'Not enough stock', details: problems };
     }
@@ -444,7 +445,7 @@ app.get('/api/activity', auth, wrap(async (req, res) => {
   const docs = (await q("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('products','customers','locations','shipments','suppliers','settings','assets')", [u.tenant_id])).rows;
   const by = {}; docs.forEach((d) => ((by[d.collection] = by[d.collection] || {})[d.id] = d.data));
   const S = Object.assign({}, KC.DEFAULT_SETTINGS, (by.settings || {}).main || {});
-  const sym = S.currencySymbol || 'F'; const F = (v) => String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ' + sym;
+  const sym = S.currencySymbol || 'F'; const F = (v) => String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' ' + sym;
   const L = { product: (id) => ((by.products || {})[id] || {}).name || 'item', customer: (id) => ((by.customers || {})[id] || {}).name || 'customer', loc: (id) => (!id || id === 'main' ? S.mainLocationName || 'Main warehouse' : ((by.locations || {})[id] || {}).name || id), ship: (id) => ((by.shipments || {})[id] || {}).name || 'container', supplier: (id) => ((by.suppliers || {})[id] || {}).name || 'supplier', asset: (id) => ((by.assets || {})[id] || {}).name || 'asset', F, money: (v, c) => (c && c !== S.currency ? Number(v).toFixed(2) + ' ' + c : F(v)) };
   const roles = KC.rolesWith(u.customRoles); const entries = [];
   rows.forEach((r) => {

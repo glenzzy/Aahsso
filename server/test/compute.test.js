@@ -9,7 +9,7 @@ function base() {
     settings: { fxRate: 600, defaultMarkup: 100, minMarkup: 50, roundTo: 50 },
     products: [{ id: 'oats', name: 'Oats', category: 'Food & Snacks' }, { id: 'tv', name: 'TV', category: 'Electronics' }, { id: 'car', name: 'Toyota', category: 'Vehicles' }],
     shipments: [{ id: 'c1', status: 'received', fxRate: 600, receivedAt: '2026-10-01', costs: [
-      { side: 'US', amount: 1000, currency: 'USD', appliesTo: 'goods' },        // 600 000 F to goods only
+      { side: 'US', amount: 1000, currency: 'USD', appliesTo: 'goods' },        // 600,000 F to goods only
       { side: 'CM', amount: 300000, currency: 'XAF', appliesTo: 'l_car' },        // car customs to the car only
     ] }],
     lots: [

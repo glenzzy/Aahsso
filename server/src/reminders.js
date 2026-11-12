@@ -7,7 +7,7 @@ const KC = require('../public/compute.js');
 
 const providerName = () => (process.env.REMINDER_PROVIDER || 'console').toLowerCase();
 const intl = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.length === 9 && d[0] === '6') d = '237' + d; return d; }; // Cameroon local → international
-const fmtF = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' FCFA';
+const fmtF = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' FCFA';
 
 async function send(to, text, vars) {
   const p = providerName(); const num = intl(to);
