@@ -38,6 +38,23 @@ function homeTodos() {
   if (can('assets')) { const due = K.raw.assets.filter((a) => assetDue(a).length); if (due.length) add('warn', 'truck', due.length + ' asset reminder' + (due.length === 1 ? '' : 's'), due[0].name + ': ' + dueText(assetDue(due[0])[0]), 'data-a="go" data-r="assets"'); }
   const rank = { bad: 0, warn: 1, info: 2 }; return out.sort((a, b) => rank[a.level] - rank[b.level]);
 }
+/* First visit: no stock yet → one calm "get started" path instead of empty numbers and lists. */
+function homeWelcome(hello) {
+  const named = S().businessName && S().businessName !== KC.DEFAULT_SETTINGS.businessName;
+  const steps = [
+    ['settings', 'Add your business details', 'Name, logo and MoMo numbers for receipts', named, can('settings')],
+    ['buy', 'Record what you bought', 'Seller, items and tax — from a receipt or an Excel list', K.raw.lots.length > 0, can('purchases')],
+    ['ship', 'Put it in a shipment', 'Container, loading and shipping costs', K.raw.shipments.length > 0, can('containers')],
+    ['receive', 'Receive it in Cameroon', 'Customs, unloading and prices', K.raw.shipments.some((s) => stIdx(s.status) >= 5), can('containers')],
+    ['sell', 'Start selling', 'At the shop, by phone or online', visibleSales().length > 0, can('sell')],
+  ].filter((x) => x[4]);
+  const next = steps.find((x) => !x[3]);
+  return '<div class="welcome"><div class="hint">' + fmtDate(todayStr()) + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1>' +
+    '<p class="muted">Kargo follows your goods from the shop where you buy them to the customer who buys them from you.</p>' +
+    '<ol class="wsteps card">' + steps.map(([r, t, d, done], i) => '<li class="' + (done ? 'done' : x_(next, r) ? 'now' : '') + '" data-a="go" data-r="' + r + '" role="button" tabindex="0"><span class="ws-n">' + (done ? ic('check', 'sm') : i + 1) + '</span><div class="grow"><div class="ws-t">' + t + '</div><div class="hint">' + d + '</div></div>' + (x_(next, r) ? '<span class="btn sm pri">Start</span>' : ic('chev', 'sm')) + '</li>').join('') + '</ol></div>';
+}
+const x_ = (next, r) => !!next && next[0] === r;
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches && e.target.matches('.wsteps li')) e.target.click(); });
 VIEWS.home = {
   render() {
     const t = todayStr(), m = monthStr(); const d = periodStats((x) => x === t), mo = periodStats((x) => (x || '').slice(0, 7) === m);
@@ -47,9 +64,8 @@ VIEWS.home = {
     const todos = homeTodos();
     const empty = !K.raw.products.length && can('purchases');
     const byMode = Object.entries(d.byMethod).filter(([, v]) => v).map(([k, v]) => k.replace('Orange Money', 'OM').replace('MTN MoMo', 'MoMo') + ' ' + fmt(v)).join(' · ');
-    return (empty ? '<div class="card pad2 mb"><h2>Welcome 👋</h2><p class="muted">Kargo follows your business: <b>Buy → Ship → Receive → Sell</b>.</p><div class="list card">' +
-      [['settings', 'First: your business name, logo & MoMo numbers'], ['buy', '1. Buy — record what you bought, from whom, with tax'], ['ship', '2. Ship — put the goods in a shipment'], ['receive', '3. Receive — customs, unloading, prices'], ['sell', '4. Sell — at the shop, by phone or online']].map(([r, l]) => '<div class="li" data-a="go" data-r="' + r + '"><div class="grow t">' + l + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</div></div>' : '') +
-      '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div>' + phaseHead('', true) +
+    if (empty) return homeWelcome(hello);
+    return '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div>' + phaseHead('', true) +
       '<div class="kpis mb2">' + kpi('Sales today', F(d.revenue), d.n + ' receipt' + (d.n === 1 ? '' : 's') + (seeCost() && d.revenue ? ' · profit ' + fmt(d.profit) : '')) + kpi('Collected today', F(d.collected), byMode || 'Nothing yet') +
         kpi('Owed to you', F(receivables()), owing + ' open sale' + (owing === 1 ? '' : 's')) + kpi('This month', F(mo.revenue), seeCost() ? 'profit ' + fmt(mo.profit) : mo.n + ' receipts') + '</div>' +
       '<div class="home-grid">' +

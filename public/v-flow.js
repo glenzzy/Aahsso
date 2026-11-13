@@ -41,7 +41,7 @@ VIEWS.buy = {
     const spent = mLots.reduce((a, l) => a + K.C.lotX[l.id].paidX * num(l.qty), 0), tax = mLots.reduce((a, l) => a + K.C.lotX[l.id].taxX * num(l.qty), 0);
     const owed = purchaseGroups(K.raw.lots).reduce((a, g) => a + (g.bx && g.bill.status !== 'cancelled' ? Math.max(0, g.bx.balanceX) : 0), 0);
     const wait = waitingLots(); const waitU = wait.reduce((a, l) => a + num(l.qty), 0);
-    return phaseHead('buy') +
+    return '' +
       '<div class="kpis mb2">' + kpi('Bought this month', F(spent), 'tax included') + kpi('Tax this month', F(tax), spent ? pct(tax / Math.max(1, spent - tax) * 100) + ' on average' : '') + kpi('Owed to sellers', F(owed), 'unpaid or part paid') +
         '<div class="card kpi"><div class="l">Waiting to ship</div><div class="v">' + fmt(waitU) + ' <span class="hint">units</span></div><div class="s">' + (waitU && can('containers') ? '<a href="#ship">Put them in a shipment →</a>' : 'bought, not shipped yet') + '</div></div></div>' +
       '<div class="toolbar mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'New purchase</button>' +
@@ -230,8 +230,8 @@ VIEWS.ship = {
     const active = shipsIn('ship').sort((a, b) => stIdx(b.status) - stIdx(a.status) || (b.createdAt || '').localeCompare(a.createdAt || ''));
     const later = K.raw.shipments.filter((s) => KC.shipPhase(s.status) !== 'ship').sort((a, b) => (b.receivedAt || b.arrivedAt || b.createdAt || '').localeCompare(a.receivedAt || a.arrivedAt || a.createdAt || ''));
     const waitVal = wait.reduce((a, l) => a + K.C.lotX[l.id].paidX * num(l.qty), 0);
-    return phaseHead('ship') +
-      '<div class="toolbar mb"><button class="btn pri" data-a="newShip">' + ic('plus') + 'New shipment</button><span class="hint">Consolidate the items, add the container number, loading and shipping costs (freight, BESC, tests…).</span></div>' +
+    return '' +
+      '<div class="toolbar mb"><button class="btn pri" data-a="newShip">' + ic('plus') + 'New shipment</button></div>' +
       '<section class="card flow-card mb2"><div class="home-card-h"><h2>Waiting to ship</h2><span class="hint">' + (waitU ? fmt(waitU) + ' units · ' + wait.length + ' line' + (wait.length === 1 ? '' : 's') + (seeCost() ? ' · ' + F(waitVal) : '') : '') + '</span></div>' +
         (wait.length ? '<div class="mini-list">' + wait.slice(0, 6).map((l) => { const p = byId('products', l.productId) || {}; return '<div class="mini"><div class="grow"><div class="mini-t">' + esc(p.name || '?') + '</div><div class="mini-d">' + esc([l.vendor, fmtDate(l.purchaseDate)].filter(Boolean).join(' · ')) + '</div></div><div class="mini-v">×' + fmt(l.qty) + '</div></div>'; }).join('') + (wait.length > 6 ? '<div class="hint pad-x">…and ' + (wait.length - 6) + ' more</div>' : '') + '</div>' +
           '<div class="pad row wrap">' + (active.length ? active.slice(0, 3).map((s) => '<button class="btn" data-a="shAddItems" data-id="' + s.id + '">' + ic('plus', 'sm') + 'Add to ' + esc(s.name || s.containerNo || 'shipment') + '</button>').join('') : '<button class="btn pri" data-a="newShip">' + ic('plus') + 'Start a shipment with them</button>') + '</div>'
@@ -269,7 +269,7 @@ VIEWS.receive = {
   render() {
     const rec = shipsIn('receive').sort((a, b) => stIdx(a.status) - stIdx(b.status));
     const coming = K.raw.shipments.filter((s) => s.status === 'in_transit');
-    return phaseHead('receive') +
+    return '' +
       (rec.length ? '<div class="recv-list">' + rec.map(recvCard).join('') + '</div>'
         : '<div class="card pad2 center"><div class="big">' + ic('check') + '</div><h2>Nothing to receive</h2><p class="hint">Shipments appear here when they arrive in Cameroon. Then pay customs and clearing, unload, count and prepare the goods for sale.</p></div>') +
       (coming.length ? '<h2 class="sec-t mt2">Coming next</h2><section class="card"><div class="mini-list">' + coming.map((s) => '<div class="mini"><div class="grow"><div class="mini-t">' + esc(s.name || s.containerNo || 'Shipment') + '</div><div class="mini-d">' + fmt((K.C.shipX[s.id] || {}).units || 0) + ' units' + (s.arrivedAt ? ' · ETA ' + fmtDate(s.arrivedAt) : '') + '</div></div><button class="btn sm" data-a="rcvSet" data-id="' + s.id + '" data-v="at_port">Mark arrived</button></div>').join('') + '</div></section>' : '') +

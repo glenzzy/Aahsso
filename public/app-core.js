@@ -289,7 +289,29 @@ const NAV = [
   ['team', 'Team & access', 'key', () => can('team')], ['settings', 'Settings', 'gear', () => can('settings') || can('export')],
 ];
 const navOk = (r) => { const n = NAV.find((x) => x[0] === r); return !n || n[3](); };
-const TITLES = Object.assign(Object.fromEntries(NAV.map((n) => [n[0], n[1]])), { pending: 'Access', buy: '1 · Buy', ship: '2 · Ship', receive: '3 · Receive', sell: '4 · Sell' });
+/* The menu: 9 places. Related pages live as tabs inside one place (e.g. Sell = New sale · Sales · Online orders). */
+const SECTIONS = [
+  ['home', 'Home', 'home', ['home']],
+  ['buy', 'Buy', 'buy', ['buy']],
+  ['ship', 'Ship', 'ship', ['ship']],
+  ['receive', 'Receive', 'check', ['receive']],
+  ['sell', 'Sell', 'sell', ['sell', 'sales', 'orders']],
+  ['stock', 'Stock', 'stock', ['stock', 'transfers', 'audit']],
+  ['customers', 'Customers', 'users', ['customers', 'reminders']],
+  ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'reports', 'assets']],
+  ['settings', 'Settings', 'gear', ['settings', 'team', 'activity']],
+];
+const TAB_LABEL = { sell: 'New sale', sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', transfers: 'Branch transfers', audit: 'Stock count', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log' };
+/** Routes of a section this person can open (transfers only when there is more than one branch). */
+const secRoutes = (sec) => sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
+const secOf = (r) => SECTIONS.find((x) => x[3].includes(r)) || SECTIONS[0];
+const secCount = (sec) => secRoutes(sec).reduce((a, r) => { const n = NAV.find((x) => x[0] === r); return a + (n && n[4] ? n[4]() || 0 : 0); }, 0);
+const TITLES = Object.assign(Object.fromEntries(NAV.map((n) => [n[0], n[1]])), { pending: 'Access' });
+/** Tabs at the top of a page whose section has several pages. */
+function subTabs(r) {
+  const sec = secOf(r); const rs = secRoutes(sec); if (rs.length < 2) return '';
+  return '<nav class="subtabs" aria-label="' + esc(sec[1]) + '">' + rs.map((x) => { const n = NAV.find((y) => y[0] === x); const c = n && n[4] ? n[4]() : 0; return '<a href="#' + x + '" class="' + (x === r ? 'on' : '') + '"' + (x === r ? ' aria-current="page"' : '') + '>' + esc(TAB_LABEL[x] || TITLES[x]) + (c ? '<span class="nav-count">' + c + '</span>' : '') + '</a>'; }).join('') + '</nav>';
+}
 const ROUTE_ALIAS = { containers: 'ship', purchases: 'buy' }; // old links keep working
 function go(r) { if (location.hash !== '#' + r) location.hash = r; else route(); }
 function route() {
@@ -303,33 +325,20 @@ function route() {
   K.route = r; window.scrollTo(0, 0); render(true);
 }
 function logoHTML(cls = 'logo') { const s = S(); return '<div class="' + cls + '">' + (s.logo ? '<img src="' + esc(s.logo) + '" alt="">' : esc(initials(s.businessName).slice(0, 2))) + '</div>'; }
-// menu groups (order + quiet headings) so the sidebar reads in four short blocks
-// the business flow first (1 Buy → 2 Ship → 3 Receive → 4 Sell), then selling day to day, money and admin
-const NAV_GROUPS = [['', ['home']], ['Flow', ['buy', 'ship', 'receive', 'sell']], ['Selling', ['sales', 'orders', 'customers', 'reminders', 'stock']], ['Money', ['expenses', 'cash', 'suppliers', 'reports', 'assets']], ['Admin', ['transfers', 'audit', 'activity', 'team', 'settings']]];
-const FLOW_STEP = { buy: 1, ship: 2, receive: 3, sell: 4 };
-const navIcon = (n) => FLOW_STEP[n[0]] ? '<span class="nav-step">' + FLOW_STEP[n[0]] + '</span>' : ic(n[2]);
-/** Visible menu items grouped: [[groupLabel, [navItem…]], …] (items not listed in a group go last). */
-function navGrouped(items) {
-  const seen = new Set(); const out = NAV_GROUPS.map(([g, keys]) => [g, keys.map((k) => items.find((n) => n[0] === k)).filter(Boolean)]);
-  out.forEach(([, l]) => l.forEach((n) => seen.add(n[0])));
-  const rest = items.filter((n) => !seen.has(n[0])); if (rest.length) out.push(['More', rest]);
-  return out.filter(([, l]) => l.length);
-}
 const navCount = (n) => { const c = n[4] ? n[4]() : 0; return c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : ''; };
 function shell() {
   const s = S();
-  const items = NAV.filter((n) => n[3]());
   $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div><div class="bn">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">Import & sales manager</div></div></div>' +
-    navGrouped(items).map(([g, l]) => (g ? '<div class="nav-g">' + g + '</div>' : '') + l.map((n) => '<a class="nav' + (K.route === n[0] ? ' on' : '') + '" href="#' + n[0] + '">' + navIcon(n) + n[1] + navCount(n) + '</a>').join('')).join('') +
+    '<div class="navs">' + SECTIONS.map((sec) => { const rs = secRoutes(sec); if (!rs.length) return ''; const c = secCount(sec); return '<a class="nav' + (secOf(K.route) === sec ? ' on' : '') + '" href="#' + rs[0] + '">' + ic(sec[2]) + sec[1] + (c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : '') + '</a>'; }).join('') + '</div>' +
     '<div class="sp"></div><div class="who">' + esc(K.me.name || K.info.userLabel || '') + ' · ' + esc(roleLabel()) + '</div>';
   if (!K.member) { $('#bnav').innerHTML = ''; $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div class="bn">' + esc(s.businessName) + '</div></div>'; $('#title').textContent = 'Access'; $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"'); return; }
-  const bn = [['home', 'Home', 'home'], ['sales', 'Sales', 'sales'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']].filter((n) => n[0] === 'more' || navOk(n[0]));
-  const moreOn = !['home', 'sales', 'sell', 'stock'].includes(K.route);
+  const bn = [['home', 'Home', 'home'], ['buy', 'Buy', 'buy'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']].filter((n) => n[0] === 'more' || navOk(n[0]));
+  const cur = secOf(K.route)[0]; const moreOn = !['home', 'buy', 'sell', 'stock'].includes(cur);
   $('#bnav').innerHTML = bn.map((n) => n[0] === 'more'
     ? '<a href="#" data-a="moreMenu" class="' + (moreOn ? 'on' : '') + '">' + ic('more') + '<span>More</span></a>'
-    : '<a href="#' + n[0] + '" class="' + (n[0] === 'sell' ? 'sell ' : '') + (K.route === n[0] ? 'on' : '') + '"><div class="ic">' + ic(n[2]) + '</div><span>' + n[1] + '</span></a>').join('');
+    : '<a href="#' + n[0] + '" class="' + (n[0] === 'sell' ? 'sell ' : '') + (cur === n[0] ? 'on' : '') + '"><div class="ic">' + ic(n[2]) + '</div><span>' + n[1] + '</span></a>').join('');
   $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"');
-  $('#title').textContent = TITLES[K.route] || '';
+  $('#title').textContent = secOf(K.route)[1] === 'Home' && K.route !== 'home' ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
   shellSync();
   const lb = $('#locBtn'); if (lb) { const L = myLocs(); lb.classList.toggle('hide', allLocs().length < 2); lb.disabled = L.length < 2; lb.innerHTML = ic('home', 'sm') + '<span class="ellipsis" style="max-width:110px">' + esc(locName(K.loc)) + '</span>'; }
 }
@@ -344,7 +353,7 @@ function render(force) {
   if (!K.C) recompute();
   shell();
   const v = VIEWS[K.route];
-  $('#view').innerHTML = v.render();
+  $('#view').innerHTML = subTabs(K.route) + v.render();
   if (v.after) v.after();
   $('#fab').classList.toggle('hide', !['home', 'sales', 'customers'].includes(K.route));
 }
@@ -415,8 +424,8 @@ A.sheetClose = () => closeSheet();
 A.go = (el) => { closeSheet(); go(el.dataset.r); };
 A.toggleX = (el) => { const k = el.dataset.k; K.ui.expanded[k] = !K.ui.expanded[k]; render(true); };
 A.moreMenu = () => {
-  const items = NAV.filter((n) => n[3]() && !['home', 'sales', 'sell', 'stock'].includes(n[0]));
-  openSheet({ title: 'More', body: navGrouped(items).map(([g, l]) => (g ? '<div class="more-g">' + g + '</div>' : '') + '<div class="card list mb">' + l.map((n) => '<div class="li" data-a="go" data-r="' + n[0] + '"><div class="av ink">' + (FLOW_STEP[n[0]] ? '<b>' + FLOW_STEP[n[0]] + '</b>' : ic(n[2])) + '</div><div class="grow t">' + n[1] + '</div>' + navCount(n) + ic('chev', 'sm') + '</div>').join('') + '</div>').join('') });
+  const list = SECTIONS.filter((sec) => !['home', 'buy', 'sell', 'stock'].includes(sec[0]) && secRoutes(sec).length);
+  openSheet({ title: 'More', body: '<div class="card list">' + list.map((sec) => { const c = secCount(sec); return '<div class="li" data-a="go" data-r="' + secRoutes(sec)[0] + '"><div class="av ink">' + ic(sec[2]) + '</div><div class="grow t">' + sec[1] + '</div>' + (c ? '<span class="nav-count">' + c + '</span>' : '') + ic('chev', 'sm') + '</div>'; }).join('') + '</div>' });
 };
 const VIEWS = {};
 

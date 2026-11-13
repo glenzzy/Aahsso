@@ -633,3 +633,25 @@ table.pu-t tr.pu-more td{background:var(--bg);padding:12px}
   .pu-h{flex-wrap:wrap}
   .pu-tot{min-width:0;width:100%}
 }
+
+/* ---------- simple menu: 9 places, tabs inside ---------- */
+.side .navs{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.side a.nav{font-size:14.5px;padding:10px 12px}
+.subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:-4px 0 18px;overflow-x:auto;scrollbar-width:none}
+.subtabs::-webkit-scrollbar{display:none}
+.subtabs a{padding:10px 12px;font-size:14px;font-weight:550;color:var(--ink3);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.subtabs a:hover{color:var(--ink)}
+.subtabs a.on{color:var(--ink);border-bottom-color:var(--brand);font-weight:650}
+/* first visit */
+.welcome{max-width:640px;margin:4vh auto 0}
+.welcome h1{font-size:26px;margin:4px 0 6px}
+.welcome>p{margin:0 0 22px;font-size:15px}
+.wsteps{list-style:none;margin:0;padding:6px 0}
+.wsteps li{display:flex;align-items:center;gap:14px;padding:14px 18px;cursor:pointer}
+.wsteps li+li{border-top:1px solid var(--line2)}
+.wsteps li:hover{background:var(--bg)}
+.ws-n{width:30px;height:30px;border-radius:50%;background:var(--line2);color:var(--ink2);display:grid;place-items:center;font-weight:700;font-size:13px;flex:none}
+.ws-t{font-weight:650;font-size:15px}
+.wsteps li.done .ws-n{background:var(--okSoft);color:var(--ok)}
+.wsteps li.done .ws-t{color:var(--ink3);text-decoration:line-through;text-decoration-color:var(--line)}
+.wsteps li.now .ws-n{background:var(--brand);color:#fff}
