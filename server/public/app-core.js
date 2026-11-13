@@ -344,6 +344,7 @@ function shell() {
   $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"');
   $('#title').textContent = secOf(K.route)[1] === 'Home' && K.route !== 'home' ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
   shellSync();
+  if (K.tour && typeof tourMark === 'function') setTimeout(tourMark, 0);
   const lb = $('#locBtn'); if (lb) { const L = myLocs(); lb.classList.toggle('hide', allLocs().length < 2); lb.disabled = L.length < 2; lb.innerHTML = ic('home', 'sm') + '<span class="ellipsis" style="max-width:110px">' + esc(locName(K.loc)) + '</span>'; }
 }
 

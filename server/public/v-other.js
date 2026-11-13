@@ -50,12 +50,13 @@ function homeWelcome(hello) {
   ].filter((x) => x[4]);
   const next = steps.find((x) => !x[3]);
   return '<div class="welcome"><div class="hint">' + fmtDate(todayStr()) + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1>' +
-    '<p class="muted">Kargo follows your goods from the shop where you buy them to the customer who buys them from you.</p>' +
+    '<p class="muted">Kargo follows your goods from the shop where you buy them to the customer who buys them from you.</p><button class="btn mb2" data-a="tourStart">Take the 1-minute tour</button>' +
     '<ol class="wsteps card">' + steps.map(([r, t, d, done], i) => '<li class="' + (done ? 'done' : x_(next, r) ? 'now' : '') + '" data-a="go" data-r="' + r + '" role="button" tabindex="0"><span class="ws-n">' + (done ? ic('check', 'sm') : i + 1) + '</span><div class="grow"><div class="ws-t">' + t + '</div><div class="hint">' + d + '</div></div>' + (x_(next, r) ? '<span class="btn sm pri">Start</span>' : ic('chev', 'sm')) + '</li>').join('') + '</ol></div>';
 }
 const x_ = (next, r) => !!next && next[0] === r;
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches && e.target.matches('.wsteps li')) e.target.click(); });
 VIEWS.home = {
+  after() { maybeTour(); },
   render() {
     const t = todayStr(), m = monthStr(); const d = periodStats((x) => x === t), mo = periodStats((x) => (x || '').slice(0, 7) === m);
     const h = new Date().getHours(); const hello = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
@@ -65,7 +66,7 @@ VIEWS.home = {
     const empty = !K.raw.products.length && can('purchases');
     const byMode = Object.entries(d.byMethod).filter(([, v]) => v).map(([k, v]) => k.replace('Orange Money', 'OM').replace('MTN MoMo', 'MoMo') + ' ' + fmt(v)).join(' · ');
     if (empty) return homeWelcome(hello);
-    return '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div>' + phaseHead('', true) +
+    return '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div><div class="row gap6"><button class="btn ghost" data-a="tourStart">How Kargo works</button>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div></div>' + phaseHead('', true) +
       '<div class="kpis mb2">' + kpi('Sales today', F(d.revenue), d.n + ' receipt' + (d.n === 1 ? '' : 's') + (seeCost() && d.revenue ? ' · profit ' + fmt(d.profit) : '')) + kpi('Collected today', F(d.collected), byMode || 'Nothing yet') +
         kpi('Owed to you', F(receivables()), owing + ' open sale' + (owing === 1 ? '' : 's')) + kpi('This month', F(mo.revenue), seeCost() ? 'profit ' + fmt(mo.profit) : mo.n + ' receipts') + '</div>' +
       '<div class="home-grid">' +

@@ -726,3 +726,29 @@ table.pu-t2 tr.pu-more td{background:var(--bg);padding:12px}
   .ns-list{overflow:visible}
   .ns-sheet #nsGo{min-width:0;flex:1}
 }
+
+/* ---------- first-time tour ---------- */
+.tour{position:fixed;right:24px;bottom:24px;z-index:90;width:min(400px,calc(100vw - 32px));background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px rgba(20,32,46,.25);padding:22px 22px 18px;animation:tourIn .25s ease}
+@keyframes tourIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.tour.tour-intro{right:50%;bottom:50%;transform:translate(50%,50%);animation:none;width:min(460px,calc(100vw - 32px))}
+.tour-x{position:absolute;top:10px;right:10px}
+.tour-flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;font-weight:600;color:var(--ink3);margin-bottom:16px;padding-right:28px}
+.tour-flow span{display:inline-flex;align-items:center;gap:5px}
+.tour-flow b{width:20px;height:20px;border-radius:50%;background:var(--line2);display:grid;place-items:center;font-size:11px}
+.tour-flow span.on{color:var(--ink)} .tour-flow span.on b{background:var(--brand);color:#fff}
+.tour-flow span.done b{background:var(--brandSoft);color:var(--brand)}
+.tour-flow i{font-style:normal;color:var(--line)}
+.tour-step{font-size:12px;font-weight:600;color:var(--brand);text-transform:uppercase;letter-spacing:.06em}
+.tour h2{margin:2px 0 6px;font-size:22px}
+.tour-lead{margin:0 0 12px;color:var(--ink2);font-size:14.5px;line-height:1.45}
+.tour-pts{list-style:none;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:7px}
+.tour-pts li{display:flex;gap:9px;font-size:14px;align-items:flex-start}
+.tour-pts .i{color:var(--ok);flex:none;margin-top:2px}
+.tour-tip{margin:0 0 12px;font-size:13px;color:var(--ink2);background:var(--accentSoft);border-radius:10px;padding:8px 11px}
+.tour-foot{display:flex;align-items:center;gap:8px;margin-top:6px}
+.tour-foot .sp{flex:1}
+.tour.tour-intro{box-shadow:0 0 0 100vmax rgba(20,32,46,.4),0 24px 60px rgba(20,32,46,.3)}
+.tour-hl{position:relative;box-shadow:0 0 0 2px var(--accent)!important;border-radius:10px}
+.tour-hl::after{content:'';position:absolute;inset:-4px;border-radius:13px;border:2px solid var(--accent);animation:tourPulse 1.4s ease-out infinite;pointer-events:none}
+@keyframes tourPulse{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(1.08)}}
+@media (max-width:899px){.tour:not(.tour-intro){right:16px;left:16px;width:auto;bottom:calc(86px + var(--safeB))}}
