@@ -190,7 +190,7 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
       lines: (d.lines || []).map((l) => ({ productId: l.productId, qty: l.qty, unitPrice: 0, alloc: l.alloc, returns: (l.returns || []).map((x) => ({ qty: x.qty, restock: x.restock, alloc: x.alloc })) })), payments: [] });
   }
   if (!P.costs) {
-    if (col === 'lots') docs = docs.map((d) => Object.assign({}, d, { unitCost: 0, regularPrice: null }));
+    if (col === 'lots') docs = docs.map((d) => Object.assign({}, d, { unitCost: 0, unitTax: 0, regularPrice: null }));
     if (col === 'shipments') docs = docs.map((d) => Object.assign({}, d, { costs: [] }));
     if (col === 'products') {
       // Send selling prices already calculated, because this user cannot receive the costs they come from.
@@ -234,7 +234,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
 
     const P = perms(u);
     if (col === 'products' && !P.costs && prev) { body.priceMax = prev.data.priceMax ?? null; body.priceMin = prev.data.priceMin ?? null; body.markup = prev.data.markup ?? null; body.minMarkup = prev.data.minMarkup ?? null; }
-    if (col === 'lots' && !P.costs && prev) { body.unitCost = prev.data.unitCost; body.regularPrice = prev.data.regularPrice; }
+    if (col === 'lots' && !P.costs && prev) { body.unitCost = prev.data.unitCost; body.unitTax = prev.data.unitTax; body.regularPrice = prev.data.regularPrice; }
     if (col === 'shipments' && !P.costs && prev) body.costs = prev.data.costs || [];
     if (col === 'customers' && !P.credit && !P.settings) body.creditLimit = prev ? (prev.data.creditLimit ?? null) : null;
     if (col === 'handovers') {

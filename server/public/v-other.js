@@ -44,13 +44,12 @@ VIEWS.home = {
     const h = new Date().getHours(); const hello = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
     const owing = visibleSales().filter((s) => ['partial', 'unpaid'].includes(K.C.saleX[s.id].status)).length;
     const recent = visibleSales().slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 5);
-    const ships = can('containers') ? K.raw.shipments.filter((s) => stIdx(s.status) < 5) : [];
     const todos = homeTodos();
     const empty = !K.raw.products.length && can('purchases');
     const byMode = Object.entries(d.byMethod).filter(([, v]) => v).map(([k, v]) => k.replace('Orange Money', 'OM').replace('MTN MoMo', 'MoMo') + ' ' + fmt(v)).join(' · ');
-    return (empty ? '<div class="card pad2 mb"><h2>Welcome 👋</h2><p class="muted">Set up in 4 steps:</p><div class="list card">' +
-      [['settings', '1. Add your business name, logo & MoMo numbers'], ['containers', '2. Create your container'], ['buy', '3. Record purchases (or import a B-Stock manifest)'], ['sell', '4. Start selling']].map(([r, l]) => '<div class="li" data-a="go" data-r="' + r + '"><div class="grow t">' + l + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</div></div>' : '') +
-      '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div>' +
+    return (empty ? '<div class="card pad2 mb"><h2>Welcome 👋</h2><p class="muted">Kargo follows your business: <b>Buy → Ship → Receive → Sell</b>.</p><div class="list card">' +
+      [['settings', 'First: your business name, logo & MoMo numbers'], ['buy', '1. Buy — record what you bought, from whom, with tax'], ['ship', '2. Ship — put the goods in a shipment'], ['receive', '3. Receive — customs, unloading, prices'], ['sell', '4. Sell — at the shop, by phone or online']].map(([r, l]) => '<div class="li" data-a="go" data-r="' + r + '"><div class="grow t">' + l + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</div></div>' : '') +
+      '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div>' + phaseHead('', true) +
       '<div class="kpis mb2">' + kpi('Sales today', F(d.revenue), d.n + ' receipt' + (d.n === 1 ? '' : 's') + (seeCost() && d.revenue ? ' · profit ' + fmt(d.profit) : '')) + kpi('Collected today', F(d.collected), byMode || 'Nothing yet') +
         kpi('Owed to you', F(receivables()), owing + ' open sale' + (owing === 1 ? '' : 's')) + kpi('This month', F(mo.revenue), seeCost() ? 'profit ' + fmt(mo.profit) : mo.n + ' receipts') + '</div>' +
       '<div class="home-grid">' +
@@ -59,7 +58,6 @@ VIEWS.home = {
             : '<div class="all-clear">' + ic('check') + '<div><b>All clear</b><div class="hint">Nothing needs your attention right now.</div></div></div>') + '</section>' +
         '<div class="col" style="gap:16px">' +
           '<section class="card home-card"><div class="home-card-h"><h2>Recent sales</h2><a href="#sales" class="hint">See all</a></div>' + (recent.length ? '<div class="mini-list">' + recent.map((s) => { const x = K.C.saleX[s.id]; return '<div class="mini" data-a="openSale" data-id="' + s.id + '" role="button" tabindex="0"><div class="grow"><div class="mini-t">' + esc(s.customerName) + '</div><div class="mini-d">' + esc(s.no) + ' · ' + esc(fmtDate(saleDate(s))) + '</div></div><div class="right"><div class="mini-v">' + fmt(x.net) + '</div>' + (x.status !== 'paid' ? statusBadge(x.status) : '') + '</div></div>'; }).join('') + '</div>' : '<div class="hint pad">No sales yet.</div>') + '</section>' +
-          (ships.length ? '<section class="card home-card"><div class="home-card-h"><h2>On the way</h2><a href="#containers" class="hint">Containers</a></div><div class="mini-list">' + ships.map((s) => '<div class="mini" data-a="openShipD" data-id="' + s.id + '" role="button" tabindex="0"><div class="grow"><div class="mini-t">' + esc(s.name || s.containerNo || 'Container') + '</div><div class="mini-d">' + fmt(K.C.shipX[s.id].units) + ' units</div></div><span class="badge info">' + esc(KC.SHIP_STATUSES[stIdx(s.status)][1]) + '</span></div>').join('') + '</div></section>' : '') +
         '</div>' +
       '</div>';
   },
@@ -179,7 +177,7 @@ VIEWS.expenses = {
         (c.exps.length ? '<div class="pad-x mt">' + expTable(c.exps, 'eodList', { noDate: true, plain: true }) + '</div>' : '<div class="hint pad-x mt">Nothing recorded for this day yet.</div>') +
         (modes.length ? '<details class="fold pad-x"><summary>Cash & mobile money breakdown</summary><div class="fold-body">' + modes.map((r) => '<div class="row between cl"><span>' + esc(r.m) + '</span><span class="hint">' + fmt(r.inn) + ' in · ' + fmt(r.out) + ' out</span><b class="money' + neg(r.left) + '">' + F(r.left) + '</b></div>').join('') + '</div></details>' : '') +
       '</section>' +
-      '<div class="page-head mt2"><div><h2>' + MONTHS[+m.slice(5) - 1] + ' ' + m.slice(0, 4) + ' · ' + F(monthTotal) + '</h2><div class="hint">Running costs. Container costs go in each container; equipment and vehicles go in <a href="#assets">Assets</a>.</div></div><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth" aria-label="Choose the month"><button class="btn ghost" data-a="expEdit">' + ic('plus') + 'Other date</button></div></div>' +
+      '<div class="page-head mt2"><div><h2>' + MONTHS[+m.slice(5) - 1] + ' ' + m.slice(0, 4) + ' · ' + F(monthTotal) + '</h2><div class="hint">Running costs. Shipping and customs costs go in each shipment; equipment and vehicles go in <a href="#assets">Assets</a>.</div></div><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth" aria-label="Choose the month"><button class="btn ghost" data-a="expEdit">' + ic('plus') + 'Other date</button></div></div>' +
       expTable(list, 'expList', { empty: 'No expenses this month.' });
   },
 };
@@ -399,15 +397,6 @@ function custItems(live) {
     rows.map((o) => '<tr><td>' + esc(o.name) + '</td><td class="r">' + o.times + '</td><td class="r">' + fmt(o.qty) + '</td><td class="r money">' + fmt(o.prices.reduce((a, b) => a + b, 0) / o.prices.length) + '</td><td class="r money">' + fmt(o.total) + '</td><td class="nowrap">' + fmtDate(o.last) + '</td></tr>').join('') + '</tbody></table></div></div>';
 }
 
-
-/* where every unit is right now: US → container → sea → port → cleared → warehouse/branches */
-function journeyCard() {
-  const st = [['us', 'Bought, in US storage'], ['planning', 'In a container (planning)'], ['loading', 'Loading in the US'], ['in_transit', 'At sea'], ['at_port', 'At port, Douala'], ['cleared', 'Cleared, on the way'], ['warehouse', 'In warehouse / branches · sellable']];
-  const agg = {}; st.forEach(([k]) => (agg[k] = { u: 0, v: 0 }));
-  K.raw.lots.forEach((l) => { const x = K.C.lotX[l.id]; if (!x) return; let k; if (x.stage === 'warehouse') k = 'warehouse'; else if (x.stage === 'us') k = 'us'; else k = (byId('shipments', l.shipmentId) || {}).status || 'planning'; if (!agg[k]) return; const u = k === 'warehouse' ? Math.max(0, x.available) + Math.max(0, x.clientAvail || 0) : num(l.qty) - x.sold; agg[k].u += Math.max(0, u); agg[k].v += Math.max(0, u) * x.landedUnit; });
-  const max = Math.max(1, ...Object.values(agg).map((a) => a.u));
-  return '<div class="sec"><div class="sech"><h2>Where your goods are</h2><a href="#containers" class="small b">Containers</a></div><div class="card pad">' + st.map(([k, l], i) => '<div class="row" style="margin:6px 0;opacity:' + (agg[k].u ? 1 : 0.45) + '"><span class="badge ' + (k === 'warehouse' ? 'ok' : k === 'us' ? 'acc' : 'info') + '" style="min-width:22px;justify-content:center">' + (i + 1) + '</span><span class="grow small">' + l + '</span><span class="small b">' + fmt(agg[k].u) + '</span>' + (seeCost() ? '<span class="tiny muted money" style="width:96px;text-align:right">' + F(agg[k].v) + '</span>' : '') + '</div>').join('') + '<div class="tiny muted mt">Goods can only be sold at step 7, after the container is received.</div></div></div>';
-}
 
 A.pwChange = async () => { try { await K.store.req('POST', '/api/me/password', { current: $('#pwOld').value, password: $('#pwNew').value }); $('#pwOld').value = $('#pwNew').value = ''; toast('Password changed'); } catch (e) { toast(e.message, true); } };
 

@@ -49,7 +49,18 @@
     vendors: ['Costco', 'Walmart', "Sam's Club", 'B-Stock', 'Target', 'Amazon', 'BJ\'s'],
   };
 
-  const SOURCE_TYPES = ['Store', 'Auction', 'Online', 'Private seller', 'Local (Cameroon)'];
+  /* Who we buy from. 'Private seller' is the old name for 'Individual' (kept so old purchases still read). */
+  const SOURCE_TYPES = ['Store', 'Black market', 'Individual', 'Online', 'Auction', 'Local (Cameroon)'];
+  /** Share a purchase's tax over its lines by line value (qty × price). Returns tax per line, in the purchase
+   *  currency, rounded to cents; the last line takes the rounding remainder so the shares add up exactly. */
+  function allocTax(lines, taxTotal) {
+    const t = Math.round(num(taxTotal) * 100) / 100; const vals = (lines || []).map((l) => Math.max(0, num(l.unitCost) * num(l.qty)));
+    const sub = vals.reduce((a, v) => a + v, 0); if (!lines || !lines.length || !(t > 0)) return (lines || []).map(() => 0);
+    const out = vals.map((v) => Math.round((sub > 0 ? t * v / sub : t / lines.length) * 100) / 100);
+    const diff = Math.round((t - out.reduce((a, v) => a + v, 0)) * 100) / 100;
+    if (diff) { let k = vals.lastIndexOf(Math.max(...vals)); if (k < 0) k = out.length - 1; out[k] = Math.round((out[k] + diff) * 100) / 100; }
+    return out;
+  }
   const CONDITIONS = ['New', 'Open box', 'Used', 'Refurbished', 'Damaged / Parts'];
   /** Does the item work? Recorded per line on sales and purchases. */
   const WORKING = ['Working', 'Not working', 'Not tested'];
@@ -116,15 +127,19 @@
     return b.id ? 'PU-' + String(b.id).replace(/^b_/, '').toUpperCase() : '';
   }
   function paymentFees(s) { return ((s && s.payments) || []).reduce((a, p) => a + Math.max(0, num(p.fee)), 0); }
+  /* One shipment moves through the 4 phases: Ship (consolidating → loading → on the way), Receive (arrived →
+   * customs cleared → in warehouse), then Sell (ready to sell). Items become sellable once in the warehouse. */
   const SHIP_STATUSES = [
-    ['planning', 'Planning'], ['loading', 'Loading (US)'], ['in_transit', 'At sea'], ['at_port', 'At port Douala'],
-    ['cleared', 'Cleared customs'], ['received', 'In warehouse'], ['closed', 'Closed'],
+    ['planning', 'Consolidating'], ['loading', 'Loading'], ['in_transit', 'On the way'], ['at_port', 'Arrived in Cameroon'],
+    ['cleared', 'Customs cleared'], ['received', 'In warehouse'], ['closed', 'Ready to sell'],
   ];
+  const shipPhase = (st) => (['at_port', 'cleared', 'received'].includes(st) ? 'receive' : st === 'closed' ? 'sell' : 'ship');
   const COST_CATEGORIES = [
-    ['US', 'Ocean freight'], ['US', 'Trucking / drayage'], ['US', 'Loading labor'], ['US', 'BESC (cargo tracking note)'],
-    ['US', 'Packing materials'], ['US', 'Other US cost'],
+    // side 'US' = Ship phase costs (before arrival); side 'CM' = Receive phase costs (in Cameroon)
+    ['US', 'Consolidation / storage'], ['US', 'Trucking / drayage'], ['US', 'Loading labor'], ['US', 'Ocean freight'],
+    ['US', 'BESC (cargo tracking note)'], ['US', 'Tests & inspection'], ['US', 'Packing materials'], ['US', 'Insurance'], ['US', 'Other shipping cost'],
     ['CM', 'Customs duties – goods'], ['CM', 'Customs duties – vehicles'], ['CM', 'Clearing agent fee'], ['CM', 'Port storage'],
-    ['CM', 'Demurrage'], ['CM', 'Transport to warehouse'], ['CM', 'Unloading labor'], ['CM', 'Other Cameroon cost'],
+    ['CM', 'Demurrage'], ['CM', 'Transport to warehouse'], ['CM', 'Offloading labor'], ['CM', 'Storage & preparation'], ['CM', 'Other receiving cost'],
   ];
   const ADJ_REASONS = ['Missing / theft', 'Unaccounted for', 'Damaged', 'Expired', 'Missing in transfer', 'Stock count difference', 'Count correction', 'Found / extra', 'Own use / gift'];
   const RETURN_REASONS = ['Damaged / defective', 'Expired', 'Wrong item given', 'Customer changed mind', 'Not as described', 'Other'];
@@ -232,12 +247,14 @@
       const fx = rate(l.currency || 'USD', sh);
       const unitX = num(l.unitCost) * fx;
       const regX = num(l.regularPrice) * fx;
+      const taxX = num(l.unitTax) * fx; // purchase tax share per unit
+      const paidX = unitX + taxX;
       let stage;
       if (sh) stage = sh.status === 'received' || sh.status === 'closed' ? 'warehouse' : 'transit';
       else stage = l.sourceType === 'Local (Cameroon)' || l.inWarehouse ? 'warehouse' : 'us';
       const received = Math.max(0, num(l.qty) - num(l.recvMissing) - num(l.recvDamaged));
       const home = l.locationId || (sh && sh.locationId) || 'main';
-      lotX[l.id] = { unitX, regX, fx, stage, received, home, locDelta: {}, alloc: 0, out: 0, adj: 0, sold: 0, revenue: 0, cogs: 0 };
+      lotX[l.id] = { unitX, taxX, paidX, regX, fx, stage, received, home, locDelta: {}, alloc: 0, out: 0, adj: 0, sold: 0, revenue: 0, cogs: 0 };
     });
 
     const isVeh = (l) => (prodById[l.productId] || {}).category === 'Vehicles';
@@ -258,12 +275,12 @@
         const tv = t.reduce((a, l) => a + val(l), 0), tq = t.reduce((a, l) => a + num(l.qty), 0);
         t.forEach((l) => { lotX[l.id].alloc += tv > 0 ? (amt * val(l)) / tv : tq > 0 ? (amt * num(l.qty)) / tq : 0; });
       });
-      const goodsX = ls.reduce((a, l) => a + val(l), 0);
+      const goodsX = ls.reduce((a, l) => a + lotX[l.id].paidX * num(l.qty), 0);
       const regularX = ls.reduce((a, l) => a + lotX[l.id].regX * num(l.qty), 0);
       shipX[sh.id] = { fx, costsX, usX, cmX, unalloc, goodsX, regularX, landedX: goodsX + costsX - unalloc, lotIds: ls.map((l) => l.id),
         units: ls.reduce((a, l) => a + num(l.qty), 0), unitsSold: 0, revenue: 0, cogs: 0, lossX: 0, stockX: 0 };
     });
-    lots.forEach((l) => { const x = lotX[l.id], q = num(l.qty); x.landedUnit = x.unitX + (q > 0 ? x.alloc / q : 0); });
+    lots.forEach((l) => { const x = lotX[l.id], q = num(l.qty); x.landedUnit = x.paidX + (q > 0 ? x.alloc / q : 0); });
 
     const mv = (x, loc, q) => { x.locDelta[loc] = (x.locDelta[loc] || 0) + q; };
     sales.forEach((s) => {
@@ -750,6 +767,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, allocTax, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

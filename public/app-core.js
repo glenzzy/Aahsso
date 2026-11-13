@@ -277,9 +277,9 @@ function xlsxDownload(filename, sheets) { // sheets: {name: rows[]}
 
 /* ---------- navigation ---------- */
 const NAV = [
-  ['home', 'Home', 'home', () => true], ['sell', 'New sale', 'sell', () => can('sell')], ['sales', 'Sales', 'sales', () => can('sell') || can('salesAll') || can('payments')],
+  ['home', 'Home', 'home', () => true], ['sell', 'Sell', 'sell', () => can('sell')], ['sales', 'Sales', 'sales', () => can('sell') || can('salesAll') || can('payments')],
   ['orders', 'Online orders', 'sell', () => can('sell') || can('payments'), () => (K.raw.orders || []).filter((o) => o.status === 'new').length],
-  ['stock', 'Stock', 'stock', () => can('stockView') || can('stockEdit')], ['buy', 'Purchases', 'buy', () => can('purchases')], ['containers', 'Containers', 'ship', () => can('containers')],
+  ['stock', 'Stock & prices', 'stock', () => can('stockView') || can('stockEdit')], ['buy', 'Buy', 'buy', () => can('purchases')], ['ship', 'Ship', 'ship', () => can('containers')], ['receive', 'Receive', 'check', () => can('containers')],
   ['customers', 'Customers', 'users', () => can('customers') || can('sell')], ['reports', 'Reports', 'chart', () => can('reports')], ['expenses', 'Expenses', 'wallet', () => can('expenses')],
   ['cash', 'Cash handover', 'wallet', () => can('payments') || can('handover')], ['suppliers', 'Suppliers & bills', 'buy', () => can('suppliers')], ['reminders', 'Debt reminders', 'wa', () => can('reminders')],
   ['assets', 'Assets', 'truck', () => can('assets')],
@@ -289,12 +289,14 @@ const NAV = [
   ['team', 'Team & access', 'key', () => can('team')], ['settings', 'Settings', 'gear', () => can('settings') || can('export')],
 ];
 const navOk = (r) => { const n = NAV.find((x) => x[0] === r); return !n || n[3](); };
-const TITLES = Object.assign(Object.fromEntries(NAV.map((n) => [n[0], n[1]])), { pending: 'Access' });
+const TITLES = Object.assign(Object.fromEntries(NAV.map((n) => [n[0], n[1]])), { pending: 'Access', buy: '1 · Buy', ship: '2 · Ship', receive: '3 · Receive', sell: '4 · Sell' });
+const ROUTE_ALIAS = { containers: 'ship', purchases: 'buy' }; // old links keep working
 function go(r) { if (location.hash !== '#' + r) location.hash = r; else route(); }
 function route() {
   while (K.sheets.length) { const t = K.sheets.pop(); t.remove(); }
   document.body.style.overflow = '';
   let r = (location.hash || '#home').slice(1) || 'home';
+  r = ROUTE_ALIAS[r] || r;
   if (!VIEWS[r]) r = 'home';
   if (!K.member) r = 'pending';
   else if (!navOk(r)) r = 'home';
@@ -302,7 +304,10 @@ function route() {
 }
 function logoHTML(cls = 'logo') { const s = S(); return '<div class="' + cls + '">' + (s.logo ? '<img src="' + esc(s.logo) + '" alt="">' : esc(initials(s.businessName).slice(0, 2))) + '</div>'; }
 // menu groups (order + quiet headings) so the sidebar reads in four short blocks
-const NAV_GROUPS = [['', ['home']], ['Sell', ['sell', 'sales', 'orders', 'customers', 'reminders']], ['Stock', ['stock', 'buy', 'containers', 'transfers', 'audit']], ['Money', ['expenses', 'cash', 'suppliers', 'reports', 'assets']], ['Admin', ['activity', 'team', 'settings']]];
+// the business flow first (1 Buy → 2 Ship → 3 Receive → 4 Sell), then selling day to day, money and admin
+const NAV_GROUPS = [['', ['home']], ['Flow', ['buy', 'ship', 'receive', 'sell']], ['Selling', ['sales', 'orders', 'customers', 'reminders', 'stock']], ['Money', ['expenses', 'cash', 'suppliers', 'reports', 'assets']], ['Admin', ['transfers', 'audit', 'activity', 'team', 'settings']]];
+const FLOW_STEP = { buy: 1, ship: 2, receive: 3, sell: 4 };
+const navIcon = (n) => FLOW_STEP[n[0]] ? '<span class="nav-step">' + FLOW_STEP[n[0]] + '</span>' : ic(n[2]);
 /** Visible menu items grouped: [[groupLabel, [navItem…]], …] (items not listed in a group go last). */
 function navGrouped(items) {
   const seen = new Set(); const out = NAV_GROUPS.map(([g, keys]) => [g, keys.map((k) => items.find((n) => n[0] === k)).filter(Boolean)]);
@@ -315,7 +320,7 @@ function shell() {
   const s = S();
   const items = NAV.filter((n) => n[3]());
   $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div><div class="bn">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">Import & sales manager</div></div></div>' +
-    navGrouped(items).map(([g, l]) => (g ? '<div class="nav-g">' + g + '</div>' : '') + l.map((n) => '<a class="nav' + (K.route === n[0] ? ' on' : '') + '" href="#' + n[0] + '">' + ic(n[2]) + n[1] + navCount(n) + '</a>').join('')).join('') +
+    navGrouped(items).map(([g, l]) => (g ? '<div class="nav-g">' + g + '</div>' : '') + l.map((n) => '<a class="nav' + (K.route === n[0] ? ' on' : '') + '" href="#' + n[0] + '">' + navIcon(n) + n[1] + navCount(n) + '</a>').join('')).join('') +
     '<div class="sp"></div><div class="who">' + esc(K.me.name || K.info.userLabel || '') + ' · ' + esc(roleLabel()) + '</div>';
   if (!K.member) { $('#bnav').innerHTML = ''; $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div class="bn">' + esc(s.businessName) + '</div></div>'; $('#title').textContent = 'Access'; $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"'); return; }
   const bn = [['home', 'Home', 'home'], ['sales', 'Sales', 'sales'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']].filter((n) => n[0] === 'more' || navOk(n[0]));
@@ -411,7 +416,7 @@ A.go = (el) => { closeSheet(); go(el.dataset.r); };
 A.toggleX = (el) => { const k = el.dataset.k; K.ui.expanded[k] = !K.ui.expanded[k]; render(true); };
 A.moreMenu = () => {
   const items = NAV.filter((n) => n[3]() && !['home', 'sales', 'sell', 'stock'].includes(n[0]));
-  openSheet({ title: 'More', body: navGrouped(items).map(([g, l]) => (g ? '<div class="more-g">' + g + '</div>' : '') + '<div class="card list mb">' + l.map((n) => '<div class="li" data-a="go" data-r="' + n[0] + '"><div class="av ink">' + ic(n[2]) + '</div><div class="grow t">' + n[1] + '</div>' + navCount(n) + ic('chev', 'sm') + '</div>').join('') + '</div>').join('') });
+  openSheet({ title: 'More', body: navGrouped(items).map(([g, l]) => (g ? '<div class="more-g">' + g + '</div>' : '') + '<div class="card list mb">' + l.map((n) => '<div class="li" data-a="go" data-r="' + n[0] + '"><div class="av ink">' + (FLOW_STEP[n[0]] ? '<b>' + FLOW_STEP[n[0]] + '</b>' : ic(n[2])) + '</div><div class="grow t">' + n[1] + '</div>' + navCount(n) + ic('chev', 'sm') + '</div>').join('') + '</div>').join('') });
 };
 const VIEWS = {};
 

@@ -361,3 +361,21 @@ test('online shop: catalogue hides costs, exact stock only when few; orders chec
   assert.match(err({ delivery: { mode: 'local' } }), /town/);
   assert.equal(KC.validateShopOrder(Object.assign({}, ok, { delivery: { mode: 'pickup' } }), cat).order.delivery.mode, 'pickup');
 });
+
+test('purchase tax is shared over lines by value and adds up exactly', () => {
+  const lines = [{ unitCost: 10, qty: 3 }, { unitCost: 5, qty: 2 }, { unitCost: 20, qty: 1 }]; // 30 + 10 + 20 = 60
+  const t = KC.allocTax(lines, 6); // 10 %
+  assert.deepEqual(t, [3, 1, 2]);
+  const odd = KC.allocTax([{ unitCost: 1, qty: 1 }, { unitCost: 1, qty: 1 }, { unitCost: 1, qty: 1 }], 1);
+  assert.equal(Math.round(odd.reduce((a, v) => a + v, 0) * 100) / 100, 1);
+  assert.deepEqual(KC.allocTax(lines, 0), [0, 0, 0]);
+});
+
+test('tax is part of the landed cost of each unit', () => {
+  const raw = { settings: { fxRates: { USD: 600 }, baseCurrency: 'XAF' }, products: [{ id: 'p' }], shipments: [{ id: 's', status: 'received', costs: [{ id: 'c', side: 'US', amount: 100, currency: 'USD' }] }],
+    lots: [{ id: 'l', productId: 'p', shipmentId: 's', currency: 'USD', unitCost: 10, unitTax: 1, qty: 10 }], sales: [] };
+  const C = KC.computeAll(raw);
+  assert.equal(C.lotX.l.landedUnit, (10 + 1 + 10) * C.lotX.l.fx);
+  assert.equal(C.shipX.s.goodsX, 110 * C.lotX.l.fx);
+  assert.equal(KC.shipPhase('at_port'), 'receive'); assert.equal(KC.shipPhase('loading'), 'ship'); assert.equal(KC.shipPhase('closed'), 'sell');
+});

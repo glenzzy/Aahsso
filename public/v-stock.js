@@ -2,7 +2,7 @@
 
 const catOpts = () => Object.keys(S().categories || KC.CATEGORIES);
 const subOpts = (cat) => ((S().categories || KC.CATEGORIES)[cat] || []);
-const lotStageBadge = (l) => { const x = K.C.lotX[l.id]; if (!x) return ''; return x.stage === 'warehouse' ? '<span class="badge ok">Warehouse</span>' : x.stage === 'transit' ? '<span class="badge info">' + esc((KC.SHIP_STATUSES.find((s) => s[0] === (byId('shipments', l.shipmentId) || {}).status) || [0, 'In transit'])[1]) + '</span>' : '<span class="badge acc">US storage</span>'; };
+const lotStageBadge = (l) => { const x = K.C.lotX[l.id]; if (!x) return ''; return x.stage === 'warehouse' ? '<span class="badge ok">Warehouse</span>' : x.stage === 'transit' ? '<span class="badge info">' + esc((KC.SHIP_STATUSES.find((s) => s[0] === (byId('shipments', l.shipmentId) || {}).status) || [0, 'In transit'])[1]) + '</span>' : '<span class="badge acc">Waiting to ship</span>'; };
 const shipName = (id) => { const s = id && byId('shipments', id); return s ? (s.name || s.containerNo || 'Container') : '—'; };
 
 /* ---------- stock ---------- */
@@ -151,9 +151,9 @@ A.adjustStock = (el) => {
 A.adjMode = (el) => { const sh = el.closest('.scrim'); sh._mode = el.dataset.v; $$('#adjMode button', sh).forEach((b) => b.classList.toggle('on', b === el)); $('#mLoss', sh).classList.toggle('hide', sh._mode !== 'loss'); $('#mCount', sh).classList.toggle('hide', sh._mode !== 'count'); };
 
 /* ---------- pricing tool ---------- */
-A.pricing = () => {
+A.pricing = (el) => {
   const sh = openSheet({ title: 'Prices & markup', wide: true, body: '', foot: '<button class="btn grow" data-a="sheetClose">Close</button><button class="btn pri grow" id="prSave">Save changes</button>' });
-  sh._f = { cat: '', ship: '', q: '' }; sh._chg = {};
+  sh._f = { cat: '', ship: (el && el.dataset && el.dataset.ship) || '', q: '' }; sh._chg = {};
   const ships = K.raw.shipments.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   const rowsFor = () => K.raw.products.filter((p) => !p.archived).filter((p) => { const x = K.C.prodX[p.id]; return x.available + x.transit + x.us > 0; })
     .filter((p) => !sh._f.cat || p.category === sh._f.cat).filter((p) => !sh._f.ship || K.C.prodX[p.id].lotIds.some((id) => (byId('lots', id) || {}).shipmentId === sh._f.ship))
@@ -162,7 +162,7 @@ A.pricing = () => {
   const draw = () => {
     const rows = rowsFor();
     setSheetBody(sh, '<div class="alert info mb">Your target: mark everything up (e.g. 100%), then adjust individual items. Prices round up to the nearest ' + S().roundTo + ' F. Fixed prices override markup.</div>' +
-      '<div class="row wrap mb"><select class="inp" style="width:auto" id="fCat"><option value="">All categories</option>' + catOpts().map((c) => '<option' + (sh._f.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select><select class="inp" style="width:auto" id="fShip"><option value="">All containers</option>' + ships.map((s) => '<option value="' + s.id + '"' + (sh._f.ship === s.id ? ' selected' : '') + '>' + esc(s.name || s.containerNo) + '</option>').join('') + '</select><input class="inp grow" style="min-width:140px" id="fQ" placeholder="Search" value="' + esc(sh._f.q) + '"></div>' +
+      '<div class="row wrap mb"><select class="inp" style="width:auto" id="fCat"><option value="">All categories</option>' + catOpts().map((c) => '<option' + (sh._f.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select><select class="inp" style="width:auto" id="fShip"><option value="">All shipments</option>' + ships.map((s) => '<option value="' + s.id + '"' + (sh._f.ship === s.id ? ' selected' : '') + '>' + esc(s.name || s.containerNo) + '</option>').join('') + '</select><input class="inp grow" style="min-width:140px" id="fQ" placeholder="Search" value="' + esc(sh._f.q) + '"></div>' +
       '<div class="card pad mb row wrap"><span class="b">Apply to all ' + rows.length + ' shown:</span><input class="inp" style="width:90px" id="bulkMk" inputmode="decimal" placeholder="100"><span>% markup</span><input class="inp" style="width:90px" id="bulkMn" inputmode="decimal" placeholder="' + S().minMarkup + '"><span>% min</span><button class="btn acc" id="bulkGo">Apply</button></div>' +
       '<div class="tw card"><table class="t"><thead><tr><th>Item</th><th class="r">Stock</th><th class="r">Cost</th><th class="r">Markup %</th><th class="r">Max price</th><th class="r">Min price</th><th class="r">Wholesale</th><th class="r">Profit</th></tr></thead><tbody>' +
       rows.map((p) => { const x = K.C.prodX[p.id], pv = preview(p), c = Object.assign({}, p, sh._chg[p.id] || {}); return '<tr><td style="min-width:150px">' + esc(p.name) + '</td><td class="r">' + x.available + (x.transit + x.us ? '<span class="faint">+' + (x.transit + x.us) + '</span>' : '') + '</td><td class="r money">' + fmt(x.avgCost) + '</td>' +
@@ -230,19 +230,20 @@ function purchaseGroups(lots) {
   lots.forEach((l) => { const k = purchKey(l); if (!m.has(k)) m.set(k, []); m.get(k).push(l); });
   return [...m.entries()].map(([key, ls]) => {
     const f = ls[0]; const cur = f.currency || 'USD';
-    const total = ls.reduce((a, l) => a + num(l.unitCost) * num(l.qty), 0);
-    const totalX = ls.reduce((a, l) => a + K.C.lotX[l.id].unitX * num(l.qty), 0);
+    const sub = ls.reduce((a, l) => a + num(l.unitCost) * num(l.qty), 0), tax = ls.reduce((a, l) => a + num(l.unitTax) * num(l.qty), 0);
+    const total = sub + tax;
+    const totalX = ls.reduce((a, l) => a + K.C.lotX[l.id].paidX * num(l.qty), 0);
     const units = ls.reduce((a, l) => a + num(l.qty), 0);
     const bill = f.purchaseTxnId ? billByTxn[f.purchaseTxnId] : null;
     const bx = bill ? billX(bill) : null;
     const stages = {}; ls.forEach((l) => { const s = K.C.lotX[l.id].stage; stages[s] = (stages[s] || 0) + 1; });
     const ships = [...new Set(ls.map((l) => l.shipmentId).filter(Boolean))].map((id) => shipName(id));
     const atSeller = ls.filter((l) => l.collected === false).length; // older lines (no field) count as collected
-    return { atSeller, key, lots: ls, first: f, date: f.purchaseDate || '', vendor: f.vendor || '', source: f.sourceType || '', po: f.poNumber || '', txnId: f.purchaseTxnId || '', cur, total, totalX, units, bill, bx, stages, ships };
+    return { atSeller, key, lots: ls, first: f, date: f.purchaseDate || '', vendor: f.vendor || '', source: f.sourceType || '', po: f.poNumber || '', txnId: f.purchaseTxnId || '', cur, sub, tax, total, totalX, units, bill, bx, stages, ships };
   }).sort((a, b) => (b.date + (b.first.createdAt || '')).localeCompare(a.date + (a.first.createdAt || '')));
 }
-const STAGE_BADGE = { us: '<span class="badge">US storage</span>', transit: '<span class="badge info">In container</span>', warehouse: '<span class="badge ok">Warehouse</span>' };
-const STAGE_NAME = { us: 'US storage', transit: 'In container', warehouse: 'Warehouse' };
+const STAGE_BADGE = { us: '<span class="badge acc">Waiting to ship</span>', transit: '<span class="badge info">Shipping</span>', warehouse: '<span class="badge ok">In stock</span>' };
+const STAGE_NAME = { us: 'Waiting to ship', transit: 'Shipping', warehouse: 'In stock' };
 function purchaseTable(groups) {
   const today = todayStr();
   const pays = (g) => g.bill ? (g.bill.payments || []).filter((p) => num(p.amount) > 0) : [];
@@ -252,18 +253,21 @@ function purchaseTable(groups) {
   const curTotal = (f) => (rows) => oneCur ? money(dtSum(rows, f), oneCur) : '';
   return dataTable({
     id: 'buyList', rows: groups, noun: 'purchase', limit: 300,
-    empty: '<div class="big">🛒</div>No purchases here. Tap <b>Add purchase</b> after each store run, or import a B-Stock manifest.',
+    empty: '<div class="big">🛒</div>No purchases here. Tap <b>New purchase</b> after each store run, or import an Excel list inside it.',
     rowAttr: (g) => ' data-a="openPurchase" data-k="' + esc(g.key) + '"',
     cols: [
       { k: 'date', label: 'Date', core: true, v: (g) => g.date, html: (g) => dtDate(g.date) },
-      { k: 'po', label: 'Order no.', v: (g) => g.po },
+      { k: 'po', label: 'Receipt no.', v: (g) => g.po },
       { k: 'txn', label: 'Transaction ID', v: (g) => g.txnId, cls: 'mut' },
-      { k: 'vendor', label: 'Store / seller', core: true, v: (g) => g.vendor },
-      { k: 'source', label: 'Source', v: (g) => g.source, cls: 'mut' },
+      { k: 'vendor', label: 'Seller', core: true, v: (g) => g.vendor || g.source },
+      { k: 'source', label: 'Bought from', v: (g) => g.source, cls: 'mut' },
+      { k: 'phone', label: 'Seller phone', v: (g) => g.first.vendorPhone || '', cls: 'mut' },
       { k: 'items', label: 'Items', core: true, wrap: true, v: items },
       { k: 'lines', label: 'Lines', num: true, v: (g) => g.lots.length, total: (rows) => fmt(dtSum(rows, (g) => g.lots.length)) },
       { k: 'units', label: 'Units', num: true, v: (g) => g.units, total: (rows) => fmt(dtSum(rows, (g) => g.units)) },
       { k: 'cur', label: 'Currency', v: (g) => g.cur, cls: 'mut' },
+      { k: 'subt', label: 'Before tax', money: true, v: (g) => g.sub, html: (g) => money(g.sub, g.cur), total: curTotal((g) => g.sub) },
+      { k: 'tax', label: 'Tax', money: true, v: (g) => g.tax || '', html: (g) => g.tax ? money(g.tax, g.cur) : dtNil, total: curTotal((g) => g.tax) },
       { k: 'total', label: 'Total', core: true, money: true, cls: 'b', v: (g) => g.total, html: (g) => money(g.total, g.cur), total: curTotal((g) => g.total) },
       { k: 'totalx', label: 'Total (' + baseCode() + ')', money: true, v: (g) => Math.round(g.totalX), total: (rows) => fmt(dtSum(rows, (g) => g.totalX)) },
       { k: 'mode', label: 'Payment mode', v: (g) => pays(g).length ? [...new Set(pays(g).map((p) => p.method || 'Cash'))].join(', ') : g.bill ? 'Not paid' : '', html: (g) => pays(g).length ? esc([...new Set(pays(g).map((p) => p.method || 'Cash'))].join(', ')) : g.bill ? '<span class="badge warn">Not paid</span>' : dtNil },
@@ -274,39 +278,21 @@ function purchaseTable(groups) {
       { k: 'due', label: 'Pay by', v: (g) => owed(g) ? (g.bill.dueDate || g.bill.date) : '', html: (g) => { if (!owed(g)) return dtNil; const d = g.bill.dueDate || g.bill.date; return d < today ? '<span class="badge bad">Overdue · ' + esc(dayMon(d)) + '</span>' : dtDate(d); } },
       { k: 'where', label: 'Where', core: true, v: (g) => Object.keys(g.stages).map((s) => STAGE_NAME[s]).join(', '), html: (g) => Object.keys(g.stages).map((s) => STAGE_BADGE[s] || '').join(' ') },
       { k: 'coll', label: 'Collected', v: (g) => g.atSeller ? 'No' : 'Yes', html: (g) => g.atSeller ? '<span class="badge warn">' + (g.atSeller === g.lots.length ? 'No · at seller' : 'Partly') + '</span>' : '<span class="badge">Yes</span>' },
-      { k: 'ship', label: 'Container', v: (g) => g.ships.join(', '), cls: 'mut' },
+      { k: 'ship', label: 'Shipment', v: (g) => g.ships.join(', '), cls: 'mut' },
     ],
   });
 }
 function purchaseRow(g) { // Excel row
   const pays = g.bill ? (g.bill.payments || []).filter((p) => num(p.amount) > 0) : [];
-  return { Date: g.date, 'Transaction ID': g.txnId, 'Order no': g.po, 'Store / seller': g.vendor, Source: g.source, Items: g.lots.map((l) => ((byId('products', l.productId) || {}).name || '?') + ' x' + num(l.qty)).join('; '), Lines: g.lots.length, Units: g.units, Currency: g.cur, Total: Math.round(g.total * 100) / 100, ['Total (' + baseCode() + ')']: Math.round(g.totalX), 'Payment mode': [...new Set(pays.map((p) => p.method))].join(', '), 'Payment txn IDs': pays.map((p) => p.ref).filter(Boolean).join(', '), Paid: g.bx ? g.bx.paid : '', 'MoMo charges': g.bx ? g.bx.fees : '', Owed: g.bx ? Math.max(0, g.bx.balance) : '', Container: g.ships.join(', '), 'Collected from seller': g.atSeller ? (g.atSeller === g.lots.length ? 'No' : 'Partly') : 'Yes' };
+  return { Date: g.date, 'Transaction ID': g.txnId, 'Receipt no': g.po, Seller: g.vendor, 'Bought from': g.source, 'Seller phone': g.first.vendorPhone || '', 'Items (before tax)': Math.round(g.sub * 100) / 100, Tax: Math.round(g.tax * 100) / 100, Items: g.lots.map((l) => ((byId('products', l.productId) || {}).name || '?') + ' x' + num(l.qty)).join('; '), Lines: g.lots.length, Units: g.units, Currency: g.cur, Total: Math.round(g.total * 100) / 100, ['Total (' + baseCode() + ')']: Math.round(g.totalX), 'Payment mode': [...new Set(pays.map((p) => p.method))].join(', '), 'Payment txn IDs': pays.map((p) => p.ref).filter(Boolean).join(', '), Paid: g.bx ? g.bx.paid : '', 'MoMo charges': g.bx ? g.bx.fees : '', Owed: g.bx ? Math.max(0, g.bx.balance) : '', Shipment: g.ships.join(', '), 'Collected from seller': g.atSeller ? (g.atSeller === g.lots.length ? 'No' : 'Partly') : 'Yes' };
 }
-VIEWS.buy = {
-  render() {
-    const q = K.ui.buyQ.toLowerCase(); const f = K.ui.buyF || 'all';
-    const lots = K.raw.lots.filter((l) => { const x = K.C.lotX[l.id]; return f === 'all' || x.stage === f; });
-    let groups = purchaseGroups(lots);
-    if (q) groups = groups.filter((g) => (g.vendor + ' ' + g.po + ' ' + g.txnId + ' ' + g.source + ' ' + g.lots.map((l) => ((byId('products', l.productId) || {}).name || '') + ' ' + (l.lotNumber || '')).join(' ') + ' ' + (g.bill ? (g.bill.payments || []).map((p) => p.ref || '').join(' ') : '')).toLowerCase().includes(q));
-    K._buyGroups = groups;
-    const m = monthStr(); const mLots = K.raw.lots.filter((l) => (l.purchaseDate || '').slice(0, 7) === m);
-    const spent = mLots.reduce((a, l) => a + K.C.lotX[l.id].unitX * num(l.qty), 0), reg = mLots.reduce((a, l) => a + (num(l.regularPrice) ? K.C.lotX[l.id].regX : K.C.lotX[l.id].unitX) * num(l.qty), 0);
-    const unassigned = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us');
-    const owed = groups.reduce((a, g) => a + (g.bx && g.bill.status !== 'cancelled' ? Math.max(0, g.bx.balanceX) : 0), 0);
-    return '<div class="kpis mb">' + kpi('Bought this month', F(spent), 'in ' + baseCode() + ' at your exchange rates', true) + kpi('Discount captured', F(reg - spent), reg ? pct((reg - spent) / reg * 100) + ' below regular price' : 'Enter regular prices to track') + kpi('Still owed on purchases', F(owed), 'unpaid / part-paid') + kpi('In US storage', fmt(unassigned.reduce((a, l) => a + num(l.qty), 0)) + ' units', 'not yet in a container') + '</div>' +
-      '<div class="row wrap between mb"><div class="row wrap"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'Add purchase</button><button class="btn" data-a="importPurch">' + ic('up') + 'Import Excel (B-Stock manifest)</button><button class="btn" data-a="tplPurch">' + ic('dl') + 'Template</button></div>' + (can('export') ? '<button class="btn" data-a="exportPurch">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
-      '<div class="chips mb">' + [['all', 'All'], ['us', 'US storage'], ['transit', 'In container'], ['warehouse', 'In warehouse']].map(([k, l]) => '<button class="chip' + (f === k ? ' on' : '') + '" data-a="buyF" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
-      '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search item, store, order no., txn ID" value="' + esc(K.ui.buyQ) + '" data-c="buyQ"></div>' +
-      purchaseTable(groups);
-  },
-};
 A.purchCollected = async (el) => {
   const g = purchaseGroups(K.raw.lots).find((x) => x.key === el.dataset.k); if (!g) return;
   const at = new Date().toISOString();
   for (const l of g.lots.filter((x) => x.collected === false)) await save('lots', Object.assign({}, byId('lots', l.id), { collected: true, collectedAt: at, collectedBy: K.me.name || '' }));
   refreshSheets(); scheduleRender(); toast('Marked as collected');
 };
-A.exportPurch = () => xlsxDownload('Purchases-' + todayStr() + '.xlsx', { Purchases: (K._buyGroups || []).map(purchaseRow), 'Purchase lines': (K._buyGroups || []).flatMap((g) => g.lots.map((l) => ({ 'Transaction ID': g.txnId, Date: l.purchaseDate, Store: l.vendor || '', 'Order no': l.poNumber || '', Item: (byId('products', l.productId) || {}).name || '', Qty: num(l.qty), Currency: l.currency, 'Price paid': num(l.unitCost), 'Regular price': num(l.regularPrice) || '', 'Line total': Math.round(num(l.unitCost) * num(l.qty) * 100) / 100, Condition: l.condition || 'New', Working: l.working || 'Working', Collected: l.collected === false ? 'No' : 'Yes', Container: shipName(l.shipmentId), Stage: K.C.lotX[l.id].stage }))) });
+A.exportPurch = () => xlsxDownload('Purchases-' + todayStr() + '.xlsx', { Purchases: (K._buyGroups || []).map(purchaseRow), 'Purchase lines': (K._buyGroups || []).flatMap((g) => g.lots.map((l) => ({ 'Transaction ID': g.txnId, Date: l.purchaseDate, Store: l.vendor || '', 'Order no': l.poNumber || '', Item: (byId('products', l.productId) || {}).name || '', Qty: num(l.qty), Currency: l.currency, 'Price paid': num(l.unitCost), 'Tax each': Math.round(num(l.unitTax) * 100) / 100, 'Regular price': num(l.regularPrice) || '', 'Line total': Math.round((num(l.unitCost) + num(l.unitTax)) * num(l.qty) * 100) / 100, Condition: l.condition || 'New', Working: l.working || 'Working', Collected: l.collected === false ? 'No' : 'Yes', Shipment: shipName(l.shipmentId), Stage: STAGE_NAME[K.C.lotX[l.id].stage] }))) });
 /** One purchase: its lines (tap a line to edit it) and how it was paid. */
 A.openPurchase = (el) => {
   const key = el.dataset.k;
@@ -317,11 +303,11 @@ A.openPurchase = (el) => {
   const g = purchaseGroups(K.raw.lots).find((x) => x.key === key); if (!g) return closeSheet();
   const cur = (v) => money(v, g.cur);
   setSheetBody(sh,
-    '<div class="small muted mb">' + fmtDate(g.date) + (g.source ? ' · ' + esc(g.source) : '') + (g.txnId ? ' · txn ' + esc(g.txnId) : '') + ' · collected from seller: <b>' + (g.atSeller ? (g.atSeller === g.lots.length ? 'No' : 'partly (' + (g.lots.length - g.atSeller) + ' of ' + g.lots.length + ' lines)') : 'Yes') + '</b></div>' +
+    '<div class="small muted mb">' + fmtDate(g.date) + (g.source ? ' · ' + esc(g.source) : '') + (g.first.vendorPhone ? ' · ' + esc(g.first.vendorPhone) : '') + (g.txnId ? ' · txn ' + esc(g.txnId) : '') + ' · collected from seller: <b>' + (g.atSeller ? (g.atSeller === g.lots.length ? 'No' : 'partly (' + (g.lots.length - g.atSeller) + ' of ' + g.lots.length + ' lines)') : 'Yes') + '</b></div>' +
     (g.atSeller ? '<div class="alert info mb row between"><span>Goods still at the seller — pick them up later.</span><button class="btn sm pri" data-a="purchCollected" data-k="' + esc(g.key) + '">' + ic('check', 'sm') + 'Mark collected</button></div>' : '') +
-    '<div class="grid4 mb">' + kpi('Total', cur(g.total), g.cur !== baseCode() ? F(g.totalX) : '', true) + kpi('Paid', g.bx ? cur(g.bx.paid) : '—', g.bx && g.bx.fees > 0 ? '+ ' + cur(g.bx.fees) + ' MoMo charges' : '') + kpi('Owed', g.bx ? cur(Math.max(0, g.bx.balance)) : '—') + kpi('Units', fmt(g.units), g.lots.length + ' line(s)') + '</div>' +
-    '<div class="card tw mb"><table class="t sales"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price paid</th><th class="r">Regular</th><th class="r">Line total</th><th>Where</th></tr></thead><tbody>' +
-    g.lots.map((l) => { const p = byId('products', l.productId) || { name: '?' }; const sv = num(l.regularPrice) > num(l.unitCost) ? Math.round((1 - num(l.unitCost) / num(l.regularPrice)) * 100) : 0; return '<tr data-a="editLot" data-id="' + l.id + '"><td class="wrap">' + esc(p.name) + '<span class="sub">' + esc([l.condition || p.condition || 'New', l.working || 'Working', l.collected === false ? 'at seller' : '', l.expiry ? 'exp ' + fmtDate(l.expiry) : '', l.reservedFor ? 'for ' + custName(l.reservedFor) : ''].filter(Boolean).join(' · ')) + '</span></td><td class="r">' + fmt(l.qty) + '</td><td class="r money">' + cur(l.unitCost) + '</td><td class="r money">' + (num(l.regularPrice) ? cur(l.regularPrice) + (sv ? '<span class="sub">−' + sv + '%</span>' : '') : '<span class="faint">—</span>') + '</td><td class="r money b">' + cur(num(l.unitCost) * num(l.qty)) + '</td><td class="st">' + lotStageBadge(l) + '<span class="sub">' + esc(shipName(l.shipmentId)) + '</span></td></tr>'; }).join('') +
+    '<div class="grid4 mb">' + kpi('Total', cur(g.total), g.tax ? 'incl. ' + cur(g.tax) + ' tax' : g.cur !== baseCode() ? F(g.totalX) : '') + kpi('Paid', g.bx ? cur(g.bx.paid) : '—', g.bx && g.bx.fees > 0 ? '+ ' + cur(g.bx.fees) + ' MoMo charges' : '') + kpi('Owed', g.bx ? cur(Math.max(0, g.bx.balance)) : '—') + kpi('Units', fmt(g.units), g.lots.length + ' line(s)') + '</div>' +
+    '<div class="card tw mb"><table class="t sales"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price paid</th><th class="r">Tax share</th><th class="r">Line total</th><th>Where</th></tr></thead><tbody>' +
+    g.lots.map((l) => { const p = byId('products', l.productId) || { name: '?' }; const sv = num(l.regularPrice) > num(l.unitCost) ? Math.round((1 - num(l.unitCost) / num(l.regularPrice)) * 100) : 0; return '<tr data-a="editLot" data-id="' + l.id + '"><td class="wrap">' + esc(p.name) + '<span class="sub">' + esc([l.condition || p.condition || 'New', l.working || 'Working', l.collected === false ? 'at seller' : '', l.expiry ? 'exp ' + fmtDate(l.expiry) : '', l.reservedFor ? 'for ' + custName(l.reservedFor) : ''].filter(Boolean).join(' · ')) + '</span></td><td class="r">' + fmt(l.qty) + '</td><td class="r money">' + cur(l.unitCost) + '</td><td class="r money">' + (num(l.unitTax) ? cur(num(l.unitTax) * num(l.qty)) : '<span class="faint">—</span>') + (sv ? '<span class="sub">−' + sv + '% vs shelf</span>' : '') + '</td><td class="r money b">' + cur((num(l.unitCost) + num(l.unitTax)) * num(l.qty)) + '</td><td class="st">' + lotStageBadge(l) + '<span class="sub">' + esc(shipName(l.shipmentId)) + '</span></td></tr>'; }).join('') +
     '</tbody></table></div>' +
     (g.bill ? '<h3 class="mb">Payments</h3><div class="card list mb">' + ((g.bill.payments || []).map((p) => billPayRow(p, cur)).join('') || '<div class="empty small">No payment yet.</div>') + '</div><button class="btn" data-a="billOpen" data-id="' + g.bill.id + '">' + ic('wallet') + 'Open bill' + (g.bx.balance > 0.005 ? ' · record payment' : '') + '</button>' : '<div class="tiny muted">Payment details are recorded for purchases added from now on.</div>'));
   };
@@ -337,71 +323,8 @@ function findOrCreateProduct(name, cat, sub, cond, barcode) {
   p = { id: uid('pr_'), name: name.trim(), category: cat || 'Other', subcategory: sub || '', condition: cond || 'New', barcode: barcode || '', markup: null, minMarkup: null, priceMax: null, priceMin: null };
   return { p, isNew: true };
 }
-const shipOptions = (val) => [['', 'Not shipped yet (US storage)'], ['__local', 'Bought locally / already in warehouse']].concat(K.raw.shipments.filter((s) => s.status !== 'closed').map((s) => [s.id, (s.name || s.containerNo || 'Container') + ' · ' + (KC.SHIP_STATUSES.find((x) => x[0] === s.status) || [0, ''])[1]]));
+const shipOptions = (val) => [['', 'Waiting to ship'], ['__local', 'In Cameroon — in stock']].concat(K.raw.shipments.filter((s) => s.status !== 'closed').map((s) => [s.id, (s.name || s.containerNo || 'Container') + ' · ' + (KC.SHIP_STATUSES.find((x) => x[0] === s.status) || [0, ''])[1]]));
 
-A.newPurchase = () => purchaseForm();
-function purchaseForm() {
-  const pending = [];
-  const names = [...new Set(K.raw.products.map((p) => p.name))];
-  const sh = openSheet({
-    title: 'Add purchase', wide: true,
-    body: '<datalist id="dlNames">' + names.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist><datalist id="dlVend">' + (S().vendors || []).map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
-      '<div class="card pad mb"><h3 class="mb">1 · Where & when</h3><div class="grid4">' + field('Date', inp('purchaseDate', todayStr(), 'type="date"')) + field('Source', sel('sourceType', KC.SOURCE_TYPES, 'Store')) + field('Store / seller', inp('vendor', '', 'list="dlVend" placeholder="Costco"')) + field('Order / PO no.', inp('poNumber', '', 'placeholder="Optional"')) + '</div><div class="grid3 mt">' + field('Container', sel('shipmentId', shipOptions(''), '')) + field('Currency paid', sel('currency', curOptions(), 'USD')) + field('Auction lot / stock no.', inp('lotNumber', '', 'placeholder="B-Stock lot #"')) + '</div>' + '<div class="grid2 mt">' + field('Collected from the seller?', sel('puCollected', [['yes', 'Yes — we have the goods'], ['no', 'No — still at the seller, pick up later']], 'yes')) + '</div>' +
-        '<div class="grid2 mt">' + field('Paid?', sel('payStatus', [['paid', 'Paid in full']].concat(can('suppliers') ? [['credit', 'Not paid yet — add to bills to pay']] : []), 'paid', 'id="puPaySt"')) + '<div id="puPayBy" class="hide">' + field('Pay by', inp('payBy', KC.addDays(todayStr(), 14), 'type="date"')) + '</div></div>' +
-        '<div id="puPay" class="mt">' + payFields('', { kind: 'purchase', currency: 'USD' }) + '</div></div>' +
-      '<div class="card pad mb" id="lineForm"><h3 class="mb">2 · Items (add each line)</h3><div class="row" style="align-items:flex-end"><div class="photo-slot" data-a="pickPhoto" title="Take or choose a photo">' + ic('cam') + '</div><div class="grow">' + field('Item description *', inp('name', '', 'list="dlNames" id="lnName" autocomplete="off" placeholder="Quaker Oats Old Fashioned"')) + '</div></div>' + '<div class="grid2 mt">' + field('Category', sel('category', catOpts(), 'Food & Snacks', 'id="lnCat"')) + field('Subcategory', sel('subcategory', subOpts('Food & Snacks'), '', 'id="lnSub"')) + '</div>' + unitFields({}) +
-      '<div class="grid4 mt">' + field('Condition', sel('condition', KC.CONDITIONS, 'New', 'id="lnCond"')) + field('Quantity bought *', inp('qty', '1', 'inputmode="numeric"')) + field('Regular price (each)', inp('regularPrice', '', 'inputmode="decimal" placeholder="Shelf price"')) + field('Price paid (each) *', inp('unitCost', '', 'inputmode="decimal" placeholder="After discount"')) + '</div>' +
-      '<div class="grid2 mt">' + field('Bought for a client? (car, special order)', sel('reservedFor', custOpts(), '')) + '<div class="tiny muted" style="align-self:end;padding-bottom:12px">Held for that client only. They can pay deposits while it is still at sea.</div></div>' +
-      '<div class="grid2 mt">' + field('Each one is a pack of… (units you will sell)', inp('packOf', '1', 'inputmode="numeric" id="packOf"')) + '<div class="tiny muted" id="packHint" style="align-self:end;padding-bottom:12px">Leave 1 if you sell it as bought.</div></div>' +
-      '<div class="grid4 mt">' + field('Working?', sel('working', KC.WORKING, 'Working', 'id="lnWork"')) + field('Expiry date', inp('expiry', '', 'type="date"')) + field('Barcode (optional)', inp('barcode', '', 'placeholder="Scan UPC"')) + field('Notes', inp('lnNotes', '')) + '</div><button class="btn acc block mt" id="lnAdd">' + ic('plus') + 'Add line</button></div>' +
-      '<div class="card" id="lnList"></div>',
-    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="puSave">Save purchase</button>',
-  });
-  const lf = $('#lineForm', sh);
-  // payment block follows "Paid?" and the purchase currency (MoMo charge suggestions only in local currency)
-  $('#puPaySt', sh).onchange = (e) => { const paid = e.target.value === 'paid'; $('#puPay', sh).classList.toggle('hide', !paid); $('#puPayBy', sh).classList.toggle('hide', paid); };
-  const syncPuCur = () => setPayCurrency(sh, $('[name=currency]', sh).value);
-  $('[name=currency]', sh).addEventListener('change', syncPuCur); syncPuCur();
-  $('#lnCat', sh).onchange = (e) => ($('#lnSub', sh).innerHTML = subOpts(e.target.value).map((s) => '<option>' + esc(s) + '</option>').join(''));
-  $('#lnName', sh).addEventListener('change', (e) => { const p = K.raw.products.find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase()); if (p) { $('#lnCat', sh).value = p.category; $('#lnSub', sh).innerHTML = subOpts(p.category).map((s) => '<option' + (s === p.subcategory ? ' selected' : '') + '>' + esc(s) + '</option>').join(''); $('#lnCond', sh).value = p.condition || 'New'; ['unit', 'size', 'sizeUnit'].forEach((k) => { const el = $('[name=' + k + ']', lf); if (el && p[k] != null) el.value = p[k]; }); if (p.image) { $('.photo-slot', lf).innerHTML = '<img src="' + esc(imgSrc(p.image)) + '">'; } } });
-  $('#packOf', sh).addEventListener('input', () => { const n = Math.max(1, num($('#packOf', sh).value)); $('#packHint', sh).textContent = n > 1 ? 'Stock will be counted in single units: quantity × ' + n + ', and price ÷ ' + n + '.' : 'Leave 1 if you sell it as bought.'; });
-  const drawList = () => {
-    const cur = $('[name=currency]', sh).value; const tot = pending.reduce((a, l) => a + l.unitCost * l.qty, 0);
-    $('#lnList', sh).innerHTML = pending.length ? '<div class="pad row between"><b>' + pending.length + ' line(s)</b><b class="money">' + money(tot, cur) + '</b></div><div class="list">' + pending.map((l, i) => '<div class="li" style="cursor:default">' + (l.photo ? '<img class="thumb" style="width:40px;height:40px;border-radius:10px" src="' + URL.createObjectURL(l.photo) + '">' : '') + '<div class="grow"><div class="t">' + esc(l.name) + '</div><div class="tiny muted">' + (l.packOf > 1 ? l.boughtQty + ' pack(s) × ' + l.packOf + ' = ' : '') + l.qty + ' ' + esc(l.unit || 'pcs') + ' × ' + (Math.round(l.unitCost * 100) / 100) + (l.regularPrice ? ' (reg ' + (Math.round(l.regularPrice * 100) / 100) + ')' : '') + ' · ' + esc(l.condition) + ' · ' + esc(l.working || 'Working') + (l.expiry ? ' · exp ' + fmtDate(l.expiry) : '') + (l.reservedFor ? ' · <b>for ' + esc(custName(l.reservedFor)) + '</b>' : '') + '</div></div><button class="icon-btn" data-rm="' + i + '">' + ic('trash', 'sm') + '</button></div>').join('') + '</div>' : '<div class="empty small">Lines you add appear here.</div>';
-    $$('[data-rm]', sh).forEach((b) => (b.onclick = () => { pending.splice(+b.dataset.rm, 1); drawList(); }));
-    const pa = $('#payAmount', sh); if (pa) { pa.dataset.def = Math.round(tot * 100) / 100; pa.placeholder = tot ? String(pa.dataset.def) : 'Total of lines'; syncPayCharges(sh); }
-  };
-  drawList();
-  $('#lnAdd', sh).onclick = () => {
-    const v = formVals(lf);
-    if (!v.name || !num(v.unitCost) && v.unitCost !== '0' || !num(v.qty)) return toast('Description, price paid and quantity are required', true);
-    const pack = Math.max(1, Math.floor(num(v.packOf) || 1));
-    pending.push({ name: v.name, category: v.category, subcategory: v.subcategory, condition: v.condition, working: v.working || 'Working', unit: v.unit, size: v.size === '' ? null : num(v.size), sizeUnit: v.sizeUnit,
-      regularPrice: num(v.regularPrice) ? num(v.regularPrice) / pack : null, unitCost: num(v.unitCost) / pack, qty: Math.floor(num(v.qty)) * pack, packOf: pack, boughtQty: Math.floor(num(v.qty)),
-      expiry: v.expiry, barcode: v.barcode, reservedFor: v.reservedFor || '', notes: [v.lnNotes, pack > 1 ? 'Bought ' + Math.floor(num(v.qty)) + ' pack(s) of ' + pack : ''].filter(Boolean).join(' · '), photo: sh._photo || null });
-    sh._photo = null; const slot = $('.photo-slot', lf); slot.innerHTML = ic('cam');
-    ['name', 'regularPrice', 'unitCost', 'expiry', 'barcode', 'lnNotes', 'size', 'reservedFor'].forEach((k) => { const el = $('[name=' + k + ']', lf); if (el) el.value = ''; }); $('[name=qty]', lf).value = '1'; $('#packOf', sh).value = '1';
-    drawList(); $('#lnName', sh).focus();
-  };
-  $('#puSave', sh).onclick = async () => {
-    const h = formVals($('.card', sh));
-    if (!pending.length) { if ($('#lnName', sh).value) $('#lnAdd', sh).click(); if (!pending.length) return toast('Add at least one line', true); }
-    const tot = Math.round(pending.reduce((a, l) => a + l.unitCost * l.qty, 0) * 100) / 100;
-    const credit = h.payStatus === 'credit';
-    // check the payment BEFORE saving anything, so a missing MoMo txn ID doesn't leave a half-saved purchase
-    let pay = null;
-    if (!credit) {
-      if (String(h.payAmount || '').trim() === '') h.payAmount = tot;
-      pay = readPayment(h, 'purchase'); if (pay === false) return;
-    }
-    h.purchaseTxnId = KC.newTxnId('PU', h.purchaseDate);
-    await savePurchaseLines(h, pending);
-    if (credit || pay) {
-      await createBillFor({ txnId: h.purchaseTxnId, payment: pay, supplierId: (K.raw.suppliers.find((x) => x.name.toLowerCase() === (h.vendor || '').toLowerCase()) || {}).id, newSupplier: h.vendor || 'Supplier', newSupplierType: h.sourceType === 'Auction' ? 'Auction (B-Stock…)' : 'Store / wholesaler', description: 'Purchase ' + (h.poNumber ? '#' + h.poNumber + ' ' : '') + fmtDate(h.purchaseDate), amount: tot, currency: h.currency || 'USD', date: h.purchaseDate, dueDate: credit ? h.payBy : h.purchaseDate, shipmentId: h.shipmentId && h.shipmentId !== '__local' ? h.shipmentId : '' });
-    }
-    closeSheet(); scheduleRender(); toast(pending.length + ' line(s) saved · txn ' + h.purchaseTxnId + (credit ? ' · bill created' : pay && pay.amount < tot - 0.005 ? ' · part paid, rest added to bills' : ''));
-  };
-}
 async function savePurchaseLines(h, lines) {
   for (const l of lines) {
     const r = findOrCreateProduct(l.name, l.category, l.subcategory, l.condition, l.barcode);
@@ -410,113 +333,70 @@ async function savePurchaseLines(h, lines) {
     if (l.photo) { try { r.p = Object.assign({}, r.p, { image: await storePhoto(l.photo) }); r.changed = true; } catch (e) { toast('Photo not saved: ' + e.message, true); } }
     if (r.isNew || r.changed) { await save('products', r.p); }
     const local = h.shipmentId === '__local' || h.sourceType === 'Local (Cameroon)';
-    await save('lots', { id: uid('l_'), productId: r.p.id, purchaseDate: l.purchaseDate || h.purchaseDate || todayStr(), sourceType: l.sourceType || h.sourceType, vendor: l.vendor || h.vendor || '', poNumber: l.poNumber || h.poNumber || '', lotNumber: l.lotNumber || h.lotNumber || '', currency: h.currency || 'USD', regularPrice: l.regularPrice, unitCost: l.unitCost, qty: l.qty, expiry: l.expiry || '', condition: l.condition || 'New', working: l.working || 'Working', collected: h.puCollected !== 'no', shipmentId: local ? '' : (l.shipmentId || h.shipmentId || ''), inWarehouse: local, locationId: local ? K.loc : '', reservedFor: l.reservedFor || '', notes: l.notes || '', purchaseTxnId: h.purchaseTxnId || '' });
+    await save('lots', { id: uid('l_'), productId: r.p.id, purchaseDate: l.purchaseDate || h.purchaseDate || todayStr(), sourceType: l.sourceType || h.sourceType, vendor: l.vendor || h.vendor || '', vendorPhone: h.vendorPhone || '', poNumber: l.poNumber || h.poNumber || '', lotNumber: l.lotNumber || h.lotNumber || '', currency: h.currency || 'USD', regularPrice: l.regularPrice, unitCost: l.unitCost, unitTax: num(l.unitTax) || 0, qty: l.qty, expiry: l.expiry || '', condition: l.condition || 'New', working: l.working || 'Working', collected: h.puCollected !== 'no', shipmentId: local ? '' : (l.shipmentId || h.shipmentId || ''), inWarehouse: local, locationId: local ? K.loc : '', reservedFor: l.reservedFor || '', notes: l.notes || '', purchaseTxnId: h.purchaseTxnId || '' });
   }
 }
 A.editLot = (el) => {
   const l = byId('lots', el.dataset.id); const p = byId('products', l.productId) || {}; const x = K.C.lotX[l.id];
   const sh = openSheet({
     title: 'Purchase line',
-    body: '<div class="col"><div class="b">' + esc(p.name) + '</div>' + (l.purchaseTxnId ? '<div class="tiny muted">Purchase txn ' + esc(l.purchaseTxnId) + '</div>' : '') + '<div class="grid2">' + field('Date', inp('purchaseDate', l.purchaseDate, 'type="date"')) + field('Source', sel('sourceType', KC.SOURCE_TYPES, l.sourceType)) + field('Store / seller', inp('vendor', l.vendor)) + field('Order / PO no.', inp('poNumber', l.poNumber)) +
-      field('Regular price / unit', inp('regularPrice', l.regularPrice ?? '', 'inputmode="decimal"')) + field('Price paid / unit (' + curSym(l.currency) + ')', inp('unitCost', l.unitCost, 'inputmode="decimal"')) + field('Quantity', inp('qty', l.qty, 'inputmode="numeric"')) + field('Expiry date', inp('expiry', l.expiry, 'type="date"')) + '</div>' +
+    body: '<div class="col"><div class="b">' + esc(p.name) + '</div>' + (l.purchaseTxnId ? '<div class="tiny muted">Purchase txn ' + esc(l.purchaseTxnId) + '</div>' : '') + '<div class="grid2">' + field('Date', inp('purchaseDate', l.purchaseDate, 'type="date"')) + field('Bought from', sel('sourceType', KC.SOURCE_TYPES.includes(l.sourceType) || !l.sourceType ? KC.SOURCE_TYPES : KC.SOURCE_TYPES.concat([l.sourceType]), l.sourceType)) + field('Seller', inp('vendor', l.vendor)) + field('Receipt / order no.', inp('poNumber', l.poNumber)) +
+      field('Regular price / unit', inp('regularPrice', l.regularPrice ?? '', 'inputmode="decimal"')) + field('Price paid / unit (' + curSym(l.currency) + ')', inp('unitCost', l.unitCost, 'inputmode="decimal"')) + field('Tax / unit (' + curSym(l.currency) + ')', inp('unitTax', l.unitTax ? Math.round(num(l.unitTax) * 10000) / 10000 : '', 'inputmode="decimal" placeholder="0"')) + field('Quantity', inp('qty', l.qty, 'inputmode="numeric"')) + field('Expiry date', inp('expiry', l.expiry, 'type="date"')) + '</div>' +
       '<div class="grid3">' + field('Condition', sel('condition', KC.CONDITIONS, l.condition || 'New')) + field('Working?', sel('working', KC.WORKING, l.working || 'Working')) + field('Collected from seller?', sel('collected', [['yes', 'Yes'], ['no', 'No — still at the seller']], l.collected === false ? 'no' : 'yes')) + '</div>' +
-      field('Container', sel('shipmentId', shipOptions(l.shipmentId), l.inWarehouse ? '__local' : l.shipmentId || '')) + field('Bought for client', sel('reservedFor', custOpts(), l.reservedFor || '')) + field('Notes', inp('notes', l.notes)) +
-      (seeCost() ? '<div class="alert info">Landed cost per unit: <b class="money">' + F(x.landedUnit) + '</b> (' + F(x.unitX) + ' item + ' + F(x.landedUnit - x.unitX) + ' shipping & customs share)</div>' : '') + '</div>',
+      field('Shipment', sel('shipmentId', shipOptions(l.shipmentId), l.inWarehouse ? '__local' : l.shipmentId || '')) + field('Bought for client', sel('reservedFor', custOpts(), l.reservedFor || '')) + field('Notes', inp('notes', l.notes)) +
+      (seeCost() ? '<div class="alert info">Landed cost per unit: <b class="money">' + F(x.landedUnit) + '</b> (' + F(x.unitX) + ' item' + (x.taxX ? ' + ' + F(x.taxX) + ' tax' : '') + ' + ' + F(x.landedUnit - x.paidX) + ' shipping & customs share)</div>' : '') + '</div>',
     foot: '<button class="btn danger" id="lDel">' + ic('trash') + '</button><button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="lSave">Save</button>',
   });
-  $('#lSave', sh).onclick = async () => { const v = formVals(sh); const local = v.shipmentId === '__local'; Object.assign(v, { regularPrice: num(v.regularPrice) || null, unitCost: num(v.unitCost), qty: Math.floor(num(v.qty)), shipmentId: local ? '' : v.shipmentId, inWarehouse: local, collected: v.collected !== 'no' }); if (await save('lots', Object.assign({}, l, v))) { closeSheet(); refreshSheets(); scheduleRender(); } };
+  $('#lSave', sh).onclick = async () => { const v = formVals(sh); const local = v.shipmentId === '__local'; Object.assign(v, { regularPrice: num(v.regularPrice) || null, unitCost: num(v.unitCost), unitTax: num(v.unitTax) || 0, qty: Math.floor(num(v.qty)), shipmentId: local ? '' : v.shipmentId, inWarehouse: local, collected: v.collected !== 'no' }); if (await save('lots', Object.assign({}, l, v))) { closeSheet(); refreshSheets(); scheduleRender(); } };
   $('#lDel', sh).onclick = async () => { if (x.sold > 0) return toast('This line has sales — adjust quantity instead of deleting', true); if (await confirmBox('Delete this purchase line?', 'Delete', true)) { await remove('lots', l.id); closeSheet(); refreshSheets(); scheduleRender(); } };
 };
-const PURCH_COLS = ['Date', 'Source', 'Store', 'Order No', 'Lot No', 'Description', 'Category', 'Subcategory', 'Condition', 'Regular Price', 'Price Paid', 'Quantity', 'Expiry Date', 'Barcode', 'Notes'];
-A.tplPurch = () => xlsxDownload('Purchase-template.xlsx', { Purchases: [{ Date: todayStr(), Source: 'Store', Store: 'Costco', 'Order No': '', 'Lot No': '', Description: 'Quaker Oats Old Fashioned 2x2.6kg', Category: 'Food & Snacks', Subcategory: 'Cereal & Oats', Condition: 'New', 'Regular Price': 12.99, 'Price Paid': 9.98, Quantity: 10, 'Pack Of': 1, Unit: 'pack', Size: 2.6, 'Size Unit': 'kg', 'Expiry Date': '2027-06-30', Barcode: '', Notes: '' }], Customers: [{ Name: 'Jenny Mballa', Phone: '677000000', WhatsApp: '677000000', Email: '', City: 'Douala', Type: 'Retail', Notes: '' }] });
 function pickCol(row, names) { const keys = Object.keys(row); for (const n of names) { const k = keys.find((k) => k.toLowerCase().replace(/[^a-z]/g, '') === n.toLowerCase().replace(/[^a-z]/g, '')); if (k && row[k] !== '' && row[k] != null) return row[k]; } for (const n of names) { const k = keys.find((k) => k.toLowerCase().includes(n.toLowerCase())); if (k && row[k] !== '' && row[k] != null) return row[k]; } return ''; }
 function xlDate(v) { if (!v) return ''; if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 864e5)); return d.toISOString().slice(0, 10); } const d = new Date(v); return isNaN(d) ? String(v) : todayStr(d); }
 async function readSheet(file) { const buf = await file.arrayBuffer(); const wb = XLSX.read(buf, { type: 'array' }); return wb; }
-A.importPurch = async () => {
-  if (!window.XLSX) return toast('Excel library still loading', true);
-  const f = await pickFile('.xlsx,.xls,.csv'); if (!f) return;
-  const wb = await readSheet(f); const ws = wb.Sheets[wb.SheetNames.find((n) => /purch|manifest|item/i.test(n)) || wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-  const lines = rows.map((r) => ({
-    purchaseDate: xlDate(pickCol(r, ['Date', 'Purchase Date'])), sourceType: pickCol(r, ['Source']) || '', vendor: String(pickCol(r, ['Store', 'Vendor', 'Seller'])), poNumber: String(pickCol(r, ['Order No', 'PO', 'Order'])), lotNumber: String(pickCol(r, ['Lot No', 'Lot', 'Stock No'])),
-    name: String(pickCol(r, ['Description', 'Item Description', 'Product Name', 'Title', 'Item', 'Name'])).trim(), category: String(pickCol(r, ['Category', 'Department'])), subcategory: String(pickCol(r, ['Subcategory', 'Sub Category', 'Class'])),
-    condition: (() => { const c = String(pickCol(r, ['Condition', 'Grade'])).toLowerCase(); return !c ? 'New' : /open|box/.test(c) ? 'Open box' : /refurb/.test(c) ? 'Refurbished' : /damag|part|salvage/.test(c) ? 'Damaged / Parts' : /used|return/.test(c) ? 'Used' : 'New'; })(),
-    regularPrice: num(pickCol(r, ['Regular Price', 'Retail Price', 'MSRP', 'Unit Retail', 'Ext Retail'])) || null, unitCost: num(pickCol(r, ['Price Paid', 'Unit Cost', 'Cost', 'Price'])), qty: Math.floor(num(pickCol(r, ['Quantity', 'Qty', 'Units']))) || 1,
-    expiry: xlDate(pickCol(r, ['Expiry Date', 'Expiry', 'Expiration'])), barcode: String(pickCol(r, ['Barcode', 'UPC', 'EAN'])), notes: String(pickCol(r, ['Notes'])),
-    unit: String(pickCol(r, ['Unit', 'Sold By'])) || 'piece', size: num(pickCol(r, ['Size', 'Weight'])) || null, sizeUnit: String(pickCol(r, ['Size Unit', 'Weight Unit'])), packOf: Math.max(1, Math.floor(num(pickCol(r, ['Pack Of', 'Units Per Pack', 'Pack'])) || 1)),
-  })).filter((l) => l.name);
-  lines.forEach((l) => { if (l.packOf > 1) { l.qty *= l.packOf; l.unitCost /= l.packOf; if (l.regularPrice) l.regularPrice /= l.packOf; } if (!KC.SIZE_UNITS[l.sizeUnit]) { const m = { kgs: 'kg', lbs: 'lb', ounce: 'oz', liter: 'L', litre: 'L', l: 'L', ml: 'mL', gallon: 'gal', floz: 'fl oz' }[String(l.sizeUnit).toLowerCase().replace(/[^a-z]/g, '')]; l.sizeUnit = m || ''; } });
-  if (!lines.length) return toast('No item rows found. Use the template column names.', true);
-  lines.forEach((l) => { if (!catOpts().includes(l.category)) { l.notes = [l.notes, l.category && 'Cat: ' + l.category].filter(Boolean).join(' · '); l.category = /tv|speaker|audio|laptop|phone|electr|computer|tablet/i.test(l.name + l.category) ? 'Electronics' : 'Other'; l.subcategory = subOpts(l.category)[0]; } });
-  const noCost = lines.filter((l) => !l.unitCost).length;
-  const sh = openSheet({
-    title: 'Import ' + lines.length + ' lines',
-    body: '<div class="col">' + (noCost ? '<div class="alert">' + noCost + ' line(s) have no "Price Paid". For auction lots, enter the total you paid below and it will be spread across items by retail value.</div>' : '') +
-      '<div class="grid2">' + field('Default date', inp('purchaseDate', todayStr(), 'type="date"')) + field('Source', sel('sourceType', KC.SOURCE_TYPES, 'Auction')) + field('Store / seller', inp('vendor', 'B-Stock')) + field('Order / PO no.', inp('poNumber', '')) + field('Container', sel('shipmentId', shipOptions(''), '')) + field('Currency', sel('currency', curOptions(), 'USD')) + '</div>' +
-      field('Total paid for whole lot (optional — spreads cost)', inp('lotTotal', '', 'inputmode="decimal" placeholder="e.g. 2450 incl. fees & shipping to you"')) +
-      '<div class="card tw"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Paid</th><th class="r">Retail</th></tr></thead><tbody>' + lines.slice(0, 50).map((l) => '<tr><td>' + esc(l.name) + '<div class="tiny faint">' + esc(l.category) + ' · ' + esc(l.condition) + '</div></td><td class="r">' + l.qty + '</td><td class="r">' + (l.unitCost || '—') + '</td><td class="r">' + (l.regularPrice || '—') + '</td></tr>').join('') + (lines.length > 50 ? '<tr><td colspan="4" class="faint">…and ' + (lines.length - 50) + ' more</td></tr>' : '') + '</tbody></table></div></div>',
-    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="impGo">Import</button>',
-  });
-  $('#impGo', sh).onclick = async (e) => {
-    const h = formVals(sh); e.target.disabled = true; e.target.textContent = 'Importing…';
-    if (num(h.lotTotal) > 0) { const base = lines.reduce((a, l) => a + (l.regularPrice || l.unitCost || 1) * l.qty, 0); lines.forEach((l) => (l.unitCost = Math.round((num(h.lotTotal) * (l.regularPrice || l.unitCost || 1) / base) * 100) / 100)); }
-    await savePurchaseLines(h, lines); closeSheet(); scheduleRender(); toast(lines.length + ' lines imported');
-  };
-};
-
 /* ---------- containers ---------- */
 const stIdx = (st) => KC.SHIP_STATUSES.findIndex((s) => s[0] === st);
-VIEWS.containers = {
-  render() {
-    const ships = K.raw.shipments.slice().sort((a, b) => stIdx(a.status) - stIdx(b.status) || (b.createdAt || '').localeCompare(a.createdAt || ''));
-    const us = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us');
-    return '<div class="row wrap mb"><button class="btn pri" data-a="newShip">' + ic('plus') + 'New container</button></div>' +
-      (us.length ? '<div class="alert info mb">' + ic('buy', 'sm') + '<div><b>' + us.reduce((a, l) => a + num(l.qty), 0) + ' units</b> in US storage are not in a container yet. Open a container and use <b>Add items</b>.</div></div>' : '') +
-      shipTable(ships) + ((can('containers') || can('purchases')) && K.raw.lots.length ? '<div class="mt2">' + journeyCard() + '</div>' : '');
-  },
-};
 A.newShip = () => shipForm(null);
 function shipForm(id) {
   const s = id ? byId('shipments', id) : { status: 'planning', origin: 'Houston, TX', destination: 'Douala, Cameroon', size: "40' HC", fxRates: Object.assign({}, S().fxRates || { USD: S().fxRate }) };
   const n = K.raw.shipments.length + 1;
   const sh = openSheet({
-    title: id ? 'Edit container' : 'New container',
-    body: '<div class="col">' + field('Name', inp('name', s.name || 'Container #' + n + ' – ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getFullYear())) + '<div class="grid2">' + field('Booking no.', inp('bookingNo', s.bookingNo)) + field('Container no.', inp('containerNo', s.containerNo, 'placeholder="MSCU1234567"')) + field('Seal no.', inp('sealNo', s.sealNo)) + field('Size', sel('size', ["20'", "40'", "40' HC", "45' HC"], s.size)) +
-      field('Shipping line', inp('carrier', s.carrier, 'placeholder="MSC, Maersk, CMA CGM…"')) + field('Clearing agent (Douala)', inp('agent', s.agent)) + field('Ship from', inp('origin', s.origin)) + field('Ship to', inp('destination', s.destination)) +
-      field('Status', sel('status', KC.SHIP_STATUSES, s.status)) + Object.keys(S().fxRates || { USD: 1 }).filter((c) => c !== baseCode()).map((c) => field('Rate: 1 ' + c + ' = ? ' + baseCode(), inp('fx_' + c, (s.fxRates && s.fxRates[c]) || (c === 'USD' && s.fxRate) || (S().fxRates || {})[c] || '', 'inputmode="decimal"'))).join('') + field('Loaded on', inp('loadedAt', s.loadedAt, 'type="date"')) + field('ETA / arrived Douala', inp('arrivedAt', s.arrivedAt, 'type="date"')) + field('Cleared on', inp('clearedAt', s.clearedAt, 'type="date"')) + field('Unloaded in warehouse', inp('receivedAt', s.receivedAt, 'type="date"')) + '</div>' + field('Notes', '<textarea class="inp" name="notes">' + esc(s.notes || '') + '</textarea>') + '</div>',
+    title: id ? 'Edit shipment' : 'New shipment',
+    body: '<div class="col">' + field('Name', inp('name', s.name || 'Shipment #' + n + ' – ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getFullYear())) + '<h3 class="mt">Container</h3><div class="grid2">' + field('Booking no.', inp('bookingNo', s.bookingNo)) + field('Container no.', inp('containerNo', s.containerNo, 'placeholder="MSCU1234567"')) + field('Seal no.', inp('sealNo', s.sealNo)) + field('Size', sel('size', ["20'", "40'", "40' HC", "45' HC"], s.size)) +
+      field('Shipping line', inp('carrier', s.carrier, 'placeholder="MSC, Maersk, CMA CGM…"')) + field('Clearing agent (Douala)', inp('agent', s.agent)) + field('Ship from', inp('origin', s.origin)) + field('Ship to', inp('destination', s.destination)) + '</div><h3 class="mt">Progress</h3><div class="grid2">' +
+      field('Step', sel('status', KC.SHIP_STATUSES, s.status)) + Object.keys(S().fxRates || { USD: 1 }).filter((c) => c !== baseCode()).map((c) => field('Rate: 1 ' + c + ' = ? ' + baseCode(), inp('fx_' + c, (s.fxRates && s.fxRates[c]) || (c === 'USD' && s.fxRate) || (S().fxRates || {})[c] || '', 'inputmode="decimal"'))).join('') + field('Loaded on', inp('loadedAt', s.loadedAt, 'type="date"')) + field('ETA / arrived in Cameroon', inp('arrivedAt', s.arrivedAt, 'type="date"')) + field('Customs cleared on', inp('clearedAt', s.clearedAt, 'type="date"')) + field('Unloaded in warehouse', inp('receivedAt', s.receivedAt, 'type="date"')) + '</div>' + field('Notes', '<textarea class="inp" name="notes">' + esc(s.notes || '') + '</textarea>') + '</div>',
     foot: (id ? '<button class="btn danger" id="sDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="sSave">Save</button>',
   });
   $('#sSave', sh).onclick = async () => { const v = formVals(sh); v.fxRates = {}; Object.keys(v).filter((k) => k.startsWith('fx_')).forEach((k) => { if (num(v[k]) > 0) v.fxRates[k.slice(3)] = num(v[k]); delete v[k]; }); v.fxRate = v.fxRates.USD || num(S().fxRate) || 600; const o = Object.assign({ costs: [] }, s, v, { id: id || uid('sh_') }); if (await save('shipments', o)) { closeSheet(); scheduleRender(); refreshSheets(); if (!id) openShip(o.id); } };
-  if (id) $('#sDel', sh).onclick = async () => { if (K.raw.lots.some((l) => l.shipmentId === id)) return toast('Remove its items first', true); if (await confirmBox('Delete this container?', 'Delete', true)) { await remove('shipments', id); while (K.sheets.length) closeSheet(); scheduleRender(); } };
+  if (id) $('#sDel', sh).onclick = async () => { if (K.raw.lots.some((l) => l.shipmentId === id)) return toast('Remove its items first', true); if (await confirmBox('Delete this shipment?', 'Delete', true)) { await remove('shipments', id); while (K.sheets.length) closeSheet(); scheduleRender(); } };
 }
 A.openShip = (el) => openShip(el.dataset.id);
-function openShip(id) {
-  const sh = openSheet({ title: 'Container', wide: true, body: '' }); sh._tab = 'sum';
+function openShip(id, tab) {
+  const sh = openSheet({ title: 'Shipment', wide: true, body: '' }); sh._tab = tab || 'sum';
   sh._refresh = () => {
     const s = byId('shipments', id); if (!s) return closeSheet(); const x = K.C.shipX[s.id];
-    $('.sh h2', sh).textContent = s.name || 'Container';
+    $('.sh h2', sh).textContent = s.name || 'Shipment';
     const lots = K.raw.lots.filter((l) => l.shipmentId === id);
-    const T = [['sum', 'Summary'], ['items', 'Items (' + lots.length + ')'], ['costs', 'Costs (' + (s.costs || []).length + ')'], ['recv', 'Receive']];
+    const T = [['sum', 'Overview'], ['items', 'Items (' + lots.length + ')'], ['costs', 'Costs (' + (s.costs || []).length + ')'], ['recv', 'Unload & count']];
     let body = '<div class="row wrap between mb"><div class="seg">' + T.map(([k, l]) => '<button class="' + (sh._tab === k ? 'on' : '') + '" data-a="shTab" data-v="' + k + '">' + l + '</button>').join('') + '</div><button class="btn sm" data-a="editShip" data-id="' + id + '">' + ic('edit', 'sm') + 'Details</button></div>';
     if (sh._tab === 'sum') {
       const i = stIdx(s.status);
-      body += '<div class="card pad mb"><div class="row between"><div><div class="tiny muted">' + esc([s.containerNo, s.size, s.carrier].filter(Boolean).join(' · ') || 'Add container details') + '</div><div class="b">' + esc(s.origin || '') + ' → ' + esc(s.destination || '') + '</div></div><span class="badge brand">' + esc(KC.SHIP_STATUSES[i][1]) + '</span></div><div class="pipeline">' + KC.SHIP_STATUSES.slice(0, 6).map((_, j) => '<span class="' + (j <= i ? 'on' : '') + '"></span>').join('') + '</div>' +
-        '<div class="row wrap mt">' + (i < 5 ? '<button class="btn sm pri" data-a="shAdvance" data-id="' + id + '">Move to: ' + esc(KC.SHIP_STATUSES[i + 1][1]) + ' ' + ic('chev', 'sm') + '</button>' : '') + '</div></div>' +
-        '<div class="kpis mb">' + kpi('Goods cost', F(x.goodsX), 'converted to ' + baseCode(), true) + kpi('Shipping & clearing', F(x.costsX), 'US ' + fmt(x.usX) + ' · CM ' + fmt(x.cmX)) + kpi('Total landed', F(x.landedX), x.units ? fmt(x.landedX / x.units) + ' F / unit avg' : '') + kpi('Discount captured', F(Math.max(0, x.regularX - x.goodsX)), 'vs regular prices') + '</div>' +
+      body += '<div class="card pad mb"><div class="row between"><div><div class="tiny muted">' + esc([s.containerNo, s.size, s.carrier].filter(Boolean).join(' · ') || 'Add container details') + '</div><div class="b">' + esc(s.origin || '') + ' → ' + esc(s.destination || '') + '</div></div><span class="badge brand">' + esc(KC.SHIP_STATUSES[i][1]) + '</span></div>' + shipSteps(i) +
+        '<div class="row wrap mt">' + (i < 6 ? '<button class="btn sm pri" data-a="shAdvance" data-id="' + id + '">Next: ' + esc(KC.SHIP_STATUSES[i + 1][1]) + ' ' + ic('chev', 'sm') + '</button>' : '') + '</div></div>' +
+        '<div class="kpis mb">' + kpi('Goods cost', F(x.goodsX), 'tax included, in ' + baseCode()) + kpi('Shipping & receiving', F(x.costsX), 'shipping ' + fmt(x.usX) + ' · receiving ' + fmt(x.cmX)) + kpi('Total landed', F(x.landedX), x.units ? fmt(x.landedX / x.units) + ' F / unit avg' : '') + kpi('Discount captured', F(Math.max(0, x.regularX - x.goodsX)), 'vs regular prices') + '</div>' +
         '<div class="kpis mb">' + kpi('Units', fmt(x.units), fmt(x.unitsSold) + ' sold') + kpi('Revenue', F(x.revenue)) + kpi('Gross profit', F(x.revenue - x.cogs), x.revenue ? pct((x.revenue - x.cogs) / x.revenue * 100) + ' margin' : '') + kpi('Losses', F(x.lossX), 'missing, damaged, theft') + '</div>' +
         '<div class="card pad"><div class="row between"><b>Recovered so far</b><b>' + (x.landedX ? pct(x.revenue / x.landedX * 100) : '—') + ' of landed cost</b></div><div class="bar mt"><i style="width:' + Math.min(100, x.landedX ? x.revenue / x.landedX * 100 : 0) + '%;background:var(--accent)"></i></div><div class="tiny muted mt">Remaining stock from this container: ' + F(x.stockX) + ' at cost.</div></div>' +
         (x.unalloc ? '<div class="alert mt">' + F(x.unalloc) + ' of costs could not be assigned to items (e.g. "vehicles only" but no vehicle in the container).</div>' : '');
     } else if (sh._tab === 'items') {
       const free = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us');
-      body += '<div class="row wrap mb"><button class="btn pri" data-a="shAddItems" data-id="' + id + '"' + (free.length ? '' : ' disabled') + '>' + ic('plus') + 'Add items from US storage (' + free.length + ')</button><button class="btn" data-a="newPurchase">' + ic('buy') + 'New purchase</button></div>' +
+      body += '<div class="row wrap mb"><button class="btn pri" data-a="shAddItems" data-id="' + id + '"' + (free.length ? '' : ' disabled') + '>' + ic('plus') + 'Add items waiting to ship (' + free.length + ')</button></div>' +
         '<div class="tiny muted mb">Tip: if you don\'t know exactly what went in, add everything you bought. Record what was missing on the <b>Receive</b> tab or later with a stock count.</div>' +
         '<div class="card tw"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Paid</th><th class="r">Landed/unit</th><th class="r">Sold</th><th></th></tr></thead><tbody>' +
         lots.map((l) => { const p = byId('products', l.productId) || {}; const lx = K.C.lotX[l.id]; return '<tr><td>' + esc(p.name) + '<div class="tiny faint">' + esc(l.vendor || '') + ' · ' + fmtDate(l.purchaseDate) + '</div></td><td class="r">' + l.qty + '</td><td class="r money">' + money(l.unitCost, l.currency) + '</td><td class="r money">' + fmt(lx.landedUnit) + '</td><td class="r">' + lx.sold + '</td><td><button class="icon-btn" data-a="shRemoveLot" data-id="' + l.id + '">' + ic('x', 'sm') + '</button></td></tr>'; }).join('') + '</tbody></table>' + (lots.length ? '' : '<div class="empty small">No items yet.</div>') + '</div>';
     } else if (sh._tab === 'costs') {
       const fx = x.fx; const cs = s.costs || [];
       const grp_ = (side) => cs.filter((c) => (c.side || 'US') === side);
-      const tbl = (side) => { const g = grp_(side); return '<div class="card mb"><div class="pad row between" style="padding-bottom:4px"><b>' + (side === 'US' ? '🇺🇸 United States side' : '🇨🇲 Cameroon side') + '</b><b class="money">' + F(g.reduce((a, c) => a + num(c.amount) * KC.rateOf(S(), c.currency || 'USD', s), 0)) + '</b></div><div class="list">' + (g.length ? g.map((c) => '<div class="li" data-a="shCost" data-s="' + id + '" data-c="' + c.id + '"><div class="grow"><div class="t">' + esc(c.category) + '</div><div class="tiny muted">' + esc([c.label, c.paidTo, c.payment ? c.payment.method + (c.payment.ref ? ' txn ' + c.payment.ref : '') + (num(c.payment.fee) > 0 ? ' + ' + money(c.payment.fee, c.currency) + ' charges' : '') : c.billed ? 'on bills to pay' : '', c.date && fmtDate(c.date), { all: 'all items', goods: 'goods only', vehicles: 'vehicles only' }[c.appliesTo || 'all'] || 'one item'].filter(Boolean).join(' · ')) + '</div></div><div class="right b money">' + money(c.amount, c.currency) + '</div></div>').join('') : '<div class="empty small">No costs yet.</div>') + '</div></div>'; };
-      body += '<div class="row wrap mb"><button class="btn pri" data-a="shCost" data-s="' + id + '" data-side="US">' + ic('plus') + 'US cost</button><button class="btn pri" data-a="shCost" data-s="' + id + '" data-side="CM">' + ic('plus') + 'Cameroon cost</button></div>' +
+      const tbl = (side) => { const g = grp_(side); return '<div class="card mb"><div class="pad row between" style="padding-bottom:4px"><b>' + (side === 'US' ? 'Shipping costs <span class="hint">consolidation, loading, freight, BESC, tests…</span>' : 'Receiving costs <span class="hint">customs, clearing, offloading…</span>') + '</b><b class="money">' + F(g.reduce((a, c) => a + num(c.amount) * KC.rateOf(S(), c.currency || 'USD', s), 0)) + '</b></div><div class="list">' + (g.length ? g.map((c) => '<div class="li" data-a="shCost" data-s="' + id + '" data-c="' + c.id + '"><div class="grow"><div class="t">' + esc(c.category) + '</div><div class="tiny muted">' + esc([c.label, c.paidTo, c.payment ? c.payment.method + (c.payment.ref ? ' txn ' + c.payment.ref : '') + (num(c.payment.fee) > 0 ? ' + ' + money(c.payment.fee, c.currency) + ' charges' : '') : c.billed ? 'on bills to pay' : '', c.date && fmtDate(c.date), { all: 'all items', goods: 'goods only', vehicles: 'vehicles only' }[c.appliesTo || 'all'] || 'one item'].filter(Boolean).join(' · ')) + '</div></div><div class="right b money">' + money(c.amount, c.currency) + '</div></div>').join('') : '<div class="empty small">No costs yet.</div>') + '</div></div>'; };
+      body += '<div class="row wrap mb"><button class="btn pri" data-a="shCost" data-s="' + id + '" data-side="US">' + ic('plus') + 'Shipping cost</button><button class="btn pri" data-a="shCost" data-s="' + id + '" data-side="CM">' + ic('plus') + 'Receiving cost</button></div>' +
         '<div class="tiny muted mb">Costs are spread over the items by purchase value, so expensive items carry more of the freight and customs. Car customs can be charged to the car only.</div>' + tbl('US') + tbl('CM');
     } else {
       body += '<div class="alert info mb">Enter what was <b>missing</b> or <b>damaged</b> on arrival. Then tap <b>Confirm received in warehouse</b> — items become available for sale.</div>' +
@@ -531,27 +411,27 @@ function openShip(id) {
 }
 A.shTab = (el) => { const sh = el.closest('.scrim'); sh._tab = el.dataset.v; sh._refresh(); };
 A.editShip = (el) => shipForm(el.dataset.id);
-A.shAdvance = async (el) => { const s = byId('shipments', el.dataset.id); const i = stIdx(s.status); const next = KC.SHIP_STATUSES[i + 1][0]; if (next === 'received') return A.shReceive(el); const dk = { loading: 'loadedAt', in_transit: 'departedAt', at_port: 'arrivedAt', cleared: 'clearedAt' }[next]; const o = Object.assign({}, s, { status: next }); if (dk && !o[dk]) o[dk] = todayStr(); await save('shipments', o); refreshSheets(); scheduleRender(); };
+A.shAdvance = async (el) => { const s = byId('shipments', el.dataset.id); const i = stIdx(s.status); const next = KC.SHIP_STATUSES[i + 1][0]; if (next === 'received') return A.shReceive(el); const dk = { loading: 'loadedAt', in_transit: 'departedAt', at_port: 'arrivedAt', cleared: 'clearedAt', closed: 'readyAt' }[next]; const o = Object.assign({}, s, { status: next }); if (dk && !o[dk]) o[dk] = todayStr(); await save('shipments', o); refreshSheets(); scheduleRender(); };
 A.shReceive = async (el) => { const s = byId('shipments', el.dataset.id); await saveRecv(el); if (!(await confirmBox('Mark "' + (s.name || 'container') + '" as unloaded in the warehouse? Its items become available for sale.', 'Confirm received'))) return; const rl = $('#recvLoc', el.closest('.scrim') || document); await save('shipments', Object.assign({}, byId('shipments', s.id), { status: 'received', receivedAt: todayStr(), locationId: rl ? rl.value : (s.locationId || K.loc) })); refreshSheets(); scheduleRender(); toast('Items are now in stock'); };
 async function saveRecv(el) { const sh = el.closest('.scrim'); for (const i of $$('[data-rv]', sh)) { const l = byId('lots', i.dataset.id); const v = Math.max(0, Math.floor(num(i.value))); if (num(l[i.dataset.rv]) !== v) await save('lots', Object.assign({}, byId('lots', l.id), { [i.dataset.rv]: v })); } }
 A.shSaveRecv = async (el) => { await saveRecv(el); refreshSheets(); scheduleRender(); toast('Counts saved'); };
 A.shRemoveLot = async (el) => { const l = byId('lots', el.dataset.id); if (K.C.lotX[l.id].sold > 0) return toast('Item already has sales', true); await save('lots', Object.assign({}, l, { shipmentId: '' })); refreshSheets(); scheduleRender(); };
 A.shAddItems = (el) => {
   const id = el.dataset.id; const free = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us').sort((a, b) => (a.purchaseDate || '').localeCompare(b.purchaseDate || ''));
-  const sh = openSheet({ title: 'Add items to container', body: '<label class="toggle mb"><input type="checkbox" id="allF" checked> Select all (' + free.length + ')</label><div class="card list">' + free.map((l) => { const p = byId('products', l.productId) || {}; return '<label class="li"><input type="checkbox" data-fl="' + l.id + '" checked style="width:20px;height:20px;accent-color:var(--brand)"><div class="grow"><div class="t">' + esc(p.name) + '</div><div class="tiny muted">' + l.qty + ' units · ' + esc(l.vendor || '') + ' · ' + fmtDate(l.purchaseDate) + '</div></div></label>'; }).join('') + '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="afGo">Add to container</button>' });
+  const sh = openSheet({ title: 'Add items to the shipment', body: '<label class="toggle mb"><input type="checkbox" id="allF" checked> Select all (' + free.length + ')</label><div class="card list">' + free.map((l) => { const p = byId('products', l.productId) || {}; return '<label class="li"><input type="checkbox" data-fl="' + l.id + '" checked style="width:20px;height:20px;accent-color:var(--brand)"><div class="grow"><div class="t">' + esc(p.name) + '</div><div class="tiny muted">' + l.qty + ' units · ' + esc(l.vendor || '') + ' · ' + fmtDate(l.purchaseDate) + '</div></div></label>'; }).join('') + '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="afGo">Add to shipment</button>' });
   $('#allF', sh).onchange = (e) => $$('[data-fl]', sh).forEach((c) => (c.checked = e.target.checked));
   $('#afGo', sh).onclick = async (e) => { e.target.disabled = true; const ids = $$('[data-fl]', sh).filter((c) => c.checked).map((c) => c.dataset.fl); for (const lid of ids) await save('lots', Object.assign({}, byId('lots', lid), { shipmentId: id })); closeSheet(); refreshSheets(); scheduleRender(); toast(ids.length + ' line(s) added'); };
 };
 A.shCost = (el) => {
   const s = byId('shipments', el.dataset.s); const c = el.dataset.c ? (s.costs || []).find((x) => x.id === el.dataset.c) : { side: el.dataset.side, currency: el.dataset.side === 'CM' ? baseCode() : 'USD', appliesTo: 'all', date: todayStr() };
-  const cats = KC.COST_CATEGORIES.filter((x) => x[0] === c.side).map((x) => x[1]);
+  const cats = KC.COST_CATEGORIES.filter((x) => x[0] === c.side).map((x) => x[1]); if (c.category && !cats.includes(c.category)) cats.push(c.category);
   const lots = K.raw.lots.filter((l) => l.shipmentId === s.id);
   const sh = openSheet({
-    title: (c.id ? 'Edit' : 'Add') + ' cost · ' + (c.side === 'US' ? 'US side' : 'Cameroon side'),
+    title: (c.id ? 'Edit ' : 'Add ') + (c.side === 'US' ? 'shipping cost' : 'receiving cost'),
     body: '<div class="col">' + field('Cost type', sel('category', cats, c.category || cats[0])) + field('Description', inp('label', c.label, 'placeholder="e.g. Houston port → Katy and back"')) + '<div class="grid2">' + field('Amount', inp('amount', c.amount, 'inputmode="decimal"')) + field('Currency', sel('currency', curOptions(), c.currency)) + field('Paid to', inp('paidTo', c.paidTo)) + field('Date', inp('date', c.date, 'type="date"')) + '</div>' +
       (!c.id && can('suppliers') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="unpaid" id="ccUnpaid">Not paid yet — add to bills to pay</label><div id="ccSup" class="hide mt">' + supplierSelect('') + '<div class="grid2 mt hide" id="newSup">' + field('New supplier name', inp('newSupplier', c.paidTo || '')) + field('Type', sel('newSupplierType', SUP_TYPES, c.side === 'CM' ? 'Clearing agent' : 'Trucker')) + '</div>' + field('Pay by', inp('billDue', KC.addDays(todayStr(), 14), 'type="date"'), 'mt') + '</div></div>' : '') +
       (!c.id ? '<div id="ccPay"><h3 class="mb">How it was paid</h3>' + payFields(c.amount || '', { kind: 'purchase', currency: c.currency }) + '</div>' : c.payment ? '<div class="alert info">Paid by ' + esc(c.payment.method) + (c.payment.ref ? ' · txn ' + esc(c.payment.ref) : '') + (num(c.payment.fee) > 0 ? ' · charges ' + money(c.payment.fee, c.currency) : '') + (c.txnId ? ' · cost txn ' + esc(c.txnId) : '') + '</div>' : '') +
-      field('Charge this cost to', sel('appliesTo', [['all', 'All items in container (by value)'], ['goods', 'Goods only (not vehicles)'], ['vehicles', 'Vehicles only']].concat(lots.map((l) => [l.id, 'Only: ' + ((byId('products', l.productId) || {}).name || '')])), c.appliesTo || 'all')) + '</div>',
+      field('Charge this cost to', sel('appliesTo', [['all', 'All items in the shipment (by value)'], ['goods', 'Goods only (not vehicles)'], ['vehicles', 'Vehicles only']].concat(lots.map((l) => [l.id, 'Only: ' + ((byId('products', l.productId) || {}).name || '')])), c.appliesTo || 'all')) + '</div>',
     foot: (c.id ? '<button class="btn danger" id="cDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="cSave">Save cost</button>',
   });
   if ($('#ccPay', sh)) {
@@ -687,29 +567,29 @@ A.openTransfer = (el) => {
 };
 
 /* ---------- tables: containers, transfers ---------- */
-function shipTable(ships) {
+function shipTable(ships, tid) {
   const X = (s) => K.C.shipX[s.id]; const cost = seeCost();
   const stLabel = (s) => (KC.SHIP_STATUSES.find((q) => q[0] === s.status) || [0, s.status || ''])[1];
   const pctSold = (s) => X(s).units ? X(s).unitsSold / X(s).units * 100 : 0;
   return dataTable({
-    id: 'shipList', rows: ships, noun: 'container', empty: '<div class="big">🚢</div>No containers yet. Create one when you book a container.',
+    id: tid || 'shipList', rows: ships, noun: 'shipment', empty: '<div class="big">🚢</div>No shipments in progress. Tap <b>New shipment</b> when you start consolidating goods.',
     rowAttr: (s) => ' data-a="openShip" data-id="' + s.id + '"',
     cols: [
-      { k: 'name', label: 'Container', core: true, v: (s) => s.name || 'Container', html: (s) => '<b>' + esc(s.name || 'Container') + '</b>' },
+      { k: 'name', label: 'Shipment', core: true, v: (s) => s.name || 'Container', html: (s) => '<b>' + esc(s.name || 'Container') + '</b>' },
       { k: 'no', label: 'Container no.', core: true, v: (s) => s.containerNo || '', cls: 'mut' },
       { k: 'book', label: 'Booking no.', v: (s) => s.bookingNo || '', cls: 'mut' },
       { k: 'carrier', label: 'Carrier', v: (s) => s.carrier || '' },
       { k: 'origin', label: 'From', v: (s) => s.origin || '' },
       { k: 'dest', label: 'To', v: (s) => s.destination || '' },
-      { k: 'status', label: 'Status', core: true, v: (s) => stIdx(s.status), html: (s) => '<span class="badge ' + (s.status === 'received' || s.status === 'closed' ? 'ok' : 'info') + '">' + esc(stLabel(s)) + '</span>' },
+      { k: 'status', label: 'Step', core: true, v: (s) => stIdx(s.status), html: (s) => '<span class="badge ' + (s.status === 'received' || s.status === 'closed' ? 'ok' : 'info') + '">' + esc(stLabel(s)) + '</span>' },
       { k: 'loaded', label: 'Loaded', v: (s) => s.loadedAt || '', html: (s) => dtDate(s.loadedAt) },
       { k: 'arrived', label: 'Arrived', v: (s) => s.arrivedAt || '', html: (s) => dtDate(s.arrivedAt) },
       { k: 'units', label: 'Units', core: true, num: true, v: (s) => X(s).units, total: (rows) => fmt(dtSum(rows, (s) => X(s).units)) },
       { k: 'goods', label: 'Goods', money: true, v: (s) => Math.round(X(s).goodsX) },
-      { k: 'us', label: 'US costs', money: true, v: (s) => Math.round(X(s).usX) },
-      { k: 'cm', label: 'Cameroon costs', money: true, v: (s) => Math.round(X(s).cmX) },
+      { k: 'us', label: 'Shipping costs', core: true, money: true, v: (s) => Math.round(X(s).usX) },
+      { k: 'cm', label: 'Receiving costs', money: true, v: (s) => Math.round(X(s).cmX) },
       { k: 'landed', label: 'Landed cost', core: true, money: true, cls: 'b', v: (s) => Math.round(X(s).landedX), total: (rows) => fmt(dtSum(rows, (s) => X(s).landedX)) },
-      { k: 'rev', label: 'Revenue', core: true, money: true, v: (s) => Math.round(X(s).revenue), total: (rows) => fmt(dtSum(rows, (s) => X(s).revenue)) },
+      { k: 'rev', label: 'Revenue', money: true, v: (s) => Math.round(X(s).revenue), total: (rows) => fmt(dtSum(rows, (s) => X(s).revenue)) },
       cost ? { k: 'gp', label: 'Gross profit', money: true, v: (s) => Math.round(X(s).revenue - X(s).cogs) } : null,
       { k: 'loss', label: 'Losses', money: true, v: (s) => Math.round(X(s).lossX) || '' },
       { k: 'left', label: 'Stock left (cost)', money: true, v: (s) => Math.round(X(s).stockX) },
@@ -737,4 +617,10 @@ function trTable(list, id) {
       { k: 'rby', label: 'Received by', v: (t) => t.receivedBy || '', cls: 'mut' },
     ],
   });
+}
+
+/** The 7 steps of a shipment, grouped by phase (Ship · Receive · Sell). */
+function shipSteps(i) {
+  const ph = { ship: 'Ship', receive: 'Receive', sell: 'Sell' };
+  return '<ol class="ssteps">' + KC.SHIP_STATUSES.map(([k, l], j) => '<li class="' + (j < i ? 'done' : j === i ? 'on' : '') + '"><span class="ss-p">' + (j === 0 || KC.shipPhase(KC.SHIP_STATUSES[j - 1][0]) !== KC.shipPhase(k) ? ph[KC.shipPhase(k)] : '') + '</span><span class="ss-d"></span><span class="ss-l">' + esc(l) + '</span></li>').join('') + '</ol>';
 }
