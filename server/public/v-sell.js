@@ -44,7 +44,7 @@ function gridHTML() {
       '<div class="pr money">' + F(px.priceMax) + '</div><div class="st">' + fmt(av - q) + ' in stock</div></div>';
   }).join('');
 }
-function cartHTML(inSheet) {
+function cartHTML(inSheet, noGo) {
   const c = K.cart; const cu = c.customerId && byId('customers', c.customerId);
   const lines = c.lines.map((l, i) => {
     const px = K.C.prodX[l.productId] || {}; const p = byId('products', l.productId) || { name: l.name };
@@ -62,37 +62,53 @@ function cartHTML(inSheet) {
     (c.editingId ? '<div class="alert info mb">' + ic('edit', 'sm') + '<div>Editing sale ' + esc((byId('sales', c.editingId) || {}).no || '') + '. <a href="#" data-a="cartClear">Stop editing</a></div></div>' : '') +
     '<div class="cust-pill mb" data-a="pickCustomer">' + (cu ? '<div class="av">' + esc(initials(cu.name)) + '</div><div class="grow"><div class="b">' + esc(cu.name) + '</div><div class="tiny muted">' + esc(cu.phone || cu.whatsapp || '') + creditTag(cu) + '</div></div>' : '<div class="av">' + ic('users', 'sm') + '</div><div class="grow b">Select or add customer</div>') + ic('chev', 'sm') + '</div>' +
     (c.lines.length ? lines : '<div class="empty small">Tap items to add them here.</div>') +
-    (c.lines.length ? '<hr class="sep"><div class="row between"><span class="muted">' + cartCount() + ' item(s)</span><span class="b money" style="font-size:20px" data-ct>' + F(cartTotal()) + '</span></div><button class="btn pri lg block mt" data-a="checkout">Continue to payment ' + ic('chev') + '</button>' : '') + '</div>';
+    (c.lines.length && !noGo ? '<hr class="sep"><div class="row between"><span class="muted">' + cartCount() + ' item(s)</span><span class="b money" style="font-size:20px" data-ct>' + F(cartTotal()) + '</span></div><button class="btn pri lg block mt" data-a="checkout">Continue to payment ' + ic('chev') + '</button>' : '') + '</div>';
+}
+/* ---------- New sale: a modal (search & tap items, cart, then payment) ---------- */
+function nsListHTML() {
+  const all = posProducts(); const ps = all.slice(0, 80);
+  if (!ps.length) return '<div class="empty small">' + (K.raw.products.length ? (K.ui.posQ ? 'Nothing in stock matches “' + esc(K.ui.posQ) + '”.' : 'Nothing in stock' + (allLocs().length > 1 ? ' at ' + esc(locName(K.loc)) : '') + '.') : 'No stock yet. Record a purchase in Buy, then receive it.') + '</div>';
+  return ps.map((p) => {
+    const px = K.C.prodX[p.id], q = cartQty(p.id), av = availFor(p.id);
+    const sub = [p.condition && p.condition !== 'New' ? p.condition : '', heldForCart(p.id) ? 'client order' : '', fmt(av - q) + ' in stock'].filter(Boolean).join(' · ');
+    return '<button type="button" class="ns-it' + (q ? ' in' : '') + (av - q <= 0 ? ' out' : '') + '" data-a="addCart" data-id="' + p.id + '"' + (av - q <= 0 ? ' aria-disabled="true"' : '') + '>' + thumb(p, 38, 9) +
+      '<span class="ns-tx"><span class="ns-n">' + esc(p.name) + '</span><span class="ns-s">' + esc(sub) + '</span></span><span class="ns-p money">' + fmt(px.priceMax) + '</span>' +
+      (q ? '<span class="ns-q">' + q + '</span>' : '<span class="ns-add">' + ic('plus', 'sm') + '</span>') + '</button>';
+  }).join('') + (all.length > ps.length ? '<div class="hint pad-x mt">Search to see the other ' + (all.length - ps.length) + ' items.</div>' : '');
+}
+const posSheet = () => K.sheets.find((s) => s._pos);
+function nsFoot(sh) {
+  const n = cartCount(); const go = $('#nsGo', sh);
+  $('#nsCount', sh).textContent = n ? n + ' item' + (n === 1 ? '' : 's') : 'No items yet';
+  $('#nsTotal', sh).textContent = F(cartTotal()); if (go) go.disabled = !n;
 }
 function refreshPOS() {
-  if (K.route !== 'sell') return;
-  const g = $('#pgrid'); if (g) g.innerHTML = gridHTML();
-  const cb = $('#cartbox'); if (cb) cb.innerHTML = cartHTML();
-  const pc = $('#posCust'); if (pc) pc.innerHTML = posCustBar();
-  const bar = $('#cartbar'); if (bar) { bar.classList.toggle('hide', !K.cart.lines.length); bar.innerHTML = '<div class="av" style="background:var(--accent);color:var(--ink)">' + cartCount() + '</div><div class="grow"><div class="b">View cart</div><div class="tiny" style="color:#aab6c2">' + K.cart.lines.length + ' product(s)</div></div><div class="b money" style="font-size:18px">' + F(cartTotal()) + '</div>'; }
-  const sh = K.sheets.find((s) => s._cart); if (sh) setSheetBody(sh, cartHTML(true));
+  const sh = posSheet();
+  if (sh) { $('#nsList', sh).innerHTML = nsListHTML(); $('#nsCart', sh).innerHTML = cartHTML(true, true); nsFoot(sh); }
+  const c = K.sheets.find((s) => s._cart); if (c) setSheetBody(c, cartHTML(true));
   saveCart();
 }
-VIEWS.sell = {
-  render() {
-    const cats = [...new Set(K.raw.products.filter((p) => availFor(p.id) > 0).map((p) => p.category).filter(Boolean))].sort();
-    return '<div class="pos"><div><div class="row mb gap6 pos-cust" id="posCust">' + posCustBar() + '</div><div class="search mb">' + ic('search') + '<input class="inp" id="posQ" placeholder="Search item or scan barcode…" value="' + esc(K.ui.posQ) + '" data-i="posQ" autocomplete="off"></div>' +
-      (cats.length > 1 ? '<div class="chips mb"><button class="chip' + (!K.ui.posCat ? ' on' : '') + '" data-a="posCat" data-v="">All</button>' + cats.map((c) => '<button class="chip' + (K.ui.posCat === c ? ' on' : '') + '" data-a="posCat" data-v="' + esc(c) + '">' + esc(c) + '</button>').join('') + '</div>' : '') +
-      '<div class="pgrid" id="pgrid">' + gridHTML() + '</div></div><div class="cartbox" id="cartbox">' + cartHTML() + '</div></div><div class="cartbar hide" id="cartbar" data-a="openCart"></div>';
-  },
-  after() {
-    refreshPOS();
-    const q = $('#posQ');
-    q.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
-      const v = q.value.trim(); if (!v) return;
-      const p = K.raw.products.find((x) => x.barcode && x.barcode === v) || (posProducts().length === 1 ? posProducts()[0] : null);
-      if (p) { addToCart(p.id); q.value = ''; K.ui.posQ = ''; refreshPOS(); } else toast('No item with that code', true);
-    });
-  },
+A.newSale = () => {
+  if (!can('sell')) return toast('You cannot record sales', true);
+  if (posSheet()) return;
+  K.ui.posQ = '';
+  const sh = openSheet({
+    title: K.cart.editingId ? 'Edit sale ' + ((byId('sales', K.cart.editingId) || {}).no || '') : 'New sale', wide: true,
+    body: '<div class="ns"><div class="ns-pick"><div class="search">' + ic('search') + '<input class="inp" id="nsQ" placeholder="Search an item or scan its barcode" autocomplete="off" aria-label="Search items"></div><div class="ns-list" id="nsList"></div></div>' +
+      '<div class="ns-cart"><div class="ns-ch">Cart' + (K.cart.lines.length ? '' : '') + '</div><div id="nsCart"></div></div></div>',
+    foot: '<div class="ns-sum"><span class="hint" id="nsCount"></span><b class="money" id="nsTotal" data-ct></b></div><button class="btn pri lg" id="nsGo" data-a="checkout">Continue to payment</button>',
+  });
+  sh._pos = true; sh.classList.add('ns-sheet');
+  refreshPOS();
+  const q = $('#nsQ', sh);
+  q.addEventListener('input', () => { K.ui.posQ = q.value; $('#nsList', sh).innerHTML = nsListHTML(); });
+  q.addEventListener('keydown', (e) => { // Enter: exact barcode, or the only match
+    if (e.key !== 'Enter') return; e.preventDefault(); const v = q.value.trim(); if (!v) return;
+    const p = K.raw.products.find((x) => x.barcode && x.barcode === v) || (posProducts().length === 1 ? posProducts()[0] : null);
+    if (p) { addToCart(p.id); q.value = ''; K.ui.posQ = ''; refreshPOS(); q.focus(); } else toast('No item with that code', true);
+  });
+  if (matchMedia('(min-width: 900px)').matches) setTimeout(() => q.focus(), 60);
 };
-I.posQ = (el) => { K.ui.posQ = el.value; const g = $('#pgrid'); if (g) g.innerHTML = gridHTML(); };
-A.posCat = (el) => { K.ui.posCat = el.dataset.v; render(true); };
 function addToCart(pid) {
   const p = byId('products', pid); if (!p) return;
   const l = K.cart.lines.find((x) => x.productId === pid);
@@ -467,7 +483,7 @@ function showReceipt(id, fresh) {
   return el;
 }
 A.rcCopy = (el) => copyText(receiptText(byId('sales', el.dataset.id)));
-A.rcNew = () => { closeSheet(); go('sell'); };
+A.rcNew = () => { closeSheet(); A.newSale(); };
 A.rcPdf = (el) => receiptPDF(byId('sales', el.dataset.id));
 function receiptPDF(s) {
   if (!window.jspdf) return toast('PDF library still loading — try again', true);
@@ -519,7 +535,7 @@ VIEWS.sales = {
     const tot = live.reduce((a, s) => a + K.C.saleX[s.id].net, 0), paid = live.reduce((a, s) => a + K.C.saleX[s.id].paid, 0), bal = live.reduce((a, s) => a + Math.max(0, K.C.saleX[s.id].balance), 0), prof = live.reduce((a, s) => a + K.C.saleX[s.id].profit, 0);
     const R = [['today', 'Today'], ['yday', 'Yesterday'], ['week', '7 days'], ['month', 'This month'], ['all', 'All']];
     const SS = [['all', 'All'], ['owing', 'Owing'], ['pickup', 'Awaiting pickup'], ['deliver', 'To deliver'], ['cancelled', 'Cancelled']];
-    return (!can('salesAll') ? '<div class="alert info mb">Showing your own sales only.</div>' : '') + '<div class="row wrap between mb"><div class="seg">' + R.map(([k, l]) => '<button class="' + (K.ui.salesRange === k ? 'on' : '') + '" data-a="salesRange" data-v="' + k + '">' + l + '</button>').join('') + '</div>' + (can('export') ? '<button class="btn ghost" data-a="exportSales">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
+    return (!can('salesAll') ? '<div class="alert info mb">Showing your own sales only.</div>' : '') + '<div class="row wrap between mb"><div class="seg">' + R.map(([k, l]) => '<button class="' + (K.ui.salesRange === k ? 'on' : '') + '" data-a="salesRange" data-v="' + k + '">' + l + '</button>').join('') + '</div>' + (can('sell') ? '<button class="btn pri" data-a="newSale">' + ic('plus') + 'New sale</button>' : '') + (can('export') ? '<button class="btn ghost" data-a="exportSales">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + SS.map(([k, l]) => '<button class="chip' + (st === k ? ' on' : '') + '" data-a="salesStatus" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="kpis mb">' + kpi('Sales', F(tot), live.length + ' receipt(s)', true) + kpi('Collected', F(paid)) + kpi('Balance owed', F(bal)) + (seeCost() ? kpi('Gross profit', F(prof), tot ? pct(prof / tot * 100) + ' margin' : '') : kpi('Items', fmt(live.reduce((a, s) => a + (s.lines || []).reduce((b, l) => b + num(l.qty), 0), 0)))) + '</div>' +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search customer, receipt no., item" value="' + esc(K.ui.salesQ) + '" data-i="salesQ"></div>' +
@@ -616,7 +632,7 @@ A.editSale = (el) => {
   if (K.cart.lines.length && K.cart.editingId !== s.id) { toast('Finish or clear the current cart first', true); return; }
   K.cart = { editingId: s.id, customerId: s.customerId, discount: num(s.discount), delivery: s.delivery ? JSON.parse(JSON.stringify(s.delivery)) : null, lines: s.lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, condition: l.condition, working: l.working, manual: true })) };
   if ((s.locationId || 'main') !== K.loc) { if (!myLocs().find((x) => x.id === (s.locationId || 'main'))) { toast('This sale belongs to another location', true); K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; return; } K.loc = s.locationId || 'main'; fixLoc(); }
-  saveCart(); while (K.sheets.length) closeSheet(); go('sell');
+  saveCart(); while (K.sheets.length) closeSheet(); A.newSale();
 };
 A.cancelSale = async (el) => {
   const s = byId('sales', el.dataset.id); const x = K.C.saleX[s.id];
@@ -803,7 +819,7 @@ A.orderToSale = async (el) => {
   if (!cu) { cu = { id: uid('c_'), name: c.name, phone: c.phone, whatsapp: c.whatsapp || c.phone, city: c.city || '', type: 'Retail', source: 'Online shop' }; if (!(await save('customers', cu))) return; }
   K.cart = { lines: (o.lines || []).map((l) => ({ productId: l.productId, name: l.name, qty: num(l.qty), unitPrice: num(l.unitPrice), manual: true })), customerId: cu.id, editingId: null, discount: 0, orderId: o.id,
     delivery: o.delivery && o.delivery.mode !== 'pickup' ? Object.assign({}, o.delivery, { fee: 0, payer: 'client_us', status: 'to_send' }) : { mode: 'pickup', payer: 'client_us', status: 'to_send' } };
-  saveCart(); while (K.sheets.length) closeSheet(); go('sell');
+  saveCart(); while (K.sheets.length) closeSheet(); A.newSale();
   toast('Order ' + o.no + ' is in the cart — check prices, add the delivery fee at checkout, then Complete sale');
 };
 A.orderReject = async (el) => {

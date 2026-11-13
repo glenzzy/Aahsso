@@ -114,7 +114,7 @@ A.openCust = (el) => {
   sh._refresh();
 };
 A.custEdit = (el) => editCustomer(el.dataset.id, () => refreshSheets());
-A.custSell = (el) => { K.cart.customerId = el.dataset.id; saveCart(); while (K.sheets.length) closeSheet(); go('sell'); };
+A.custSell = (el) => { K.cart.customerId = el.dataset.id; saveCart(); while (K.sheets.length) closeSheet(); A.newSale(); };
 A.exportCust = () => xlsxDownload('Customers-' + todayStr() + '.xlsx', { Customers: K.raw.customers.map((c) => ({ Name: c.name, Phone: c.phone, WhatsApp: c.whatsapp, Email: c.email, City: c.city, Type: c.type, Notes: c.notes })) });
 A.importCust = async () => {
   if (!window.XLSX) return toast('Excel library still loading', true);

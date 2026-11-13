@@ -64,28 +64,30 @@ function purchaseForm() {
   const sh = openSheet({
     title: 'New purchase', wide: true,
     body: '<datalist id="dlNames">' + names.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist><datalist id="dlVend">' + vendors.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
-      // 1 · seller
-      '<section class="pu-sec" id="puHead"><div class="pu-h"><span class="pu-n">1</span><h3>Seller</h3></div>' +
-        '<div class="grid4">' + field('Bought from', sel('sourceType', KC.SOURCE_TYPES, 'Store', 'id="puSrc"')) + field('Seller name', inp('vendor', '', 'list="dlVend" placeholder="e.g. Costco, Mama Ngono" autocomplete="off"')) + field('Seller phone', inp('vendorPhone', '', 'inputmode="tel" placeholder="Optional"')) + field('Date', inp('purchaseDate', todayStr(), 'type="date"')) + '</div>' +
-        '<div class="grid4 mt">' + field('Receipt / order no.', inp('poNumber', '', 'placeholder="Optional"')) + field('Currency', sel('currency', curOptions(), curDef, 'id="puCur"')) +
-          field('Where are the goods?', sel('where', [['abroad', 'Abroad — to ship'], ['local', 'In Cameroon — to stock']], 'abroad', 'id="puWhere"')) +
-          field('Collected from the seller?', sel('puCollected', [['yes', 'Yes'], ['no', 'No — pick up later']], 'yes')) + '</div></section>' +
-      // 2 · items
-      '<section class="pu-sec"><div class="pu-h"><span class="pu-n">2</span><h3>Items</h3><div class="sp"></div><button type="button" class="btn sm ghost" data-a="puImport">' + ic('up', 'sm') + 'Import Excel</button><button type="button" class="btn sm ghost" data-a="tplPurch">' + ic('dl', 'sm') + 'Template</button></div>' +
-        '<div class="tw pu-tw"><table class="t pu-t"><thead><tr><th>Item</th><th>Category</th><th class="r">Qty</th><th class="r">Price each</th><th class="r">Total</th><th class="r">Tax share</th><th></th></tr></thead><tbody id="puRows"></tbody></table></div>' +
-        '<button type="button" class="btn sm mt" data-a="puAdd">' + ic('plus', 'sm') + 'Add item</button>' +
-        '<div class="pu-sum mt"><div class="pu-tax">' +
-          '<div class="lbl">Tax on the receipt</div><div class="row gap6"><div class="seg" id="puTaxMode"><button type="button" class="on" data-a="puTaxMode" data-v="pct">%</button><button type="button" data-a="puTaxMode" data-v="amt">Amount</button></div>' +
-          '<input class="inp" id="puTax" inputmode="decimal" placeholder="0" style="width:120px" autocomplete="off"></div><div class="hint mt" id="puTaxHint">Shared over the items by their value.</div>' +
-          '<div id="puSpread" class="hide mt"><div class="lbl">Paid one price for the items without a price?</div><div class="row gap6"><input class="inp" id="puLot" inputmode="decimal" placeholder="Total paid" style="width:140px"><button type="button" class="btn sm" data-a="puSpread">Spread it</button></div></div>' +
-        '</div><div class="pu-tot" id="puTot"></div></div></section>' +
-      // 3 · payment
-      '<section class="pu-sec"><div class="pu-h"><span class="pu-n">3</span><h3>Payment</h3></div>' +
-        '<div class="grid2">' + field('Paid?', sel('payStatus', [['paid', 'Paid in full']].concat(can('suppliers') ? [['credit', 'Not paid yet — add to bills to pay']] : []), 'paid', 'id="puPaySt"')) + '<div id="puPayBy" class="hide">' + field('Pay by', inp('payBy', KC.addDays(todayStr(), 14), 'type="date"')) + '</div></div>' +
-        '<div id="puPay" class="mt">' + payFields('', { kind: 'purchase', currency: curDef }) + '</div></section>',
+      // seller
+      '<section class="pu-sec" id="puHead">' +
+        '<div class="seg pu-where mb" id="puWhereSeg"><button type="button" class="on" data-a="puWhere" data-v="abroad">Bought abroad</button><button type="button" data-a="puWhere" data-v="local">Bought in Cameroon</button></div><input type="hidden" name="where" value="abroad">' +
+        '<div class="pu-seller">' + field('Seller', inp('vendor', '', 'list="dlVend" placeholder="Who did you buy from?" autocomplete="off"')) + field('Bought from', sel('sourceType', KC.SOURCE_TYPES, 'Store', 'id="puSrc"')) + field('Date', inp('purchaseDate', todayStr(), 'type="date"')) + '</div>' +
+        '<details class="pu-extra"><summary>More details <span class="hint">phone, receipt no., currency, pick-up</span></summary><div class="grid4 mt">' +
+          field('Seller phone', inp('vendorPhone', '', 'inputmode="tel" placeholder="Optional"')) + field('Receipt / order no.', inp('poNumber', '', 'placeholder="Optional"')) +
+          field('Currency', sel('currency', curOptions(), curDef, 'id="puCur"')) + field('Collected from the seller?', sel('puCollected', [['yes', 'Yes'], ['no', 'No — pick up later']], 'yes')) + '</div></details></section>' +
+      // items
+      '<section class="pu-sec"><h3 class="pu-t3">Items</h3>' +
+        '<div class="pu-tw"><table class="t pu-t2"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r" id="puPriceH">Price each</th><th class="r">Total</th><th></th></tr></thead><tbody id="puRows"></tbody></table></div>' +
+        '<div class="pu-under"><div class="col" style="gap:10px"><div class="row wrap gap6"><button type="button" class="btn sm" data-a="puAdd">' + ic('plus', 'sm') + 'Add item</button><button type="button" class="btn sm ghost" data-a="puImport">' + ic('up', 'sm') + 'Import Excel</button><button type="button" class="btn sm ghost" data-a="tplPurch">Template</button></div>' +
+          '<div id="puSpread" class="hide"><div class="hint mb">Paid one price for the items without a price?</div><div class="row gap6"><input class="inp" id="puLot" inputmode="decimal" placeholder="Total paid" style="width:140px"><button type="button" class="btn sm" data-a="puSpread">Spread it</button></div></div></div>' +
+          '<div class="pu-tot"><div class="row between"><span>Items</span><span class="money" id="puSub"></span></div>' +
+            '<div class="row between pu-taxrow"><span class="row gap6"><span>Tax</span><input class="inp" id="puTax" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="Tax"><span class="seg sm" id="puTaxMode"><button type="button" class="on" data-a="puTaxMode" data-v="pct">%</button><button type="button" data-a="puTaxMode" data-v="amt" id="puTaxCur">$</button></span></span><span class="money" id="puTaxV"></span></div>' +
+            '<div class="row between pu-grand"><b>Total</b><b class="money" id="puGrand"></b></div><div class="hint" id="puTaxHint"></div></div></div></section>' +
+      // payment
+      '<section class="pu-sec"><h3 class="pu-t3">Payment</h3>' +
+        '<div class="seg mb" id="puPaidSeg"><button type="button" class="on" data-a="puPaid" data-v="paid">Paid</button><button type="button" data-a="puPaid" data-v="part">Part paid</button>' + (can('suppliers') ? '<button type="button" data-a="puPaid" data-v="credit">Not paid yet</button>' : '') + '</div>' +
+        '<div id="puPayBy" class="hide" style="max-width:260px">' + field('Pay by', inp('payBy', KC.addDays(todayStr(), 14), 'type="date"')) + '</div>' +
+        '<div id="puPay">' + payFields('', { kind: 'purchase', currency: curDef }) + '</div></section>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="puSave">Save purchase</button>',
   });
-  sh._rows = [puRow()]; sh._taxMode = 'pct';
+  sh._rows = [puRow()]; sh._taxMode = 'pct'; sh._paid = 'paid';
+  $('#payBox > .grid2', sh).classList.add('hide'); // paid in full: amount = total, date = purchase date
   const cur = () => $('#puCur', sh).value;
   const lineVal = (r) => num(r.qty) * num(r.unitCost);
   const sums = () => {
@@ -96,24 +98,24 @@ function purchaseForm() {
   const m = (v) => money(v, cur());
   const totals = () => {
     const s = sums();
-    $$('#puRows tr[data-r]', sh).forEach((tr) => { const i = +tr.dataset.r, r = sh._rows[i]; $('[data-out=total]', tr).textContent = lineVal(r) ? m(lineVal(r)) : '—'; $('[data-out=tax]', tr).textContent = s.shares[i] ? m(s.shares[i]) : '—'; });
+    $$('#puRows tr[data-r]', sh).forEach((tr) => { const i = +tr.dataset.r, r = sh._rows[i]; $('[data-out=total]', tr).textContent = lineVal(r) ? m(lineVal(r)) : '—'; $('[data-out=tax]', tr).textContent = s.shares[i] ? '+ ' + m(s.shares[i]) + ' tax' : ''; });
     const rate = s.sub ? s.tax / s.sub * 100 : 0;
-    $('#puTot', sh).innerHTML = '<div class="row between"><span>Items</span><span class="money">' + m(s.sub) + '</span></div><div class="row between"><span>Tax' + (s.tax ? ' (' + (Math.round(rate * 100) / 100) + '%)' : '') + '</span><span class="money">' + m(s.tax) + '</span></div><div class="row between pu-grand"><b>Total</b><b class="money">' + m(s.total) + '</b></div>';
-    $('#puTaxHint', sh).textContent = s.tax && s.sub ? (sh._taxMode === 'pct' ? m(s.tax) + ' tax, shared over the items by their value.' : '= ' + (Math.round(rate * 100) / 100) + '% of the items, shared by value.') : 'Shared over the items by their value.';
+    $('#puSub', sh).textContent = m(s.sub); $('#puTaxV', sh).textContent = m(s.tax); $('#puGrand', sh).textContent = m(s.total);
+    $('#puTaxHint', sh).textContent = s.tax && s.sub ? (sh._taxMode === 'pct' ? '' : (Math.round(rate * 100) / 100) + '% · ') + 'shared over the items by value' : '';
+    $('#puPriceH', sh).textContent = 'Price each (' + curSym(cur()) + ')'; $('#puTaxCur', sh).textContent = curSym(cur());
     $('#puSpread', sh).classList.toggle('hide', !(sh._rows.length > 1 && sh._rows.some((r) => r.name && r.unitCost === '')));
-    const pa = $('#payAmount', sh); if (pa) { pa.dataset.def = s.total; pa.placeholder = s.total ? fmt(s.total) : 'Total of the receipt'; syncPayCharges(sh); }
+    const pa = $('#payAmount', sh); if (pa) { pa.dataset.def = s.total; pa.placeholder = s.total ? fmt(s.total) : 'Total of the receipt'; if (sh._paid === 'paid') pa.value = ''; syncPayCharges(sh); }
   };
-  const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" list="dlNames" value="' + esc(r.name) + '" placeholder="Item name" autocomplete="off"></td>' +
-    '<td>' + sel('cat_' + i, catOpts(), r.category, 'data-f="category" aria-label="Category"') + '</td>' +
+  const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" list="dlNames" value="' + esc(r.name) + '" placeholder="Item name" autocomplete="off" aria-label="Item"></td>' +
     '<td data-l="Qty"><input class="inp r" data-f="qty" inputmode="numeric" value="' + esc(r.qty) + '" aria-label="Quantity"></td><td data-l="Price each"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="0" aria-label="Price each"></td>' +
-    '<td class="r money b" data-l="Total" data-out="total">—</td><td class="r money faint" data-l="Tax share" data-out="tax">—</td>' +
-    '<td class="nowrap r"><button type="button" class="icon-btn' + (r.open ? ' on' : '') + '" data-a="puMore" data-i="' + i + '" title="Condition, expiry, barcode, photo…" aria-label="More details">' + ic('more', 'sm') + '</button><button type="button" class="icon-btn" data-a="puRm" data-i="' + i + '" aria-label="Remove item">' + ic('trash', 'sm') + '</button></td></tr>' +
-    (r.open ? '<tr class="pu-more" data-m="' + i + '"><td colspan="7"><div class="grid4">' +
-      field('Condition', sel('cond_' + i, KC.CONDITIONS, r.condition, 'data-f="condition"')) + field('Working?', sel('work_' + i, KC.WORKING, r.working, 'data-f="working"')) +
-      field('Shelf price each', '<input class="inp" data-f="regularPrice" inputmode="decimal" value="' + esc(r.regularPrice) + '" placeholder="Optional">') + field('Pack of', '<input class="inp" data-f="packOf" inputmode="numeric" value="' + esc(r.packOf) + '" title="Units you will sell per item bought">') +
-      field('Expiry date', '<input class="inp" type="date" data-f="expiry" value="' + esc(r.expiry) + '">') + field('Barcode', '<input class="inp" data-f="barcode" value="' + esc(r.barcode) + '" placeholder="Scan UPC">') +
-      field('Bought for a client?', sel('res_' + i, custOpts(), r.reservedFor, 'data-f="reservedFor"')) + field('Notes', '<input class="inp" data-f="notes" value="' + esc(r.notes) + '">') +
-      '</div><div class="row mt"><button type="button" class="btn sm" data-a="puPhoto" data-i="' + i + '">' + ic('cam', 'sm') + (r.photo ? 'Change photo' : 'Add photo') + '</button>' + (r.photo ? '<img class="pu-ph" src="' + URL.createObjectURL(r.photo) + '" alt="">' : '') + '<span class="hint">Pack of 6 = you sell 6 units for each one bought.</span></div></td></tr>' : '');
+    '<td class="r pu-ltot" data-l="Total"><b class="money" data-out="total">—</b><span class="pu-tx" data-out="tax"></span></td>' +
+    '<td class="nowrap r"><button type="button" class="icon-btn' + (r.open ? ' on' : '') + '" data-a="puMore" data-i="' + i + '" title="Category, condition, expiry, barcode, photo…" aria-label="Item details">' + ic('more', 'sm') + '</button><button type="button" class="icon-btn" data-a="puRm" data-i="' + i + '" aria-label="Remove item">' + ic('x', 'sm') + '</button></td></tr>' +
+    (r.open ? '<tr class="pu-more" data-m="' + i + '"><td colspan="5"><div class="grid4">' +
+      field('Category', sel('cat_' + i, catOpts(), r.category, 'data-f="category"')) + field('Condition', sel('cond_' + i, KC.CONDITIONS, r.condition, 'data-f="condition"')) + field('Working?', sel('work_' + i, KC.WORKING, r.working, 'data-f="working"')) +
+      field('Pack of', '<input class="inp" data-f="packOf" inputmode="numeric" value="' + esc(r.packOf) + '" title="Units you will sell for each one bought">') +
+      field('Shelf price each', '<input class="inp" data-f="regularPrice" inputmode="decimal" value="' + esc(r.regularPrice) + '" placeholder="Optional">') + field('Expiry date', '<input class="inp" type="date" data-f="expiry" value="' + esc(r.expiry) + '">') + field('Barcode', '<input class="inp" data-f="barcode" value="' + esc(r.barcode) + '" placeholder="Optional">') +
+      field('Bought for a client?', sel('res_' + i, custOpts(), r.reservedFor, 'data-f="reservedFor"')) +
+      '</div><div class="row mt wrap"><button type="button" class="btn sm" data-a="puPhoto" data-i="' + i + '">' + ic('cam', 'sm') + (r.photo ? 'Change photo' : 'Add photo') + '</button>' + (r.photo ? '<img class="pu-ph" src="' + URL.createObjectURL(r.photo) + '" alt="">' : '') + '<input class="inp grow" data-f="notes" value="' + esc(r.notes) + '" placeholder="Notes (optional)" aria-label="Notes"></div></td></tr>' : '');
   sh._draw = () => { $('#puRows', sh).innerHTML = sh._rows.map(rowHtml).join(''); totals(); };
   sh._draw();
   const onField = (e) => {
@@ -121,20 +123,26 @@ function purchaseForm() {
     const i = +(tr.dataset.r ?? tr.dataset.m); const r = sh._rows[i]; r[f] = e.target.value;
     if (f === 'name' && e.type === 'change') { // a known item: bring back its category, condition and size
       const p = K.raw.products.find((x) => x.name.toLowerCase() === r.name.trim().toLowerCase());
-      if (p) { r.category = p.category || r.category; r.subcategory = p.subcategory || ''; r.condition = p.condition || 'New'; r.unit = p.unit || ''; r.size = p.size ?? null; r.sizeUnit = p.sizeUnit || ''; const s = $('[data-f=category]', tr); if (s) s.value = r.category; }
+      if (p) { r.category = p.category || r.category; r.subcategory = p.subcategory || ''; r.condition = p.condition || 'New'; r.unit = p.unit || ''; r.size = p.size ?? null; r.sizeUnit = p.sizeUnit || ''; }
     }
     totals();
   };
   sh.addEventListener('input', onField); sh.addEventListener('change', onField);
   $('#puTax', sh).addEventListener('input', totals);
-  $('#puPaySt', sh).onchange = (e) => { const paid = e.target.value === 'paid'; $('#puPay', sh).classList.toggle('hide', !paid); $('#puPayBy', sh).classList.toggle('hide', paid); };
   $('#puCur', sh).addEventListener('change', () => { setPayCurrency(sh, cur()); totals(); });
-  $('#puSrc', sh).addEventListener('change', (e) => { if (e.target.value === 'Local (Cameroon)') { $('#puWhere', sh).value = 'local'; $('#puCur', sh).value = baseCode(); setPayCurrency(sh, baseCode()); totals(); } });
-  $('#puWhere', sh).addEventListener('change', (e) => { if (e.target.value === 'local' && cur() !== baseCode()) { $('#puCur', sh).value = baseCode(); setPayCurrency(sh, baseCode()); totals(); } });
+  sh._setWhere = (w) => {
+    $('[name=where]', sh).value = w; $$('#puWhereSeg button', sh).forEach((b) => b.classList.toggle('on', b.dataset.v === w));
+    const c = w === 'local' ? baseCode() : curDef; if (cur() !== c) { $('#puCur', sh).value = c; setPayCurrency(sh, c); }
+    if (w === 'local' && $('#puSrc', sh).value === 'Store' && !$('[name=vendor]', sh).value) $('#puSrc', sh).value = 'Local (Cameroon)';
+    totals();
+  };
+  $('#puSrc', sh).addEventListener('change', (e) => { if (e.target.value === 'Local (Cameroon)') sh._setWhere('local'); });
   setPayCurrency(sh, cur());
   sh._sums = sums;
   $('#puSave', sh).onclick = async () => {
-    const h = formVals($('#puHead', sh)); const pv = formVals($('#puPay', sh).parentNode);
+    const h = formVals($('#puHead', sh)); const pv = formVals($('#puPay', sh).parentNode); pv.payStatus = sh._paid === 'credit' ? 'credit' : 'paid';
+    if (sh._paid === 'paid') { pv.payAmount = ''; pv.payDate = h.purchaseDate; }
+    if (sh._paid === 'part' && !(num(pv.payAmount) > 0)) { toast('Type how much you paid', true); const a = $('#payAmount', sh); if (a) a.focus(); return; }
     const rows = sh._rows.filter((r) => r.name.trim() || num(r.unitCost));
     if (!rows.length) { toast('Add at least one item', true); const n = $('[data-f=name]', sh); if (n) n.focus(); return; }
     const bad = rows.findIndex((r) => !r.name.trim() || !(num(r.qty) > 0) || r.unitCost === '');
@@ -157,7 +165,7 @@ function purchaseForm() {
     Object.assign(h, { shipmentId: h.where === 'local' ? '__local' : '', purchaseTxnId: KC.newTxnId('PU', h.purchaseDate) });
     await savePurchaseLines(h, lines);
     if (credit || pay) {
-      await createBillFor({ txnId: h.purchaseTxnId, payment: pay, supplierId: (K.raw.suppliers.find((x) => x.name.toLowerCase() === (h.vendor || '').toLowerCase()) || {}).id, newSupplier: h.vendor || h.sourceType || 'Seller', newSupplierType: SELLER_SUP_TYPE[h.sourceType] || 'Other', description: 'Purchase ' + (h.poNumber ? '#' + h.poNumber + ' ' : '') + fmtDate(h.purchaseDate) + (s.tax ? ' (tax ' + money(s.tax, h.currency) + ')' : ''), amount: s.total, currency: h.currency || 'USD', date: h.purchaseDate, dueDate: credit ? pv.payBy : h.purchaseDate });
+      await createBillFor({ txnId: h.purchaseTxnId, payment: pay, supplierId: (K.raw.suppliers.find((x) => x.name.toLowerCase() === (h.vendor || '').toLowerCase()) || {}).id, newSupplier: h.vendor || h.sourceType || 'Seller', newSupplierType: SELLER_SUP_TYPE[h.sourceType] || 'Other', description: 'Purchase ' + (h.poNumber ? '#' + h.poNumber + ' ' : '') + fmtDate(h.purchaseDate) + (s.tax ? ' (tax ' + money(s.tax, h.currency) + ')' : ''), amount: s.total, currency: h.currency || 'USD', date: h.purchaseDate, dueDate: sh._paid === 'paid' ? h.purchaseDate : pv.payBy });
     }
     closeSheet(); scheduleRender();
     toast(lines.length + ' item' + (lines.length === 1 ? '' : 's') + ' saved' + (h.where === 'local' ? ' · in stock now' : ' · waiting to ship') + (credit ? ' · bill created' : pay && pay.amount < s.total - 0.005 ? ' · part paid, rest added to bills' : ''));
@@ -165,6 +173,13 @@ function purchaseForm() {
   setTimeout(() => { const v = $('[name=vendor]', sh); if (v) v.focus(); }, 60);
 }
 const puSheet = (el) => el.closest('.scrim');
+A.puWhere = (el) => puSheet(el)._setWhere(el.dataset.v);
+A.puPaid = (el) => {
+  const sh = puSheet(el); const v = el.dataset.v; sh._paid = v; $$('#puPaidSeg button', sh).forEach((b) => b.classList.toggle('on', b === el));
+  $('#puPay', sh).classList.toggle('hide', v === 'credit'); $('#puPayBy', sh).classList.toggle('hide', v !== 'part' && v !== 'credit');
+  $('#payBox > .grid2', sh).classList.toggle('hide', v !== 'part');
+  const a = $('#payAmount', sh); if (a) { a.value = ''; if (v === 'part') a.focus(); } syncPayCharges(sh);
+};
 A.puAdd = (el) => { const sh = puSheet(el); sh._rows.push(puRow()); sh._draw(); const ins = $$('[data-f=name]', sh); ins[ins.length - 1].focus(); };
 A.puRm = (el) => { const sh = puSheet(el); sh._rows.splice(+el.dataset.i, 1); if (!sh._rows.length) sh._rows.push(puRow()); sh._draw(); };
 A.puMore = (el) => { const sh = puSheet(el); const r = sh._rows[+el.dataset.i]; r.open = !r.open; sh._draw(); };

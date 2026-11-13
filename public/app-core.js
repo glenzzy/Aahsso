@@ -295,13 +295,13 @@ const SECTIONS = [
   ['buy', 'Buy', 'buy', ['buy']],
   ['ship', 'Ship', 'ship', ['ship']],
   ['receive', 'Receive', 'check', ['receive']],
-  ['sell', 'Sell', 'sell', ['sell', 'sales', 'orders']],
+  ['sell', 'Sell', 'sell', ['sales', 'orders']],
   ['stock', 'Stock', 'stock', ['stock', 'transfers', 'audit']],
   ['customers', 'Customers', 'users', ['customers', 'reminders']],
   ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'reports', 'assets']],
   ['settings', 'Settings', 'gear', ['settings', 'team', 'activity']],
 ];
-const TAB_LABEL = { sell: 'New sale', sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', transfers: 'Branch transfers', audit: 'Stock count', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log' };
+const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', transfers: 'Branch transfers', audit: 'Stock count', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log' };
 /** Routes of a section this person can open (transfers only when there is more than one branch). */
 const secRoutes = (sec) => sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
 const secOf = (r) => SECTIONS.find((x) => x[3].includes(r)) || SECTIONS[0];
@@ -319,10 +319,14 @@ function route() {
   document.body.style.overflow = '';
   let r = (location.hash || '#home').slice(1) || 'home';
   r = ROUTE_ALIAS[r] || r;
+  // New sale is a modal: #sell opens it over the page you were on
+  let openSale = false;
+  if (r === 'sell') { openSale = true; r = K.route && VIEWS[K.route] && K.route !== 'pending' ? K.route : 'sales'; try { history.replaceState(null, '', '#' + r); } catch (e) { } }
   if (!VIEWS[r]) r = 'home';
   if (!K.member) r = 'pending';
   else if (!navOk(r)) r = 'home';
-  K.route = r; window.scrollTo(0, 0); render(true);
+  const same = K.route === r && openSale; K.route = r; if (!same) { window.scrollTo(0, 0); render(true); }
+  if (openSale && K.member && can('sell')) A.newSale();
 }
 function logoHTML(cls = 'logo') { const s = S(); return '<div class="' + cls + '">' + (s.logo ? '<img src="' + esc(s.logo) + '" alt="">' : esc(initials(s.businessName).slice(0, 2))) + '</div>'; }
 const navCount = (n) => { const c = n[4] ? n[4]() : 0; return c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : ''; };

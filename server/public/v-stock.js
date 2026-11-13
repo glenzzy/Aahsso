@@ -84,7 +84,7 @@ function productExpand(p) {
 A.stockFilter = (el) => { K.ui.stockFilter = el.dataset.v; render(true); };
 CH.stockCat = (el) => { K.ui.stockCat = el.value; render(true); };
 I.stockQ = (el) => { K.ui.stockQ = el.value; clearTimeout(I._st); I._st = setTimeout(() => dtRefresh('stockList'), 120); };
-A.sellThis = (el) => { addToCart(el.dataset.id); go('sell'); };
+A.sellThis = (el) => { A.newSale(); addToCart(el.dataset.id); };
 A.exportStock = () => {
   const rows = K.raw.products.map((p) => { const x = K.C.prodX[p.id]; const r = { Item: p.name, Category: p.category, Subcategory: p.subcategory, Condition: p.condition, Barcode: p.barcode || '', 'In stock': x.available, Incoming: x.transit + x.us, 'Price max (F)': x.priceMax, 'Price min (F)': x.priceMin, 'Next expiry': x.nextExpiry || '' }; if (seeCost()) Object.assign(r, { 'Avg landed cost (F)': Math.round(x.avgCost), 'Stock value (F)': Math.round(x.stockValue), 'Units sold': x.sold, 'Revenue (F)': Math.round(x.revenue), 'Profit (F)': Math.round(x.profit) }); return r; });
   xlsxDownload('Stock-' + todayStr() + '.xlsx', { Stock: rows });
