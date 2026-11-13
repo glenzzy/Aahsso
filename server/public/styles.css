@@ -513,3 +513,29 @@ details.fold .fold-body{padding:4px 0 2px}
 .hint{font-size:12.5px;font-weight:400;color:var(--ink3)}
 .dt-full:not(:has(.dt-bar)) .dt-t th:first-child,.dt-full:not(:has(.dt-bar)) .dt-t td:first-child{position:static;box-shadow:none}
 @media (min-width:900px){.kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}}
+
+/* ---------- sign in / create business ---------- */
+body.auth-body{background:var(--ink)}
+.auth{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px 20px;
+  background:radial-gradient(900px 520px at 50% -10%,rgba(13,92,99,.55),transparent 70%),radial-gradient(600px 400px at 100% 110%,rgba(232,163,61,.10),transparent 70%),var(--ink)}
+.auth-in{width:100%;max-width:400px;margin:auto 0}
+.auth-brand{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:24px}
+.auth-mark{width:52px;height:52px;border-radius:14px;background:var(--accent);color:var(--ink);display:grid;place-items:center;font-weight:800;font-size:22px;box-shadow:0 8px 24px rgba(232,163,61,.25)}
+.auth-name{margin-top:12px;color:#fff;font-weight:800;font-size:22px;letter-spacing:-.01em}
+.auth-tag{margin-top:2px;color:#93a2b0;font-size:13.5px}
+.auth-card{background:var(--card);border-radius:16px;padding:28px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.auth-card h1{margin:0;font-size:20px;font-weight:750;text-align:center;letter-spacing:-.01em}
+.auth-sub{margin:6px 0 22px;color:var(--ink3);font-size:13.5px;text-align:center}
+.auth-fields{display:flex;flex-direction:column;gap:14px}
+.auth-fields+.auth-fields{margin-top:14px}
+.auth-pw{position:relative}
+.auth-pw .inp{padding-right:64px}
+.auth-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;color:var(--ink3);font:600 12.5px var(--font);padding:6px 8px;border-radius:8px;cursor:pointer}
+.auth-eye:hover{color:var(--ink);background:var(--line2)}
+.auth-err{margin-top:14px;padding:9px 12px;border-radius:10px;background:var(--badSoft);color:var(--bad);font-size:13px;font-weight:550}
+.auth-go{margin-top:20px;min-height:46px;font-size:15px}
+.auth-switch{margin-top:18px;text-align:center;color:#93a2b0;font-size:13.5px}
+.auth-link{border:0;background:none;padding:0;font:inherit;font-weight:700;color:#fff;cursor:pointer;text-decoration:underline;text-decoration-color:rgba(255,255,255,.3);text-underline-offset:3px}
+.auth-link:hover{text-decoration-color:#fff}
+.auth-foot{margin-top:28px;color:#5d6b79;font-size:12px}
+@media (max-width:420px){.auth-card{padding:22px 18px}}

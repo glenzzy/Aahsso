@@ -1,21 +1,49 @@
 /* Kargo — startup, access gate, login (SaaS mode) */
 function renderLogin() {
-  document.body.innerHTML = '<div class="login"><div class="center mb"><div class="logo" style="width:56px;height:56px;margin:0 auto 10px;font-size:22px">K</div><h1>Kargo</h1><div class="muted">Import, stock & sales manager</div></div>' +
-    '<div class="card pad2"><div class="seg mb" style="width:100%"><button class="on grow" id="tLogin">Sign in</button><button class="grow" id="tReg">Create business</button></div>' +
-    '<div id="fReg" class="col hide">' + field('Business name', inp('businessName', '')) + field('Your name', inp('name', '')) + '</div>' +
-    '<div class="col mt">' + field('Email or phone', inp('login', '', 'autocomplete="username"')) + field('Password', inp('password', '', 'type="password" autocomplete="current-password"')) + '<button class="btn pri lg block" id="go">Sign in</button><div class="tiny" id="err" style="color:var(--bad)"></div></div></div></div>';
+  document.title = 'Sign in · Kargo';
+  document.body.className = 'auth-body';
+  const pw = (name, ac) => '<div class="auth-pw"><input class="inp" name="' + name + '" type="password" autocomplete="' + ac + '"><button type="button" class="auth-eye" id="pwEye" aria-label="Show password">Show</button></div>';
+  document.body.innerHTML = '<main class="auth"><div class="auth-in">' +
+    '<div class="auth-brand"><div class="auth-mark" aria-hidden="true">K</div><div class="auth-name">Kargo</div><div class="auth-tag">Import, stock &amp; sales</div></div>' +
+    '<form class="auth-card" id="aForm" novalidate>' +
+      '<h1 id="aTitle">Welcome back</h1><p class="auth-sub" id="aSub">Sign in to your business account.</p>' +
+      '<div id="fReg" class="auth-fields hide">' + field('Business name', inp('businessName', '', 'autocomplete="organization"')) + field('Your name', inp('name', '', 'autocomplete="name"')) + '</div>' +
+      '<div class="auth-fields">' + field('Email or phone', inp('login', '', 'autocomplete="username" autocapitalize="off" spellcheck="false"')) + field('Password', pw('password', 'current-password')) + '</div>' +
+      '<div class="auth-err hide" id="err" role="alert"></div>' +
+      '<button type="submit" class="btn pri lg block auth-go" id="go">Sign in</button>' +
+    '</form>' +
+    '<div class="auth-switch"><span id="swLogin">New to Kargo? <button type="button" class="auth-link" id="tReg">Create a business</button></span>' +
+      '<span id="swReg" class="hide">Already have an account? <button type="button" class="auth-link" id="tLogin">Sign in</button></span></div>' +
+  '</div><footer class="auth-foot">© ' + new Date().getFullYear() + ' Kargo</footer></main>';
   let reg = false;
-  const sw = (r) => { reg = r; $('#tLogin').classList.toggle('on', !r); $('#tReg').classList.toggle('on', r); $('#fReg').classList.toggle('hide', !r); $('#go').textContent = r ? 'Create account' : 'Sign in'; };
+  const err = (m) => { const e = $('#err'); e.textContent = m || ''; e.classList.toggle('hide', !m); };
+  const sw = (r) => {
+    reg = r; err('');
+    $('#fReg').classList.toggle('hide', !r); $('#swLogin').classList.toggle('hide', r); $('#swReg').classList.toggle('hide', !r);
+    $('#aTitle').textContent = r ? 'Create your business' : 'Welcome back';
+    $('#aSub').textContent = r ? 'Takes a minute. You will be the owner.' : 'Sign in to your business account.';
+    $('#go').textContent = r ? 'Create account' : 'Sign in';
+    $('[name=password]').setAttribute('autocomplete', r ? 'new-password' : 'current-password');
+    document.title = (r ? 'Create account' : 'Sign in') + ' · Kargo';
+    (r ? $('[name=businessName]') : $('[name=login]')).focus();
+  };
   $('#tLogin').onclick = () => sw(false); $('#tReg').onclick = () => sw(true);
-  $('#go').onclick = async () => {
+  $('#pwEye').onclick = () => { const i = $('[name=password]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; $('#pwEye').textContent = show ? 'Hide' : 'Show'; $('#pwEye').setAttribute('aria-label', show ? 'Hide password' : 'Show password'); i.focus(); };
+  $('#aForm').onsubmit = (e) => { e.preventDefault(); $('#go').click(); }; // Enter key: same path as clicking (loading state included)
+  $('#go').onclick = async (e) => {
+    e.preventDefault(); err('');
     const v = formVals(document.body); const api = (window.KARGO_CONFIG.api || location.origin).replace(/\/$/, '');
+    const need = (reg ? [['businessName', 'your business name'], ['name', 'your name']] : []).concat([['login', 'your email or phone'], ['password', 'your password']]);
+    const miss = need.find(([k]) => !String(v[k] || '').trim());
+    if (miss) { err('Please enter ' + miss[1] + '.'); $('[name=' + miss[0] + ']').focus(); return; }
     try {
       const r = await fetch(api + (reg ? '/api/auth/register' : '/api/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
-      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Failed');
+      const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.');
       localStorage.setItem('kargo-token', j.token); location.reload();
       return new Promise(() => { }); // keep the button loading until the page reloads into the app
-    } catch (e) { $('#err').textContent = e.message; }
+    } catch (e2) { err(e2 instanceof TypeError ? 'Cannot reach the server. Check your connection.' : e2.message); }
   };
+  $('[name=login]').focus();
 }
 
 VIEWS.pending = {
