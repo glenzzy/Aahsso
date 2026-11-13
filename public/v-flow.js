@@ -57,37 +57,54 @@ const defCat = () => (catOpts().includes('Food & Snacks') ? 'Food & Snacks' : ca
 const puRow = (o) => Object.assign({ name: '', category: defCat(), subcategory: '', qty: '1', unitCost: '', condition: 'New', working: 'Working', regularPrice: '', packOf: '1', expiry: '', barcode: '', reservedFor: '', notes: '', unit: '', size: null, sizeUnit: '', photo: null, open: false }, o || {});
 const SELLER_SUP_TYPE = { Store: 'Store / wholesaler', Online: 'Store / wholesaler', Auction: 'Auction (B-Stock…)', 'Local (Cameroon)': 'Store / wholesaler' };
 A.newPurchase = () => purchaseForm();
+/* Where it was bought decides the money: abroad = US dollars, in Cameroon = local currency (FCFA). */
+const PU_WHERE = {
+  abroad: { cur: () => 'USD', methods: ['Cash', 'Bank transfer', 'Zelle / US bank', 'Other'] },
+  local: { cur: () => baseCode(), methods: ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer'] },
+};
+/** Sellers you bought from before (newest first), plus the usual US stores; the ones that fit "where" come first. */
+function puSellers(where) {
+  const m = new Map();
+  K.raw.lots.slice().sort((a, b) => (b.purchaseDate || '').localeCompare(a.purchaseDate || '')).forEach((l) => {
+    const n = (l.vendor || '').trim(); if (!n || m.has(n.toLowerCase())) return;
+    m.set(n.toLowerCase(), { name: n, type: l.sourceType || '', phone: l.vendorPhone || '', local: l.sourceType === 'Local (Cameroon)' || !!l.inWarehouse || (l.currency || 'USD') === baseCode() });
+  });
+  (S().vendors || []).forEach((n) => { if (!m.has(n.toLowerCase())) m.set(n.toLowerCase(), { name: n, type: /b-?stock/i.test(n) ? 'Auction' : 'Store', phone: '', local: false }); });
+  const all = [...m.values()]; const fits = (v) => (where === 'local') === v.local;
+  return all.filter(fits).concat(all.filter((v) => !fits(v)));
+}
 function purchaseForm() {
   const names = [...new Set(K.raw.products.map((p) => p.name))];
-  const vendors = [...new Set((S().vendors || []).concat(K.raw.lots.map((l) => l.vendor).filter(Boolean)))];
-  const curDef = (S().fxRates || {}).USD ? 'USD' : baseCode();
+  const usd = num((S().fxRates || {}).USD) || num(S().fxRate) || 0;
+  const whereCard = (w, flag, title, sub) => '<button type="button" class="pu-wc' + (w === 'abroad' ? ' on' : '') + '" data-a="puWhere" data-v="' + w + '" aria-pressed="' + (w === 'abroad') + '"><span class="pu-flag" aria-hidden="true">' + flag + '</span><span><b>' + title + '</b><span>' + sub + '</span></span></button>';
   const sh = openSheet({
     title: 'New purchase', wide: true,
-    body: '<datalist id="dlNames">' + names.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist><datalist id="dlVend">' + vendors.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
-      // seller
+    body: '<datalist id="dlNames">' + names.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
+      // where & seller
       '<section class="pu-sec" id="puHead">' +
-        '<div class="seg pu-where mb" id="puWhereSeg"><button type="button" class="on" data-a="puWhere" data-v="abroad">Bought abroad</button><button type="button" data-a="puWhere" data-v="local">Bought in Cameroon</button></div><input type="hidden" name="where" value="abroad">' +
-        '<div class="pu-seller">' + field('Seller', inp('vendor', '', 'list="dlVend" placeholder="Who did you buy from?" autocomplete="off"')) + field('Bought from', sel('sourceType', KC.SOURCE_TYPES, 'Store', 'id="puSrc"')) + field('Date', inp('purchaseDate', todayStr(), 'type="date"')) + '</div>' +
-        '<details class="pu-extra"><summary>More details <span class="hint">phone, receipt no., currency, pick-up</span></summary><div class="grid4 mt">' +
-          field('Seller phone', inp('vendorPhone', '', 'inputmode="tel" placeholder="Optional"')) + field('Receipt / order no.', inp('poNumber', '', 'placeholder="Optional"')) +
-          field('Currency', sel('currency', curOptions(), curDef, 'id="puCur"')) + field('Collected from the seller?', sel('puCollected', [['yes', 'Yes'], ['no', 'No — pick up later']], 'yes')) + '</div></details></section>' +
+        '<div class="pu-where2" role="group" aria-label="Where did you buy?">' + whereCard('abroad', '🇺🇸', 'Bought abroad', 'Prices in US dollars ($)') + whereCard('local', '🇨🇲', 'Bought in Cameroon', 'Prices in ' + esc(baseSym()) + ' · goes straight to stock') + '</div>' +
+        '<input type="hidden" name="where" value="abroad"><input type="hidden" name="currency" id="puCur" value="USD">' +
+        '<div class="pu-rate hint" id="puRate">' + (usd ? '1 $ = ' + fmt(usd) + ' ' + esc(baseSym()) + ' · <a href="#settings">change rate</a>' : 'Set the dollar rate in <a href="#settings">Settings</a> to see totals in ' + esc(baseSym())) + '</div>' +
+        '<div class="pu-seller">' + field('Seller', '<select class="inp" name="vendorPick" id="puSeller"></select>') + field('Bought from', sel('sourceType', KC.SOURCE_TYPES, 'Store', 'id="puSrc"')) + field('Date', inp('purchaseDate', todayStr(), 'type="date"')) + '</div>' +
+        '<div class="pu-newsel hide" id="puNewSel"><div class="grid2">' + field('New seller name', inp('vendor', '', 'placeholder="e.g. Mama Ngono, Costco Houston" autocomplete="off"')) + field('Seller phone', inp('vendorPhone', '', 'inputmode="tel" placeholder="Optional"')) + '</div></div>' +
+        '<details class="pu-extra"><summary>More details <span class="hint">receipt no., pick-up</span></summary><div class="grid2 mt">' +
+          field('Receipt / order no.', inp('poNumber', '', 'placeholder="Optional"')) + field('Collected from the seller?', sel('puCollected', [['yes', 'Yes, we have the goods'], ['no', 'No — pick up later']], 'yes')) + '</div></details></section>' +
       // items
-      '<section class="pu-sec"><h3 class="pu-t3">Items</h3>' +
+      '<section class="pu-sec"><div class="pu-h2"><h3 class="pu-t3">Items</h3><div class="row gap6"><button type="button" class="btn sm ghost" data-a="puImport">' + ic('up', 'sm') + 'Import Excel</button><button type="button" class="btn sm ghost" data-a="tplPurch">' + ic('dl', 'sm') + 'Template</button></div></div>' +
         '<div class="pu-tw"><table class="t pu-t2"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r" id="puPriceH">Price each</th><th class="r">Total</th><th></th></tr></thead><tbody id="puRows"></tbody></table></div>' +
-        '<div class="pu-under"><div class="col" style="gap:10px"><div class="row wrap gap6"><button type="button" class="btn sm" data-a="puAdd">' + ic('plus', 'sm') + 'Add item</button><button type="button" class="btn sm ghost" data-a="puImport">' + ic('up', 'sm') + 'Import Excel</button><button type="button" class="btn sm ghost" data-a="tplPurch">Template</button></div>' +
+        '<div class="pu-under"><div class="col" style="gap:10px"><button type="button" class="btn sm" data-a="puAdd" style="align-self:flex-start">' + ic('plus', 'sm') + 'Add item</button><span class="hint">Tip: press Enter in the price to add the next item.</span>' +
           '<div id="puSpread" class="hide"><div class="hint mb">Paid one price for the items without a price?</div><div class="row gap6"><input class="inp" id="puLot" inputmode="decimal" placeholder="Total paid" style="width:140px"><button type="button" class="btn sm" data-a="puSpread">Spread it</button></div></div></div>' +
           '<div class="pu-tot"><div class="row between"><span>Items</span><span class="money" id="puSub"></span></div>' +
             '<div class="row between pu-taxrow"><span class="row gap6"><span>Tax</span><input class="inp" id="puTax" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="Tax"><span class="seg sm" id="puTaxMode"><button type="button" class="on" data-a="puTaxMode" data-v="pct">%</button><button type="button" data-a="puTaxMode" data-v="amt" id="puTaxCur">$</button></span></span><span class="money" id="puTaxV"></span></div>' +
-            '<div class="row between pu-grand"><b>Total</b><b class="money" id="puGrand"></b></div><div class="hint" id="puTaxHint"></div></div></div></section>' +
+            '<div class="row between pu-grand"><b>Total</b><b class="money" id="puGrand"></b></div><div class="pu-local hint" id="puLocal"></div><div class="hint" id="puTaxHint"></div></div></div></section>' +
       // payment
       '<section class="pu-sec"><h3 class="pu-t3">Payment</h3>' +
-        '<div class="seg mb" id="puPaidSeg"><button type="button" class="on" data-a="puPaid" data-v="paid">Paid</button><button type="button" data-a="puPaid" data-v="part">Part paid</button>' + (can('suppliers') ? '<button type="button" data-a="puPaid" data-v="credit">Not paid yet</button>' : '') + '</div>' +
-        '<div id="puPayBy" class="hide" style="max-width:260px">' + field('Pay by', inp('payBy', KC.addDays(todayStr(), 14), 'type="date"')) + '</div>' +
-        '<div id="puPay">' + payFields('', { kind: 'purchase', currency: curDef }) + '</div></section>',
+        '<div class="seg mb" id="puPaidSeg"><button type="button" class="on" data-a="puPaid" data-v="paid">Paid in full</button><button type="button" data-a="puPaid" data-v="part">Part paid</button>' + (can('suppliers') ? '<button type="button" data-a="puPaid" data-v="credit">Not paid yet</button>' : '') + '</div>' +
+        '<div id="puPayBy" class="hide" style="max-width:260px">' + field('Pay the rest by', inp('payBy', KC.addDays(todayStr(), 14), 'type="date"')) + '</div>' +
+        '<div id="puPay"></div></section>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="puSave">Save purchase</button>',
   });
-  sh._rows = [puRow()]; sh._taxMode = 'pct'; sh._paid = 'paid';
-  $('#payBox > .grid2', sh).classList.add('hide'); // paid in full: amount = total, date = purchase date
+  sh._rows = [puRow()]; sh._taxMode = 'pct'; sh._paid = 'paid'; sh._where = 'abroad';
   const cur = () => $('#puCur', sh).value;
   const lineVal = (r) => num(r.qty) * num(r.unitCost);
   const sums = () => {
@@ -101,13 +118,19 @@ function purchaseForm() {
     $$('#puRows tr[data-r]', sh).forEach((tr) => { const i = +tr.dataset.r, r = sh._rows[i]; $('[data-out=total]', tr).textContent = lineVal(r) ? m(lineVal(r)) : '—'; $('[data-out=tax]', tr).textContent = s.shares[i] ? '+ ' + m(s.shares[i]) + ' tax' : ''; });
     const rate = s.sub ? s.tax / s.sub * 100 : 0;
     $('#puSub', sh).textContent = m(s.sub); $('#puTaxV', sh).textContent = m(s.tax); $('#puGrand', sh).textContent = m(s.total);
+    const fx = cur() === baseCode() ? 1 : KC.rateOf(S(), cur());
+    $('#puLocal', sh).textContent = cur() !== baseCode() && s.total && fx ? '≈ ' + F(s.total * fx) : '';
     $('#puTaxHint', sh).textContent = s.tax && s.sub ? (sh._taxMode === 'pct' ? '' : (Math.round(rate * 100) / 100) + '% · ') + 'shared over the items by value' : '';
     $('#puPriceH', sh).textContent = 'Price each (' + curSym(cur()) + ')'; $('#puTaxCur', sh).textContent = curSym(cur());
+    $$('#puRows [data-unit]', sh).forEach((u) => (u.textContent = curSym(cur())));
     $('#puSpread', sh).classList.toggle('hide', !(sh._rows.length > 1 && sh._rows.some((r) => r.name && r.unitCost === '')));
+    const short = matchMedia('(max-width: 600px)').matches;
+    $('#puSave', sh).textContent = s.total ? (short ? 'Save · ' : 'Save purchase · ') + m(s.total) : 'Save purchase';
     const pa = $('#payAmount', sh); if (pa) { pa.dataset.def = s.total; pa.placeholder = s.total ? fmt(s.total) : 'Total of the receipt'; if (sh._paid === 'paid') pa.value = ''; syncPayCharges(sh); }
   };
   const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" list="dlNames" value="' + esc(r.name) + '" placeholder="Item name" autocomplete="off" aria-label="Item"></td>' +
-    '<td data-l="Qty"><input class="inp r" data-f="qty" inputmode="numeric" value="' + esc(r.qty) + '" aria-label="Quantity"></td><td data-l="Price each"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="0" aria-label="Price each"></td>' +
+    '<td data-l="Qty"><input class="inp r" data-f="qty" inputmode="numeric" value="' + esc(r.qty) + '" aria-label="Quantity"></td>' +
+    '<td data-l="Price each"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="0" aria-label="Price each"><span data-unit>' + esc(curSym(cur())) + '</span></div></td>' +
     '<td class="r pu-ltot" data-l="Total"><b class="money" data-out="total">—</b><span class="pu-tx" data-out="tax"></span></td>' +
     '<td class="nowrap r"><button type="button" class="icon-btn' + (r.open ? ' on' : '') + '" data-a="puMore" data-i="' + i + '" title="Category, condition, expiry, barcode, photo…" aria-label="Item details">' + ic('more', 'sm') + '</button><button type="button" class="icon-btn" data-a="puRm" data-i="' + i + '" aria-label="Remove item">' + ic('x', 'sm') + '</button></td></tr>' +
     (r.open ? '<tr class="pu-more" data-m="' + i + '"><td colspan="5"><div class="grid4">' +
@@ -117,6 +140,35 @@ function purchaseForm() {
       field('Bought for a client?', sel('res_' + i, custOpts(), r.reservedFor, 'data-f="reservedFor"')) +
       '</div><div class="row mt wrap"><button type="button" class="btn sm" data-a="puPhoto" data-i="' + i + '">' + ic('cam', 'sm') + (r.photo ? 'Change photo' : 'Add photo') + '</button>' + (r.photo ? '<img class="pu-ph" src="' + URL.createObjectURL(r.photo) + '" alt="">' : '') + '<input class="inp grow" data-f="notes" value="' + esc(r.notes) + '" placeholder="Notes (optional)" aria-label="Notes"></div></td></tr>' : '');
   sh._draw = () => { $('#puRows', sh).innerHTML = sh._rows.map(rowHtml).join(''); totals(); };
+  // seller dropdown: sellers used before + "+ New seller"
+  const drawSellers = (keep) => {
+    const list = puSellers(sh._where); const s = $('#puSeller', sh); const v = keep !== undefined ? keep : s.value;
+    s.innerHTML = '<option value="">Choose a seller…</option>' + list.map((x) => '<option value="' + esc(x.name) + '">' + esc(x.name) + (x.type && x.type !== 'Store' ? ' · ' + esc(x.type) : '') + '</option>').join('') + '<option value="__new">+ New seller…</option>';
+    s.value = list.some((x) => x.name === v) || v === '__new' ? v : '';
+  };
+  sh._sellers = () => drawSellers();
+  $('#puSeller', sh).addEventListener('change', (e) => {
+    const v = e.target.value; $('#puNewSel', sh).classList.toggle('hide', v !== '__new');
+    if (v === '__new') { $('[name=vendor]', sh).focus(); return; }
+    const x = puSellers(sh._where).find((y) => y.name === v); if (!x) return;
+    $('[name=vendor]', sh).value = ''; $('[name=vendorPhone]', sh).value = x.phone || '';
+    if (x.type && KC.SOURCE_TYPES.includes(x.type)) $('#puSrc', sh).value = x.type;
+    if (x.local !== (sh._where === 'local')) sh._setWhere(x.local ? 'local' : 'abroad');
+  });
+  // payment block follows where it was bought (mobile money only in Cameroon)
+  const drawPay = () => {
+    $('#puPay', sh).innerHTML = payFields('', { kind: 'purchase', currency: cur(), methods: PU_WHERE[sh._where].methods });
+    $('#payBox > .grid2', sh).classList.toggle('hide', sh._paid !== 'part');
+    setPayCurrency(sh, cur());
+  };
+  sh._setWhere = (w) => {
+    if (!PU_WHERE[w]) return; sh._where = w;
+    $('[name=where]', sh).value = w; $$('.pu-wc', sh).forEach((b) => { b.classList.toggle('on', b.dataset.v === w); b.setAttribute('aria-pressed', String(b.dataset.v === w)); });
+    $('#puCur', sh).value = PU_WHERE[w].cur(); $('#puRate', sh).classList.toggle('hide', w === 'local');
+    if (w === 'local' && ['Store', 'Online', 'Auction'].includes($('#puSrc', sh).value) && !$('#puSeller', sh).value) $('#puSrc', sh).value = 'Local (Cameroon)';
+    if (w === 'abroad' && $('#puSrc', sh).value === 'Local (Cameroon)') $('#puSrc', sh).value = 'Store';
+    drawSellers(); drawPay(); totals();
+  };
   sh._draw();
   const onField = (e) => {
     const f = e.target.dataset && e.target.dataset.f; if (!f) return; const tr = e.target.closest('tr[data-r],tr[data-m]'); if (!tr) return;
@@ -128,19 +180,21 @@ function purchaseForm() {
     totals();
   };
   sh.addEventListener('input', onField); sh.addEventListener('change', onField);
+  sh.addEventListener('keydown', (e) => { // Enter in a price → next item
+    if (e.key !== 'Enter' || !e.target.matches || !e.target.matches('[data-f=unitCost],[data-f=qty]')) return;
+    e.preventDefault(); const i = +e.target.closest('tr').dataset.r;
+    if (i === sh._rows.length - 1) { sh._rows.push(puRow()); sh._draw(); }
+    const ins = $$('#puRows [data-f=name]', sh); if (ins[i + 1]) ins[i + 1].focus();
+  });
   $('#puTax', sh).addEventListener('input', totals);
-  $('#puCur', sh).addEventListener('change', () => { setPayCurrency(sh, cur()); totals(); });
-  sh._setWhere = (w) => {
-    $('[name=where]', sh).value = w; $$('#puWhereSeg button', sh).forEach((b) => b.classList.toggle('on', b.dataset.v === w));
-    const c = w === 'local' ? baseCode() : curDef; if (cur() !== c) { $('#puCur', sh).value = c; setPayCurrency(sh, c); }
-    if (w === 'local' && $('#puSrc', sh).value === 'Store' && !$('[name=vendor]', sh).value) $('#puSrc', sh).value = 'Local (Cameroon)';
-    totals();
-  };
   $('#puSrc', sh).addEventListener('change', (e) => { if (e.target.value === 'Local (Cameroon)') sh._setWhere('local'); });
-  setPayCurrency(sh, cur());
+  $('#puCur', sh).addEventListener('change', () => { setPayCurrency(sh, cur()); totals(); });
+  sh._setWhere('abroad');
   sh._sums = sums;
   $('#puSave', sh).onclick = async () => {
     const h = formVals($('#puHead', sh)); const pv = formVals($('#puPay', sh).parentNode); pv.payStatus = sh._paid === 'credit' ? 'credit' : 'paid';
+    h.vendor = h.vendorPick && h.vendorPick !== '__new' ? h.vendorPick : (h.vendor || '').trim(); delete h.vendorPick;
+    if (!h.vendor) { toast('Choose the seller (or add a new one)', true); $('#puSeller', sh).focus(); return; }
     if (sh._paid === 'paid') { pv.payAmount = ''; pv.payDate = h.purchaseDate; }
     if (sh._paid === 'part' && !(num(pv.payAmount) > 0)) { toast('Type how much you paid', true); const a = $('#payAmount', sh); if (a) a.focus(); return; }
     const rows = sh._rows.filter((r) => r.name.trim() || num(r.unitCost));
@@ -170,7 +224,7 @@ function purchaseForm() {
     closeSheet(); scheduleRender();
     toast(lines.length + ' item' + (lines.length === 1 ? '' : 's') + ' saved' + (h.where === 'local' ? ' · in stock now' : ' · waiting to ship') + (credit ? ' · bill created' : pay && pay.amount < s.total - 0.005 ? ' · part paid, rest added to bills' : ''));
   };
-  setTimeout(() => { const v = $('[name=vendor]', sh); if (v) v.focus(); }, 60);
+  setTimeout(() => { const v = $('#puSeller', sh); if (v && matchMedia('(min-width: 900px)').matches) v.focus(); }, 60);
 }
 const puSheet = (el) => el.closest('.scrim');
 A.puWhere = (el) => puSheet(el)._setWhere(el.dataset.v);
@@ -224,7 +278,12 @@ A.puImport = async (el) => {
   catch (e) { return toast('Could not read this file: ' + e.message, true); }
   if (!lines.length) return toast('No item rows found. Use the template column names.', true);
   const head = $('#puHead', sh); const setIf = (n, v) => { const i = $('[name=' + n + ']', head); if (i && v && (!i.value || (n === 'purchaseDate' && i.value === todayStr()))) i.value = v; };
-  const f0 = lines[0]; setIf('vendor', f0.vendor); setIf('poNumber', f0.poNumber); setIf('purchaseDate', f0.purchaseDate);
+  const f0 = lines[0];
+  const pick = $('#puSeller', sh);
+  if (f0.vendor && !pick.value) { // the file names the seller: pick them, or open "New seller" with the name filled in
+    const known = [...pick.options].find((o) => o.value.toLowerCase() === f0.vendor.toLowerCase() && o.value !== '__new');
+    if (known) pick.value = known.value; else { pick.value = '__new'; $('#puNewSel', sh).classList.remove('hide'); setIf('vendor', f0.vendor); }
+  } setIf('poNumber', f0.poNumber); setIf('purchaseDate', f0.purchaseDate);
   if (f0.sourceType && KC.SOURCE_TYPES.includes(f0.sourceType)) $('#puSrc', sh).value = f0.sourceType; else if (/b-?stock|auction/i.test(f0.vendor)) $('#puSrc', sh).value = 'Auction';
   const taxCol = lines.map((l) => String(l.tax).replace('%', '')).find((t) => num(t) > 0); if (taxCol && !$('#puTax', sh).value) $('#puTax', sh).value = taxCol;
   sh._rows = sh._rows.filter((r) => r.name.trim()).concat(lines.map((l) => puRow({ name: l.name, category: l.category, subcategory: l.subcategory, qty: String(l.qty), unitCost: l.unitCost === '' ? '' : String(num(l.unitCost)), condition: l.condition, regularPrice: l.regularPrice === '' ? '' : String(l.regularPrice), packOf: String(l.packOf), expiry: l.expiry, barcode: l.barcode, notes: l.notes, unit: l.unit, size: l.size, sizeUnit: l.sizeUnit })));

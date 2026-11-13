@@ -158,7 +158,7 @@ function eodQuickForm() {
   const q = eodQ();
   return '<div class="quick-add" id="eodQuick">' +
     '<label class="f"><span class="lbl">What for</span>' + sel('qCat', KC.EXPENSE_CATS, q.category, 'id="qCat"') + '</label>' +
-    '<label class="f"><span class="lbl">Amount</span><div class="in-unit"><input class="inp" id="qAmt" inputmode="numeric" value="' + esc(q.amount) + '" placeholder="0" autocomplete="off"><span>' + esc(S().currencySymbol || 'F') + '</span></div></label>' +
+    '<label class="f"><span class="lbl">Amount</span><div class="in-unit"><input class="inp" id="qAmt" inputmode="numeric" value="' + esc(q.amount) + '" placeholder="0" autocomplete="off"><span>' + esc(baseSym()) + '</span></div></label>' +
     '<label class="f"><span class="lbl">Paid by</span>' + sel('qMethod', KC.PAY_METHODS, q.method, 'id="qMethod"') + '</label>' +
     '<label class="f grow"><span class="lbl">Details <span class="hint">(optional)</span></span><input class="inp" id="qDesc" value="' + esc(q.description) + '" placeholder="e.g. lunch for staff" autocomplete="off"></label>' +
     '<button type="button" class="btn pri" data-a="eodAdd">' + ic('plus') + 'Add</button></div>';
@@ -201,7 +201,7 @@ VIEWS.expenses = {
 CH.expMonth = (el) => { K.ui.expMonth = el.value; render(true); };
 A.expEdit = (el) => {
   const id = el.dataset.id; const e = id ? byId('expenses', id) : { date: todayStr(), method: 'Cash', category: KC.EXPENSE_CATS[0] };
-  const sh = openSheet({ title: id ? 'Edit expense' : 'Add expense', body: '<div class="col"><div class="grid2">' + field('Date', inp('date', e.date, 'type="date"')) + field('Amount (F)', inp('amount', e.amount, 'inputmode="numeric"')) + field('Category', sel('category', KC.EXPENSE_CATS, e.category)) + field('Paid by', sel('method', KC.PAY_METHODS, e.method)) + '</div>' + field('Description', inp('description', e.description)) + (K.raw.assets.length ? field('For asset (optional)', sel('assetId', [['', '—']].concat(K.raw.assets.filter((a) => !KC.assetGone(a) || a.id === e.assetId).map((a) => [a.id, a.name + (a.tag ? ' · ' + a.tag : '')])), e.assetId || '')) : '') + '</div>', foot: (id ? '<button class="btn danger" id="eDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="eSave">Save</button>' });
+  const sh = openSheet({ title: id ? 'Edit expense' : 'Add expense', body: '<div class="col"><div class="grid2">' + field('Date', inp('date', e.date, 'type="date"')) + field('Amount (' + baseSym() + ')', inp('amount', e.amount, 'inputmode="numeric"')) + field('Category', sel('category', KC.EXPENSE_CATS, e.category)) + field('Paid by', sel('method', KC.PAY_METHODS, e.method)) + '</div>' + field('Description', inp('description', e.description)) + (K.raw.assets.length ? field('For asset (optional)', sel('assetId', [['', '—']].concat(K.raw.assets.filter((a) => !KC.assetGone(a) || a.id === e.assetId).map((a) => [a.id, a.name + (a.tag ? ' · ' + a.tag : '')])), e.assetId || '')) : '') + '</div>', foot: (id ? '<button class="btn danger" id="eDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="eSave">Save</button>' });
   $('#eSave', sh).onclick = async () => { const v = formVals(sh); v.amount = num(v.amount); if (!v.amount) return toast('Enter an amount', true); if (await save('expenses', Object.assign({ locationId: K.loc }, id ? {} : { by: K.me.name || '', byId: K.me.id || '' }, e, v, { id: id || uid('e_') }))) { closeSheet(); scheduleRender(); } };
   if (id) $('#eDel', sh).onclick = async () => { if (await confirmBox('Delete this expense?', 'Delete', true)) { await remove('expenses', id); closeSheet(); scheduleRender(); } };
 };
@@ -232,7 +232,7 @@ function currencyBlock(s) {
   const base = s.currency || 'XAF'; const rates = Object.entries(s.fxRates || { USD: s.fxRate || 600 });
   return '<div class="set-grid">' +
     sf('Your currency', '<select class="inp" name="baseCurrency" id="baseCur">' + KC.CURRENCIES.map((c) => '<option value="' + c[0] + '"' + (c[0] === base ? ' selected' : '') + '>' + c[0] + ' — ' + esc(c[2]) + '</option>').join('') + '</select>', 'Sales, prices, profit and reports are always in this currency.', 'span2') +
-    sf('Symbol on receipts', '<input class="inp" name="currencySymbol" id="curSym" value="' + esc(s.currencySymbol || 'F') + '" maxlength="5">', 'Prices show as <b id="curEg">25,000 ' + esc(s.currencySymbol || 'F') + '</b>') + '</div>' +
+    sf('Symbol on receipts', '<input class="inp" name="currencySymbol" id="curSym" value="' + esc(baseSym()) + '" maxlength="5">', 'Prices show as <b id="curEg">25,000 ' + esc(baseSym()) + '</b>') + '</div>' +
     '<div class="set-sub"><h3>Exchange rates</h3><p class="hint">For purchases made abroad ($, €…). A rate set on a container is used instead for that container.</p>' +
     '<div id="fxBox">' + rates.map(([c, r]) => fxRow(c, r, base)).join('') + '</div><button type="button" class="btn sm" data-a="fxAdd">' + ic('plus', 'sm') + 'Add a currency</button></div>';
 }
@@ -253,11 +253,11 @@ VIEWS.settings = {
         sf('Receipt footer', inp('receiptFooter', s.receiptFooter), 'Printed at the bottom of every receipt.', 'mt')) +
       setCard('currency', 'Currency', 'Your money, and how purchases in other currencies are converted.', currencyBlock(s)) +
       setCard('pricing', 'Pricing', 'How selling prices are worked out from what each item cost you, and when to warn you.',
-        '<div class="set-grid">' + sf('Default markup', unitIn('defaultMarkup', s.defaultMarkup, '%'), 'Selling price = landed cost + this %.') + sf('Lowest markup', unitIn('minMarkup', s.minMarkup, '%'), 'Staff cannot sell below this without permission.') + sf('Round prices up to', unitIn('roundTo', s.roundTo, 'F', 'inputmode="numeric"'), 'e.g. 50 → 12,330 becomes 12,350.') +
+        '<div class="set-grid">' + sf('Default markup', unitIn('defaultMarkup', s.defaultMarkup, '%'), 'Selling price = landed cost + this %.') + sf('Lowest markup', unitIn('minMarkup', s.minMarkup, '%'), 'Staff cannot sell below this without permission.') + sf('Round prices up to', unitIn('roundTo', s.roundTo, baseSym(), 'inputmode="numeric"'), 'e.g. 50 → 12,330 becomes 12,350.') +
         sf('Low stock alert at', unitIn('lowStock', s.lowStock, 'units', 'inputmode="numeric"'), 'Items at or below this show as Low.') + sf('Expiry warning', unitIn('expiryWarnDays', s.expiryWarnDays, 'days', 'inputmode="numeric"'), 'Warn this many days before expiry.') + '</div>') +
       setCard('credit', 'Wholesale & credit', 'Prices for resellers and how much customers may owe. Who sees costs and profit is set per person in <a href="#team">Team & access</a>.',
         '<div class="set-grid">' + sf('Wholesale markup', unitIn('wholesaleMarkup', s.wholesaleMarkup, '%'), 'For customers marked Wholesale or Reseller.') + sf('Bulk price from', unitIn('bulkQty', s.bulkQty, 'units', 'inputmode="numeric"'), '0 = off. Buying this many gets the wholesale price.') +
-        sf('Days to pay', unitIn('creditDays', s.creditDays, 'days', 'inputmode="numeric"'), 'Default due date for credit sales.') + sf('Credit limit per customer', unitIn('defaultCreditLimit', s.defaultCreditLimit ?? '', 'F', 'inputmode="numeric" placeholder="No limit"'), 'Empty = no limit, 0 = cash only. Can be changed per customer.') + '</div>') +
+        sf('Days to pay', unitIn('creditDays', s.creditDays, 'days', 'inputmode="numeric"'), 'Default due date for credit sales.') + sf('Credit limit per customer', unitIn('defaultCreditLimit', s.defaultCreditLimit ?? '', baseSym(), 'inputmode="numeric" placeholder="No limit"'), 'Empty = no limit, 0 = cash only. Can be changed per customer.') + '</div>') +
       setCard('money', 'Mobile money', 'Numbers customers send money to, and the withdrawal charges suggested at payment.',
         '<h3>Receiving numbers</h3><p class="hint" style="margin-top:2px">Shown on receipts and reminders, and chosen when a customer pays.</p><div id="momoList">' + (s.momoAccounts || []).map(mmRow).join('') + '</div><button type="button" class="btn sm" data-a="mmAdd">' + ic('plus', 'sm') + 'Add a number</button>' +
         '<div class="set-sub"><h3>Withdrawal charges</h3><p class="hint">When a customer pays by MTN MoMo or Orange Money, this grid suggests the charge (kept apart from the sale amount). Staff can still change it on each payment.</p>' + feeEditor() + '</div>') +
@@ -285,7 +285,7 @@ VIEWS.settings = {
 /* live bits after the page is drawn: exchange-rate examples, reminder preview */
 function setAfterRender() { fxExamples(); remPreview(); }
 function fxExamples() {
-  const base = ($('#baseCur') || {}).value || baseCode(); const sym = ($('#curSym') || {}).value || 'F';
+  const base = ($('#baseCur') || {}).value || baseCode(); const sym = ($('#curSym') || {}).value || baseSym();
   $$('[data-fxrow]').forEach((r) => { const c = $('select', r).value; const v = num($('[data-fxr]', r).value); const sy = (KC.CURRENCIES.find((x) => x[0] === c) || [0, c])[1]; $('.fx-eg', r).textContent = v > 0 ? sy + ' 100 = ' + fmt(v * 100) + ' ' + sym : ''; $('.fx-base', r).textContent = base; });
   const eg = $('#curEg'); if (eg) eg.textContent = '25,000 ' + sym;
 }
@@ -497,11 +497,11 @@ function feeIssues(tiers) {
   for (let i = 1; i < rows.length; i++) {
     const a = rows[i - 1], b = rows[i]; const aMax = a.max === '' || a.max == null ? Infinity : num(a.max);
     if (num(b.min) <= aMax) errors.push('Ranges ' + a.n + ' and ' + b.n + ' overlap');
-    else if (num(b.min) > aMax + 1) warnings.push('No charge for amounts from ' + fmt(aMax + 1) + ' to ' + fmt(num(b.min) - 1) + ' F');
+    else if (num(b.min) > aMax + 1) warnings.push('No charge for amounts from ' + fmt(aMax + 1) + ' to ' + fmt(num(b.min) - 1) + ' ' + baseSym());
   }
   // operators have their own minimum and maximum withdrawal, so the outer edges are information, not a problem
   const last = rows[rows.length - 1];
-  const covers = rows.length ? fmt(num(rows[0].min)) + ' F – ' + (last.max === '' || last.max == null ? 'no limit' : fmt(num(last.max)) + ' F') : '';
+  const covers = rows.length ? fmt(num(rows[0].min)) + ' ' + baseSym() + ' – ' + (last.max === '' || last.max == null ? 'no limit' : fmt(num(last.max)) + ' ' + baseSym()) : '';
   return { errors, warnings, covers };
 }
 function feeEditor() { return '<div id="feeEd">' + feeEditorInner() + '</div>'; }
@@ -509,31 +509,31 @@ function feeEditorInner() {
   const op = K.ui.feeOp || FEE_OPS[0]; const tiers = K.ui.feeDraft[op] || (K.ui.feeDraft[op] = []);
   const tables = Object.assign({}, K.ui.feeDraft); const iss = feeIssues(tiers);
   const numIn = (i, k, v, unit, ph) => '<div class="fee-in"><input class="inp" inputmode="decimal" data-ft="' + k + '" data-fi="' + i + '" value="' + (v === undefined || v === null ? '' : esc(v)) + '" placeholder="' + (ph || '') + '" aria-label="' + k + ' for range ' + (i + 1) + '"><span>' + unit + '</span></div>';
-  const top = (t) => { const hi = t.max === '' || t.max == null ? null : num(t.max); return hi === null ? '—' : fmt(KC.calcMomoFee(op, hi, { momoFeeTables: tables })) + ' F'; };
+  const top = (t) => { const hi = t.max === '' || t.max == null ? null : num(t.max); return hi === null ? '—' : fmt(KC.calcMomoFee(op, hi, { momoFeeTables: tables })) + ' ' + baseSym(); };
   const tryAmt = K.ui.feeTry === undefined ? 50000 : K.ui.feeTry; const tryFee = KC.calcMomoFee(op, tryAmt, { momoFeeTables: tables });
   return '<div class="row wrap between mb"><div class="seg" role="tablist">' + FEE_OPS.map((o) => '<button type="button" role="tab" aria-selected="' + (o === op) + '" class="' + (o === op ? 'on' : '') + '" data-a="feeOp" data-v="' + esc(o) + '">' + esc(o) + ' <span class="tiny muted">' + (K.ui.feeDraft[o] || []).length + '</span></button>').join('') + '</div>' +
       '<div class="row wrap"><button type="button" class="btn sm" data-a="feeAdd">' + ic('plus', 'sm') + 'Add a range</button><button type="button" class="btn sm" data-a="feeReset">Reset to standard grid</button></div></div>' +
     (tiers.length ? '<div class="card tw"><table class="t fee-tbl"><thead><tr><th>#</th><th>From</th><th>To</th><th>Charge type</th><th>Charge</th><th>+ Tax</th><th>+ Extra</th><th class="r" title="The charge for the largest amount in this range">At top of range</th><th></th></tr></thead><tbody>' +
       tiers.map((t, i) => { const pct = t.type === 'pct'; return '<tr><td class="muted">' + (i + 1) + '</td>' +
-        '<td>' + numIn(i, 'min', t.min, 'F', '0') + '</td><td>' + numIn(i, 'max', t.max, 'F', 'No limit') + '</td>' +
+        '<td>' + numIn(i, 'min', t.min, baseSym(), '0') + '</td><td>' + numIn(i, 'max', t.max, baseSym(), 'No limit') + '</td>' +
         '<td><select class="inp" data-ft="type" data-fi="' + i + '" aria-label="Charge type for range ' + (i + 1) + '"><option value="fixed"' + (pct ? '' : ' selected') + '>Fixed amount</option><option value="pct"' + (pct ? ' selected' : '') + '>Percentage</option></select></td>' +
-        '<td>' + (pct ? numIn(i, 'pct', t.pct, '%', '1') : numIn(i, 'fee', t.fee, 'F', '0')) + '</td>' +
-        '<td>' + (pct ? numIn(i, 'taxPct', t.taxPct, '%', '0') : dtNil) + '</td><td>' + (pct ? numIn(i, 'taxFixed', t.taxFixed, 'F', '0') : dtNil) + '</td>' +
+        '<td>' + (pct ? numIn(i, 'pct', t.pct, '%', '1') : numIn(i, 'fee', t.fee, baseSym(), '0')) + '</td>' +
+        '<td>' + (pct ? numIn(i, 'taxPct', t.taxPct, '%', '0') : dtNil) + '</td><td>' + (pct ? numIn(i, 'taxFixed', t.taxFixed, baseSym(), '0') : dtNil) + '</td>' +
         '<td class="r b fee-top" data-top="' + i + '">' + top(t) + '</td>' +
         '<td><button type="button" class="icon-btn" data-a="feeDel" data-i="' + i + '" title="Remove this range" aria-label="Remove range ' + (i + 1) + '">' + ic('trash', 'sm') + '</button></td></tr>'; }).join('') +
       '</tbody></table></div>' : '<div class="card empty small">No ranges for ' + esc(op) + ' — no charge will be suggested. <button type="button" class="btn sm" data-a="feeAdd">Add a range</button></div>') +
     '<div id="feeMsgs">' + feeMsgs(iss) + '</div>' +
     '<div class="card pad mt fee-try"><div class="row wrap"><b>Try it</b><span class="muted small">A customer pays</span><div class="fee-in" style="width:150px"><input class="inp" inputmode="numeric" id="feeTry" value="' + esc(tryAmt) + '" aria-label="Amount to test"><span>F</span></div><span class="muted small">by ' + esc(op) + ' →</span>' +
-      '<span>charge <b id="feeTryOut">' + fmt(tryFee) + ' F</b></span><span class="muted small">· customer sends <b id="feeTryGross">' + fmt(num(tryAmt) + tryFee) + ' F</b></span></div></div>';
+      '<span>charge <b id="feeTryOut">' + fmt(tryFee) + ' ' + baseSym() + '</b></span><span class="muted small">· customer sends <b id="feeTryGross">' + fmt(num(tryAmt) + tryFee) + ' ' + baseSym() + '</b></span></div></div>';
 }
 const feeMsgs = (iss) => (iss.errors.length ? '<div class="alert bad mt">' + iss.errors.map(esc).join('<br>') + '</div>' : '') + (iss.warnings.length ? '<div class="alert mt small">' + iss.warnings.map(esc).join('<br>') + '</div>' : '') + (!iss.errors.length && !iss.warnings.length && iss.covers ? '<div class="tiny mt" style="color:var(--ok)">✓ Ranges are complete and do not overlap · covers ' + esc(iss.covers) + '</div>' : '');
 /** Refresh the parts that depend on the numbers without redrawing the inputs (keeps the cursor where it is). */
 function feeLive() {
   const op = K.ui.feeOp || FEE_OPS[0]; const tables = K.ui.feeDraft; const tiers = tables[op] || [];
-  tiers.forEach((t, i) => { const c = $('[data-top="' + i + '"]'); if (c) c.textContent = t.max === '' || t.max == null ? '—' : fmt(KC.calcMomoFee(op, num(t.max), { momoFeeTables: tables })) + ' F'; });
+  tiers.forEach((t, i) => { const c = $('[data-top="' + i + '"]'); if (c) c.textContent = t.max === '' || t.max == null ? '—' : fmt(KC.calcMomoFee(op, num(t.max), { momoFeeTables: tables })) + ' ' + baseSym(); });
   const m = $('#feeMsgs'); if (m) m.innerHTML = feeMsgs(feeIssues(tiers));
   const amt = num(K.ui.feeTry === undefined ? 50000 : K.ui.feeTry); const f = KC.calcMomoFee(op, amt, { momoFeeTables: tables });
-  if ($('#feeTryOut')) { $('#feeTryOut').textContent = fmt(f) + ' F'; $('#feeTryGross').textContent = fmt(amt + f) + ' F'; }
+  if ($('#feeTryOut')) { $('#feeTryOut').textContent = fmt(f) + ' ' + baseSym(); $('#feeTryGross').textContent = fmt(amt + f) + ' ' + baseSym(); }
 }
 const feeRedraw = () => { const e = $('#feeEd'); if (e) e.innerHTML = feeEditorInner(); };
 ['input', 'change'].forEach((evt) => document.addEventListener(evt, (e) => {

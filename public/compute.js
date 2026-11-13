@@ -39,7 +39,7 @@
 
   const DEFAULT_SETTINGS = {
     businessName: 'My Business', tagline: '', phone: '', whatsapp: '', address: 'Douala, Cameroon', logo: '',
-    fxRate: 600, currency: 'XAF', currencySymbol: 'F', fxRates: { USD: 600, EUR: 655.957 }, defaultMarkup: 100, minMarkup: 50, roundTo: 50, lowStock: 3, expiryWarnDays: 60,
+    fxRate: 600, currency: 'XAF', currencySymbol: 'FCFA', fxRates: { USD: 600, EUR: 655.957 }, defaultMarkup: 100, minMarkup: 50, roundTo: 50, lowStock: 3, expiryWarnDays: 60,
     staffSeeCosts: false, wholesaleMarkup: 60, bulkQty: 0, creditDays: 14,
     reminderTemplate: 'Hello {name}, this is a friendly reminder from {business}. Your balance is {balance} (due {due}). You can pay by Cash or Mobile Money: {momo}. Thank you!',
     reminderEvery: 7, receiptFooter: 'Thank you for your business! Goods sold in good condition.',
@@ -53,6 +53,12 @@
   const SOURCE_TYPES = ['Store', 'Black market', 'Individual', 'Online', 'Auction', 'Local (Cameroon)'];
   /** Share a purchase's tax over its lines by line value (qty × price). Returns tax per line, in the purchase
    *  currency, rounded to cents; the last line takes the rounding remainder so the shares add up exactly. */
+  /** Symbol shown after local amounts. Old accounts saved the bare 'F' for CFA francs: show FCFA instead. */
+  function currencySymbolOf(S) {
+    S = S || {}; const code = S.currency || 'XAF'; const sym = String(S.currencySymbol || '').trim();
+    if (!sym || sym === 'F') return code === 'XAF' ? 'FCFA' : code === 'XOF' ? 'CFA' : (sym || code);
+    return sym;
+  }
   function allocTax(lines, taxTotal) {
     const t = Math.round(num(taxTotal) * 100) / 100; const vals = (lines || []).map((l) => Math.max(0, num(l.unitCost) * num(l.qty)));
     const sub = vals.reduce((a, v) => a + v, 0); if (!lines || !lines.length || !(t > 0)) return (lines || []).map(() => 0);
@@ -144,7 +150,7 @@
   const ADJ_REASONS = ['Missing / theft', 'Unaccounted for', 'Damaged', 'Expired', 'Missing in transfer', 'Stock count difference', 'Count correction', 'Found / extra', 'Own use / gift'];
   const RETURN_REASONS = ['Damaged / defective', 'Expired', 'Wrong item given', 'Customer changed mind', 'Not as described', 'Other'];
   const TRANSFER_REASONS = ['Restock a branch', 'Customer order at another branch', 'Return to main warehouse', 'Rebalance slow stock', 'Other'];
-  const CURRENCIES = [['XAF', 'F', 'Central African CFA franc (Cameroon, Gabon, Congo, Chad, CAR, Eq. Guinea)'], ['XOF', 'F', 'West African CFA franc (Senegal, Côte d\'Ivoire, Mali, Burkina, Benin, Togo, Niger)'], ['NGN', '₦', 'Nigerian naira'], ['GHS', 'GH₵', 'Ghanaian cedi'], ['RWF', 'RF', 'Rwandan franc'], ['GNF', 'FG', 'Guinean franc'], ['KES', 'KSh', 'Kenyan shilling'], ['UGX', 'USh', 'Ugandan shilling'], ['TZS', 'TSh', 'Tanzanian shilling'], ['ZAR', 'R', 'South African rand'], ['CDF', 'FC', 'Congolese franc'], ['USD', '$', 'US dollar'], ['EUR', '€', 'Euro'], ['GBP', '£', 'British pound'], ['CAD', 'C$', 'Canadian dollar'], ['CNY', '¥', 'Chinese yuan'], ['AED', 'AED', 'UAE dirham']];
+  const CURRENCIES = [['XAF', 'FCFA', 'Central African CFA franc (Cameroon, Gabon, Congo, Chad, CAR, Eq. Guinea)'], ['XOF', 'CFA', 'West African CFA franc (Senegal, Côte d\'Ivoire, Mali, Burkina, Benin, Togo, Niger)'], ['NGN', '₦', 'Nigerian naira'], ['GHS', 'GH₵', 'Ghanaian cedi'], ['RWF', 'RF', 'Rwandan franc'], ['GNF', 'FG', 'Guinean franc'], ['KES', 'KSh', 'Kenyan shilling'], ['UGX', 'USh', 'Ugandan shilling'], ['TZS', 'TSh', 'Tanzanian shilling'], ['ZAR', 'R', 'South African rand'], ['CDF', 'FC', 'Congolese franc'], ['USD', '$', 'US dollar'], ['EUR', '€', 'Euro'], ['GBP', '£', 'British pound'], ['CAD', 'C$', 'Canadian dollar'], ['CNY', '¥', 'Chinese yuan'], ['AED', 'AED', 'UAE dirham']];
   // daily running costs first (recorded at the end of each day), then the monthly ones
   const EXPENSE_CATS = ['Food & drinks', 'Water', 'Local transport', 'Fuel', 'Phone & internet', 'Warehouse rent', 'Salaries & wages', 'Electricity & water', 'Marketing', 'Taxes & licences', 'MoMo / bank fees', 'Security', 'Repairs & maintenance', 'Insurance', 'Other'];
 
@@ -767,6 +773,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, allocTax, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, allocTax, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

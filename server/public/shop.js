@@ -11,7 +11,7 @@
   const CART_KEY = 'kargo-shop-cart-' + KEY, ME_KEY = 'kargo-shop-me';
   const S = { biz: null, items: [], delivery: { modes: [], agencies: [] }, cart: store.get(CART_KEY, {}), q: '', cat: '', mode: 'pickup' };
   const fmt = (v) => Math.round(Number(v) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const money = (v) => fmt(v) + ' ' + (S.biz ? S.biz.symbol : 'F');
+  const money = (v) => fmt(v) + ' ' + (S.biz ? S.biz.symbol : 'FCFA');
   const initials = (n) => String(n || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   const img = (ref) => !ref ? '' : /^(data:|https?:)/.test(ref) ? ref : '/api/images/' + encodeURIComponent(ref);
   const byId = (id) => S.items.find((i) => i.id === id);

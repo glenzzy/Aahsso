@@ -757,3 +757,22 @@ table.pu-t2 tr.pu-more td{background:var(--bg);padding:12px}
 .btn.tour-btn:hover{background:#f9e6c4;border-color:var(--accent)}
 .tour-q{width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--ink);display:inline-grid;place-items:center;font-size:12px;font-weight:800;flex:none}
 @media (max-width:600px){.home-head{flex-direction:column;align-items:flex-start;gap:10px}}
+
+/* ---------- new purchase: where (and money), seller dropdown ---------- */
+.pu-where2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pu-wc{display:flex;align-items:center;gap:12px;text-align:left;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer;font:inherit;color:var(--ink)}
+.pu-wc:hover{border-color:var(--ink3)}
+.pu-wc.on{border-color:var(--brand);background:var(--brandSoft);box-shadow:0 0 0 3px rgba(13,92,99,.08)}
+.pu-wc b{display:block;font-size:14.5px}
+.pu-wc span span{display:block;font-size:12.5px;color:var(--ink3);margin-top:1px}
+.pu-wc.on span span{color:var(--brand)}
+.pu-flag{font-size:24px;line-height:1}
+.pu-rate{margin:8px 2px 14px}
+.pu-rate.hide+.pu-seller{margin-top:14px}
+.pu-newsel{margin-top:12px;padding:12px;border:1px dashed var(--line);border-radius:12px;background:var(--card)}
+.pu-h2{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.pu-h2 .pu-t3{margin:0}
+.pu-local{font-weight:600;color:var(--ink2);text-align:right;margin-top:-4px}
+table.pu-t2 .in-unit .inp{padding-right:44px}
+table.pu-t2 .in-unit span{right:10px}
+@media (max-width:699px){.pu-where2{grid-template-columns:1fr}}

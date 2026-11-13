@@ -18,7 +18,8 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const uid = (p = '') => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const grp = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
 const fmt = (n) => (n < 0 ? '−' : '') + grp(Math.abs(num(n)));
-const F = (n) => fmt(n) + ' ' + (S().currencySymbol || 'F');
+const baseSym = () => KC.currencySymbolOf(S());
+const F = (n) => fmt(n) + ' ' + baseSym();
 /* ---------- number inputs show thousands separators: 150,000 · 655.957 · 1,250.5 ----------
  * Every amount / quantity box (inputmode numeric or decimal) is grouped with commas when it appears,
  * when the app fills it, and while you type (the cursor stays where you are typing).
@@ -54,10 +55,11 @@ function groupNum(v) {
 })();
 
 const baseCode = () => S().currency || 'XAF';
-const curSym = (c) => { c = c || 'USD'; if (c === baseCode()) return S().currencySymbol || c; const k = KC.CURRENCIES.find((x) => x[0] === c); return k ? k[1] : c; };
+const curSym = (c) => { c = c || 'USD'; if (c === baseCode()) return baseSym(); const k = KC.CURRENCIES.find((x) => x[0] === c); return k ? k[1] : c; };
 /** Amount in any currency (purchase side). Sales & reports always use F() = base currency. */
 const money = (v, c) => { c = c || 'USD'; if (c === baseCode()) return F(v); const sym = curSym(c); const s2 = num(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); return sym.length <= 2 ? sym + s2 : s2 + ' ' + sym; };
-const curOptions = () => [[baseCode(), baseCode() + ' (' + (S().currencySymbol || '') + ', local)']].concat(Object.keys(S().fxRates || { USD: 600 }).filter((c) => c !== baseCode()).map((c) => [c, c + ' (' + curSym(c) + ')']));
+const CUR_NAME = { USD: 'US dollars', EUR: 'Euros', GBP: 'British pounds', CAD: 'Canadian dollars', CNY: 'Chinese yuan', AED: 'UAE dirhams', NGN: 'Naira' };
+const curOptions = () => [[baseCode(), baseSym() + ' (local)']].concat(Object.keys(S().fxRates || { USD: 600 }).filter((c) => c !== baseCode()).map((c) => [c, curSym(c) + ' · ' + (CUR_NAME[c] || c)]));
 const usd = (n) => '$' + num(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const pct = (n) => (isFinite(n) ? Math.round(n) : 0) + '%';
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -143,6 +145,7 @@ function openSheet({ title, body, foot, wide, onClose, back }) {
   scrim.innerHTML = '<div class="sheet' + (wide ? ' wide' : '') + '"><div class="sh">' + (back ? '<button class="icon-btn" data-a="sheetClose">' + ic('back') + '</button>' : '') + '<h2 class="grow ellipsis">' + esc(title || '') + '</h2><button class="icon-btn" data-a="sheetClose" aria-label="Close">' + ic('x') + '</button></div><div class="sb">' + (body || '') + '</div>' + (foot ? '<div class="sf">' + foot + '</div>' : '') + '</div>';
   scrim.addEventListener('mousedown', (e) => { if (e.target === scrim) closeSheet(); });
   scrim._onClose = onClose;
+  if (K.tour && typeof endTour === 'function') endTour(); // the person started working: the tour steps aside
   document.body.appendChild(scrim); K.sheets.push(scrim);
   document.body.style.overflow = 'hidden';
   return scrim;

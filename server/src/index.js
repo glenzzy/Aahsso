@@ -445,7 +445,7 @@ app.get('/api/activity', auth, wrap(async (req, res) => {
   const docs = (await q("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('products','customers','locations','shipments','suppliers','settings','assets')", [u.tenant_id])).rows;
   const by = {}; docs.forEach((d) => ((by[d.collection] = by[d.collection] || {})[d.id] = d.data));
   const S = Object.assign({}, KC.DEFAULT_SETTINGS, (by.settings || {}).main || {});
-  const sym = S.currencySymbol || 'F'; const F = (v) => String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' ' + sym;
+  const sym = KC.currencySymbolOf(S); const F = (v) => String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' ' + sym;
   const L = { product: (id) => ((by.products || {})[id] || {}).name || 'item', customer: (id) => ((by.customers || {})[id] || {}).name || 'customer', loc: (id) => (!id || id === 'main' ? S.mainLocationName || 'Main warehouse' : ((by.locations || {})[id] || {}).name || id), ship: (id) => ((by.shipments || {})[id] || {}).name || 'container', supplier: (id) => ((by.suppliers || {})[id] || {}).name || 'supplier', asset: (id) => ((by.assets || {})[id] || {}).name || 'asset', F, money: (v, c) => (c && c !== S.currency ? Number(v).toFixed(2) + ' ' + c : F(v)) };
   const roles = KC.rolesWith(u.customRoles); const entries = [];
   rows.forEach((r) => {
@@ -509,7 +509,7 @@ app.get('/api/shop/:key', shopReadLimiter, wrap(async (req, res) => {
   const t = await shopTenant(req.params.key); if (!t) return err(res, 404, 'This shop is not available');
   const raw = await loadAll(pool, t.tid); const C = KC.computeAll(raw); const st = t.settings;
   res.set('Cache-Control', 'no-store').json({
-    business: { name: st.businessName, tagline: st.tagline || '', phone: st.phone || '', whatsapp: st.whatsapp || st.phone || '', address: st.address || '', logo: st.logo || '', currency: st.currency || 'XAF', symbol: st.currencySymbol || 'F', message: st.shopMessage || '' },
+    business: { name: st.businessName, tagline: st.tagline || '', phone: st.phone || '', whatsapp: st.whatsapp || st.phone || '', address: st.address || '', logo: st.logo || '', currency: st.currency || 'XAF', symbol: KC.currencySymbolOf(st), message: st.shopMessage || '' },
     delivery: { modes: KC.DELIVERY_MODES, agencies: Array.isArray(st.shopAgencies) ? st.shopAgencies.slice(0, 30) : [] },
     items: KC.shopCatalog(raw, C).map(KC.publicItem),
   });

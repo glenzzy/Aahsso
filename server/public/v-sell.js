@@ -149,7 +149,7 @@ function editCustomer(id, after) {
     body: '<div class="col">' + field('Full name *', inp('name', c.name, 'autocomplete="off"')) +
       '<div class="grid2">' + field('Phone *', inp('phone', c.phone, 'inputmode="tel" placeholder="6XX XXX XXX"')) + field('WhatsApp', inp('whatsapp', c.whatsapp, 'inputmode="tel" placeholder="Same as phone if empty"')) + '</div>' +
       '<div class="grid2">' + field('Email (optional)', inp('email', c.email, 'inputmode="email"')) + field('Town / area', inp('city', c.city)) + '</div>' +
-      '<div class="grid2">' + field('Customer type', sel('type', ['Retail', 'Wholesale', 'Reseller'], c.type || 'Retail')) + field('Credit limit (F)', inp('creditLimit', c.creditLimit ?? '', 'inputmode="numeric" placeholder="' + (S().defaultCreditLimit !== undefined && S().defaultCreditLimit !== '' && S().defaultCreditLimit !== null ? 'Default ' + fmt(S().defaultCreditLimit) : 'No limit') + '"' + (can('credit') || can('settings') ? '' : ' disabled'))) + '</div>' + field('Notes', '<textarea class="inp" name="notes">' + esc(c.notes || '') + '</textarea>') + '</div>',
+      '<div class="grid2">' + field('Customer type', sel('type', ['Retail', 'Wholesale', 'Reseller'], c.type || 'Retail')) + field('Credit limit (' + baseSym() + ')', inp('creditLimit', c.creditLimit ?? '', 'inputmode="numeric" placeholder="' + (S().defaultCreditLimit !== undefined && S().defaultCreditLimit !== '' && S().defaultCreditLimit !== null ? 'Default ' + fmt(S().defaultCreditLimit) : 'No limit') + '"' + (can('credit') || can('settings') ? '' : ' disabled'))) + '</div>' + field('Notes', '<textarea class="inp" name="notes">' + esc(c.notes || '') + '</textarea>') + '</div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="cSave">Save customer</button>',
   });
   $('#cSave', el).onclick = async () => {
@@ -192,7 +192,7 @@ function accountOpts(method) {
 const payFeeSuggest = (method, amount, cur) => (!cur || cur === baseCode()) ? KC.calcMomoFee(method, amount, S()) : 0;
 function payFields(defAmount, opts = {}) {
   const kind = opts.kind || 'sale', cur = opts.currency || baseCode(), sym = esc(curSym(cur));
-  const methods = payMethodsFor(kind); const defMethod = methods.indexOf(opts.method) >= 0 ? opts.method : 'Cash';
+  const methods = opts.methods || payMethodsFor(kind); const defMethod = methods.indexOf(opts.method) >= 0 ? opts.method : 'Cash';
   const mm = KC.isMobileMoney(defMethod), sale = kind === 'sale';
   const sug = mm ? payFeeSuggest(defMethod, defAmount, cur) : 0;
   return '<div class="col" id="payBox" data-kind="' + kind + '" data-cur="' + esc(cur) + '"><div class="grid2">' + field((sale ? 'Sale amount' : 'Amount paid') + ' (' + sym + ')', inp('payAmount', defAmount, 'inputmode="decimal" id="payAmount"')) + field('Date', inp('payDate', todayStr(), 'type="date"')) + '</div>' +
@@ -283,7 +283,7 @@ function deliveryFields(d, bare) {
       '<div class="grid2"><div data-dlshow="agency courier">' + f('agency', 'Agency / company name', 'placeholder="e.g. General Express"') + '</div>' + f('destination', 'Town / area', 'placeholder="e.g. Bafoussam"') + '</div>' +
       f('address', 'Address / landmark (optional)', 'placeholder="e.g. near the main market"') +
       '<div class="grid2">' + f('recipientName', 'Recipient name', 'placeholder="Who receives the parcel"') + f('recipientPhone', 'Recipient phone', 'inputmode="tel" placeholder="6xx xx xx xx"') + '</div>' +
-      '<div class="grid2">' + f('fee', 'Delivery fee (F)', 'inputmode="numeric" placeholder="0"') + s_('payer', 'Who pays the delivery?', KC.DELIVERY_PAYERS) + '</div>' +
+      '<div class="grid2">' + f('fee', 'Delivery fee (' + baseSym() + ')', 'inputmode="numeric" placeholder="0"') + s_('payer', 'Who pays the delivery?', KC.DELIVERY_PAYERS) + '</div>' +
       '<div class="grid2">' + s_('status', 'Delivery status', KC.DELIVERY_STATUSES) + f('trackingNo', 'Agency receipt / tracking no.', 'placeholder="Optional"') + '</div>' +
     '</div></div>';
 }
@@ -353,7 +353,7 @@ A.checkout = () => {
     setSheetBody(el, '<div class="col">' +
       '<div class="cust-pill" data-a="pickCustomer">' + (cu ? '<div class="av">' + esc(initials(cu.name)) + '</div><div class="grow"><div class="b">' + esc(cu.name) + '</div><div class="tiny muted">' + esc(cu.phone || '') + creditTag(cu) + '</div></div>' : '<div class="av">' + ic('users', 'sm') + '</div><div class="grow b">Walk-in customer — tap to select</div>') + ic('chev', 'sm') + '</div>' +
       '<div class="card pad"><div class="row between"><span class="muted">Subtotal (' + cartCount() + ' items)</span><span class="money b">' + F(sub) + '</span></div>' +
-      (can('discount') ? '<div class="row between mt"><span class="muted">Discount (F)</span><input class="inp price-in" inputmode="numeric" id="discIn" value="' + (disc || '') + '" placeholder="0"></div>' : '') +
+      (can('discount') ? '<div class="row between mt"><span class="muted">Discount (' + baseSym() + ')</span><input class="inp price-in" inputmode="numeric" id="discIn" value="' + (disc || '') + '" placeholder="0"></div>' : '') +
       '<hr class="sep"><div class="row between"><span class="b">Total</span><span class="money b" style="font-size:22px" id="totOut">' + F(total) + '</span></div>' +
       '<div id="dlFeeRow" class="row between small mt hide"><span class="muted">Delivery fee</span><span class="money" id="dlFeeOut"></span></div><div id="dueRow" class="row between b mt hide"><span>Total to pay</span><span class="money" id="dueOut"></span></div>' +
       (editing ? '<div class="row between small mt"><span class="muted">Already paid</span><span class="money">' + F(t.paid) + '</span></div>' : '') + '</div>' +
@@ -665,7 +665,7 @@ A.returnSale = (el) => {
   const sh = openSheet({
     title: 'Return items · ' + s.no,
     body: '<div class="card pad">' + (rows || '<div class="empty small">Everything was already returned.</div>') + '</div><div class="col mt">' + field('Returned items go', sel('restock', [['yes', 'Back to stock (resellable)'], ['no', 'Damaged — write off']], 'yes')) +
-      '<div class="grid2">' + field('Refund amount (F)', inp('refund', '', 'inputmode="numeric" id="refundAmt"')) + field('Refund mode', sel('refMethod', KC.SALE_PAY_METHODS, ((s.payments || []).find((p) => num(p.amount) > 0 && KC.SALE_PAY_METHODS.includes(p.method)) || {}).method || 'Cash')) + '</div><div class="tiny muted">Leave refund at 0 for an exchange or credit.</div>' + field('Reason', sel('reason', KC.RETURN_REASONS, KC.RETURN_REASONS[0])) + field('Details (optional)', inp('reasonNote', '')) + '</div>',
+      '<div class="grid2">' + field('Refund amount (' + baseSym() + ')', inp('refund', '', 'inputmode="numeric" id="refundAmt"')) + field('Refund mode', sel('refMethod', KC.SALE_PAY_METHODS, ((s.payments || []).find((p) => num(p.amount) > 0 && KC.SALE_PAY_METHODS.includes(p.method)) || {}).method || 'Cash')) + '</div><div class="tiny muted">Leave refund at 0 for an exchange or credit.</div>' + field('Reason', sel('reason', KC.RETURN_REASONS, KC.RETURN_REASONS[0])) + field('Details (optional)', inp('reasonNote', '')) + '</div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="rSave">Record return</button>',
   });
   const calc = () => { let v = 0; $$('[data-ret]', sh).forEach((i) => { const l = s.lines[+i.dataset.ret]; v += Math.min(num(i.value), num(i.dataset.max)) * num(l.unitPrice) * x.factor; }); $('#refundAmt', sh).value = Math.round(Math.min(v, Math.max(0, x.paid))); };
@@ -738,7 +738,7 @@ A.dlEdit = (el) => {
   const sh = openSheet({ title: 'Delivery · ' + s.no, body: '<div class="col">' + field('Mode', sel('mode', KC.DELIVERY_MODES, d.mode)) +
     '<div class="grid2">' + field('Agency / company', inp('agency', d.agency)) + field('Town / area', inp('destination', d.destination)) + '</div>' + field('Address / landmark', inp('address', d.address)) +
     '<div class="grid2">' + field('Recipient name', inp('recipientName', d.recipientName)) + field('Recipient phone', inp('recipientPhone', d.recipientPhone, 'inputmode="tel"')) + '</div>' +
-    '<div class="grid2">' + field('Delivery fee (F)', inp('fee', d.fee || '', 'inputmode="numeric"')) + field('Who pays', sel('payer', KC.DELIVERY_PAYERS, d.payer || 'client_us')) + '</div>' +
+    '<div class="grid2">' + field('Delivery fee (' + baseSym() + ')', inp('fee', d.fee || '', 'inputmode="numeric"')) + field('Who pays', sel('payer', KC.DELIVERY_PAYERS, d.payer || 'client_us')) + '</div>' +
     '<div class="grid2">' + field('Status', sel('status', KC.DELIVERY_STATUSES, d.status || 'to_send')) + field('Agency receipt / tracking no.', inp('trackingNo', d.trackingNo)) + '</div>' + field('Notes', inp('notes', d.notes)) + '</div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="dlSave">Save delivery</button>' });
   $('#dlSave', sh).onclick = async () => {
