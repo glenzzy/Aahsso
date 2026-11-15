@@ -413,3 +413,19 @@ test('expense phases: each step belongs to a phase; older expenses are day-to-da
   assert.equal(KC.expenseStage({})[2], 'Day-to-day');
   assert.deepEqual(KC.EXPENSE_PHASES, ['Buy', 'Ship', 'Receive', 'Sell', 'Day-to-day']);
 });
+
+test('delivery payment rules: collect = paid before pickup; our delivery = before or on delivery; customer pays the fee', () => {
+  const collect = { delivery: KC.cleanDelivery({ mode: 'collect', recipientName: 'Paul', recipientPhone: '677', fee: 2000, destination: 'x' }) };
+  assert.equal(collect.delivery.fee, 0); assert.equal(collect.delivery.destination, '');
+  assert.match(KC.handOverBlock(collect, 5000, 'delivered'), /only collect once everything is paid/);
+  assert.equal(KC.handOverBlock(collect, 0, 'delivered'), '');
+  const before = { delivery: KC.cleanDelivery({ mode: 'local', destination: 'Akwa', fee: 1500 }) };
+  assert.equal(before.delivery.payWhen, 'before'); assert.match(KC.handOverBlock(before, 1000, 'sent'), /pays before we send/);
+  const onDel = { delivery: KC.cleanDelivery({ mode: 'agency', destination: 'Bafoussam', agency: 'General Express', payWhen: 'on_delivery' }) };
+  assert.equal(KC.handOverBlock(onDel, 1000, 'sent'), '');
+  assert.match(KC.handOverBlock(onDel, 1000, 'delivered'), /collected on delivery/);
+  assert.equal(KC.cleanDelivery({ mode: 'local', destination: 'x', payer: 'business' }).payer, 'client_us'); // no more "we pay"
+  assert.ok(!KC.DELIVERY_PAYERS.some((p) => p[0] === 'business'));
+  const v = KC.validateShopOrder({ customer: { name: 'Ann', phone: '677000000' }, items: [{ productId: 'a', qty: 1 }], delivery: { mode: 'collect' } }, [{ id: 'a', name: 'A', price: 10, available: 5 }]);
+  assert.match(v.error, /person who will collect/);
+});

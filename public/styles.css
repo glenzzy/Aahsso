@@ -1044,3 +1044,39 @@ table.lw-t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums
 .lw-t td{padding:10px 12px;border-top:1px solid var(--line2)}
 .lw-t tbody tr:first-child td{border-top:0}
 .lw .hint{margin:0}
+
+/* delivery rule note */
+.dl-rule{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:10px;background:var(--accentSoft);border:1px solid #f0d29f;font-size:13.5px;line-height:1.45}
+.dl-rule .i{color:#b7791f;flex:none;margin-top:1px}
+
+/* online order: price it, send it, sell it */
+.oq-steps{list-style:none;display:flex;gap:6px;margin:0 0 14px;padding:0;flex-wrap:wrap}
+.oq-steps li{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--ink3);padding:5px 10px 5px 6px;border-radius:999px;background:var(--bg)}
+.oq-steps li span{width:20px;height:20px;border-radius:50%;background:var(--line2);display:grid;place-items:center;font-size:11px}
+.oq-steps li.done{color:var(--ok)} .oq-steps li.done span{background:var(--okSoft);color:var(--ok)}
+.oq-tw{border:1px solid var(--line);border-radius:12px;overflow-x:auto;background:var(--card)}
+table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}
+.oq-t th{font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:10px 12px;background:var(--bg);border-bottom:1px solid var(--line);white-space:nowrap}
+.oq-t th:first-child{width:34%}
+.oq-t th.r,.oq-t td.r{text-align:right}
+.oq-t td{padding:9px 12px;border-top:1px solid var(--line2);vertical-align:middle}
+.oq-t tbody tr:first-child td{border-top:0}
+.oq-n{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oq-in{width:84px;min-height:36px;padding:6px 8px;text-align:right;display:inline-block}
+.oq-price{width:110px;border-color:var(--brand)}
+.oq-foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-top:16px;align-items:flex-start}
+.oq-left{flex:1;min-width:260px}
+.oq-l{font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);margin-bottom:6px}
+.oq-box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:14px}
+.oq-tot{min-width:290px;background:var(--bg);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;font-size:14px;font-variant-numeric:tabular-nums}
+.oq-fee{width:140px;display:block}
+.oq-fee .inp{min-height:36px;padding:6px 52px 6px 8px;text-align:right}
+.oq-grand{border-top:1px solid var(--line);padding-top:8px;font-size:16px}
+.oq-acts{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.btn.wa-btn{background:#25D366;border-color:#25D366;color:#fff}
+
+.dl-rules{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.dl-rules li{background:var(--bg);border-radius:10px;padding:10px 12px;font-size:14px}
+.dl-rules li span{display:block;color:var(--ink2);font-size:13px;margin-top:2px}
+
+.sheet .sf .btn.danger.ghost{margin-left:auto}

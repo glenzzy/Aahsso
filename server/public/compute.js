@@ -196,8 +196,27 @@
 
   /** Sale totals that don't depend on cost. Payment `amount` pays the sale; `fee` is MoMo/OM charges (separate). */
   /* ---------- delivery (local or to another region) ---------- */
-  const DELIVERY_MODES = [['pickup', 'Pickup at the shop'], ['local', 'Local delivery (moto / taxi)'], ['agency', 'Travel agency (other town / region)'], ['courier', 'Courier / parcel service']];
-  const DELIVERY_PAYERS = [['client_us', 'Client pays us — added to the bill'], ['client_agency', 'Client pays the agency / driver'], ['business', 'We pay (free delivery)']];
+  /* How the goods reach the client. 'collect' = the client sends their own delivery person to the shop. */
+  const DELIVERY_MODES = [['pickup', 'Pickup at the shop'], ['collect', 'Customer sends someone to collect'], ['local', 'Local delivery (moto / taxi)'], ['agency', 'Travel agency (other town / region)'], ['courier', 'Courier / parcel service']];
+  const OUR_DELIVERY = ['local', 'agency', 'courier']; // we send the goods
+  /* The customer always pays the delivery fee: to us (added to the bill) or straight to the agency / driver. */
+  const DELIVERY_PAYERS = [['client_us', 'Customer pays us — added to the bill'], ['client_agency', 'Customer pays the agency / driver directly']];
+  const DELIVERY_PAY_WHEN = [['before', 'Before delivery'], ['on_delivery', 'On delivery']];
+  /** When the customer must have paid: before pickup (their delivery person), before we send it, or on delivery. */
+  function deliveryRule(d) {
+    if (!d || !d.mode || d.mode === 'pickup') return null;
+    if (d.mode === 'collect') return { key: 'before_pickup', text: 'Pay in full before their delivery person collects' };
+    return d.payWhen === 'on_delivery' ? { key: 'on_delivery', text: 'Pays before or on delivery' } : { key: 'before', text: 'Pay in full before we send it' };
+  }
+  /** Why the goods may not be handed over / sent / marked delivered yet ('' = fine). balance = what is still owed. */
+  function handOverBlock(sale, balance, toStatus) {
+    const d = sale && sale.delivery; const r = deliveryRule(d); if (!r || !(num(balance) > 0.5) || !toStatus || toStatus === 'to_send') return '';
+    const left = Math.round(num(balance)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    if (r.key === 'before_pickup') return 'Not paid in full (' + left + ' left). Their delivery person can only collect once everything is paid.';
+    if (r.key === 'before') return 'Not paid in full (' + left + ' left). The customer pays before we send it.';
+    if (r.key === 'on_delivery' && toStatus === 'delivered') return 'Record the ' + left + ' collected on delivery before marking it delivered.';
+    return '';
+  }
   const DELIVERY_STATUSES = [['to_send', 'To send'], ['sent', 'Sent'], ['delivered', 'Delivered']];
   const deliveryModeLabel = (m) => (DELIVERY_MODES.find((x) => x[0] === m) || [0, ''])[1];
   const isDelivery = (s) => !!(s && s.delivery && s.delivery.mode && s.delivery.mode !== 'pickup');
@@ -209,8 +228,10 @@
     if (!d || typeof d !== 'object') return null;
     const mode = DELIVERY_MODES.some((x) => x[0] === d.mode) ? d.mode : 'pickup';
     const out = { mode, agency: cut(d.agency, 80), destination: cut(d.destination, 80), address: cut(d.address, 160), recipientName: cut(d.recipientName, 80), recipientPhone: cut(d.recipientPhone, 30), trackingNo: cut(d.trackingNo, 60), notes: cut(d.notes, 300),
-      fee: Math.max(0, Math.round(num(d.fee))), payer: DELIVERY_PAYERS.some((x) => x[0] === d.payer) ? d.payer : 'client_us',
+      fee: mode === 'collect' ? 0 : Math.max(0, Math.round(num(d.fee))), payer: DELIVERY_PAYERS.some((x) => x[0] === d.payer) ? d.payer : 'client_us',
+      payWhen: mode === 'collect' ? 'before' : d.payWhen === 'on_delivery' ? 'on_delivery' : 'before',
       status: DELIVERY_STATUSES.some((x) => x[0] === d.status) ? d.status : 'to_send' };
+    if (mode === 'collect') { out.destination = ''; out.agency = ''; out.address = ''; }
     if (d.sentAt) out.sentAt = cut(d.sentAt, 40); if (d.deliveredAt) out.deliveredAt = cut(d.deliveredAt, 40);
     if (mode === 'pickup') return { mode: 'pickup' };
     return out;
@@ -248,7 +269,9 @@
       lines.push({ productId: p.id, name: p.name, qty, unitPrice: p.price });
     }
     const delivery = cleanDelivery(Object.assign({}, b.delivery, { fee: 0, payer: 'client_us', status: 'to_send', trackingNo: '', sentAt: '', deliveredAt: '' })) || { mode: 'pickup' };
-    if (delivery.mode !== 'pickup') {
+    if (delivery.mode === 'collect') {
+      if (!delivery.recipientName || !delivery.recipientPhone) return { error: 'Please type the name and phone of the person who will collect' };
+    } else if (delivery.mode !== 'pickup') {
       if (!delivery.destination) return { error: 'Please type the town / area to deliver to' };
       if (delivery.mode === 'agency' && !delivery.agency) return { error: 'Please type the travel agency name' };
       if (!delivery.recipientName) delivery.recipientName = name;
@@ -818,6 +841,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

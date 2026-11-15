@@ -278,13 +278,17 @@ function deliveryFields(d, bare) {
   const opt = (list, v) => list.map(([k, l]) => '<option value="' + k + '"' + (k === v ? ' selected' : '') + '>' + esc(l) + '</option>').join('');
   const f = (k, label, attrs) => field(label, '<input class="inp" data-dl="' + k + '" value="' + esc(d[k] === undefined || d[k] === null || d[k] === 0 ? '' : d[k]) + '" ' + (attrs || '') + '>');
   const s_ = (k, label, list) => field(label, '<select class="inp" data-dl="' + k + '">' + opt(list, d[k]) + '</select>');
+  const ours = 'local agency courier';
   return (bare ? '' : '<h3 class="mt">Delivery</h3>') + '<div class="col" id="dlBox">' + s_('mode', 'How does the client get the goods?', KC.DELIVERY_MODES) +
+    '<datalist id="dlAgencies">' + (S().shopAgencies || []).map((x) => '<option value="' + esc(x) + '">').join('') + '</datalist>' +
     '<div id="dlMore" class="col">' +
-      '<div class="grid2"><div data-dlshow="agency courier">' + f('agency', 'Agency / company name', 'placeholder="e.g. General Express"') + '</div>' + f('destination', 'Town / area', 'placeholder="e.g. Bafoussam"') + '</div>' +
-      f('address', 'Address / landmark (optional)', 'placeholder="e.g. near the main market"') +
-      '<div class="grid2">' + f('recipientName', 'Recipient name', 'placeholder="Who receives the parcel"') + f('recipientPhone', 'Recipient phone', 'inputmode="tel" placeholder="6xx xx xx xx"') + '</div>' +
-      '<div class="grid2">' + f('fee', 'Delivery fee (' + baseSym() + ')', 'inputmode="numeric" placeholder="0"') + s_('payer', 'Who pays the delivery?', KC.DELIVERY_PAYERS) + '</div>' +
-      '<div class="grid2">' + s_('status', 'Delivery status', KC.DELIVERY_STATUSES) + f('trackingNo', 'Agency receipt / tracking no.', 'placeholder="Optional"') + '</div>' +
+      '<div data-dlshow="collect" class="dl-rule">' + ic('alert', 'sm') + '<span>Their delivery person can only collect once the sale is <b>paid in full</b>.</span></div>' +
+      '<div class="grid2" data-dlshow="' + ours + '"><div data-dlshow="agency courier">' + f('agency', 'Agency / company name', 'list="dlAgencies" placeholder="e.g. General Express"') + '</div>' + f('destination', 'Town / area', 'placeholder="e.g. Bafoussam"') + '</div>' +
+      '<div data-dlshow="' + ours + '">' + f('address', 'Address / landmark (optional)', 'placeholder="e.g. near the main market"') + '</div>' +
+      '<div class="grid2">' + f('recipientName', '<span data-dllbl="name">Recipient name</span>', 'placeholder="Who receives the parcel"') + f('recipientPhone', '<span data-dllbl="phone">Recipient phone</span>', 'inputmode="tel" placeholder="6xx xx xx xx"') + '</div>' +
+      '<div class="grid2" data-dlshow="' + ours + '">' + f('fee', 'Delivery fee — paid by the customer (' + baseSym() + ')', 'inputmode="numeric" placeholder="0"') + s_('payer', 'Customer pays the fee to', KC.DELIVERY_PAYERS) + '</div>' +
+      '<div data-dlshow="' + ours + '">' + s_('payWhen', 'When does the customer pay?', KC.DELIVERY_PAY_WHEN) + '</div>' +
+      '<div class="grid2">' + s_('status', 'Delivery status', KC.DELIVERY_STATUSES) + '<div data-dlshow="' + ours + '">' + f('trackingNo', 'Agency receipt / tracking no.', 'placeholder="Optional"') + '</div></div>' +
     '</div></div>';
 }
 /** Show / hide delivery fields for the chosen mode and refresh the totals (goods + delivery fee). */
@@ -292,8 +296,10 @@ function syncCheckout(root, setPay) {
   if (!root) return; const d = cartDelivery(); const del = d.mode !== 'pickup';
   const more = $('#dlMore', root); if (more) more.classList.toggle('hide', !del);
   $$('[data-dlshow]', root).forEach((e) => e.classList.toggle('hide', !e.dataset.dlshow.split(' ').includes(d.mode)));
+  $$('[data-dllbl]', root).forEach((e) => (e.textContent = d.mode === 'collect' ? (e.dataset.dllbl === 'name' ? 'Name of the person collecting' : 'Their phone') : (e.dataset.dllbl === 'name' ? 'Recipient name' : 'Recipient phone')));
+  const rn = $('[data-dl=recipientName]', root); if (rn) rn.placeholder = d.mode === 'collect' ? 'Their delivery person' : 'Who receives the parcel';
   const pf = $('#pickField', root); if (pf) pf.classList.toggle('hide', del);
-  if (del) { // the client is usually the recipient
+  if (del && d.mode !== 'collect') { // the client is usually the recipient
     const cu = K.cart.customerId && byId('customers', K.cart.customerId);
     [['recipientName', cu && cu.name], ['recipientPhone', cu && (cu.whatsapp || cu.phone)]].forEach(([k, v]) => { const i = $('[data-dl=' + k + ']', root); if (i && !i.value && v) { i.value = v; d[k] = v; } });
   }
@@ -312,6 +318,7 @@ function syncCheckout(root, setPay) {
 function readCartDelivery() {
   const d = KC.cleanDelivery(cartDelivery()) || { mode: 'pickup' };
   if (d.mode === 'pickup') return { delivery: { mode: 'pickup' } };
+  if (d.mode === 'collect') return d.recipientName && d.recipientPhone ? { delivery: d } : { error: 'Type the name and phone of the person collecting' };
   if (!d.destination) return { error: 'Type the town / area to deliver to' };
   if (d.mode === 'agency' && !d.agency) return { error: 'Type the travel agency name' };
   if (!d.recipientName || !d.recipientPhone) return { error: 'Type the recipient name and phone' };
@@ -404,6 +411,7 @@ async function completeSale(v) {
       if (!(await confirmBox(msg + ' Allow it anyway?', 'Allow credit'))) return false;
     }
   }
+  { const blk = KC.handOverBlock({ delivery: dl.delivery }, remaining, dl.delivery.status); if (blk) { toast(blk + ' Leave the delivery status on "To send", or take the payment now.', true); return false; } }
   if (pay && pay.amount > total - (editing ? KC.saleTotals(editing).paid : 0) + 0.5) { if (!(await confirmBox('Payment is more than the amount due. Record anyway?', 'Record'))) return false; }
   const d = new Date();
   const sale = Object.assign({}, editing || {
@@ -583,7 +591,7 @@ function salesRows(list) {
       { k: 'due', label: 'Pay by', v: (s) => owes(s) ? KC.dueDateOf(s, S()) : '', html: (s) => { if (!owes(s)) return dtNil; const d = KC.dueDateOf(s, S()); return d < today ? '<span class="badge bad">Overdue · ' + esc(dayMon(d)) + '</span>' : dtDate(d); } },
       cost ? { k: 'profit', label: 'Profit', money: true, v: (s) => live(s) ? X(s).profit : '', total: sumLive((s) => X(s).profit) } : null,
       { k: 'status', label: 'Status', core: true, v: (s) => X(s).status, html: (s) => statusBadge(X(s).status) },
-      { k: 'coll', label: 'Collected / delivery', v: (s) => !live(s) ? '' : KC.isDelivery(s) ? s.delivery.status || 'to_send' : (s.delivered ? 'Yes' : 'No'), html: (s) => !live(s) ? dtNil : KC.isDelivery(s) ? dlStatusBadge(s.delivery.status) : s.delivered ? '<span class="badge">Yes</span>' : '<span class="badge info">No · at shop</span>' },
+      { k: 'coll', label: 'Collected / delivery', v: (s) => !live(s) ? '' : KC.isDelivery(s) ? s.delivery.status || 'to_send' : (s.delivered ? 'Yes' : 'No'), html: (s) => !live(s) ? dtNil : KC.isDelivery(s) ? dlStatusBadge(s.delivery.status, s.delivery) : s.delivered ? '<span class="badge">Yes</span>' : '<span class="badge info">No · at shop</span>' },
       { k: 'dmode', label: 'Delivery', v: (s) => KC.isDelivery(s) ? KC.deliveryModeLabel(s.delivery.mode).replace(/ \(.*\)/, '') : '' },
       { k: 'agency', label: 'Agency', v: (s) => KC.isDelivery(s) ? s.delivery.agency || '' : '' },
       { k: 'dest', label: 'Town / area', v: (s) => KC.isDelivery(s) ? s.delivery.destination || '' : '' },
@@ -705,22 +713,28 @@ function deliveryLines(s) {
   if (!KC.isDelivery(s)) return [];
   const d = s.delivery; const st = (KC.DELIVERY_STATUSES.find((x) => x[0] === d.status) || [0, 'To send'])[1];
   return ['Delivery: ' + KC.deliveryModeLabel(d.mode).replace(/ \(.*\)/, '') + (d.agency ? ' · ' + d.agency : '') + (d.destination ? ' → ' + d.destination : ''),
-    'Recipient: ' + [d.recipientName, d.recipientPhone].filter(Boolean).join(' · '),
-    d.trackingNo ? 'Agency receipt: ' + d.trackingNo : '', 'Delivery status: ' + st].filter(Boolean);
+    (d.mode === 'collect' ? 'Collected by: ' : 'Recipient: ') + [d.recipientName, d.recipientPhone].filter(Boolean).join(' · '),
+    d.trackingNo ? 'Agency receipt: ' + d.trackingNo : '', KC.deliveryRule(d) ? 'Payment: ' + KC.deliveryRule(d).text : '', 'Delivery status: ' + dlStatusLabel(d)].filter(Boolean);
 }
-const dlStatusBadge = (st) => ({ to_send: '<span class="badge warn">To send</span>', sent: '<span class="badge info">Sent</span>', delivered: '<span class="badge ok">Delivered</span>' }[st || 'to_send']);
+const DL_ST_COLLECT = { to_send: 'Waiting for their delivery person', sent: 'Waiting for their delivery person', delivered: 'Collected' };
+const dlStatusLabel = (d) => d && d.mode === 'collect' ? DL_ST_COLLECT[d.status || 'to_send'] : (KC.DELIVERY_STATUSES.find((x) => x[0] === (d && d.status)) || [0, 'To send'])[1];
+const dlStatusBadge = (st, d) => '<span class="badge ' + ({ to_send: 'warn', sent: 'info', delivered: 'ok' }[st || 'to_send']) + '">' + esc(dlStatusLabel(Object.assign({}, d, { status: st || 'to_send' }))) + '</span>';
 function deliveryCard(s) {
   if (!KC.isDelivery(s)) return '';
-  const d = s.delivery; const row = (l, v) => v ? '<div class="row between small cl"><span class="muted">' + l + '</span><span class="b" style="text-align:right">' + v + '</span></div>' : '';
+  const d = s.delivery; const x = K.C.saleX[s.id] || {}; const r = KC.deliveryRule(d); const row = (l, v) => v ? '<div class="row between small cl"><span class="muted">' + l + '</span><span class="b" style="text-align:right">' + v + '</span></div>' : '';
+  const unpaid = num(x.balance) > 0.5 && d.status !== 'delivered';
   return '<h3 class="mt mb">Delivery</h3><div class="card pad">' +
+    (unpaid && r && r.key !== 'on_delivery' ? '<div class="dl-rule mb">' + ic('alert', 'sm') + '<span>' + esc(r.text) + ' — <b>' + F(x.balance) + '</b> still to pay.</span></div>' : '') +
     row('Mode', esc(KC.deliveryModeLabel(d.mode))) + row('Agency', esc(d.agency)) + row('Town / area', esc(d.destination)) + row('Address', esc(d.address)) +
-    row('Recipient', esc(d.recipientName)) + row('Recipient phone', esc(d.recipientPhone)) +
-    row('Delivery fee', num(d.fee) ? F(d.fee) + ' · ' + esc((KC.DELIVERY_PAYERS.find((x) => x[0] === d.payer) || [0, ''])[1]) : '') +
-    row('Tracking / receipt no.', esc(d.trackingNo)) + row('Status', dlStatusBadge(d.status)) +
-    row('Sent', d.sentAt ? esc(fmtDT(d.sentAt)) : '') + row('Delivered', d.deliveredAt ? esc(fmtDT(d.deliveredAt)) : '') + '</div>';
+    row(d.mode === 'collect' ? 'Person collecting' : 'Recipient', esc(d.recipientName)) + row(d.mode === 'collect' ? 'Their phone' : 'Recipient phone', esc(d.recipientPhone)) +
+    row('Delivery fee', num(d.fee) ? F(d.fee) + ' · ' + esc((KC.DELIVERY_PAYERS.find((p) => p[0] === d.payer) || [0, d.payer === 'business' ? 'We paid (older sale)' : ''])[1]) : '') +
+    row('Payment', r ? esc(r.text) : '') +
+    row('Tracking / receipt no.', esc(d.trackingNo)) + row('Status', dlStatusBadge(d.status, d)) +
+    row('Sent', d.sentAt && d.mode !== 'collect' ? esc(fmtDT(d.sentAt)) : '') + row(d.mode === 'collect' ? 'Collected' : 'Delivered', d.deliveredAt ? esc(fmtDT(d.deliveredAt)) : '') + '</div>';
 }
 function deliveryButtons(s) {
-  const st = s.delivery.status || 'to_send';
+  const d = s.delivery; const st = d.status || 'to_send';
+  if (d.mode === 'collect') return (st !== 'delivered' ? '<button class="btn" data-a="dlSet" data-id="' + s.id + '" data-v="delivered">' + ic('check') + 'Mark collected</button>' : '') + '<button class="btn" data-a="dlEdit" data-id="' + s.id + '">' + ic('edit') + 'Update delivery</button>';
   return (st === 'to_send' ? '<button class="btn" data-a="dlSet" data-id="' + s.id + '" data-v="sent">' + ic('ship') + 'Mark sent</button>' : '') +
     (st !== 'delivered' ? '<button class="btn" data-a="dlSet" data-id="' + s.id + '" data-v="delivered">' + ic('check') + 'Mark delivered</button>' : '') +
     '<button class="btn" data-a="dlEdit" data-id="' + s.id + '">' + ic('edit') + 'Update delivery</button>';
@@ -733,25 +747,35 @@ async function saveDelivery(saleId, patch) {
   if (ok) { refreshSheets(); scheduleRender(); }
   return ok;
 }
-A.dlSet = (el) => saveDelivery(el.dataset.id, { status: el.dataset.v }).then((ok) => ok && toast(el.dataset.v === 'sent' ? 'Marked as sent' : 'Marked as delivered'));
+A.dlSet = (el) => {
+  const s = byId('sales', el.dataset.id); const v = el.dataset.v; const x = K.C.saleX[s.id] || {};
+  const blk = KC.handOverBlock(s, x.balance, v);
+  if (blk) { toast(blk, true); if (can('payments')) A.addPay({ dataset: { id: s.id } }); return; }
+  return saveDelivery(s.id, { status: v }).then((ok) => ok && toast(s.delivery.mode === 'collect' ? 'Marked as collected' : v === 'sent' ? 'Marked as sent' : 'Marked as delivered'));
+};
 A.dlEdit = (el) => {
   const s = byId('sales', el.dataset.id); const d = s.delivery || {};
   const sh = openSheet({ title: 'Delivery · ' + s.no, body: '<div class="col">' + field('Mode', sel('mode', KC.DELIVERY_MODES, d.mode)) +
     '<div class="grid2">' + field('Agency / company', inp('agency', d.agency)) + field('Town / area', inp('destination', d.destination)) + '</div>' + field('Address / landmark', inp('address', d.address)) +
     '<div class="grid2">' + field('Recipient name', inp('recipientName', d.recipientName)) + field('Recipient phone', inp('recipientPhone', d.recipientPhone, 'inputmode="tel"')) + '</div>' +
-    '<div class="grid2">' + field('Delivery fee (' + baseSym() + ')', inp('fee', d.fee || '', 'inputmode="numeric"')) + field('Who pays', sel('payer', KC.DELIVERY_PAYERS, d.payer || 'client_us')) + '</div>' +
+    '<div class="grid2">' + field('Delivery fee — paid by the customer (' + baseSym() + ')', inp('fee', d.fee || '', 'inputmode="numeric"')) + field('Customer pays the fee to', sel('payer', KC.DELIVERY_PAYERS, d.payer === 'client_agency' ? 'client_agency' : 'client_us')) + '</div>' +
+    field('When does the customer pay?', sel('payWhen', KC.DELIVERY_PAY_WHEN, d.payWhen || 'before')) + '<p class="hint" style="margin:0">If the customer sends someone to collect, it must be paid in full first.</p>' +
     '<div class="grid2">' + field('Status', sel('status', KC.DELIVERY_STATUSES, d.status || 'to_send')) + field('Agency receipt / tracking no.', inp('trackingNo', d.trackingNo)) + '</div>' + field('Notes', inp('notes', d.notes)) + '</div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="dlSave">Save delivery</button>' });
   $('#dlSave', sh).onclick = async () => {
     const v = formVals(sh); v.fee = num(v.fee);
     if (v.mode === 'pickup') { const cur = byId('sales', s.id); if (await save('sales', Object.assign({}, cur, { delivery: { mode: 'pickup' } }))) { closeSheet(); refreshSheets(); scheduleRender(); } return; }
-    if (!v.destination) return toast('Type the town / area', true);
+    if (v.mode !== 'collect' && !v.destination) return toast('Type the town / area', true);
+    const blk = KC.handOverBlock({ delivery: KC.cleanDelivery(v) }, (K.C.saleX[s.id] || {}).balance, v.status); if (blk) return toast(blk, true);
     if (await saveDelivery(s.id, v)) { closeSheet(); toast('Delivery updated'); }
   };
 };
 
 /* ================= ONLINE ORDERS (sent by clients from the public shop page) ================= */
-const ORDER_ST = { new: '<span class="badge warn">New — to confirm</span>', done: '<span class="badge ok">Sale created</span>', rejected: '<span class="badge">Rejected</span>' };
+const ORDER_ST = { new: '<span class="badge warn">New — to price</span>', quoted: '<span class="badge info">Priced · waiting for customer</span>', done: '<span class="badge ok">Sold</span>', rejected: '<span class="badge">Rejected</span>' };
+/** The order as priced by us (quote), or as sent by the customer. */
+const orderLines = (o) => (o.quote && o.quote.lines) || o.lines || [];
+const orderTotal = (o) => o.quote ? num(o.quote.total) : num(o.subtotal);
 const newOrders = () => (K.raw.orders || []).filter((o) => o.status === 'new');
 const orderItems = (o) => (o.lines || []).map((l) => l.name + ' ×' + l.qty).join(', ');
 function ordersTable(list) {
@@ -766,7 +790,8 @@ function ordersTable(list) {
       { k: 'phone', label: 'Phone', core: true, v: (o) => (o.customer || {}).phone || '' },
       { k: 'items', label: 'Items', wrap: true, v: orderItems },
       { k: 'qty', label: 'Qty', num: true, v: (o) => (o.lines || []).reduce((a, l) => a + num(l.qty), 0) },
-      { k: 'total', label: 'Items total', core: true, money: true, cls: 'b', v: (o) => num(o.subtotal), total: (rows) => fmt(dtSum(rows, (o) => o.status === 'rejected' ? 0 : o.subtotal)) },
+      { k: 'total', label: 'Shop prices', money: true, v: (o) => num(o.subtotal) },
+      { k: 'quote', label: 'To pay', core: true, money: true, cls: 'b', v: (o) => orderTotal(o), html: (o) => o.quote ? fmt(o.quote.total) : '<span class="faint">' + fmt(o.subtotal) + '</span>', total: (rows) => fmt(dtSum(rows, (o) => o.status === 'rejected' ? 0 : orderTotal(o))) },
       { k: 'mode', label: 'Delivery', core: true, v: (o) => KC.deliveryModeLabel((o.delivery || {}).mode || 'pickup').replace(/ \(.*\)/, '') },
       { k: 'dest', label: 'Town / area', v: (o) => dl(o) ? dl(o).destination : '' },
       { k: 'agency', label: 'Agency', v: (o) => dl(o) ? dl(o).agency : '' },
@@ -782,46 +807,112 @@ function ordersTable(list) {
 VIEWS.orders = {
   render() {
     const tab = K.ui.ordTab || 'new'; const all = (K.raw.orders || []).slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    const list = tab === 'new' ? all.filter((o) => o.status === 'new') : all;
+    const quoted = all.filter((o) => o.status === 'quoted');
+    const list = tab === 'new' ? all.filter((o) => o.status === 'new') : tab === 'quoted' ? quoted : all;
     const link = S().shopEnabled && S().shopId ? shopLink() : '';
-    return '<div class="kpis mb">' + kpi('New orders', fmt(newOrders().length), 'waiting to be confirmed', true) + kpi('Value of new orders', F(newOrders().reduce((a, o) => a + num(o.subtotal), 0))) + kpi('Turned into sales', fmt(all.filter((o) => o.status === 'done').length)) + '</div>' +
+    return '<div class="kpis mb">' + kpi('To price', fmt(newOrders().length), 'new orders from the shop') + kpi('Waiting for customer', fmt(quoted.length), quoted.length ? F(quoted.reduce((a, o) => a + orderTotal(o), 0)) + ' to collect' : 'priced and sent') + kpi('Sold', fmt(all.filter((o) => o.status === 'done').length), 'turned into sales') + '</div>' +
       (link ? '<div class="alert info mb row between wrap"><span>Your shop: <b>' + esc(link) + '</b></span><span class="row"><button class="btn sm" data-a="shopCopy">' + ic('copy', 'sm') + 'Copy link</button><a class="btn sm" target="_blank" rel="noopener" href="' + esc(link) + '">Open shop</a></span></div>'
         : '<div class="alert mb">' + (can('settings') ? 'Your online shop is off. Turn it on in <a href="#settings">Settings → Online shop</a> and share the link with clients.' : 'The online shop is off. Ask the owner to turn it on in Settings.') + '</div>') +
-      '<div class="chips mb">' + [['new', 'To confirm'], ['all', 'All orders']].map(([k, l]) => '<button class="chip' + (tab === k ? ' on' : '') + '" data-a="ordTab" data-v="' + k + '">' + l + '</button>').join('') + '</div>' + ordersTable(list);
+      '<div class="chips mb">' + [['new', 'To price'], ['quoted', 'Waiting for customer'], ['all', 'All orders']].map(([k, l]) => '<button class="chip' + (tab === k ? ' on' : '') + '" data-a="ordTab" data-v="' + k + '">' + l + '</button>').join('') + '</div>' + ordersTable(list);
   },
 };
 A.ordTab = (el) => { K.ui.ordTab = el.dataset.v; render(true); };
+/* An order from the shop is the customer's draft: we set our prices (and the delivery fee), send the total to the
+ * customer, and turn it into a sale once they pay. */
 A.openOrder = (el) => {
-  const sh = openSheet({ title: 'Order', body: '', wide: true });
+  const id = el.dataset.id; const sh = openSheet({ title: 'Order', body: '', wide: true, foot: '<span></span>' });
   sh._refresh = () => {
-    const o = byId('orders', el.dataset.id); if (!o) return closeSheet(); const c = o.customer || {}; const d = o.delivery || { mode: 'pickup' };
+    const o = byId('orders', id); if (!o) return closeSheet(); const c = o.customer || {}; const d = o.delivery || { mode: 'pickup' };
     $('.sh h2', sh).textContent = 'Order ' + o.no;
-    const wa = phoneWA(c.whatsapp || c.phone); const row = (l, v) => v ? '<div class="row between small cl"><span class="muted">' + l + '</span><span class="b" style="text-align:right">' + esc(v) + '</span></div>' : '';
-    setSheetBody(sh, '<div class="row between mb"><div><div class="b" style="font-size:17px">' + esc(c.name) + '</div><div class="tiny muted">' + esc(c.phone) + ' · received ' + esc(fmtDT(o.createdAt)) + '</div></div>' + (ORDER_ST[o.status] || '') + '</div>' +
-      '<div class="card tw mb"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th><th class="r">In stock now</th></tr></thead><tbody>' +
-      (o.lines || []).map((l) => { const x = K.C.prodX[l.productId]; const av = x ? x.available : 0; return '<tr><td>' + esc(l.name) + '</td><td class="r">' + l.qty + '</td><td class="r money">' + fmt(l.unitPrice) + '</td><td class="r money b">' + fmt(l.qty * l.unitPrice) + '</td><td class="r"' + (av < l.qty ? ' style="color:var(--bad);font-weight:700"' : '') + '>' + fmt(av) + '</td></tr>'; }).join('') +
-      '</tbody><tfoot><tr><td colspan="3" class="b">Items total</td><td class="r money b">' + fmt(o.subtotal) + '</td><td></td></tr></tfoot></table></div>' +
-      '<h3 class="mb">Delivery</h3><div class="card pad mb">' + row('How', KC.deliveryModeLabel(d.mode)) + row('Town / area', d.destination) + row('Agency', d.agency) + row('Address', d.address) + row('Recipient', d.recipientName) + row('Recipient phone', d.recipientPhone) + '</div>' +
-      (o.note ? '<div class="alert info mb">' + esc(o.note) + '</div>' : '') + (o.rejectReason ? '<div class="alert mb">Rejected: ' + esc(o.rejectReason) + '</div>' : '') +
-      (o.saleId && byId('sales', o.saleId) ? '<button class="btn mb" data-a="openSale" data-id="' + o.saleId + '">' + ic('sales') + 'Open sale ' + esc(o.saleNo || '') + '</button>' : '') +
-      '<div class="row wrap">' + (o.status === 'new' && can('sell') ? '<button class="btn pri" data-a="orderToSale" data-id="' + o.id + '">' + ic('sell') + 'Create sale from this order</button>' : '') +
-      (wa ? '<a class="btn" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent('Hello ' + c.name + ', this is ' + S().businessName + ' about your order ' + o.no + '.') + '">' + ic('wa', 'sm') + 'WhatsApp</a>' : '') +
-      (c.phone ? '<a class="btn" href="tel:' + esc(String(c.phone).replace(/\s/g, '')) + '">Call</a>' : '') +
-      (o.status === 'new' ? '<button class="btn danger" data-a="orderReject" data-id="' + o.id + '">' + ic('x') + 'Reject</button>' : '') + '</div>');
+    const open = (o.status === 'new' || o.status === 'quoted') && can('sell');
+    const q = o.quote || {}; const fee0 = q.deliveryFee ?? '';
+    sh._draft = { lines: orderLines(o).map((l) => ({ productId: l.productId, name: l.name, qty: num(l.qty), unitPrice: num(l.unitPrice), shopPrice: num(l.shopPrice ?? (o.lines || []).find((x) => x.productId === l.productId)?.unitPrice ?? l.unitPrice) })), deliveryFee: fee0, note: q.note || '' };
+    const row = (l, v) => v ? '<div class="row between small cl"><span class="muted">' + l + '</span><span class="b" style="text-align:right">' + esc(v) + '</span></div>' : '';
+    const steps = [['Received', true], ['Priced & sent', o.status === 'quoted' || o.status === 'done'], ['Paid & sold', o.status === 'done']];
+    const ours = KC.OUR_DELIVERY.includes(d.mode); const rule = KC.deliveryRule(d);
+    setSheetBody(sh, '<div class="row between wrap mb"><div><div class="b" style="font-size:17px">' + esc(c.name) + '</div><div class="tiny muted">' + esc(c.phone) + ' · received ' + esc(fmtDT(o.createdAt)) + '</div></div>' + (ORDER_ST[o.status] || '') + '</div>' +
+      (o.status !== 'rejected' ? '<ol class="oq-steps">' + steps.map(([l, on], i) => '<li class="' + (on ? 'done' : '') + '"><span>' + (on ? ic('check', 'sm') : i + 1) + '</span>' + l + '</li>').join('') + '</ol>' : '') +
+      '<div class="oq-tw"><table class="oq-t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Shop price</th><th class="r">Your price</th><th class="r">Total</th><th class="r">In stock</th></tr></thead><tbody>' +
+        sh._draft.lines.map((l, i) => { const x = K.C.prodX[l.productId]; const av = x ? x.available : 0; return '<tr data-ql="' + i + '"><td><span class="oq-n">' + esc(l.name) + '</span></td>' +
+          '<td class="r">' + (open ? '<input class="inp oq-in" inputmode="numeric" data-qf="qty" value="' + l.qty + '" aria-label="Quantity">' : fmt(l.qty)) + '</td>' +
+          '<td class="r faint">' + fmt(l.shopPrice) + '</td>' +
+          '<td class="r">' + (open ? '<input class="inp oq-in oq-price" inputmode="numeric" data-qf="unitPrice" value="' + l.unitPrice + '" aria-label="Your price for ' + esc(l.name) + '">' : '<b>' + fmt(l.unitPrice) + '</b>') + '</td>' +
+          '<td class="r b" data-qt="' + i + '">' + fmt(l.qty * l.unitPrice) + '</td><td class="r' + (av < l.qty ? ' neg-t' : '') + '">' + fmt(av) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' +
+      '<div class="oq-foot"><div class="oq-left">' +
+        '<div class="oq-l">Delivery</div><div class="oq-box">' + row('How', KC.deliveryModeLabel(d.mode)) + row('Town / area', d.destination) + row('Agency', d.agency) + row('Address', d.address) + row(d.mode === 'collect' ? 'Person collecting' : 'Recipient', d.recipientName) + row(d.mode === 'collect' ? 'Their phone' : 'Recipient phone', d.recipientPhone) + row('Payment', rule ? rule.text : 'Pays at the shop') + '</div>' +
+        (o.note ? '<div class="oq-l mt">Customer note</div><div class="oq-box">' + esc(o.note) + '</div>' : '') +
+        (open ? '<label class="f mt">Note to the customer · optional<input class="inp" id="oqNote" value="' + esc(sh._draft.note) + '" placeholder="e.g. Only 1 left of the charger, price includes the case"></label>' : q.note ? '<div class="oq-l mt">Our note</div><div class="oq-box">' + esc(q.note) + '</div>' : '') +
+      '</div><div class="oq-tot">' +
+        '<div class="row between"><span>Items</span><b id="oqItems"></b></div>' +
+        (ours ? '<div class="row between"><span>Delivery fee</span>' + (open ? '<span class="in-unit oq-fee"><input class="inp" id="oqFee" inputmode="numeric" value="' + esc(fee0) + '" placeholder="0"><span>' + esc(baseSym()) + '</span></span>' : '<b>' + F(q.deliveryFee || 0) + '</b>') + '</div>' : '') +
+        '<div class="row between oq-grand"><b>Total to pay</b><b id="oqTotal"></b></div>' +
+        (q.at ? '<div class="hint">Priced by ' + esc(q.by || '—') + ' · ' + esc(fmtDT(q.at)) + (q.sentAt ? ' · sent ' + esc(fmtDT(q.sentAt)) : '') + '</div>' : '') +
+      '</div></div>' +
+      (o.rejectReason ? '<div class="alert mt">Rejected: ' + esc(o.rejectReason) + '</div>' : '') +
+      (o.saleId && byId('sales', o.saleId) ? '<button class="btn mt" data-a="openSale" data-id="' + o.saleId + '">' + ic('sales') + 'Open sale ' + esc(o.saleNo || '') + '</button>' : '') +
+      '');
+    $('.sf', sh).innerHTML = (open ? '<button class="btn" data-a="oqSave" data-id="' + o.id + '">Save prices</button><button class="btn wa-btn" data-a="oqSend" data-id="' + o.id + '">' + ic('wa', 'sm') + 'Send to customer</button><button class="btn pri" data-a="orderToSale" data-id="' + o.id + '">' + ic('sell') + 'Customer paid · create sale</button>' : '') +
+        (c.phone ? '<a class="btn ghost" href="tel:' + esc(String(c.phone).replace(/\s/g, '')) + '">Call</a>' : '') +
+        (open ? '<button class="btn danger ghost" data-a="orderReject" data-id="' + o.id + '">' + ic('x') + 'Reject</button>' : '') + '';
+    $('.sf', sh).classList.toggle('hide', !$('.sf', sh).innerHTML.trim());
+    oqTotals(sh);
   };
+  sh.addEventListener('input', (e) => {
+    const t = e.target; const tr = t.closest('tr[data-ql]');
+    if (tr && t.dataset.qf) { const l = sh._draft.lines[+tr.dataset.ql]; l[t.dataset.qf] = Math.max(0, num(t.value)); $('[data-qt="' + tr.dataset.ql + '"]', sh).textContent = fmt(l.qty * l.unitPrice); }
+    if (t.id === 'oqFee') sh._draft.deliveryFee = t.value; if (t.id === 'oqNote') sh._draft.note = t.value;
+    oqTotals(sh);
+  });
   sh._refresh();
 };
-/** Load an order into the cart (customer + items + delivery details) so staff check prices, add the delivery fee and complete the sale. */
+function oqSum(dr) { const items = dr.lines.reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0); const fee = Math.max(0, num(dr.deliveryFee)); return { items, fee, total: items + fee }; }
+function oqTotals(sh) { const t = oqSum(sh._draft); const i = $('#oqItems', sh); if (i) i.textContent = F(t.items); const g = $('#oqTotal', sh); if (g) g.textContent = F(t.total); }
+/** Save our prices on the order (status: priced, waiting for the customer). Returns the saved order or null. */
+async function saveQuote(o, sh, sent) {
+  const dr = sh._draft; const lines = dr.lines.filter((l) => num(l.qty) > 0);
+  if (!lines.length) { toast('Keep at least one item (or reject the order)', true); return null; }
+  if (lines.some((l) => !(num(l.unitPrice) > 0))) { toast('Type a price for every item', true); return null; }
+  const t = oqSum(Object.assign({}, dr, { lines }));
+  const quote = { lines: lines.map((l) => ({ productId: l.productId, name: l.name, qty: Math.floor(num(l.qty)), unitPrice: Math.round(num(l.unitPrice)), shopPrice: num(l.shopPrice) })), deliveryFee: KC.OUR_DELIVERY.includes((o.delivery || {}).mode) ? Math.round(t.fee) : 0, note: String(dr.note || '').trim().slice(0, 300), itemsTotal: Math.round(t.items), total: Math.round(t.items + (KC.OUR_DELIVERY.includes((o.delivery || {}).mode) ? t.fee : 0)), by: K.me.name || K.info.userLabel || '', at: new Date().toISOString(), sentAt: sent ? new Date().toISOString() : ((o.quote || {}).sentAt || '') };
+  const next = Object.assign({}, o, { quote, status: 'quoted' });
+  return (await save('orders', next)) ? next : null;
+}
+/** The priced order as a WhatsApp message: items, delivery fee, total, when to pay, how to pay. */
+function quoteText(o) {
+  const q = o.quote; const c = o.customer || {}; const d = o.delivery || { mode: 'pickup' }; const rule = KC.deliveryRule(d);
+  const momo = (S().momoAccounts || []).map((a) => a.method + ' ' + a.number).join(' · ');
+  return 'Hello ' + (c.name || '') + ', here is the price for your order ' + o.no + ' at ' + S().businessName + ':\n' +
+    q.lines.map((l) => '• ' + l.name + ' × ' + l.qty + ' — ' + F(l.qty * l.unitPrice)).join('\n') +
+    (q.deliveryFee ? '\nDelivery (' + KC.deliveryModeLabel(d.mode).replace(/ \(.*\)/, '') + (d.destination ? ' → ' + d.destination : '') + '): ' + F(q.deliveryFee) : '') +
+    '\n\nTotal to pay: ' + F(q.total) +
+    '\n' + (rule ? (rule.key === 'before_pickup' ? 'Please pay in full before your delivery person comes to collect.' : rule.key === 'before' ? 'Please pay in full before we send it.' : 'You can pay before or when it is delivered.') : 'You can pay when you collect at the shop.') +
+    (momo ? '\nPay by ' + momo : '') + (q.note ? '\n\n' + q.note : '') + '\n\nThank you!';
+}
+A.oqSave = async (el) => { const sh = el.closest('.scrim'); const o = byId('orders', el.dataset.id); if (await saveQuote(o, sh, false)) { refreshSheets(); scheduleRender(); toast('Prices saved — send them to the customer'); } };
+A.oqSend = async (el) => {
+  const sh = el.closest('.scrim'); const o = byId('orders', el.dataset.id); const c = o.customer || {};
+  const wa = phoneWA(c.whatsapp || c.phone); if (!wa) return toast('This customer has no phone number', true);
+  const win = window.open('about:blank', '_blank'); // opened now, so the browser does not block it
+  const saved = await saveQuote(o, sh, true); if (!saved) { if (win) win.close(); return; }
+  const url = 'https://wa.me/' + wa + '?text=' + encodeURIComponent(quoteText(saved));
+  if (win) win.location.href = url; else location.href = url;
+  refreshSheets(); scheduleRender(); toast('Price sent — waiting for the customer to pay');
+};
+/** Load an order into the cart with OUR prices and delivery fee, so the sale is completed when the customer pays. */
 A.orderToSale = async (el) => {
-  const o = byId('orders', el.dataset.id); if (!o) return;
+  let o = byId('orders', el.dataset.id); if (!o) return;
+  const sh = el.closest && el.closest('.scrim');
+  if (sh && sh._draft && (o.status === 'new' || o.status === 'quoted')) { const saved = await saveQuote(o, sh, false); if (!saved) return; o = saved; }
   if (K.cart.lines.length && K.cart.orderId !== o.id && !(await confirmBox('Your current cart will be replaced by this order. Continue?', 'Replace cart'))) return;
   const c = o.customer || {}; const digits = (p) => String(p || '').replace(/\D/g, '').slice(-9);
   let cu = K.raw.customers.find((x) => digits(x.phone) && digits(x.phone) === digits(c.phone));
   if (!cu) { cu = { id: uid('c_'), name: c.name, phone: c.phone, whatsapp: c.whatsapp || c.phone, city: c.city || '', type: 'Retail', source: 'Online shop' }; if (!(await save('customers', cu))) return; }
-  K.cart = { lines: (o.lines || []).map((l) => ({ productId: l.productId, name: l.name, qty: num(l.qty), unitPrice: num(l.unitPrice), manual: true })), customerId: cu.id, editingId: null, discount: 0, orderId: o.id,
-    delivery: o.delivery && o.delivery.mode !== 'pickup' ? Object.assign({}, o.delivery, { fee: 0, payer: 'client_us', status: 'to_send' }) : { mode: 'pickup', payer: 'client_us', status: 'to_send' } };
+  const q = o.quote;
+  K.cart = { lines: orderLines(o).map((l) => ({ productId: l.productId, name: l.name, qty: num(l.qty), unitPrice: num(l.unitPrice), manual: true })), customerId: cu.id, editingId: null, discount: 0, orderId: o.id,
+    delivery: o.delivery && o.delivery.mode !== 'pickup' ? Object.assign({}, o.delivery, { fee: q ? num(q.deliveryFee) : 0, payer: 'client_us', status: 'to_send' }) : { mode: 'pickup', payer: 'client_us', status: 'to_send' } };
   saveCart(); while (K.sheets.length) closeSheet(); A.newSale();
-  toast('Order ' + o.no + ' is in the cart — check prices, add the delivery fee at checkout, then Complete sale');
+  toast('Order ' + o.no + ' is in the cart with your prices — take the payment and complete the sale');
 };
 A.orderReject = async (el) => {
   const o = byId('orders', el.dataset.id); if (!o) return;

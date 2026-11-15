@@ -248,7 +248,7 @@ A.expEdit = (el) => {
 
 /* ---------- settings + backup ---------- */
 /* ---------- settings page: section menu + one card per section ---------- */
-const SET_SECTIONS = [['business', 'Business', 'home'], ['currency', 'Currency', 'wallet'], ['pricing', 'Pricing', 'tag'], ['credit', 'Wholesale & credit', 'users'], ['money', 'Mobile money', 'wallet'], ['reminders', 'Reminders', 'wa'], ['catalogue', 'Stores & categories', 'buy'], ['shop', 'Online shop', 'sell'], ['branches', 'Branches', 'home'], ['backup', 'Backup', 'dl'], ['account', 'Account', 'gear']];
+const SET_SECTIONS = [['business', 'Business', 'home'], ['currency', 'Currency', 'wallet'], ['pricing', 'Pricing', 'tag'], ['credit', 'Wholesale & credit', 'users'], ['money', 'Mobile money', 'wallet'], ['reminders', 'Reminders', 'wa'], ['catalogue', 'Stores & categories', 'buy'], ['delivery', 'Delivery', 'ship'], ['shop', 'Online shop', 'sell'], ['branches', 'Branches', 'home'], ['backup', 'Backup', 'dl'], ['account', 'Account', 'gear']];
 const setCard = (id, title, desc, body, side) => '<section class="card set-card" id="set-' + id + '"><header class="set-head"><div><h2>' + title + '</h2>' + (desc ? '<p>' + desc + '</p>' : '') + '</div>' + (side || '') + '</header>' + body + '</section>';
 /** label + input + optional hint (one small grey line). */
 const sf = (label, inner, hint, cls) => '<label class="f' + (cls ? ' ' + cls : '') + '"><span class="lbl">' + label + '</span>' + inner + (hint ? '<span class="hint">' + hint + '</span>' : '') + '</label>';
@@ -281,7 +281,7 @@ VIEWS.settings = {
   render() {
     const s = S();
     K.ui.feeDraft = feeCopy(s.momoFeeTables);
-    K.ui.storeDraft = (s.vendors || []).slice(); K.ui.catDraft = catDraftFrom(s.categories); K.ui.catOpen = K.ui.catOpen || {}; K.ui.catRen = null;
+    K.ui.storeDraft = (s.vendors || []).slice(); K.ui.agDraft = (s.shopAgencies || []).slice(); K.ui.catDraft = catDraftFrom(s.categories); K.ui.catOpen = K.ui.catOpen || {}; K.ui.catRen = null;
     if (!can('settings')) return '<div class="card pad2 mb"><h2 class="mb">Downloads</h2><div class="row wrap"><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="backupJson">' + ic('dl') + 'Full backup</button></div></div>';
     const cats = s.categories || KC.CATEGORIES; const subN = Object.values(cats).reduce((a, v) => a + v.length, 0);
     const secs = SET_SECTIONS.filter(([k]) => k !== 'account' || K.info.mode === 'saas');
@@ -309,6 +309,13 @@ VIEWS.settings = {
       setCard('catalogue', 'Stores & categories', 'Lists that make adding purchases and items faster.',
         '<h3>Stores you buy from</h3><p class="hint" style="margin:2px 0 10px">Suggested when you add a purchase. Type a name and press Enter.</p>' + storeEditor() +
         '<div class="set-sub"><h3>Categories</h3><p class="hint" style="margin:2px 0 12px">Used to group your items in stock, sales reports and the online shop. Open a category to manage its subcategories.</p>' + catEditor() + '</div>' +
+        '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>') +
+      setCard('delivery', 'Delivery', 'Agencies you send parcels with, and how customers pay for deliveries.',
+        '<h3>Travel agencies</h3><p class="hint" style="margin:2px 0 10px">Suggested at checkout and offered to customers in the online shop. Type a name and press Enter.</p>' + agEditor() +
+        '<div class="set-sub"><h3>Who pays, and when</h3><ul class="dl-rules">' +
+          '<li><b>Customer sends someone to collect</b><span>Must be paid in full before their delivery person collects.</span></li>' +
+          '<li><b>We deliver</b> (local, travel agency, courier)<span>The customer pays before delivery or on delivery — you choose at checkout. Before: it can\'t be sent until paid. On delivery: record the payment before marking it delivered.</span></li>' +
+          '<li><b>Delivery fee</b><span>Always paid by the customer — added to the bill, or paid straight to the agency / driver.</span></li></ul></div>' +
         '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>') +
       '</div>';
     const rest = '<div id="set-shop" class="set-anchor">' + shopCard() + '</div><div id="set-branches" class="set-anchor">' + locationsCard() + '</div>' +
@@ -371,7 +378,7 @@ A.saveSettings = async () => {
   const momoFeeTables = fee.tables;
   const rates = {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
   const curInfo = KC.CURRENCIES.find((c) => c[0] === v.baseCurrency) || [v.baseCurrency, v.baseCurrency];
-  const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, momoFeeTables, vendors: K.ui.storeDraft.slice(), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
+  const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, momoFeeTables, vendors: K.ui.storeDraft.slice(), shopAgencies: (K.ui.agDraft || []).slice(0, 30), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
   if (await saveSettings(patch)) {
     // items that used a renamed category / subcategory follow the new name
     for (const pr of cd.items) { const m = cd.moves.find((x) => (pr.category || 'Other') === x.from && (x.sub === undefined || (pr.subcategory || '') === x.sub)); await save('products', Object.assign({}, pr, { category: m.to }, m.toSub !== undefined ? { subcategory: m.toSub } : {})); }
@@ -509,12 +516,12 @@ function shopCard() {
     (on ? '<div class="shop-link"><div class="lbl">Your shop link</div><div class="shop-url">' + esc(shopLink()) + '</div><div class="shop-acts"><button class="btn sm" data-a="shopCopy">' + ic('copy', 'sm') + 'Copy link</button><a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent('Order from ' + s.businessName + ' here: ' + shopLink()) + '">' + ic('wa', 'sm') + 'Share on WhatsApp</a><a class="btn sm" target="_blank" rel="noopener" href="' + esc(shopLink()) + '">Open shop</a></div></div>' : '') +
     '<label class="toggle shop-toggle"><input type="checkbox" id="shopOn"' + (on ? ' checked' : '') + '> Online shop is on</label>' +
     field('Message at the top of your shop (optional)', '<textarea class="inp" id="shopMsg" rows="2" maxlength="300" placeholder="e.g. Delivery everywhere in Cameroon by travel agency. Pay by MTN MoMo or Orange Money.">' + esc(s.shopMessage || '') + '</textarea>') +
-    field('Travel agencies you use (one per line — clients can pick them)', '<textarea class="inp" id="shopAg" rows="3" placeholder="General Express&#10;Buca Voyages&#10;Touristique Express">' + esc((s.shopAgencies || []).join('\n')) + '</textarea>') +
+    '<p class="hint" style="margin:4px 0 0">Travel agencies offered to customers are set in <b>Delivery</b>.</p>' +
     '<div class="row wrap shop-save"><button class="btn pri" data-a="shopSave">' + ic('check') + 'Save online shop</button>' + (s.shopId ? '<button class="btn" data-a="shopNewLink">New link</button>' : '') + '</div></div>';
 }
 A.shopSave = async () => {
   const on = $('#shopOn').checked; const s = S();
-  const patch = { shopEnabled: on, shopId: s.shopId || newShopKey(), shopMessage: $('#shopMsg').value.trim().slice(0, 300), shopAgencies: $('#shopAg').value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 30) };
+  const patch = { shopEnabled: on, shopId: s.shopId || newShopKey(), shopMessage: $('#shopMsg').value.trim().slice(0, 300) };
   await saveSettings(patch); toast(on ? 'Online shop is on — copy the link and share it' : 'Online shop saved (off)'); render(true);
 };
 A.shopNewLink = async () => {
@@ -645,6 +652,27 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('focusout', (e) => { if (e.target.id === 'storeIn' && e.target.value.trim()) storeAdd(e.target.value); });
 document.addEventListener('click', (e) => { if (e.target.id === 'storeBox') $('#storeIn').focus(); });
+
+/* travel agencies: chips + "type and press Enter" */
+function agEditor() {
+  return '<div class="tag-box" id="agBox">' + (K.ui.agDraft || []).map((s, i) => '<span class="tag">' + esc(s) + '<button type="button" data-a="agDel" data-i="' + i + '" aria-label="Remove ' + esc(s) + '">×</button></span>').join('') +
+    '<input id="agIn" placeholder="' + ((K.ui.agDraft || []).length ? 'Add another agency…' : 'e.g. General Express — press Enter') + '" aria-label="Add a travel agency" autocomplete="off"></div>';
+}
+function agAdd(raw) {
+  K.ui.agDraft = K.ui.agDraft || [];
+  const names = String(raw || '').split(',').map((x) => x.trim()).filter(Boolean); let added = 0;
+  names.forEach((n) => { if (!K.ui.agDraft.some((x) => sameName(x, n)) && K.ui.agDraft.length < 30) { K.ui.agDraft.push(n.slice(0, 60)); added++; } });
+  if (added) { setDirty(); $('#agBox').outerHTML = agEditor(); $('#agIn').focus(); }
+  return added;
+}
+A.agDel = (el) => { K.ui.agDraft.splice(+el.dataset.i, 1); setDirty(); $('#agBox').outerHTML = agEditor(); $('#agIn').focus(); };
+document.addEventListener('keydown', (e) => {
+  if (e.target.id !== 'agIn') return;
+  if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); const v = e.target.value; if (v.trim() && !agAdd(v)) { e.target.value = ''; toast('Already in the list'); } }
+  else if (e.key === 'Backspace' && !e.target.value && (K.ui.agDraft || []).length) { K.ui.agDraft.pop(); setDirty(); $('#agBox').outerHTML = agEditor(); $('#agIn').focus(); }
+});
+document.addEventListener('focusout', (e) => { if (e.target.id === 'agIn' && e.target.value.trim()) agAdd(e.target.value); });
+document.addEventListener('click', (e) => { if (e.target.id === 'agBox') $('#agIn').focus(); });
 
 /* categories */
 function catEditor() { return '<div id="catEd">' + catEditorInner() + '</div>'; }

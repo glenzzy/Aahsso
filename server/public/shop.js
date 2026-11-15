@@ -72,40 +72,46 @@
     const draw = () => {
       const lines = cartLines(); if (!lines.length) return close();
       const modes = (S.delivery.modes || []).map(([k, l]) => { const [t, sub] = l.split(' ('); return '<button type="button" class="mode' + (S.mode === k ? ' on' : '') + '" data-mode="' + k + '"><b>' + esc(t) + '</b>' + (sub ? '<span>' + esc(sub.replace(')', '')) + '</span>' : '') + '</button>'; }).join('');
-      const del = S.mode !== 'pickup'; const meR = me.selfRecipient !== false;
+      const del = S.mode !== 'pickup'; const meR = me.selfRecipient !== false; const coll = S.mode === 'collect'; const ours = ['local', 'agency', 'courier'].includes(S.mode);
+      const pw = me.payWhen === 'on_delivery' ? 'on_delivery' : 'before';
       $('#pbody', panel).innerHTML =
         '<div class="card pad mb">' + lines.map((l) => '<div class="bl"><div class="grow"><div class="b small">' + esc(l.item.name) + '</div><div class="tiny muted">' + money(l.item.price) + ' each</div></div>' + qtyCtl(l.item.id, l.qty) + '<div class="b" style="width:92px;text-align:right">' + money(l.qty * l.item.price) + '</div></div>').join('') +
-        '<div class="row between mt b"><span>Items</span><span>' + money(cartTotal()) + '</span></div><div class="tiny muted">' + (del ? 'The delivery fee is confirmed by ' + esc(S.biz.name) + ' when they call you back.' : 'Pay when you pick up, by cash or mobile money.') + '</div></div>' +
+        '<div class="row between mt b"><span>Items</span><span>' + money(cartTotal()) + '</span></div><div class="tiny muted">' + (coll ? 'Please pay in full before your delivery person comes to collect.' : ours ? 'You pay the delivery fee — ' + esc(S.biz.name) + ' confirms the amount when they send you the total.' : 'Pay when you pick up, by cash or mobile money.') + '</div></div>' +
         '<form id="of" class="col" novalidate>' +
         '<h3>Your details</h3><div class="grid2">' + f('name', 'Your name *', me.name, 'autocomplete="name" required') + f('phone', 'Phone / WhatsApp *', me.phone, 'inputmode="tel" autocomplete="tel" required') + '</div>' +
         '<h3 class="mt">How do you get your order?</h3><div class="modes">' + modes + '</div>' +
         '<div id="dl" class="col' + (del ? '' : ' hide') + '">' +
-          '<div class="grid2">' + f('destination', 'Town / area to deliver to *', me.destination, 'placeholder="e.g. Bafoussam"') + '<div id="agWrap" class="' + (S.mode === 'agency' || S.mode === 'courier' ? '' : 'hide') + '">' + f('agency', S.mode === 'courier' ? 'Courier company' : 'Travel agency *', me.agency, 'list="agList" placeholder="e.g. General Express"') + '</div></div>' +
+          '<div id="dWrap" class="col' + (ours ? '' : ' hide') + '"><div class="grid2">' + f('destination', 'Town / area to deliver to *', me.destination, 'placeholder="e.g. Bafoussam"') + '<div id="agWrap" class="' + (S.mode === 'agency' || S.mode === 'courier' ? '' : 'hide') + '">' + f('agency', S.mode === 'courier' ? 'Courier company' : 'Travel agency *', me.agency, 'list="agList" placeholder="e.g. General Express"') + '</div></div>' +
           '<datalist id="agList">' + (S.delivery.agencies || []).map((a) => '<option value="' + esc(a) + '">').join('') + '</datalist>' +
           f('address', 'Address / landmark', me.address, 'placeholder="e.g. near the main market"') +
-          '<label class="toggle"><input type="checkbox" id="selfR"' + (meR ? ' checked' : '') + '> I will receive the parcel myself</label>' +
-          '<div id="rWrap" class="grid2' + (meR ? ' hide' : '') + '">' + f('recipientName', 'Recipient name *', me.recipientName) + f('recipientPhone', 'Recipient phone *', me.recipientPhone, 'inputmode="tel"') + '</div>' +
+          '<div class="f">When will you pay?<div class="paywhen"><label><input type="radio" name="payWhen" value="before"' + (pw === 'before' ? ' checked' : '') + '> Before delivery</label><label><input type="radio" name="payWhen" value="on_delivery"' + (pw === 'on_delivery' ? ' checked' : '') + '> On delivery</label></div></div>' +
+          '<label class="toggle"><input type="checkbox" id="selfR"' + (meR ? ' checked' : '') + '> I will receive the parcel myself</label></div>' +
+          (coll ? '<div class="note-pay">Your delivery person can collect once the order is <b>paid in full</b>.</div>' : '') +
+          '<div id="rWrap" class="grid2' + (!coll && meR ? ' hide' : '') + '">' + f('recipientName', coll ? 'Name of the person collecting *' : 'Recipient name *', me.recipientName) + f('recipientPhone', coll ? 'Their phone *' : 'Recipient phone *', me.recipientPhone, 'inputmode="tel"') + '</div>' +
         '</div>' +
         '<label class="f">Note for the shop (optional)<textarea class="inp" name="note" rows="2" maxlength="500" placeholder="Colour, size, best time to call…"></textarea></label>' +
         '<div class="err" id="oerr" role="alert"></div>' +
         '<button class="btn pri lg block" id="send" type="submit">Send my order · ' + money(cartTotal()) + '</button>' +
-        '<div class="tiny muted center">' + esc(S.biz.name) + ' will call or WhatsApp you to confirm the price, delivery fee and payment.</div></form>';
+        '<div class="tiny muted center">' + esc(S.biz.name) + ' checks the prices and sends you the total to pay before anything is paid.</div></form>';
       const form = $('#of', panel);
       $$('[data-mode]', panel).forEach((b) => (b.onclick = () => { keep(); S.mode = b.dataset.mode; draw(); }));
       $('#selfR', panel).onchange = (e) => $('#rWrap', panel).classList.toggle('hide', e.target.checked);
       form.onsubmit = (e) => { e.preventDefault(); send(); };
       function keep() { const v = Object.fromEntries(new FormData(form)); Object.assign(me, v, { mode: S.mode, selfRecipient: $('#selfR', panel).checked }); delete me.note; store.set(ME_KEY, me); }
+      $$('[name=payWhen]', panel).forEach((r) => (r.onchange = keep));
       async function send() {
         keep(); const v = Object.fromEntries(new FormData(form)); const errEl = $('#oerr', panel); errEl.textContent = '';
         if ((v.name || '').trim().length < 2) return (errEl.textContent = 'Please type your name');
         if ((v.phone || '').replace(/\D/g, '').length < 8) return (errEl.textContent = 'Please type a phone number we can call or WhatsApp');
-        if (S.mode !== 'pickup' && !(v.destination || '').trim()) return (errEl.textContent = 'Please type the town / area to deliver to');
+        const ours = ['local', 'agency', 'courier'].includes(S.mode), coll = S.mode === 'collect';
+        if (ours && !(v.destination || '').trim()) return (errEl.textContent = 'Please type the town / area to deliver to');
         if (S.mode === 'agency' && !(v.agency || '').trim()) return (errEl.textContent = 'Please type the travel agency name');
-        const self = $('#selfR', panel).checked;
-        if (S.mode !== 'pickup' && !self && (!(v.recipientName || '').trim() || !(v.recipientPhone || '').trim())) return (errEl.textContent = 'Please type the recipient name and phone');
+        const self = !coll && $('#selfR', panel).checked;
+        if (coll && (!(v.recipientName || '').trim() || !(v.recipientPhone || '').trim())) return (errEl.textContent = 'Please type the name and phone of the person who will collect');
+        if (ours && !self && (!(v.recipientName || '').trim() || !(v.recipientPhone || '').trim())) return (errEl.textContent = 'Please type the recipient name and phone');
         const btn = $('#send', panel); btn.disabled = true; btn.classList.add('is-busy'); btn.setAttribute('aria-busy', 'true');
         const body = { customer: { name: v.name, phone: v.phone }, items: cartLines().map((l) => ({ productId: l.item.id, qty: l.qty })), note: v.note,
-          delivery: S.mode === 'pickup' ? { mode: 'pickup' } : { mode: S.mode, destination: v.destination, agency: v.agency || '', address: v.address || '', recipientName: self ? v.name : v.recipientName, recipientPhone: self ? v.phone : v.recipientPhone } };
+          delivery: S.mode === 'pickup' ? { mode: 'pickup' } : coll ? { mode: 'collect', recipientName: v.recipientName, recipientPhone: v.recipientPhone } : { mode: S.mode, destination: v.destination, agency: v.agency || '', address: v.address || '', recipientName: self ? v.name : v.recipientName, recipientPhone: self ? v.phone : v.recipientPhone, payWhen: v.payWhen === 'on_delivery' ? 'on_delivery' : 'before' } };
         try {
           const r = await fetch(API + '/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
           const j = await r.json().catch(() => ({}));
@@ -118,9 +124,11 @@
     function done(j, lines, body) {
       const wa = String(j.whatsapp || '').replace(/\D/g, '');
       const text = 'Hello ' + (j.business || '') + ', I just sent order ' + j.no + ':\n' + lines.map((l) => '• ' + l.item.name + ' × ' + l.qty).join('\n') + '\nTotal items: ' + money(j.total) +
-        (body.delivery.mode !== 'pickup' ? '\nDelivery to ' + body.delivery.destination + (body.delivery.agency ? ' via ' + body.delivery.agency : '') + '\nRecipient: ' + body.delivery.recipientName + ' · ' + body.delivery.recipientPhone : '\nI will pick it up at the shop.');
-      $('#pbody', panel).innerHTML = '<div class="done"><div class="big">✅</div><h2 class="mt">Order sent!</h2><p>Your order number is <b>' + esc(j.no) + '</b>.</p><p class="muted">' + esc(j.business || S.biz.name) + ' will call or WhatsApp you to confirm the price, delivery fee and payment.</p>' +
-        (wa ? '<a class="btn block mt" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(text) + '">Send it on WhatsApp too</a>' : '') +
+        (body.delivery.mode === 'collect' ? '\nSomeone will collect it for me: ' + body.delivery.recipientName + ' · ' + body.delivery.recipientPhone
+          : body.delivery.mode !== 'pickup' ? '\nDelivery to ' + body.delivery.destination + (body.delivery.agency ? ' via ' + body.delivery.agency : '') + '\nRecipient: ' + body.delivery.recipientName + ' · ' + body.delivery.recipientPhone + '\nI will pay ' + (body.delivery.payWhen === 'on_delivery' ? 'on delivery' : 'before delivery') : '\nI will pick it up at the shop.') +
+        '\nPlease send me the total to pay.';
+      $('#pbody', panel).innerHTML = '<div class="done"><div class="big">✅</div><h2 class="mt">Order sent!</h2><p>Your order number is <b>' + esc(j.no) + '</b>.</p><p class="muted">' + esc(j.business || S.biz.name) + ' will check the prices and send you the total to pay' + (body.delivery.mode === 'pickup' || body.delivery.mode === 'collect' ? '' : ', with the delivery fee') + '.</p>' +
+        (wa ? '<a class="btn block mt" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(text) + '">Send this order to us on WhatsApp</a>' : '') +
         '<button class="btn block mt" id="again">Back to the shop</button></div>';
       $('#again', panel).onclick = () => { close(); load(); };
     }
