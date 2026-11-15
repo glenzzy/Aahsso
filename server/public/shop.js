@@ -40,7 +40,7 @@
     return '<article class="pcard"><div class="pim">' + (it.image ? '<img loading="lazy" alt="" src="' + esc(img(it.image)) + '" onerror="this.remove()">' : '') + (it.image ? '' : esc(initials(it.name))) + '</div><div class="pb">' +
       '<div class="pn">' + esc(it.name) + '</div>' +
       '<div class="pm">' + (it.condition && it.condition !== 'New' ? '<span class="badge warn">' + esc(it.condition) + '</span>' : '') + (it.size ? '<span class="badge">' + esc(it.size) + '</span>' : '') + (it.few ? '<span class="badge bad">Only ' + it.few + ' left</span>' : '') + '</div>' +
-      '<div class="pp">' + money(it.price) + (it.unit && it.unit !== 'piece' ? ' <span class="tiny muted">/ ' + esc(it.unit) + '</span>' : '') + '</div>' +
+      '<div class="pp">' + money(it.price) + (it.was ? ' <s class="tiny muted">' + money(it.was) + '</s>' : '') + (it.unit && it.unit !== 'piece' ? ' <span class="tiny muted">/ ' + esc(it.unit) + '</span>' : '') + '</div>' +
       '<div class="pa">' + (q ? qtyCtl(it.id, q) : '<button class="btn pri block" data-add="' + esc(it.id) + '">Add to basket</button>') + '</div></div></article>';
   }
   const qtyCtl = (id, q) => '<div class="qty"><button type="button" data-dec="' + esc(id) + '" aria-label="Less">−</button><input class="inp" inputmode="numeric" data-q="' + esc(id) + '" value="' + q + '" aria-label="Quantity"><button type="button" data-inc="' + esc(id) + '" aria-label="More">+</button></div>';

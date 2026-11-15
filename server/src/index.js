@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 8080;
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 16) { console.error('Set JWT_SECRET (16+ chars) in .env'); process.exit(1); }
 
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos'];
 // Which permissions allow writing each collection (any one of them). Permission model lives in compute.js.
 const WRITE_PERMS = {
   settings: ['settings'], products: ['stockEdit', 'purchases'], lots: ['purchases', 'containers'], shipments: ['containers'],
@@ -32,8 +32,9 @@ const WRITE_PERMS = {
   locations: ['settings'], transfers: ['transfers'], handovers: ['payments', 'handover'], suppliers: ['suppliers', 'purchases', 'containers'],
   bills: ['suppliers', 'purchases', 'containers', 'assets'], reminders: ['reminders'], audits: ['audit', 'stockEdit'], assets: ['assets'],
   orders: ['sell', 'payments'], // online-shop orders: staff confirm / reject them
+  promos: ['stockEdit'], // promotions: whoever sets prices
 };
-const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'] };
+const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'], promos: ['stockEdit'] };
 const grp = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
 const perms = (u) => KC.permsFor({ role: u.role, perms: u.perms || {} }, u.customRoles);
 // a client may propose a transaction id (offline-created records); otherwise the server makes one
@@ -195,7 +196,7 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
     if (col === 'products') {
       // Send selling prices already calculated, because this user cannot receive the costs they come from.
       const C = KC.computeAll(await loadAll(pool, u.tenant_id));
-      docs = docs.map((d) => { const x = C.prodX[d.id] || {}; return Object.assign({}, d, { priceMax: x.priceMax || d.priceMax, priceMin: x.priceMin || d.priceMin, markup: null, minMarkup: null }); });
+      docs = docs.map((d) => { const x = C.prodX[d.id] || {}; return Object.assign({}, d, { priceMax: x.priceMax || d.priceMax, priceMin: x.priceMin || d.priceMin, markup: null, minMarkup: null, priceHistory: (d.priceHistory || []).map((e) => Object.assign({}, e, { cost: null })) }); });
     }
     if (col === 'adjustments' || col === 'expenses') docs = col === 'expenses' && !P.expenses ? [] : docs;
   }
@@ -209,8 +210,8 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
 
 async function loadAllSales(c, tid) { const r = await c.query("SELECT id, data FROM documents WHERE tenant_id=$1 AND collection='sales'", [tid]); return { sales: r.rows.map((x) => Object.assign({}, x.data, { id: x.id })) }; }
 async function loadAll(c, tid) {
-  const r = await c.query("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('settings','products','lots','shipments','sales','adjustments','transfers')", [tid]);
-  const raw = { settings: {}, products: [], lots: [], shipments: [], sales: [], adjustments: [], transfers: [] };
+  const r = await c.query("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('settings','products','lots','shipments','sales','adjustments','transfers','promos')", [tid]);
+  const raw = { settings: {}, products: [], lots: [], shipments: [], sales: [], adjustments: [], transfers: [], promos: [] };
   r.rows.forEach((x) => { const d = Object.assign({}, x.data, { id: x.id }); if (x.collection === 'settings') { if (x.id === 'main') raw.settings = d; } else raw[x.collection].push(d); });
   return raw;
 }
@@ -233,7 +234,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
     const prev = (await c.query('SELECT data FROM documents WHERE tenant_id=$1 AND collection=$2 AND id=$3 FOR UPDATE', [u.tenant_id, col, id])).rows[0];
 
     const P = perms(u);
-    if (col === 'products' && !P.costs && prev) { body.priceMax = prev.data.priceMax ?? null; body.priceMin = prev.data.priceMin ?? null; body.markup = prev.data.markup ?? null; body.minMarkup = prev.data.minMarkup ?? null; }
+    if (col === 'products' && !P.costs && prev) { body.priceMax = prev.data.priceMax ?? null; body.priceMin = prev.data.priceMin ?? null; body.markup = prev.data.markup ?? null; body.minMarkup = prev.data.minMarkup ?? null; body.priceHistory = prev.data.priceHistory || []; }
     if (col === 'lots' && !P.costs && prev) { body.unitCost = prev.data.unitCost; body.unitTax = prev.data.unitTax; body.regularPrice = prev.data.regularPrice; }
     if (col === 'shipments' && !P.costs && prev) body.costs = prev.data.costs || [];
     if (col === 'customers' && !P.credit && !P.settings) body.creditLimit = prev ? (prev.data.creditLimit ?? null) : null;

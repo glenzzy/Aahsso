@@ -4,7 +4,7 @@
  *  - LocalStore: this-device-only fallback (preview / offline demo)
  * Interface: init() -> info; subscribe(col, cb(docs), onErr); put(col, id, data); del(col, id);
  *            uploadImage(blob) -> ref|null; imageUrl(ref) -> url; requestAccess(name) */
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos'];
 const TEAM_COLLECTIONS = ['members', 'requests']; // hosted mode only (SaaS keeps users in its own table)
 
 class LocalStore {

@@ -288,6 +288,7 @@ const NAV = [
   ['assets', 'Assets', 'truck', () => can('assets')],
   ['transfers', 'Branch transfers', 'ship', () => can('transfers') || (allLocs().length > 1 && K.raw.transfers.some((t) => t.status === 'in_transit' && t.to === K.loc))],
   ['audit', 'Stock count', 'check', () => can('audit') || can('stockEdit')],
+  ['promos', 'Promotions', 'tag', () => can('stockView') || can('stockEdit')],
   ['activity', 'Activity log', 'clock', () => true],
   ['team', 'Team & access', 'key', () => can('team')], ['settings', 'Settings', 'gear', () => can('settings') || can('export')],
 ];
@@ -299,12 +300,12 @@ const SECTIONS = [
   ['ship', 'Ship', 'ship', ['ship']],
   ['receive', 'Receive', 'check', ['receive']],
   ['sell', 'Sell', 'sell', ['sales', 'orders']],
-  ['stock', 'Stock', 'stock', ['stock', 'transfers', 'audit']],
+  ['stock', 'Stock', 'stock', ['stock', 'promos', 'audit', 'transfers']],
   ['customers', 'Customers', 'users', ['customers', 'reminders']],
   ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'reports', 'assets']],
   ['settings', 'Settings', 'gear', ['settings', 'team', 'activity']],
 ];
-const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', transfers: 'Branch transfers', audit: 'Stock count', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log' };
+const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log' };
 /** Routes of a section this person can open (transfers only when there is more than one branch). */
 const secRoutes = (sec) => sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
 const secOf = (r) => SECTIONS.find((x) => x[3].includes(r)) || SECTIONS[0];

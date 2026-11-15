@@ -379,3 +379,28 @@ test('tax is part of the landed cost of each unit', () => {
   assert.equal(C.shipX.s.goodsX, 110 * C.lotX.l.fx);
   assert.equal(KC.shipPhase('at_port'), 'receive'); assert.equal(KC.shipPhase('loading'), 'ship'); assert.equal(KC.shipPhase('closed'), 'sell');
 });
+
+test('selling prices: fixed prices win, otherwise cost + markup', () => {
+  const S = { defaultMarkup: 100, minMarkup: 50, wholesaleMarkup: 70, roundTo: 50 };
+  assert.deepEqual(KC.sellingPrices({}, 1000, S), { max: 2000, min: 1500, ws: 1700, markup: 100 });
+  assert.equal(KC.sellingPrices({ priceMax: 2500 }, 1000, S).max, 2500);
+  assert.equal(KC.sellingPrices({ markup: 20 }, 1000, S).max, 1200);
+});
+
+test('promotions: lower the price and the floor while running; ignored when ended or not started', () => {
+  const day = KC.localDay();
+  const base = () => ({ settings: { defaultMarkup: 100, minMarkup: 50, roundTo: 50 }, products: [{ id: 'a', category: 'Phones', priceMax: 10000, priceMin: 9000 }, { id: 'b', category: 'Food', priceMax: 2000 }],
+    lots: [{ id: 'l', productId: 'a', qty: 5, unitCost: 5000, currency: 'XAF', inWarehouse: true }, { id: 'm', productId: 'b', qty: 5, unitCost: 500, currency: 'XAF', inWarehouse: true }], sales: [], promos: [] });
+  let raw = base(); raw.promos = [{ id: 'p1', name: 'Black Friday', type: 'pct', value: 20, scope: 'category', category: 'Phones', start: day }];
+  let C = KC.computeAll(raw);
+  assert.equal(C.prodX.a.promo.price, 8000);
+  assert.equal(KC.autoPrice(C, 'a', 1, null), 8000);
+  assert.equal(KC.priceFloor(C, 'a', 1, null), 8000);
+  assert.equal(C.prodX.b.promo, null); // other category
+  raw = base(); raw.promos = [{ id: 'p2', type: 'amount', value: 500, scope: 'items', productIds: ['b'], start: '2000-01-01', end: '2000-01-31' }];
+  C = KC.computeAll(raw); assert.equal(C.prodX.b.promo, null); assert.equal(KC.autoPrice(C, 'b', 1, null), 2000);
+  raw = base(); raw.promos = [{ id: 'p3', type: 'price', value: 1500, scope: 'all', start: day, status: 'ended' }];
+  C = KC.computeAll(raw); assert.equal(C.prodX.b.promo, null);
+  assert.equal(KC.promoPriceOf({ type: 'price', value: 99999 }, 2000, {}), 2000); // never above the normal price
+  assert.equal(KC.promoStatus({ start: '2999-01-01' }), 'scheduled');
+});

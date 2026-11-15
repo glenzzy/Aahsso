@@ -55,7 +55,7 @@ function cartHTML(inSheet, noGo) {
     return '<div class="cl"><div class="row between">' + thumb(p, 34, 8) + '<div class="grow b ellipsis">' + esc(p.name) + '</div><button class="icon-btn" data-a="cartDel" data-i2="' + i + '">' + ic('trash', 'sm') + '</button></div>' +
       '<div class="row between mt" style="margin-top:6px"><div class="stepper"><button data-a="cartStep" data-i2="' + i + '" data-d="-1">−</button><input inputmode="numeric" value="' + l.qty + '" data-i="cartQty" data-i2="' + i + '"><button data-a="cartStep" data-i2="' + i + '" data-d="1">+</button></div>' +
       '<div class="row gap6"><span class="tiny faint">@</span><input class="inp price-in" inputmode="numeric" value="' + l.unitPrice + '" data-i="cartPrice" data-i2="' + i + '"></div></div>' +
-      '<div class="row between"><div>' + warn + (price !== num(px.priceMax) ? '<div class="tiny faint">Usual price ' + fmt(px.priceMax) + '</div>' : '') + '</div><div class="b money" data-lt="' + i + '">' + F(num(l.qty) * price) + '</div></div></div>';
+      '<div class="row between"><div>' + warn + (px.promo && price === px.promo.price ? '<div class="tiny promo-t">' + esc(px.promo.name) + ' · usual ' + fmt(px.priceMax) + '</div>' : price !== num(px.priceMax) ? '<div class="tiny faint">Usual price ' + fmt(px.priceMax) + '</div>' : '') + '</div><div class="b money" data-lt="' + i + '">' + F(num(l.qty) * price) + '</div></div></div>';
   }).join('');
   return '<div class="' + (inSheet ? '' : 'card pad') + '">' +
     (inSheet ? '' : '<div class="row between mb"><h2>Cart</h2>' + (c.lines.length ? '<button class="btn sm ghost" data-a="cartClear">Clear</button>' : '') + '</div>') +
@@ -72,7 +72,7 @@ function nsListHTML() {
     const px = K.C.prodX[p.id], q = cartQty(p.id), av = availFor(p.id);
     const sub = [p.condition && p.condition !== 'New' ? p.condition : '', heldForCart(p.id) ? 'client order' : '', fmt(av - q) + ' in stock'].filter(Boolean).join(' · ');
     return '<button type="button" class="ns-it' + (q ? ' in' : '') + (av - q <= 0 ? ' out' : '') + '" data-a="addCart" data-id="' + p.id + '"' + (av - q <= 0 ? ' aria-disabled="true"' : '') + '>' + thumb(p, 38, 9) +
-      '<span class="ns-tx"><span class="ns-n">' + esc(p.name) + '</span><span class="ns-s">' + esc(sub) + '</span></span><span class="ns-p money">' + fmt(px.priceMax) + '</span>' +
+      '<span class="ns-tx"><span class="ns-n">' + esc(p.name) + (px.promo ? ' <span class="badge promo">' + esc(px.promo.type === 'pct' ? '−' + px.promo.value + '%' : 'Promo') + '</span>' : '') + '</span><span class="ns-s">' + esc(sub) + '</span></span><span class="ns-p money">' + (px.promo ? '<s class="faint">' + fmt(px.priceMax) + '</s> <span class="promo-p">' + fmt(px.promo.price) + '</span>' : fmt(px.priceMax)) + '</span>' +
       (q ? '<span class="ns-q">' + q + '</span>' : '<span class="ns-add">' + ic('plus', 'sm') + '</span>') + '</button>';
   }).join('') + (all.length > ps.length ? '<div class="hint pad-x mt">Search to see the other ' + (all.length - ps.length) + ' items.</div>' : '');
 }
@@ -382,7 +382,8 @@ async function completeSale(v) {
   for (const l of K.cart.lines) {
     const alloc = KC.allocate(K.C, K.raw.lots, l.productId, num(l.qty), extra, K.cart.customerId, K.loc);
     if (!alloc) { toast('Not enough stock for ' + l.name + ' (' + availFor(l.productId) + ' left)', true); return false; }
-    lines.push({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), condition: lineCond(l), working: lineWork(l), alloc, returns: [] });
+    const pm = (K.C.prodX[l.productId] || {}).promo;
+    lines.push(Object.assign({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), condition: lineCond(l), working: lineWork(l), alloc, returns: [] }, pm && num(l.unitPrice) === pm.price ? { promoId: pm.id, promoName: pm.name } : l.promoId ? { promoId: l.promoId, promoName: l.promoName } : {}));
   }
   const cu = K.cart.customerId && byId('customers', K.cart.customerId);
   const dl = readCartDelivery(); if (dl.error) { toast(dl.error, true); return false; }
@@ -463,7 +464,7 @@ function receiptHTML(s) {
   return '<div class="receipt" id="rcpt"><div class="rh"><div class="rlogo">' + (st.logo ? '<img src="' + esc(st.logo) + '">' : esc(initials(st.businessName).slice(0, 2))) + '</div><div class="b" style="font-size:17px">' + esc(st.businessName) + '</div>' +
     (st.tagline ? '<div class="tiny muted">' + esc(st.tagline) + '</div>' : '') + '<div class="tiny muted">' + esc([st.address, st.phone].filter(Boolean).join(' · ')) + '</div></div>' +
     '<div class="row between small"><span class="muted">Receipt</span><b>' + esc(s.no) + '</b></div><div class="row between small"><span class="muted">Date</span><span>' + fmtDate(saleDate(s)) + '</span></div><div class="row between small mb"><span class="muted">Customer</span><span class="b">' + esc(s.customerName) + '</span></div>' +
-    '<table>' + (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td><div class="b">' + esc(l.name) + '</div><div class="tiny muted">' + l.qty + ' × ' + fmt(l.unitPrice) + (itemNote(l) ? ' · ' + esc(itemNote(l)) : '') + (rq ? ' · ' + rq + ' returned' : '') + '</div></td><td class="right money nowrap">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
+    '<table>' + (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td><div class="b">' + esc(l.name) + '</div><div class="tiny muted">' + l.qty + ' × ' + fmt(l.unitPrice) + (l.promoName ? ' · ' + esc(l.promoName) : '') + (itemNote(l) ? ' · ' + esc(itemNote(l)) : '') + (rq ? ' · ' + rq + ' returned' : '') + '</div></td><td class="right money nowrap">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
     (t.discount ? '<tr><td class="muted">Discount</td><td class="right money">−' + fmt(t.discount) + '</td></tr>' : '') + (t.returned ? '<tr><td class="muted">Returns</td><td class="right money">−' + fmt(t.returned) + '</td></tr>' : '') +
     '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr>' + (t.deliveryFee > 0 ? '<tr><td class="muted">Delivery fee</td><td class="right money">' + F(t.deliveryFee) + '</td></tr><tr class="tot"><td>TOTAL TO PAY</td><td class="right money">' + F(t.due) + '</td></tr>' : '') + '<tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
     (t.balance > 0 ? '<tr><td class="b" style="color:var(--bad)">Balance due</td><td class="right money b" style="color:var(--bad)">' + F(t.balance) + '</td></tr>' : '') + '</table>' +

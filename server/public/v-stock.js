@@ -57,7 +57,7 @@ function stockRows(list) {
       multi ? { k: 'all', label: 'All branches', num: true, v: (p) => X(p).available } : null,
       { k: 'inc', label: 'Incoming', core: true, num: true, v: (p) => X(p).transit + X(p).us || '', total: (rows) => fmt(dtSum(rows, (p) => X(p).transit + X(p).us)) },
       { k: 'held', label: 'Held for clients', num: true, v: (p) => X(p).reserved || '' },
-      { k: 'price', label: 'Price', core: true, money: true, v: (p) => X(p).priceMax },
+      { k: 'price', label: 'Price', core: true, money: true, v: (p) => X(p).promo ? X(p).promo.price : X(p).priceMax, html: (p) => X(p).promo ? '<span class="promo-p">' + fmt(X(p).promo.price) + '</span> <s class="faint">' + fmt(X(p).priceMax) + '</s>' : fmt(X(p).priceMax) },
       { k: 'ws', label: 'Wholesale price', money: true, v: (p) => X(p).priceWholesale },
       { k: 'min', label: 'Lowest price', money: true, v: (p) => X(p).priceMin },
       cost ? { k: 'avg', label: 'Avg landed cost', money: true, v: (p) => Math.round(X(p).avgCost) } : null,
@@ -96,7 +96,7 @@ function editProduct(id) {
   const p = byId('products', id); const x = K.C.prodX[id];
   const sh = openSheet({
     title: 'Edit item',
-    body: '<div class="col"><div class="row"><div class="photo-slot" data-a="pickPhoto">' + (imgSrc(p.image) ? '<img src="' + esc(imgSrc(p.image)) + '">' : ic('cam')) + '</div><div class="grow">' + field('Item name', inp('name', p.name)) + '</div></div>' + unitFields(p) + '<div class="grid2">' + field('Category', sel('category', catOpts(), p.category, 'id="pCat"')) + field('Subcategory', sel('subcategory', subOpts(p.category), p.subcategory, 'id="pSub"')) + '</div>' +
+    body: '<div class="col"><div class="row"><div class="photo-slot" data-a="pickPhoto">' + (imgSrc(p.image) ? '<img src="' + esc(imgSrc(p.image)) + '">' : ic('cam')) + '</div><div class="grow">' + field('Item name', inp('name', p.name)) + '</div></div>' + unitFields(p) + '<div class="grid2">' + field('Category', sel('category', !p.category || catOpts().includes(p.category) ? catOpts() : [p.category].concat(catOpts()), p.category, 'id="pCat"')) + field('Subcategory', sel('subcategory', subOpts(p.category), p.subcategory, 'id="pSub"')) + '</div>' +
       '<div class="grid2">' + field('Condition', sel('condition', KC.CONDITIONS, p.condition || 'New')) + field('Barcode', '<div class="row gap6">' + inp('barcode', p.barcode, 'id="pBar" placeholder="Scan or generate"') + '<button class="btn sm" type="button" data-a="genBar">Gen</button></div>') + '</div>' +
       '<div class="card pad"><h3>Pricing</h3><div class="tiny muted mb">Average landed cost: <b class="money">' + F(x.avgCost) + '</b>. Leave fixed prices empty to follow the markup.</div><div class="grid2">' +
       field('Markup % (max price)', inp('markup', p.markup ?? '', 'inputmode="decimal" placeholder="Default ' + S().defaultMarkup + '"')) + field('Min markup % (bulk)', inp('minMarkup', p.minMarkup ?? '', 'inputmode="decimal" placeholder="Default ' + S().minMarkup + '"')) +
@@ -113,7 +113,7 @@ function editProduct(id) {
     if (v.barcode && K.raw.products.some((o) => o.id !== id && o.barcode === v.barcode)) return toast('Another item already uses this barcode', true);
     v.size = v.size === '' ? null : num(v.size);
     if (sh._photo) { try { v.image = await storePhoto(sh._photo); } catch (e) { toast(e.message, true); } }
-    if (await save('products', Object.assign({}, p, v))) { closeSheet(); scheduleRender(); toast('Saved'); }
+    if (await save('products', withPriceLog(p, Object.assign({}, p, v), 'Edit item'))) { closeSheet(); scheduleRender(); refreshSheets(); toast('Saved'); }
   };
 }
 A.genBar = (el) => { const i = $('#pBar', el.closest('.sheet')); i.value = genBarcode(); };
@@ -176,7 +176,7 @@ A.pricing = (el) => {
   draw();
   $('#prSave', sh).onclick = async () => {
     const ids = Object.keys(sh._chg); if (!ids.length) return closeSheet();
-    let n = 0; for (const id of ids) { const p = byId('products', id); if (p && await save('products', Object.assign({}, p, sh._chg[id]))) n++; }
+    let n = 0; for (const id of ids) { const p = byId('products', id); if (p && await save('products', withPriceLog(p, Object.assign({}, p, sh._chg[id]), 'Prices & markup'))) n++; }
     closeSheet(); scheduleRender(); toast(n + ' item(s) repriced');
   };
 };
@@ -486,8 +486,10 @@ A.itemHistory = (el) => {
   const totalSoldQty = sales.reduce((a, r) => a + r.qty, 0), totalBought = lots.reduce((a, l) => a + num(l.qty), 0);
   const sb = (l, v) => '<div><div class="faint tiny">' + l + '</div><b class="money">' + v + '</b></div>';
   K._histRows = { Purchases: buys.map(({ l, lx }) => Object.assign({ Date: l.purchaseDate, Store: l.vendor, Source: l.sourceType, 'Order no': l.poNumber, Container: shipName(l.shipmentId), Qty: l.qty, 'For client': l.reservedFor ? custName(l.reservedFor) : '' }, c ? { ['Paid each (' + baseSym() + ')']: Math.round(lx.unitX), ['Landed each (' + baseSym() + ')']: Math.round(lx.landedUnit) } : {})), Sales: sales.map((r) => ({ Date: r.date, Receipt: r.s.no, Customer: r.customer, Qty: r.qty, ['Price (' + baseSym() + ')']: r.price })), Customers: Object.values(byCust).map((o) => ({ Customer: o.name, Times: o.times, Qty: o.qty, ['Total (' + baseSym() + ')']: Math.round(o.total), 'Last bought': o.last })) };
-  openSheet({ title: p.name, wide: true, body:
+  K._histRows['Price changes'] = (p.priceHistory || []).slice().reverse().map((e) => Object.assign({ When: e.at, By: e.by, How: e.how, Reason: e.note || '', ['Selling before']: e.before.max, ['Selling after']: e.after.max, ['Lowest before']: e.before.min, ['Lowest after']: e.after.min, ['Wholesale before']: e.before.ws, ['Wholesale after']: e.after.ws }, c && e.cost != null ? { ['Landed cost then']: e.cost } : {}));
+  const hs = openSheet({ title: p.name, wide: true, body:
     '<div class="row mb">' + thumb(p, 64, 14) + '<div><div class="b">' + esc(p.name) + '</div><div class="tiny muted">' + esc([p.category, p.subcategory, KC.sizeLabel(p)].filter(Boolean).join(' · ')) + '</div>' + (can('export') ? '<button class="btn sm mt" data-a="histXlsx" data-n="' + esc(p.name.replace(/\W+/g, '-')) + '">' + ic('dl', 'sm') + 'Excel</button>' : '') + '</div></div>' +
+    priceHistoryCard(p) +
     '<div class="kpis mb">' + kpi('Times bought', fmt(lots.length), fmt(totalBought) + ' units total', true) + kpi('Times sold', fmt(sales.length), fmt(totalSoldQty) + ' units') + kpi('Customers', fmt(Object.keys(byCust).length)) + kpi('In stock', fmt(x.available), x.reserved ? x.reserved + ' held for clients' : '') + '</div>' +
     '<div class="card pad mb"><h3 class="mb">Selling prices</h3>' + (sp ? '<div class="grid4 small">' + sb('Lowest', F(sp.min)) + sb('Average', F(sp.avg)) + sb('Highest', F(sp.max)) + sb('Last', F(sp.last)) + '</div>' : '<div class="muted small">Not sold yet.</div>') +
     (c ? '<h3 class="mb mt">Buying prices (per unit)</h3>' + (bp ? '<div class="grid4 small">' + sb('Lowest paid', F(bp.min)) + sb('Average paid', F(bp.avg)) + sb('Highest paid', F(bp.max)) + sb('Last paid', F(bp.last)) + '</div><div class="grid4 small mt">' + sb('Lowest landed', F(lp.min)) + sb('Average landed', F(lp.avg)) + sb('Highest landed', F(lp.max)) + sb('Last landed', F(lp.last)) + '</div>' + (sp ? '<div class="alert info mt"><div>Average margin on this item: <b>' + pct((sp.avg - lp.avg) / sp.avg * 100) + '</b> (' + F(sp.avg - lp.avg) + ' per unit)</div></div>' : '') : '') : '') + '</div>' +
@@ -495,7 +497,55 @@ A.itemHistory = (el) => {
     (Object.keys(byMonth).length > 1 ? '<div class="card pad mb"><h3>Units sold per month</h3>' + vbars(Object.entries(byMonth).sort().slice(-12).map(([k, v]) => ({ key: k, qty: v })), (r) => MONTHS[+r.key.slice(5) - 1], 'qty') + '</div>' : '') +
     '<div class="card mb"><div class="pad"><h3>Purchase history</h3></div><div class="tw"><table class="t"><thead><tr><th>Date</th><th>Where</th><th>Container</th><th class="r">Qty</th>' + (c ? '<th class="r">Paid</th><th class="r">Landed</th>' : '') + '</tr></thead><tbody>' + buys.slice().reverse().map(({ l, lx }) => '<tr><td class="nowrap">' + fmtDate(l.purchaseDate) + '</td><td>' + esc(l.vendor || l.sourceType || '') + (l.reservedFor ? '<div class="tiny">for ' + esc(custName(l.reservedFor)) + '</div>' : '') + '</td><td>' + esc(shipName(l.shipmentId)) + '</td><td class="r">' + l.qty + '</td>' + (c ? '<td class="r money">' + money(l.unitCost, l.currency) + '</td><td class="r money">' + fmt(lx.landedUnit) + '</td>' : '') + '</tr>').join('') + '</tbody></table></div></div>' +
     '<div class="card mb"><div class="pad"><h3>Sales history</h3></div><div class="tw"><table class="t"><thead><tr><th>Date</th><th>Customer</th><th class="r">Qty</th><th class="r">Price</th></tr></thead><tbody>' + sales.slice().reverse().slice(0, 200).map((r) => '<tr><td class="nowrap">' + fmtDate(r.date) + '</td><td>' + esc(r.customer) + '</td><td class="r">' + r.qty + '</td><td class="r money">' + fmt(r.price) + '</td></tr>').join('') + '</tbody></table></div></div>' });
+  hs._hist = p.id;
 };
+/* ---------- selling prices: every change is logged on the item (who, when, before → after) ---------- */
+/** Return newP with a price-history entry when its selling prices differ from oldP's (kept to the last 200). */
+function withPriceLog(oldP, newP, how, note) {
+  const px = K.C.prodX[oldP.id] || {}; const cost = px.avgCost || 0;
+  const b = KC.sellingPrices(oldP, cost, S()), a = KC.sellingPrices(newP, cost, S());
+  if (b.max === a.max && b.min === a.min && b.ws === a.ws) return newP;
+  const e = { at: new Date().toISOString(), by: K.me.name || K.info.userLabel || '', byId: K.me.id || '', how, note: note || '', before: { max: b.max, min: b.min, ws: b.ws }, after: { max: a.max, min: a.min, ws: a.ws }, cost: Math.round(cost) };
+  return Object.assign({}, newP, { priceHistory: (oldP.priceHistory || []).concat([e]).slice(-200) });
+}
+const arrow = (b, a) => b === a ? '<span class="faint">' + fmt(a) + '</span>' : '<span class="faint">' + fmt(b) + '</span> → <b class="' + (a > b ? 'up' : 'down') + '">' + fmt(a) + '</b>';
+function priceHistoryCard(p) {
+  const x = K.C.prodX[p.id]; const hist = (p.priceHistory || []).slice().reverse();
+  const promos = (K.raw.promos || []).filter((pr) => KC.promoCovers(pr, p)).sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+  const chip = (l, v, cls) => '<div class="pchip' + (cls ? ' ' + cls : '') + '"><span>' + l + '</span><b>' + F(v) + '</b></div>';
+  return '<section class="card mb ph-card"><div class="ph-head"><h3>Prices</h3><div class="row wrap gap6">' + (can('stockEdit') ? '<button class="btn sm pri" data-a="priceSet" data-id="' + p.id + '">' + ic('tag', 'sm') + 'Change price</button><button class="btn sm" data-a="promoFor" data-id="' + p.id + '">Launch a promotion</button>' : '') + '</div></div>' +
+    '<div class="pchips">' + (x.promo ? chip('Promo price · ' + esc(x.promo.name), x.promo.price, 'promo') : '') + chip('Selling price', x.priceMax) + chip('Lowest allowed', x.priceMin) + chip('Wholesale', x.priceWholesale) + (seeCost() ? chip('Landed cost', x.avgCost, 'cost') : '') + '</div>' +
+    '<div class="ph-sub">Price changes' + (hist.length ? ' <span class="hint">(' + hist.length + ')</span>' : '') + '</div>' +
+    (hist.length ? '<div class="tw"><table class="t ph-t"><thead><tr><th>When</th><th class="r">Selling</th><th class="r">Lowest</th><th class="r">Wholesale</th><th>Changed by</th><th>How · reason</th></tr></thead><tbody>' +
+      hist.map((e) => '<tr><td class="nowrap">' + esc(fmtDT(e.at)) + '</td><td class="r nowrap">' + arrow(e.before.max, e.after.max) + '</td><td class="r nowrap">' + arrow(e.before.min, e.after.min) + '</td><td class="r nowrap">' + arrow(e.before.ws, e.after.ws) + '</td><td>' + esc(e.by || '—') + '</td><td class="ph-how">' + esc(e.how || '') + (e.note ? '<span class="sub">' + esc(e.note) + '</span>' : '') + '</td></tr>').join('') + '</tbody></table></div>'
+      : '<div class="hint ph-empty">No price changes recorded yet. Changes made from now on appear here with who made them.</div>') +
+    (promos.length ? '<div class="ph-sub">Promotions</div><div class="mini-list">' + promos.map((pr) => { const st = KC.promoStatus(pr); return '<div class="mini" data-a="promoOpen" data-id="' + pr.id + '" role="button" tabindex="0"><div class="grow"><div class="mini-t">' + esc(pr.name || 'Promotion') + '</div><div class="mini-d">' + esc(promoDesc(pr)) + ' · ' + esc(promoDates(pr)) + '</div></div><div class="right"><div class="mini-v">' + F(KC.promoPriceOf(pr, x.priceMax, S())) + '</div>' + promoBadge(st) + '</div></div>'; }).join('') + '</div>' : '') +
+    '</section>';
+}
+A.priceSet = (el) => {
+  const p = byId('products', el.dataset.id); const x = K.C.prodX[p.id];
+  const sh = openSheet({ title: 'Change price · ' + p.name, body: '<div class="col">' +
+    (seeCost() ? '<div class="hint">Landed cost: <b>' + F(x.avgCost) + '</b> per unit</div>' : '') +
+    '<div class="grid3">' + field('Selling price (' + baseSym() + ')', inp('pmax', x.priceMax, 'inputmode="numeric" id="psMax"')) + field('Lowest allowed', inp('pmin', x.priceMin, 'inputmode="numeric"')) + field('Wholesale', inp('pws', x.priceWholesale, 'inputmode="numeric"')) + '</div>' +
+    '<div class="hint" id="psMargin"></div>' +
+    field('Reason <span class="hint">(optional)</span>', inp('note', '', 'placeholder="e.g. new stock cost more, market price, clearing old stock"')) + '</div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="psSave">Save price</button>' });
+  const margin = () => { const m = $('#psMargin', sh); if (!m || !seeCost() || !x.avgCost) return; const v = num($('#psMax', sh).value); m.textContent = v ? 'Profit per unit: ' + F(v - x.avgCost) + ' (' + pct((v - x.avgCost) / x.avgCost * 100) + ' markup)' : ''; };
+  $('#psMax', sh).addEventListener('input', margin); margin();
+  setTimeout(() => { const i = $('#psMax', sh); i.focus(); i.select(); }, 60);
+  $('#psSave', sh).onclick = async () => {
+    const v = formVals(sh); const mx = num(v.pmax), mn = num(v.pmin), ws = num(v.pws);
+    if (!(mx > 0)) return toast('Type the selling price', true);
+    if (mn > mx) return toast('The lowest price cannot be above the selling price', true);
+    if (ws > mx) return toast('The wholesale price cannot be above the selling price', true);
+    const np = Object.assign({}, p, { priceMax: mx, priceMin: mn || null, priceWholesale: ws || null });
+    const logged = withPriceLog(p, np, 'Price change', v.note);
+    if (logged === np) { closeSheet(); return toast('No change'); }
+    if (await save('products', logged)) { closeSheet(); scheduleRender(); reopenHistory(p.id); toast('Price saved · ' + F(mx)); }
+  };
+};
+/** Redraw an open history modal for this item (prices changed). */
+function reopenHistory(pid) { const h = K.sheets.find((s) => s._hist === pid); if (!h) return; const i = K.sheets.indexOf(h); while (K.sheets.length > i) closeSheet(); A.itemHistory({ dataset: { id: pid } }); }
 A.histXlsx = (el) => xlsxDownload('History-' + el.dataset.n + '.xlsx', K._histRows);
 
 /* ---------- transfers between branches (send → receive) ---------- */

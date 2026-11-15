@@ -894,3 +894,37 @@ select.inp.fee-type{width:auto;flex:none}
 #shopCard label.f+label.f{margin-top:16px}
 #shopCard label.f{margin-top:2px}
 .shop-save{margin-top:22px;gap:10px}
+
+/* ---------- prices & promotions ---------- */
+.promo-p{color:var(--bad);font-weight:700}
+.badge.promo{background:var(--badSoft);color:var(--bad);font-size:10.5px;padding:1px 6px;vertical-align:middle}
+.promo-t{color:var(--bad);font-weight:600}
+.ph-card{padding:16px 18px}
+.ph-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.ph-head h3{margin:0}
+.pchips{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.pchip{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;background:var(--card)}
+.pchip span{font-size:12px;color:var(--ink3)}
+.pchip b{font-size:17px;font-variant-numeric:tabular-nums}
+.pchip.promo{border-color:#f3c2b8;background:var(--badSoft)} .pchip.promo b{color:var(--bad)}
+.pchip.cost b{color:var(--ink2)}
+.ph-sub{font-weight:650;font-size:14px;margin:6px 0 8px}
+.ph-t td{vertical-align:top}
+.ph-t b.up{color:var(--ok)} .ph-t b.down{color:var(--bad)}
+.ph-how .sub{display:block;color:var(--ink3);font-size:12px}
+.ph-empty{padding:4px 0 8px}
+.pr-form{gap:18px}
+.pr-l{font-size:12.5px;font-weight:600;color:var(--ink2);margin-bottom:6px}
+.pr-val{width:150px;min-width:0}
+.pr-pick{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--card)}
+.pr-list{max-height:300px;overflow:auto;margin-top:8px;display:flex;flex-direction:column}
+.pr-it{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer}
+.pr-it:hover{background:var(--bg)} .pr-it.on{background:var(--brandSoft)}
+.pr-it input{width:18px;height:18px;accent-color:var(--brand)}
+.pr-it .sub{display:block;font-size:12px;color:var(--ink3)}
+.pr-px{white-space:nowrap;font-variant-numeric:tabular-nums}
+.pr-prev{background:var(--bg);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5}
+.pr-ex{margin-top:4px;color:var(--ink2)}
+.pr-warn{margin-top:8px;color:var(--bad);font-weight:600;display:flex;gap:6px;align-items:flex-start}
+.neg-t{color:var(--bad)}
+table.ph-t{width:100%}

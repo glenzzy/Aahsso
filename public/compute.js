@@ -59,6 +59,36 @@
     if (!sym || sym === 'F') return code === 'XAF' ? 'FCFA' : code === 'XOF' ? 'CFA' : (sym || code);
     return sym;
   }
+  /** Selling prices of one item: fixed prices win, otherwise landed cost + markup (rounded up to S.roundTo). */
+  function sellingPrices(p, avgCost, S) {
+    S = S || {}; const has = (v) => v !== undefined && v !== null && v !== '';
+    const markup = has(p.markup) ? num(p.markup) : num(S.defaultMarkup);
+    const mn = has(p.minMarkup) ? num(p.minMarkup) : num(S.minMarkup);
+    const wm = has(p.wholesaleMarkup) ? num(p.wholesaleMarkup) : num(S.wholesaleMarkup);
+    const max = num(p.priceMax) > 0 ? num(p.priceMax) : roundTo(avgCost * (1 + markup / 100), S.roundTo);
+    const min = num(p.priceMin) > 0 ? num(p.priceMin) : Math.min(max, roundTo(avgCost * (1 + mn / 100), S.roundTo));
+    const ws = num(p.priceWholesale) > 0 ? num(p.priceWholesale) : Math.min(max, roundTo(avgCost * (1 + wm / 100), S.roundTo));
+    return { max, min, ws, markup };
+  }
+  /* ---------- promotions: % off, amount off or a promo price, on all items, a category or chosen items ---------- */
+  const PROMO_TYPES = [['pct', '% off'], ['amount', 'Amount off'], ['price', 'Promo price']];
+  const localDay = (d) => { d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  function promoStatus(pr, day) {
+    day = day || localDay(); if (!pr) return 'ended';
+    if (pr.status === 'ended') return 'ended';
+    if (pr.start && pr.start > day) return 'scheduled';
+    if (pr.end && pr.end < day) return 'ended';
+    return 'running';
+  }
+  const promoActive = (pr, day) => promoStatus(pr, day) === 'running';
+  const promoCovers = (pr, p) => !!pr && !!p && (pr.scope === 'all' ? true : pr.scope === 'category' ? (p.category || '') === (pr.category || '') : (pr.productIds || []).includes(p.id));
+  /** Promo price for a normal price; never above it; rounded to the nearest S.roundTo. */
+  function promoPriceOf(pr, base, S) {
+    const v = num(pr && pr.value); base = num(base);
+    let x = pr.type === 'pct' ? base * (1 - v / 100) : pr.type === 'amount' ? base - v : v;
+    const step = num(S && S.roundTo); x = step > 0 ? Math.round(x / step) * step : Math.round(x);
+    return Math.max(0, Math.min(base, x));
+  }
   function allocTax(lines, taxTotal) {
     const t = Math.round(num(taxTotal) * 100) / 100; const vals = (lines || []).map((l) => Math.max(0, num(l.unitCost) * num(l.qty)));
     const sub = vals.reduce((a, v) => a + v, 0); if (!lines || !lines.length || !(t > 0)) return (lines || []).map(() => 0);
@@ -182,12 +212,12 @@
     return (raw.products || []).filter((p) => !p.archived && !p.shopHidden).map((p) => {
       const x = C.prodX[p.id]; if (!x) return null;
       const available = Math.max(0, num(x.available) - num(x.reserved || 0));
-      const price = num(x.priceMax);
+      const price = x.promo ? num(x.promo.price) : num(x.priceMax);
       if (available <= 0 || price <= 0) return null;
-      return { id: p.id, name: p.name, category: p.category || 'Other', subcategory: p.subcategory || '', condition: p.condition || 'New', unit: p.unit || '', size: sizeLabel(p) || '', price: Math.round(price), image: p.image || '', available };
+      return { id: p.id, name: p.name, category: p.category || 'Other', subcategory: p.subcategory || '', condition: p.condition || 'New', unit: p.unit || '', size: sizeLabel(p) || '', price: Math.round(price), was: x.promo ? Math.round(num(x.priceMax)) : null, image: p.image || '', available };
     }).filter(Boolean).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
   }
-  const publicItem = (i) => ({ id: i.id, name: i.name, category: i.category, subcategory: i.subcategory, condition: i.condition, unit: i.unit, size: i.size, price: i.price, image: i.image, few: i.available <= 5 ? i.available : null });
+  const publicItem = (i) => ({ id: i.id, name: i.name, category: i.category, subcategory: i.subcategory, condition: i.condition, unit: i.unit, size: i.size, price: i.price, was: i.was || null, image: i.image, few: i.available <= 5 ? i.available : null });
   /** Check an order sent from the public shop. Prices come from the catalogue, never from the client. */
   function validateShopOrder(body, catalog) {
     const b = body && typeof body === 'object' ? body : {};
@@ -346,17 +376,20 @@
     products.forEach((p) => {
       const px = prodX[p.id];
       px.avgCost = px.costQty > 0 ? px.costSum / px.costQty : px.allQty > 0 ? px.allSum / px.allQty : 0;
-      px.markup = p.markup !== undefined && p.markup !== null && p.markup !== '' ? num(p.markup) : num(S.defaultMarkup);
-      const mn = p.minMarkup !== undefined && p.minMarkup !== null && p.minMarkup !== '' ? num(p.minMarkup) : num(S.minMarkup);
-      px.priceMax = num(p.priceMax) > 0 ? num(p.priceMax) : roundTo(px.avgCost * (1 + px.markup / 100), S.roundTo);
-      px.priceMin = num(p.priceMin) > 0 ? num(p.priceMin) : Math.min(px.priceMax, roundTo(px.avgCost * (1 + mn / 100), S.roundTo));
+      const sp = sellingPrices(p, px.avgCost, S);
+      px.markup = sp.markup; px.priceMax = sp.max; px.priceMin = sp.min; px.priceWholesale = sp.ws;
       px.priceManual = num(p.priceMax) > 0;
-      const wm = p.wholesaleMarkup !== undefined && p.wholesaleMarkup !== null && p.wholesaleMarkup !== '' ? num(p.wholesaleMarkup) : num(S.wholesaleMarkup);
-      px.priceWholesale = num(p.priceWholesale) > 0 ? num(p.priceWholesale) : Math.min(px.priceMax, roundTo(px.avgCost * (1 + wm / 100), S.roundTo));
       px.bulkQty = num(p.bulkQty) || num(S.bulkQty) || 0;
       px.stockValue = px.available * px.avgCost;
       px.retailValue = px.available * px.priceMax;
       px.profit = px.revenue - px.cogs;
+    });
+    // running promotions: the best (lowest) promo price per item
+    const live = (raw.promos || []).filter((pr) => promoActive(pr));
+    products.forEach((p) => {
+      const px = prodX[p.id]; let best = null;
+      live.forEach((pr) => { if (!promoCovers(pr, p)) return; const price = promoPriceOf(pr, px.priceMax, S); if (price < px.priceMax && (!best || price < best.price)) best = { id: pr.id, name: pr.name || 'Promotion', price, type: pr.type, value: num(pr.value), end: pr.end || '' }; });
+      px.promo = best;
     });
     return { S, prodById, shipById, lotById, lotX, shipX, prodX, saleX };
   }
@@ -589,8 +622,10 @@
   }
   /* wholesale */
   const isWholesale = (c) => !!(c && ['Wholesale', 'Reseller'].includes(c.type));
-  function autoPrice(C, productId, qty, customer) { const px = C.prodX[productId]; if (!px) return 0; return isWholesale(customer) || (px.bulkQty > 0 && num(qty) >= px.bulkQty) ? px.priceWholesale : px.priceMax; }
-  function priceFloor(C, productId, qty, customer) { const px = C.prodX[productId]; if (!px) return 0; const ws = isWholesale(customer) || (px.bulkQty > 0 && num(qty) >= px.bulkQty); return ws ? Math.min(px.priceMin, px.priceWholesale) : px.priceMin; }
+  /** Price to charge: retail or wholesale, or the running promotion when it is lower. */
+  function autoPrice(C, productId, qty, customer) { const px = C.prodX[productId]; if (!px) return 0; const base = isWholesale(customer) || (px.bulkQty > 0 && num(qty) >= px.bulkQty) ? px.priceWholesale : px.priceMax; return px.promo && px.promo.price < base ? px.promo.price : base; }
+  /** Lowest price allowed without the discount right; a running promotion lowers it to the promo price. */
+  function priceFloor(C, productId, qty, customer) { const px = C.prodX[productId]; if (!px) return 0; const ws = isWholesale(customer) || (px.bulkQty > 0 && num(qty) >= px.bulkQty); const f = ws ? Math.min(px.priceMin, px.priceWholesale) : px.priceMin; return px.promo ? Math.min(f, px.promo.price) : f; }
   /* cash handover: what a person collected on a day, by method */
   function collectedBy(raw, userId, date) {
     const by = {}, feesBy = {}; let total = 0, fees = 0; const items = [];
@@ -773,6 +808,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, allocTax, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });
