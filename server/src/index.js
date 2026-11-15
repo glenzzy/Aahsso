@@ -13,6 +13,11 @@ const crypto = require('crypto');
 const { q, tx, pool } = require('./db');
 const KC = require('../public/compute.js'); // same business logic as the browser
 const mailer = require('./mailer');
+const { migrate } = require('./migrate');
+/* The database schema is brought up to date before the first request is served (also on Vercel, where there is no start
+   script). If it fails, requests get a clear 503 instead of odd errors, and the next request tries again. */
+let schemaReady = null;
+const ensureSchema = () => (schemaReady = schemaReady || migrate({ quiet: true }).catch((e) => { schemaReady = null; throw e; }));
 if (process.env.MOMO_FEE_TABLES) {
   try {
     const tables = JSON.parse(process.env.MOMO_FEE_TABLES);
@@ -59,6 +64,7 @@ const origins = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim())
 if (origins.length) app.use(cors({ origin: origins }));
 app.use('/api/shop', express.json({ limit: '64kb' })); // public, no login: keep requests small
 app.use(express.json({ limit: '25mb' }));
+app.use('/api', (req, res, next) => ensureSchema().then(() => next(), (e) => { console.error('[migrate]', e.message); err(res, 503, 'The server is updating its database. Please try again in a moment.'); }));
 
 const err = (res, status, error, extra) => res.status(status).json(Object.assign({ error }, extra || {}));
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -133,13 +139,13 @@ async function auth(req, res, next) {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : req.query.token;
   try {
-    const p = jwt.verify(token, SECRET);
+    let p; try { p = jwt.verify(token, SECRET); } catch (e) { return err(res, 401, 'Please sign in'); } // only a bad/expired token signs you out
     const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.email,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.plan,t.status,t.trial_ends_at,t.paid_until FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
     if (!u || !u.active) return err(res, 401, 'Session expired');
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0];
     u.customRoles = (st && st.roles) || {};
     req.user = u; next();
-  } catch (e) { return err(res, 401, 'Please sign in'); }
+  } catch (e) { console.error('[auth]', e.message); return err(res, 500, 'Server error — please try again'); } // e.g. database down: keep the session
 }
 // Subscription gate: reading stays allowed so a business can always export its data.
 function subscriptionOk(u) {
@@ -643,6 +649,7 @@ app.use((e, req, res, next) => {
   if (e && e.type === 'entity.parse.failed') return err(res, 400, 'Invalid JSON');
   console.error(e); err(res, 500, 'Server error');
 });
+if (require.main === module) ensureSchema().catch((e) => console.error('[migrate] at startup:', e.message));
 if (require.main === module) { app.listen(PORT, () => console.log('Kargo running on http://localhost:' + PORT)); reminders.startScheduler(); startEmailScheduler(); }
 /** Daily emails (trial ending) without an external cron: checked every hour, each email goes out once (dedupe). */
 function startEmailScheduler() {
