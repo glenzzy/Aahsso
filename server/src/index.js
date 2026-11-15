@@ -12,6 +12,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { q, tx, pool } = require('./db');
 const KC = require('../public/compute.js'); // same business logic as the browser
+const mailer = require('./mailer');
 if (process.env.MOMO_FEE_TABLES) {
   try {
     const tables = JSON.parse(process.env.MOMO_FEE_TABLES);
@@ -45,6 +46,9 @@ async function tenantSettings(c, tid) {
 }
 const canU = (u, p) => !!perms(u)[p];
 const anyU = (u, list) => (list || []).some((p) => canU(u, p));
+const cleanEmail = (v) => (mailer.isEmail(v) ? String(v).trim().toLowerCase() : null);
+const businessName = async (tid, fallback) => ((await tenantSettings(pool, tid)).businessName || fallback || 'your business');
+const ymd = (d) => new Date(d).toISOString().slice(0, 10);
 const ID_RE = /^[A-Za-z0-9_\-.:@+~]{1,120}$/;
 
 const app = express();
@@ -65,7 +69,7 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
 app.use('/api/', rateLimit({ windowMs: 60 * 1000, max: Number(process.env.API_RATE_PER_MIN || 1200), standardHeaders: true, legacyHeaders: false }));
 
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
-  const { businessName, name, login, password } = req.body || {};
+  const { businessName, name, login, password, email } = req.body || {};
   if (!businessName || !name || !login || !password) return err(res, 400, 'Business name, your name, login and password are required');
   if (String(password).length < 6) return err(res, 400, 'Password must be at least 6 characters');
   const l = String(login).trim().toLowerCase();
@@ -73,12 +77,47 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const days = Number(process.env.TRIAL_DAYS || 30);
   const user = await tx(async (c) => {
     const t = (await c.query("INSERT INTO tenants(name, trial_ends_at) VALUES ($1, now() + ($2 || ' days')::interval) RETURNING id", [businessName, String(days)])).rows[0];
-    const u = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role) VALUES ($1,$2,$3,$4,'owner') RETURNING *", [t.id, name, l, await bcrypt.hash(String(password), 10)])).rows[0];
+    const u = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,email) VALUES ($1,$2,$3,$4,'owner',$5) RETURNING *", [t.id, name, l, await bcrypt.hash(String(password), 10), cleanEmail(email)])).rows[0];
     await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName })), u.id]);
     await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action) VALUES ($1,$2,$3,'main','register')", [t.id, u.id, name]);
     return u;
   });
+  const to = mailer.emailOf(user);
+  if (to) await mailer.sendEmail(Object.assign({ to, kind: 'welcome', tenantId: user.tenant_id, dedupe: 'welcome:' + user.id }, mailer.T.welcomeOwner({ name, business: businessName, login: l, trialEnds: ymd(Date.now() + days * 864e5), url: mailer.appUrl(req) })));
   res.json({ token: sign(user) });
+}));
+
+/* ---------- forgot password: a one-time link by email (only a hash of the token is stored) ---------- */
+const RESET_MINUTES = 60;
+const tokenHash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+app.post('/api/auth/forgot', authLimiter, wrap(async (req, res) => {
+  const l = String((req.body || {}).login || '').trim().toLowerCase();
+  const done = () => res.json({ ok: true, message: 'If this account has an email address, a reset link is on its way.' }); // same answer either way
+  if (!l) return err(res, 400, 'Type your email or phone');
+  const u = (await q('SELECT * FROM users WHERE active AND (login=$1 OR lower(email)=$1) ORDER BY created_at LIMIT 1', [l])).rows[0];
+  const to = mailer.emailOf(u); if (!u || !to) return done();
+  const recent = (await q("SELECT count(*)::int AS n FROM password_resets WHERE user_id=$1 AND created_at > now() - interval '1 hour'", [u.id])).rows[0].n;
+  if (recent >= 5) return done();
+  const token = crypto.randomBytes(32).toString('hex');
+  await q("INSERT INTO password_resets(token_hash,user_id,expires_at) VALUES ($1,$2, now() + ($3 || ' minutes')::interval)", [tokenHash(token), u.id, String(RESET_MINUTES)]);
+  await mailer.sendEmail(Object.assign({ to, kind: 'password_reset', tenantId: u.tenant_id }, mailer.T.passwordReset({ name: u.name, url: mailer.appUrl(req) + '/?reset=' + token, minutes: RESET_MINUTES })));
+  done();
+}));
+app.post('/api/auth/reset', authLimiter, wrap(async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !/^[0-9a-f]{64}$/.test(String(token))) return err(res, 400, 'This reset link is not valid. Ask for a new one.');
+  if (!password || String(password).length < 6) return err(res, 400, 'Password must be at least 6 characters');
+  const row = (await q('SELECT r.user_id FROM password_resets r JOIN users u ON u.id=r.user_id WHERE r.token_hash=$1 AND r.used_at IS NULL AND r.expires_at > now() AND u.active', [tokenHash(token)])).rows[0];
+  if (!row) return err(res, 400, 'This reset link has expired or was already used. Ask for a new one.');
+  const u = await tx(async (c) => {
+    await c.query('UPDATE password_resets SET used_at=now() WHERE user_id=$1 AND used_at IS NULL', [row.user_id]); // this link and any older ones
+    const x = (await c.query('UPDATE users SET password_hash=$1 WHERE id=$2 RETURNING *', [await bcrypt.hash(String(password), 10), row.user_id])).rows[0];
+    await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action) VALUES ($1,$2,$3,$4,'password_reset')", [x.tenant_id, x.id, x.name, x.location_id || 'main']);
+    return x;
+  });
+  const to = mailer.emailOf(u);
+  if (to) await mailer.sendEmail(Object.assign({ to, kind: 'password_changed', tenantId: u.tenant_id }, mailer.T.passwordChanged({ name: u.name, business: await businessName(u.tenant_id), url: mailer.appUrl(req), when: new Date().toUTCString() })));
+  res.json({ token: sign(u) });
 }));
 
 app.post('/api/auth/login', authLimiter, wrap(async (req, res) => {
@@ -95,7 +134,7 @@ async function auth(req, res, next) {
   const token = h.startsWith('Bearer ') ? h.slice(7) : req.query.token;
   try {
     const p = jwt.verify(token, SECRET);
-    const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.plan,t.status,t.trial_ends_at,t.paid_until FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
+    const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.email,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.plan,t.status,t.trial_ends_at,t.paid_until FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
     if (!u || !u.active) return err(res, 401, 'Session expired');
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0];
     u.customRoles = (st && st.roles) || {};
@@ -119,11 +158,21 @@ app.post('/api/me/password', auth, authLimiter, wrap(async (req, res) => {
   const row = (await q('SELECT password_hash FROM users WHERE id=$1', [req.user.id])).rows[0];
   if (!(await bcrypt.compare(String(current || ''), row.password_hash))) return err(res, 400, 'Current password is wrong', { code: 'bad_password' });
   await q('UPDATE users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(String(password), 10), req.user.id]);
+  const to = mailer.emailOf(req.user);
+  if (to) await mailer.sendEmail(Object.assign({ to, kind: 'password_changed', tenantId: req.user.tenant_id }, mailer.T.passwordChanged({ name: req.user.name, business: await businessName(req.user.tenant_id, req.user.tenant_name), url: mailer.appUrl(req), when: new Date().toUTCString() })));
   res.json({ ok: true });
 }));
+/* own email address (notifications, password reset) */
+app.patch('/api/me', auth, wrap(async (req, res) => {
+  const { email } = req.body || {};
+  if (email !== undefined && email !== '' && email !== null && !mailer.isEmail(email)) return err(res, 400, 'Type a valid email address');
+  await q('UPDATE users SET email=$1 WHERE id=$2', [cleanEmail(email), req.user.id]);
+  res.json({ ok: true, email: cleanEmail(email) });
+}));
+app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enabled(), from: mailer.enabled() ? mailer.FROM() : '' }));
 app.get('/api/me', auth, (req, res) => {
   const u = req.user;
-  res.json({ user: { id: u.id, name: u.name, login: u.login, role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) } });
+  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled() });
 });
 
 /* ---------- live updates (Server-Sent Events) ---------- */
@@ -408,23 +457,25 @@ async function importBackup(tid, uid, b) {
 
 /* ---------- team management ---------- */
 app.get('/api/users', auth, requirePerm('team'), wrap(async (req, res) => {
-  res.json({ users: (await q('SELECT id,name,login,role,perms,location_id AS "locationId",active,created_at,last_login_at FROM users WHERE tenant_id=$1 ORDER BY created_at', [req.user.tenant_id])).rows });
+  res.json({ users: (await q('SELECT id,name,login,email,role,perms,location_id AS "locationId",active,created_at,last_login_at FROM users WHERE tenant_id=$1 ORDER BY created_at', [req.user.tenant_id])).rows });
 }));
 const ROLE_OK_BASE = ['admin', 'manager', 'sales', 'viewer'];
 const roleOk = (u, r) => r !== 'owner' && (ROLE_OK_BASE.includes(r) || !!(u.customRoles && u.customRoles[r]));
 const cleanPerms = (p) => { const o = {}; if (p && typeof p === 'object') KC.PERMS.forEach(([k]) => { if (k in p) o[k] = !!p[k]; }); return o; };
 app.post('/api/users', auth, requireActive, requirePerm('team'), wrap(async (req, res) => {
-  const { name, login, password, role, perms: pp, locationId } = req.body || {};
+  const { name, login, password, role, perms: pp, locationId, email, sendEmail } = req.body || {};
   if (!name || !login || !password || !roleOk(req.user, role)) return err(res, 400, 'name, login, password and role (admin|manager|sales|viewer) are required');
+  if (email && !mailer.isEmail(email)) return err(res, 400, 'Type a valid email address (or leave it empty)');
   if (String(password).length < 6) return err(res, 400, 'Password must be at least 6 characters');
   if (role === 'admin' && req.user.role !== 'owner' && req.user.role !== 'admin') return err(res, 403, 'Only the owner or an admin can create admins');
   try {
-    const u = (await q('INSERT INTO users(tenant_id,name,login,password_hash,role,perms,location_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,name,login,role,perms,location_id', [req.user.tenant_id, name, String(login).trim().toLowerCase(), await bcrypt.hash(String(password), 10), role, JSON.stringify(cleanPerms(pp)), locationId || 'main'])).rows[0];
-    res.json({ user: u });
+    const u = (await q('INSERT INTO users(tenant_id,name,login,password_hash,role,perms,location_id,email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,name,login,email,role,perms,location_id', [req.user.tenant_id, name, String(login).trim().toLowerCase(), await bcrypt.hash(String(password), 10), role, JSON.stringify(cleanPerms(pp)), locationId || 'main', cleanEmail(email)])).rows[0];
+    res.json({ user: u, email: await staffEmail(req, u, String(password), sendEmail, false) });
   } catch (e) { if (e.code === '23505') return err(res, 409, 'Login already in use'); throw e; }
 }));
 app.patch('/api/users/:id', auth, requirePerm('team'), wrap(async (req, res) => {
-  const { role, active, password, name, perms: pp, locationId } = req.body || {};
+  const { role, active, password, name, perms: pp, locationId, email, sendEmail } = req.body || {};
+  if (email && !mailer.isEmail(email)) return err(res, 400, 'Type a valid email address (or leave it empty)');
   const target = (await q('SELECT * FROM users WHERE id=$1 AND tenant_id=$2', [req.params.id, req.user.tenant_id])).rows[0];
   if (!target) return err(res, 404, 'User not found');
   if (target.role === 'owner' && req.user.role !== 'owner') return err(res, 403, 'Only the owner can change the owner');
@@ -434,8 +485,18 @@ app.patch('/api/users/:id', auth, requirePerm('team'), wrap(async (req, res) => 
   if (target.role === 'admin' && !['owner', 'admin'].includes(req.user.role)) return err(res, 403, 'Only the owner or an admin can change an admin');
   await q('UPDATE users SET role=COALESCE($1,role), active=COALESCE($2,active), name=COALESCE($3,name), password_hash=COALESCE($4,password_hash), perms=COALESCE($5,perms), location_id=COALESCE($6,location_id) WHERE id=$7',
     [target.role === 'owner' ? null : role || null, typeof active === 'boolean' && target.role !== 'owner' ? active : null, name || null, password ? await bcrypt.hash(String(password), 10) : null, pp && target.role !== 'owner' ? JSON.stringify(cleanPerms(pp)) : null, locationId || null, target.id]);
-  res.json({ ok: true });
+  if (email !== undefined) await q('UPDATE users SET email=$1 WHERE id=$2', [cleanEmail(email), target.id]);
+  const after = (await q('SELECT * FROM users WHERE id=$1', [target.id])).rows[0];
+  res.json({ ok: true, email: password ? await staffEmail(req, after, String(password), sendEmail, true) : null });
 }));
+/** Email a team member their login and password (new account, or a password reset by the owner / an admin). */
+async function staffEmail(req, u, password, wanted, reset) {
+  const to = mailer.emailOf(u);
+  if (wanted === false) return { status: 'not_requested' };
+  if (!to) return { status: 'no_email' };
+  const r = await mailer.sendEmail(Object.assign({ to, kind: reset ? 'staff_password' : 'staff_account', tenantId: req.user.tenant_id }, mailer.T.staffAccount({ name: u.name, business: await businessName(req.user.tenant_id, req.user.tenant_name), login: u.login, password, role: u.role, url: mailer.appUrl(req), by: req.user.name, reset })));
+  return { status: r.status, to, error: r.error || undefined };
+}
 /* plain-language activity history: who did what, where, when, why */
 app.get('/api/activity', auth, wrap(async (req, res) => {
   const u = req.user; const from = String(req.query.from || new Date().toISOString().slice(0, 10)), to = String(req.query.to || from);
@@ -465,6 +526,18 @@ app.get('/api/audit', auth, requirePerm('team'), wrap(async (req, res) => {
   res.json({ events: (await q('SELECT a.at,a.action,a.collection,a.doc_id,u.name AS user FROM audit_log a LEFT JOIN users u ON u.id=a.user_id WHERE a.tenant_id=$1 ORDER BY a.at DESC LIMIT 500', [req.user.tenant_id])).rows });
 }));
 
+/* ---------- a sale's receipt by email ---------- */
+app.post('/api/sales/:id/email', auth, wrap(async (req, res) => {
+  if (!anyU(req.user, ['sell', 'payments', 'salesAll'])) return err(res, 403, 'You do not have permission for this');
+  const to = cleanEmail((req.body || {}).to); if (!to) return err(res, 400, 'Type a valid email address');
+  const row = (await q("SELECT data FROM documents WHERE tenant_id=$1 AND collection='sales' AND id=$2", [req.user.tenant_id, req.params.id])).rows[0];
+  if (!row) return err(res, 404, 'Sale not found');
+  const sale = Object.assign({}, row.data, { id: req.params.id }); const st = await tenantSettings(pool, req.user.tenant_id);
+  const r = await mailer.sendEmail(Object.assign({ to, kind: 'receipt', tenantId: req.user.tenant_id, replyTo: cleanEmail(st.email) || undefined }, mailer.T.receipt({ business: st.businessName, sale, totals: KC.saleTotals(sale), sym: KC.currencySymbolOf(st), phone: st.phone, address: st.address, footer: st.receiptFooter })));
+  if (r.status === 'failed') return err(res, 502, 'The email could not be sent: ' + r.error);
+  res.json({ ok: true, status: r.status, to });
+}));
+
 /* ---------- automatic debt reminders ---------- */
 const reminders = require('./reminders');
 app.post('/api/reminders/run', auth, requireActive, requirePerm('reminders'), wrap(async (req, res) => {
@@ -478,9 +551,24 @@ app.get('/api/cron/reminders', wrap(async (req, res) => {
   if (!secret || req.headers.authorization !== 'Bearer ' + secret) return err(res, 401, 'Unauthorized');
   const done = await reminders.runDue({ anyHour: true });
   done.forEach((d) => broadcast(d.tenant, 'reminders'));
-  res.json({ ok: true, businesses: done.length, done });
+  const emails = await dailyEmails(mailer.appUrl(req));
+  res.json({ ok: true, businesses: done.length, done, emails });
 }));
-app.get('/api/reminders/provider', auth, (req, res) => res.json({ provider: reminders.providerName() }));
+app.get('/api/reminders/provider', auth, (req, res) => res.json({ provider: reminders.providerName(), email: mailer.enabled() }));
+/** Daily emails: the owner hears 3 days before the free trial ends, and on the last day (each once). */
+async function dailyEmails(url) {
+  const rows = (await q("SELECT t.id, t.name, (t.trial_ends_at::date - now()::date) AS days FROM tenants t WHERE t.plan='trial' AND t.status <> 'suspended' AND t.trial_ends_at IS NOT NULL AND (t.trial_ends_at::date - now()::date) IN (3, 0)")).rows;
+  let sent = 0;
+  for (const t of rows) {
+    const owners = (await q("SELECT * FROM users WHERE tenant_id=$1 AND role='owner' AND active", [t.id])).rows;
+    for (const u of owners) {
+      const to = mailer.emailOf(u); if (!to) continue;
+      const r = await mailer.sendEmail(Object.assign({ to, kind: 'trial_ending', tenantId: t.id, dedupe: 'trial:' + t.id + ':' + t.days }, mailer.T.trialEnding({ name: u.name, business: await businessName(t.id, t.name), daysLeft: Number(t.days), url: url || mailer.appUrl() })));
+      if (r.status === 'sent' || r.status === 'skipped') sent++;
+    }
+  }
+  return { trialEnding: sent };
+}
 
 /* ---------- product photos ---------- */
 app.post('/api/images', auth, requireActive, express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '4mb' }), wrap(async (req, res) => {
@@ -529,6 +617,11 @@ app.post('/api/shop/:key/orders', shopOrderLimiter, wrap(async (req, res) => {
   });
   broadcast(t.tid, 'orders', id);
   const st = t.settings;
+  if (st.emailOrders !== false) { // tell the owner and admins (each once per order)
+    const staff = (await q("SELECT * FROM users WHERE tenant_id=$1 AND active AND role IN ('owner','admin')", [t.tid])).rows;
+    const mail = mailer.T.newOrder({ business: st.businessName, order, url: mailer.appUrl(req), sym: KC.currencySymbolOf(st) });
+    await Promise.all(staff.map((u) => mailer.emailOf(u) && mailer.sendEmail(Object.assign({ to: mailer.emailOf(u), kind: 'new_order', tenantId: t.tid, dedupe: 'order:' + id + ':' + u.id }, mail))));
+  }
   res.json({ ok: true, no, total: order.subtotal, whatsapp: st.whatsapp || st.phone || '', business: st.businessName });
 }));
 // pretty shop link: /s/<key>
@@ -550,5 +643,11 @@ app.use((e, req, res, next) => {
   if (e && e.type === 'entity.parse.failed') return err(res, 400, 'Invalid JSON');
   console.error(e); err(res, 500, 'Server error');
 });
-if (require.main === module) { app.listen(PORT, () => console.log('Kargo running on http://localhost:' + PORT)); reminders.startScheduler(); }
+if (require.main === module) { app.listen(PORT, () => console.log('Kargo running on http://localhost:' + PORT)); reminders.startScheduler(); startEmailScheduler(); }
+/** Daily emails (trial ending) without an external cron: checked every hour, each email goes out once (dedupe). */
+function startEmailScheduler() {
+  if (process.env.EMAILS_SCHEDULER_DISABLED === 'true') return;
+  const tick = () => dailyEmails().catch((e) => console.error('[email] daily job error', e.message));
+  setInterval(tick, 60 * 60 * 1000); setTimeout(tick, 30000);
+}
 module.exports = { app, importBackup };

@@ -305,7 +305,7 @@ VIEWS.settings = {
         '<div class="tok-row"><span class="hint">Insert:</span>' + REM_TOKENS.map(([t, l]) => '<button type="button" class="chip" data-a="remTok" data-v="' + t + '" title="' + l + '">' + l + '</button>').join('') + '</div>' +
         '<textarea class="inp" name="reminderTemplate" id="remTpl" rows="3">' + esc(s.reminderTemplate || '') + '</textarea>' +
         '<div class="rem-prev"><div class="hint b">Preview</div><div id="remPrev"></div></div>' +
-        '<div class="set-grid mt">' + sf('Remind the same customer at most every', unitIn('reminderEvery', s.reminderEvery, 'days', 'inputmode="numeric"'), 'Nobody is reminded twice within this time.') + '</div>') +
+        '<div class="set-grid mt">' + sf('Remind the same customer at most every', unitIn('reminderEvery', s.reminderEvery, 'days', 'inputmode="numeric"'), 'Nobody is reminded twice within this time.') + '</div>' + (K.info.mode === 'saas' ? '<p class="hint mt">Customers with an email address on their profile also get the reminder by email.</p>' : '')) +
       setCard('catalogue', 'Stores & categories', 'Lists that make adding purchases and items faster.',
         '<h3>Stores you buy from</h3><p class="hint" style="margin:2px 0 10px">Suggested when you add a purchase. Type a name and press Enter.</p>' + storeEditor() +
         '<div class="set-sub"><h3>Categories</h3><p class="hint" style="margin:2px 0 12px">Used to group your items in stock, sales reports and the online shop. Open a category to manage its subcategories.</p>' + catEditor() + '</div>' +
@@ -322,7 +322,10 @@ VIEWS.settings = {
       setCard('backup', 'Backup & restore', 'Download all your records to keep them safe. You can restore the file here or load it into the full version of the app.',
         '<div class="row wrap"><button class="btn pri" data-a="backupJson">' + ic('dl') + 'Download full backup</button><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="restore">' + ic('up') + 'Restore from backup</button></div><div class="hint mt">Last backup: ' + (s.lastBackup ? fmtDT(s.lastBackup) : '<b>never</b>') + '</div>') +
       (K.info.mode === 'saas' ? setCard('account', 'Account', K.info.tenant ? 'Plan: <b>' + esc(K.info.tenant.plan) + '</b>' + (K.info.tenant.trialEndsAt ? ' · trial ends ' + fmtDate(String(K.info.tenant.trialEndsAt).slice(0, 10)) : '') : '',
-        '<div class="pw-row">' + sf('Current password', '<input class="inp" type="password" id="pwOld" autocomplete="current-password">') + sf('New password', '<input class="inp" type="password" id="pwNew" autocomplete="new-password">') + '<button class="btn pw-btn" data-a="pwChange">Change password</button></div>',
+        '<div class="pw-row">' + sf('Your email', '<input class="inp" type="email" id="meEmail" inputmode="email" autocomplete="email" value="' + esc((K.info.user || {}).email || '') + '" placeholder="name@example.com">', 'For password reset links' + (can('settings') ? ' and new online orders' : '') + '.') + '<button class="btn pw-btn" data-a="meEmail">Save email</button></div>' +
+        (can('settings') ? '<label class="toggle mt"><input type="checkbox" id="emOrders"' + (s.emailOrders === false ? '' : ' checked') + '>Email the owner and admins when a new online order comes in</label>' : '') +
+        '<div class="pw-row mt">' + sf('Current password', '<input class="inp" type="password" id="pwOld" autocomplete="current-password">') + sf('New password', '<input class="inp" type="password" id="pwNew" autocomplete="new-password">') + '<button class="btn pw-btn" data-a="pwChange">Change password</button></div>' +
+        (K.info.emailOn === false ? '<div class="alert warn mt small">Emails are not set up on the server yet (no Resend key), so nothing is sent for now.</div>' : ''),
         '<button class="btn sm" data-a="logout">Sign out</button>') : '');
     setTimeout(setAfterRender, 0);
     return '<div class="settings">' + nav + '<div class="set-main">' + form + rest + '</div></div>' +
@@ -462,6 +465,12 @@ function custItems(live) {
 }
 
 
+A.meEmail = async () => {
+  const v = $('#meEmail').value.trim();
+  if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return toast('Type a valid email address', true);
+  try { const r = await K.store.req('PATCH', '/api/me', { email: v }); K.info.user = Object.assign({}, K.info.user, { email: r.email || '' }); toast(v ? 'Email saved' : 'Email removed'); } catch (e) { toast(e.message, true); }
+};
+document.addEventListener('change', async (e) => { const el = e.target; if (el.id !== 'emOrders') return;  const on = el.checked; if (await saveSettings({ emailOrders: on })) toast(on ? 'You will get an email for each new order' : 'No more order emails'); else el.checked = !on; });
 A.pwChange = async () => { try { await K.store.req('POST', '/api/me/password', { current: $('#pwOld').value, password: $('#pwNew').value }); $('#pwOld').value = $('#pwNew').value = ''; toast('Password changed'); } catch (e) { toast(e.message, true); } };
 
 /* ---------- tables: customers, expenses ---------- */

@@ -119,7 +119,7 @@ const IP = {
   search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>', chev: '<path d="M9 6l6 6-6 6"/>', down: '<path d="M6 9l6 6 6-6"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>', edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/>',
   wa: '<path d="M3 21l1.6-4.7A8.5 8.5 0 1120.5 12 8.5 8.5 0 018 19.6L3 21z"/><path d="M9 9.5c.3 2 2.5 4.2 4.5 4.5l1.2-1.2 1.8.8c-.2 1-1 1.7-2 1.7-3 0-6.5-3.5-6.5-6.5 0-1 .7-1.8 1.7-2l.8 1.8L9 9.5z"/>',
-  dl: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>', up: '<path d="M12 21V9M7 14l5-5 5 5M4 3h16"/>', copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/>',
+  dl: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>', up: '<path d="M12 21V9M7 14l5-5 5 5M4 3h16"/>', copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/>', mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   barcode: '<path d="M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14"/>', alert: '<path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18h.01"/>',
   check: '<path d="M5 12l5 5 9-11"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', back: '<path d="M15 6l-6 6 6 6"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>', cam: '<path d="M3 8h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3.5"/>',

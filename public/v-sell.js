@@ -487,12 +487,31 @@ function showReceipt(id, fresh) {
   const el = openSheet({
     title: fresh ? '✓ Sale recorded' : 'Receipt ' + s.no,
     body: receiptHTML(s) + '<div class="tiny faint center mt">Tip: take a screenshot, or use the buttons below.</div>',
-    foot: '<a class="btn grow" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(receiptText(s)) + '">' + ic('wa') + 'WhatsApp</a><button class="btn" data-a="rcCopy" data-id="' + id + '">' + ic('copy') + '<span class="desk-only">Copy</span></button><button class="btn" data-a="rcPdf" data-id="' + id + '">' + ic('dl') + 'PDF</button>' + (fresh ? '<button class="btn pri" data-a="rcNew">New sale</button>' : ''),
+    foot: '<a class="btn grow" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(receiptText(s)) + '">' + ic('wa') + 'WhatsApp</a><button class="btn" data-a="rcCopy" data-id="' + id + '">' + ic('copy') + '<span class="desk-only">Copy</span></button><button class="btn" data-a="rcPdf" data-id="' + id + '">' + ic('dl') + 'PDF</button>' + (K.info.mode === 'saas' ? '<button class="btn" data-a="rcMail" data-id="' + id + '">' + ic('mail') + '<span class="desk-only">Email</span></button>' : '') + (fresh ? '<button class="btn pri" data-a="rcNew">New sale</button>' : ''),
   });
   return el;
 }
 A.rcCopy = (el) => copyText(receiptText(byId('sales', el.dataset.id)));
 A.rcNew = () => { closeSheet(); A.newSale(); };
+/** Send the receipt by email (server mode). */
+A.rcMail = (el) => {
+  const s = byId('sales', el.dataset.id); if (!s) return;
+  const c = s.customerId ? byId('customers', s.customerId) : null;
+  const sh = openSheet({ title: 'Email receipt ' + (s.no || ''), body: '<div class="col">' + field('Send to', inp('rcTo', (c && c.email) || '', 'type="email" inputmode="email" autocomplete="email" placeholder="customer@example.com"')) +
+    (c && !c.email ? '<label class="toggle"><input type="checkbox" name="rcKeep" checked>Save this address on ' + esc(c.name) + '\'s profile</label>' : '') + '</div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="rcSend">' + ic('mail') + 'Send</button>' });
+  $('[name=rcTo]', sh).focus();
+  $('#rcSend', sh).onclick = async () => {
+    const v = formVals(sh); const to = String(v.rcTo || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return toast('Type a valid email address', true);
+    try {
+      const r = await K.store.req('POST', '/api/sales/' + encodeURIComponent(s.id) + '/email', { to });
+      if (v.rcKeep && c) save('customers', Object.assign({}, c, { email: to }));
+      closeSheet();
+      toast(r.status === 'skipped' ? 'Email is not set up on the server yet — send it by WhatsApp or PDF' : 'Receipt emailed to ' + to, r.status === 'skipped');
+    } catch (e) { toast(/not found/i.test(e.message) ? 'This sale is still syncing — try again in a moment' : e.message, true); }
+  };
+};
 A.rcPdf = (el) => receiptPDF(byId('sales', el.dataset.id));
 function receiptPDF(s) {
   if (!window.jspdf) return toast('PDF library still loading — try again', true);

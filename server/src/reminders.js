@@ -4,6 +4,7 @@
  * Each business turns it on in Settings (settings.autoReminders) and picks the hour (settings.reminderHour, local time). */
 const { q, pool } = require('./db');
 const KC = require('../public/compute.js');
+const mailer = require('./mailer');
 
 const providerName = () => (process.env.REMINDER_PROVIDER || 'console').toLowerCase();
 const intl = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.length === 9 && d[0] === '6') d = '237' + d; return d; }; // Cameroon local → international
@@ -65,6 +66,13 @@ async function runForTenant(tid, opts = {}) {
     if (!opts.dryRun) {
       let status = 'sent', error = '', channel = providerName();
       try { channel = (await send(item.phone, text, vars)).channel; } catch (e) { status = 'failed'; error = e.message; }
+      // customers with an email address also get it by email (it counts as sent if either works)
+      const to = mailer.isEmail(c.email) ? c.email : null;
+      if (to) {
+        const m = await mailer.sendEmail(Object.assign({ to, kind: 'debt_reminder', tenantId: tid, dedupe: 'reminder:' + tid + ':' + cid + ':' + t }, mailer.T.debtReminder({ business: S.businessName, name: c.name, text, balance: vars.balance, due: o.due, phone: S.phone })));
+        if (m.status === 'sent' || m.status === 'skipped' || m.status === 'duplicate') { channel = status === 'sent' ? channel + '+email' : 'email'; status = 'sent'; error = ''; item.email = to; }
+        else if (status === 'failed') error += ' · email: ' + m.error;
+      }
       const doc = { customerId: cid, channel, balance: item.balance, at: new Date().toISOString(), by: opts.by ? opts.by + ' (auto)' : 'Automatic', auto: true, status, error };
       const id = 'rm_auto_' + t + '_' + cid.replace(/[^A-Za-z0-9_\-]/g, '');
       await q(`INSERT INTO documents(tenant_id,collection,id,data) VALUES ($1,'reminders',$2,$3) ON CONFLICT (tenant_id,collection,id) DO UPDATE SET data=EXCLUDED.data, updated_at=now()`, [tid, id, JSON.stringify(doc)]);

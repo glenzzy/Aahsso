@@ -34,21 +34,24 @@ function roleTable() {
 function memberSheet(m, title, onSave, onRemove) {
   const sh = openSheet({ title, body: '', foot: (onRemove ? '<button class="btn danger" id="mRm">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="mSave">Save</button>' });
   let role = m.role || 'sales'; let over = Object.assign({}, m.perms || {});
+  const keep = () => { const v = formVals(sh); m = Object.assign({}, m, { name: v.mName, login: m.id ? m.login : v.mLogin, email: v.mEmail, mSend: v.mSend, _pass: v.mPass, locationId: v.mLoc || m.locationId }); };
   const draw = () => {
     const eff = KC.permsFor({ role, perms: over }, S().roles);
     const groups = {}; KC.PERMS.forEach(([k, l, g]) => (groups[g] = groups[g] || []).push([k, l]));
-    setSheetBody(sh, '<div class="col">' + field('Name', inp('mName', m.name || '')) + (m.login !== undefined ? field('Login (email or phone)', inp('mLogin', m.login || '', m.id ? 'disabled' : '')) + (m.id ? field('New password (optional)', inp('mPass', '', 'type="text" placeholder="Leave empty to keep"')) : field('Password', inp('mPass', '', 'type="text"'))) : '') +
+    setSheetBody(sh, '<div class="col">' + field('Name', inp('mName', m.name || '')) + (m.login !== undefined ? field('Login (email or phone)', inp('mLogin', m.login || '', m.id ? 'disabled' : '')) + (m.id ? field('New password (optional)', inp('mPass', m._pass || '', 'type="text" placeholder="Leave empty to keep"')) : field('Password', inp('mPass', m._pass || '', 'type="text"'))) +
+        field('Email (optional)', inp('mEmail', m.email || '', 'type="email" inputmode="email" placeholder="Only needed if the login is a phone number"')) +
+        '<label class="toggle"><input type="checkbox" name="mSend"' + (m.mSend === false ? '' : ' checked') + '>' + (m.id ? 'Email them the new password (if you set one)' : 'Email them their login and password') + '</label>' : '') +
       (allLocs().length > 1 ? field('Works at', sel('mLoc', allLocs().map((l) => [l.id, l.name]), m.locationId || 'main')) : '') +
       field('Role', sel('mRole', ROLE_OPTS(), role, 'id="mRole"')) + '<div class="tiny muted" style="margin-top:-4px">' + esc(ROLE_HELP[role] || '') + '</div>' +
       '<div class="card pad"><div class="row between mb"><h3>Permissions</h3>' + (Object.keys(over).length ? '<button class="btn sm ghost" id="mReset">Reset to role</button>' : '') + '</div>' +
       Object.entries(groups).map(([g, ps]) => '<div class="tiny b faint" style="text-transform:uppercase;letter-spacing:.05em;margin-top:8px">' + g + '</div><div class="perm-grid">' + ps.map(([k, l]) => '<label><input type="checkbox" data-perm="' + k + '"' + (eff[k] ? ' checked' : '') + '>' + esc(l) + (k in over ? ' <span class="badge acc">custom</span>' : '') + '</label>').join('') + '</div>').join('') + '</div>' +
       '<label class="toggle"><input type="checkbox" name="mActive"' + (m.active === false ? '' : ' checked') + '>Active (can use the app)</label></div>');
-    $('#mRole', sh).onchange = (e) => { role = e.target.value; over = {}; draw(); };
+    $('#mRole', sh).onchange = (e) => { keep(); role = e.target.value; over = {}; draw(); };
     if ($('#mReset', sh)) $('#mReset', sh).onclick = () => { over = {}; draw(); };
     $$('[data-perm]', sh).forEach((c) => (c.onchange = () => { const base = KC.permsFor({ role }, S().roles); const k = c.dataset.perm; if (c.checked === base[k]) delete over[k]; else over[k] = c.checked; draw(); }));
   };
   draw();
-  $('#mSave', sh).onclick = async (e) => { const v = formVals(sh); e.target.disabled = true; const ok = await onSave({ name: v.mName, login: v.mLogin, password: v.mPass, role, perms: over, active: v.mActive, locationId: v.mLoc || m.locationId || 'main' }); e.target.disabled = false; if (ok !== false) closeSheet(); };
+  $('#mSave', sh).onclick = async (e) => { const v = formVals(sh); e.target.disabled = true; const ok = await onSave({ name: v.mName, login: v.mLogin, password: v.mPass, email: v.mEmail, sendEmail: v.mSend, role, perms: over, active: v.mActive, locationId: v.mLoc || m.locationId || 'main' }); e.target.disabled = false; if (ok !== false) closeSheet(); };
   if (onRemove) $('#mRm', sh).onclick = async () => { if (await confirmBox('Remove ' + (m.name || 'this person') + ' from the team?', 'Remove', true)) { await onRemove(); closeSheet(); } };
 }
 A.reqApprove = (el) => {
@@ -81,13 +84,22 @@ async function loadSaasTeam() {
 }
 A.saasAdd = () => memberSheet({ role: 'sales', login: '' }, 'Add team member', async (v) => {
   if (!v.name || !v.login || !v.password) { toast('Name, login and password are required', true); return false; }
-  try { await K.store.req('POST', '/api/users', { name: v.name, login: v.login, password: v.password, role: v.role, perms: v.perms, locationId: v.locationId }); toast('Added — give them their login and password'); loadSaasTeam(); }
+  try { const r = await K.store.req('POST', '/api/users', { name: v.name, login: v.login, password: v.password, email: v.email, sendEmail: !!v.sendEmail, role: v.role, perms: v.perms, locationId: v.locationId }); emailToast('Added', r.email, 'their login and password'); loadSaasTeam(); }
   catch (e) { toast(e.message, true); return false; }
 });
+/** Tell the owner whether the login email went out. */
+function emailToast(what, e, thing) {
+  const st = e && e.status;
+  if (st === 'sent' || st === 'duplicate') return toast(what + ' — ' + thing + ' emailed to ' + e.to);
+  if (st === 'skipped') return toast(what + ' — email is not set up on the server yet, so give them ' + thing + ' yourself', true);
+  if (st === 'failed') return toast(what + ', but the email failed (' + (e.error || 'unknown error') + ') — give them ' + thing + ' yourself', true);
+  if (st === 'no_email') return toast(what + ' — add an email address to send ' + thing + ' by email. Give it to them yourself for now.');
+  toast(what + (thing === 'their login and password' ? ' — give them their login and password' : ''));
+}
 A.saasEdit = (el) => {
   const u = K._users.find((x) => x.id === el.dataset.id);
   memberSheet(Object.assign({}, u, { login: u.login }), 'Edit ' + u.name, async (v) => {
-    try { await K.store.req('PATCH', '/api/users/' + u.id, { name: v.name, role: v.role, perms: v.perms, active: v.active, locationId: v.locationId, password: v.password || undefined }); toast('Saved'); loadSaasTeam(); }
+    try { const r = await K.store.req('PATCH', '/api/users/' + u.id, { name: v.name, role: v.role, perms: v.perms, active: v.active, locationId: v.locationId, password: v.password || undefined, email: v.email, sendEmail: !!v.sendEmail }); emailToast('Saved', r.email, 'the new password'); loadSaasTeam(); }
     catch (e) { toast(e.message, true); return false; }
   });
 };
@@ -120,6 +132,7 @@ function teamTable(members, opts = {}) {
     cols: [
       { k: 'name', label: 'Name', core: true, v: (m) => m.name || '', html: (m) => '<b>' + esc(m.name || 'Team member') + '</b>' + (m.id === K.me.id ? ' <span class="mut">(you)</span>' : '') },
       { k: 'login', label: 'Login', core: true, v: (m) => m.login || m.email || '', cls: 'mut' },
+      { k: 'email', label: 'Email', v: (m) => (m.email && m.email !== m.login ? m.email : ''), cls: 'mut' },
       { k: 'role', label: 'Role', core: true, v: (m) => (ROLES_NOW()[m.role] || {}).label || m.role || '' },
       { k: 'custom', label: 'Custom rights', v: (m) => m.perms && Object.keys(m.perms).length ? 'Yes' : '' },
       { k: 'perms', label: 'Permissions', core: true, v: (m) => m.role === 'owner' ? 'Full access' : permSummary(m) },

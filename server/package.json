@@ -10,6 +10,7 @@
     "import-backup": "node scripts/import-backup.js",
     "test": "node scripts/sync-public.js --check && node --test test/compute.test.js",
     "test:api": "node --test test/api.test.js",
+    "test:email": "node --test test/email.test.js",
     "seed-demo": "node scripts/seed-demo.js",
     "sync-public": "node scripts/sync-public.js",
     "deploy:vercel": "node scripts/sync-public.js && vercel deploy --prod"

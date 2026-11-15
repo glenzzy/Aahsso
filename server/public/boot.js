@@ -1,5 +1,7 @@
 /* Kargo — startup, access gate, login (SaaS mode) */
 function renderLogin() {
+  const resetToken = new URLSearchParams(location.search).get('reset');
+  if (resetToken) return renderAuthAlt('reset', resetToken);
   document.title = 'Sign in · Kargo';
   document.body.className = 'auth-body';
   const pw = (name, ac) => '<div class="auth-pw"><input class="inp" name="' + name + '" type="password" autocomplete="' + ac + '"><button type="button" class="auth-eye" id="pwEye" aria-label="Show password">Show</button></div>';
@@ -9,6 +11,8 @@ function renderLogin() {
       '<h1 id="aTitle">Welcome back</h1><p class="auth-sub" id="aSub">Sign in to your business account.</p>' +
       '<div id="fReg" class="auth-fields hide">' + field('Business name', inp('businessName', '', 'autocomplete="organization"')) + field('Your name', inp('name', '', 'autocomplete="name"')) + '</div>' +
       '<div class="auth-fields">' + field('Email or phone', inp('login', '', 'autocomplete="username" autocapitalize="off" spellcheck="false"')) + field('Password', pw('password', 'current-password')) + '</div>' +
+      '<div id="fRegMail" class="auth-fields hide">' + field('Email for password reset (optional)', inp('email', '', 'type="email" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="Only if you sign in with a phone number"')) + '</div>' +
+      '<div class="auth-forgot" id="fgRow"><button type="button" class="auth-link" id="tForgot">Forgot password?</button></div>' +
       '<div class="auth-err hide" id="err" role="alert"></div>' +
       '<button type="submit" class="btn pri lg block auth-go" id="go">Sign in</button>' +
     '</form>' +
@@ -19,7 +23,7 @@ function renderLogin() {
   const err = (m) => { const e = $('#err'); e.textContent = m || ''; e.classList.toggle('hide', !m); };
   const sw = (r) => {
     reg = r; err('');
-    $('#fReg').classList.toggle('hide', !r); $('#swLogin').classList.toggle('hide', r); $('#swReg').classList.toggle('hide', !r);
+    $('#fReg').classList.toggle('hide', !r); $('#fRegMail').classList.toggle('hide', !r); $('#fgRow').classList.toggle('hide', r); $('#swLogin').classList.toggle('hide', r); $('#swReg').classList.toggle('hide', !r);
     $('#aTitle').textContent = r ? 'Create your business' : 'Welcome back';
     $('#aSub').textContent = r ? 'Takes a minute. You will be the owner.' : 'Sign in to your business account.';
     $('#go').textContent = r ? 'Create account' : 'Sign in';
@@ -28,6 +32,7 @@ function renderLogin() {
     (r ? $('[name=businessName]') : $('[name=login]')).focus();
   };
   $('#tLogin').onclick = () => sw(false); $('#tReg').onclick = () => sw(true);
+  $('#tForgot').onclick = () => renderAuthAlt('forgot', null, $('[name=login]').value);
   $('#pwEye').onclick = () => { const i = $('[name=password]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; $('#pwEye').textContent = show ? 'Hide' : 'Show'; $('#pwEye').setAttribute('aria-label', show ? 'Hide password' : 'Show password'); i.focus(); };
   $('#aForm').onsubmit = (e) => { e.preventDefault(); $('#go').click(); }; // Enter key: same path as clicking (loading state included)
   $('#go').onclick = async (e) => {
@@ -37,6 +42,7 @@ function renderLogin() {
     const miss = need.find(([k]) => !String(v[k] || '').trim());
     if (miss) { err('Please enter ' + miss[1] + '.'); $('[name=' + miss[0] + ']').focus(); return; }
     try {
+      if (!reg) delete v.email;
       const r = await fetch(api + (reg ? '/api/auth/register' : '/api/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.');
       localStorage.setItem('kargo-token', j.token); location.reload();
@@ -44,6 +50,48 @@ function renderLogin() {
     } catch (e2) { err(e2 instanceof TypeError ? 'Cannot reach the server. Check your connection.' : e2.message); }
   };
   $('[name=login]').focus();
+}
+/** "Forgot password" (ask for a link by email) and "Choose a new password" (open from that link). */
+function renderAuthAlt(mode, token, login) {
+  const forgot = mode === 'forgot';
+  document.title = (forgot ? 'Reset password' : 'New password') + ' · Kargo';
+  document.body.className = 'auth-body';
+  document.body.innerHTML = '<main class="auth"><div class="auth-in">' +
+    '<div class="auth-brand"><div class="auth-mark" aria-hidden="true">K</div><div class="auth-name">Kargo</div></div>' +
+    '<form class="auth-card" id="aForm" novalidate>' +
+      '<h1>' + (forgot ? 'Forgot your password?' : 'Choose a new password') + '</h1>' +
+      '<p class="auth-sub">' + (forgot ? 'Type the email or phone you sign in with. If your account has an email address, we will send you a link to choose a new password.' : 'At least 6 characters. You will be signed in right after.') + '</p>' +
+      '<div class="auth-fields" id="afBody">' + (forgot ? field('Email or phone', inp('login', login || '', 'autocomplete="username" autocapitalize="off" spellcheck="false"'))
+        : field('New password', inp('password', '', 'type="password" autocomplete="new-password"')) + field('Type it again', inp('password2', '', 'type="password" autocomplete="new-password"'))) + '</div>' +
+      '<div class="auth-err hide" id="err" role="alert"></div><div class="auth-ok hide" id="ok" role="status"></div>' +
+      '<button type="submit" class="btn pri lg block auth-go" id="go">' + (forgot ? 'Send me a link' : 'Save and sign in') + '</button>' +
+    '</form>' +
+    '<div class="auth-switch"><button type="button" class="auth-link" id="tBack">Back to sign in</button></div>' +
+  '</div><footer class="auth-foot">© ' + new Date().getFullYear() + ' Kargo</footer></main>';
+  const err = (m) => { const e = $('#err'); e.textContent = m || ''; e.classList.toggle('hide', !m); };
+  $('#tBack').onclick = () => { if (!forgot) history.replaceState(null, '', location.pathname); renderLogin(); };
+  $('#aForm').onsubmit = (e) => { e.preventDefault(); $('#go').click(); };
+  $('#go').onclick = async (e) => {
+    e.preventDefault(); err('');
+    const v = formVals(document.body); const api = (window.KARGO_CONFIG.api || location.origin).replace(/\/$/, '');
+    if (forgot && !String(v.login || '').trim()) { err('Please enter your email or phone.'); return $('[name=login]').focus(); }
+    if (!forgot && String(v.password || '').length < 6) { err('Use at least 6 characters.'); return $('[name=password]').focus(); }
+    if (!forgot && v.password !== v.password2) { err('The two passwords are not the same.'); return $('[name=password2]').focus(); }
+    $('#go').disabled = true;
+    try {
+      const r = await fetch(api + (forgot ? '/api/auth/forgot' : '/api/auth/reset'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(forgot ? { login: v.login } : { token, password: v.password }) });
+      const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.');
+      if (forgot) {
+        $('#afBody').classList.add('hide'); $('#go').classList.add('hide');
+        const ok = $('#ok'); ok.textContent = 'Check your inbox (and spam folder). If this account has an email address, a link is on its way — it works for 1 hour. No email? Ask the business owner to set a new password for you.'; ok.classList.remove('hide');
+        return;
+      }
+      localStorage.setItem('kargo-token', j.token); location.replace(location.pathname);
+      return new Promise(() => { });
+    } catch (e2) { err(e2 instanceof TypeError ? 'Cannot reach the server. Check your connection.' : e2.message); }
+    $('#go').disabled = false;
+  };
+  $(forgot ? '[name=login]' : '[name=password]').focus();
 }
 
 VIEWS.pending = {
@@ -65,7 +113,7 @@ A.reqAccess = async () => {
 
 (async function boot() {
   const { store, info } = await createStore();
-  if (info.mode === 'login') return renderLogin();
+  if (info.mode === 'login' || (info.mode === 'saas' && new URLSearchParams(location.search).get('reset'))) return renderLogin();
   if (info.mode === 'signedout') { $('#view').innerHTML = '<div class="card pad2" style="max-width:520px;margin:20px auto"><h2>Please sign in</h2><p class="muted">Sign in to claude.ai, then open this link again.</p></div>'; $('#title').textContent = 'Kargo'; return; }
   K.store = store; K.info = info; K.me = info.me || { id: null, name: '' };
   K.sync = info.mode === 'local' ? 'local' : 'loading';

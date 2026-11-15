@@ -1080,3 +1080,7 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .dl-rules li span{display:block;color:var(--ink2);font-size:13px;margin-top:2px}
 
 .sheet .sf .btn.danger.ghost{margin-left:auto}
+
+/* login: forgot password */
+.auth-forgot { display: flex; justify-content: flex-end; margin-top: -4px; }
+.auth-ok { background: var(--okSoft); color: var(--ok); border-radius: 10px; padding: 12px 14px; font-size: 14px; line-height: 1.45; }
