@@ -508,7 +508,12 @@ function withPriceLog(oldP, newP, how, note) {
   const e = { at: new Date().toISOString(), by: K.me.name || K.info.userLabel || '', byId: K.me.id || '', how, note: note || '', before: { max: b.max, min: b.min, ws: b.ws }, after: { max: a.max, min: a.min, ws: a.ws }, cost: Math.round(cost) };
   return Object.assign({}, newP, { priceHistory: (oldP.priceHistory || []).concat([e]).slice(-200) });
 }
-const arrow = (b, a) => b === a ? '<span class="faint">' + fmt(a) + '</span>' : '<span class="faint">' + fmt(b) + '</span> → <b class="' + (a > b ? 'up' : 'down') + '">' + fmt(a) + '</b>';
+/** One price cell: the new price on top; under it the old price and the change (or just the price when unchanged). */
+const priceCell = (b, a) => {
+  if (b === a) return '<span class="pc-v same">' + fmt(a) + '</span><span class="pc-s">no change</span>';
+  const ch = b ? (a - b) / b * 100 : 0; const r = Math.abs(ch) >= 100 ? Math.round(Math.abs(ch)) : Math.round(Math.abs(ch) * 10) / 10;
+  return '<span class="pc-v ' + (a > b ? 'up' : 'down') + '">' + fmt(a) + '</span><span class="pc-s">was ' + fmt(b) + '</span>' + (b ? '<span class="pc-d ' + (a > b ? 'up' : 'down') + '">' + (ch > 0 ? '+' : '−') + r + '%</span>' : '');
+};
 function priceHistoryCard(p) {
   const x = K.C.prodX[p.id]; const hist = (p.priceHistory || []).slice().reverse();
   const promos = (K.raw.promos || []).filter((pr) => KC.promoCovers(pr, p)).sort((a, b) => (b.start || '').localeCompare(a.start || ''));
@@ -516,8 +521,14 @@ function priceHistoryCard(p) {
   return '<section class="card mb ph-card"><div class="ph-head"><h3>Prices</h3><div class="row wrap gap6">' + (can('stockEdit') ? '<button class="btn sm pri" data-a="priceSet" data-id="' + p.id + '">' + ic('tag', 'sm') + 'Change price</button><button class="btn sm" data-a="promoFor" data-id="' + p.id + '">Launch a promotion</button>' : '') + '</div></div>' +
     '<div class="pchips">' + (x.promo ? chip('Promo price · ' + esc(x.promo.name), x.promo.price, 'promo') : '') + chip('Selling price', x.priceMax) + chip('Lowest allowed', x.priceMin) + chip('Wholesale', x.priceWholesale) + (seeCost() ? chip('Landed cost', x.avgCost, 'cost') : '') + '</div>' +
     '<div class="ph-sub">Price changes' + (hist.length ? ' <span class="hint">(' + hist.length + ')</span>' : '') + '</div>' +
-    (hist.length ? '<div class="tw"><table class="t ph-t"><thead><tr><th>When</th><th class="r">Selling</th><th class="r">Lowest</th><th class="r">Wholesale</th><th>Changed by</th><th>How · reason</th></tr></thead><tbody>' +
-      hist.map((e) => '<tr><td class="nowrap">' + esc(fmtDT(e.at)) + '</td><td class="r nowrap">' + arrow(e.before.max, e.after.max) + '</td><td class="r nowrap">' + arrow(e.before.min, e.after.min) + '</td><td class="r nowrap">' + arrow(e.before.ws, e.after.ws) + '</td><td>' + esc(e.by || '—') + '</td><td class="ph-how">' + esc(e.how || '') + (e.note ? '<span class="sub">' + esc(e.note) + '</span>' : '') + '</td></tr>').join('') + '</tbody></table></div>'
+    (hist.length ? '<div class="ph-tw"><table class="pch-t"><colgroup><col class="c-when"><col class="c-pr"><col class="c-pr"><col class="c-pr"><col class="c-by"><col class="c-how"></colgroup>' +
+      '<thead><tr><th class="w-when">When</th><th class="r w-pr">Selling</th><th class="r w-pr">Lowest</th><th class="r w-pr">Wholesale</th><th class="w-by">Changed by</th><th class="w-how">How · reason</th></tr></thead><tbody>' +
+      hist.map((e) => { const d = new Date(e.at); return '<tr>' +
+        '<td><span class="pc-v">' + esc(fmtDate(e.at.slice(0, 10))) + '</span><span class="pc-s">' + (isNaN(d) ? '' : String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')) + '</span></td>' +
+        '<td class="r">' + priceCell(e.before.max, e.after.max) + '</td><td class="r">' + priceCell(e.before.min, e.after.min) + '</td><td class="r">' + priceCell(e.before.ws, e.after.ws) + '</td>' +
+        '<td><span class="pc-v ell" title="' + esc(e.by || '') + '">' + esc(e.by || '—') + '</span></td>' +
+        '<td><span class="pc-v">' + esc(e.how || '—') + '</span>' + (e.note ? '<span class="pc-s wrap">' + esc(e.note) + '</span>' : '') + '</td></tr>'; }).join('') +
+      '</tbody></table></div>'
       : '<div class="hint ph-empty">No price changes recorded yet. Changes made from now on appear here with who made them.</div>') +
     (promos.length ? '<div class="ph-sub">Promotions</div><div class="mini-list">' + promos.map((pr) => { const st = KC.promoStatus(pr); return '<div class="mini" data-a="promoOpen" data-id="' + pr.id + '" role="button" tabindex="0"><div class="grow"><div class="mini-t">' + esc(pr.name || 'Promotion') + '</div><div class="mini-d">' + esc(promoDesc(pr)) + ' · ' + esc(promoDates(pr)) + '</div></div><div class="right"><div class="mini-v">' + F(KC.promoPriceOf(pr, x.priceMax, S())) + '</div>' + promoBadge(st) + '</div></div>'; }).join('') + '</div>' : '') +
     '</section>';

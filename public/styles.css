@@ -909,8 +909,8 @@ select.inp.fee-type{width:auto;flex:none}
 .pchip.promo{border-color:#f3c2b8;background:var(--badSoft)} .pchip.promo b{color:var(--bad)}
 .pchip.cost b{color:var(--ink2)}
 .ph-sub{font-weight:650;font-size:14px;margin:6px 0 8px}
-.ph-t td{vertical-align:top}
-.ph-t b.up{color:var(--ok)} .ph-t b.down{color:var(--bad)}
+.pch-t td{vertical-align:top}
+.pch-t b.up{color:var(--ok)} .pch-t b.down{color:var(--bad)}
 .ph-how .sub{display:block;color:var(--ink3);font-size:12px}
 .ph-empty{padding:4px 0 8px}
 .pr-form{gap:18px}
@@ -927,4 +927,26 @@ select.inp.fee-type{width:auto;flex:none}
 .pr-ex{margin-top:4px;color:var(--ink2)}
 .pr-warn{margin-top:8px;color:var(--bad);font-weight:600;display:flex;gap:6px;align-items:flex-start}
 .neg-t{color:var(--bad)}
-table.ph-t{width:100%}
+table.pch-t{width:100%}
+
+/* price changes table: fixed columns, each value stays in its own column */
+.ph-tw{border:1px solid var(--line);border-radius:12px;overflow-x:auto;background:var(--card)}
+table.pch-t{width:100%;min-width:660px;table-layout:fixed;border-collapse:collapse}
+.pch-t col.c-when{width:15%} .pch-t col.c-pr{width:15%} .pch-t col.c-by{width:15%} .pch-t col.c-how{width:25%}
+.pch-t th{font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pch-t th.r,.pch-t td.r{text-align:right}
+.pch-t td{padding:11px 14px;vertical-align:top;overflow:hidden;border-top:1px solid var(--line2)}
+.pch-t tbody tr:first-child td{border-top:0}
+.pch-t .pc-v{display:block;font-weight:600;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pch-t .pc-v.same{font-weight:500;color:var(--ink3)}
+.pch-t .pc-v.up{color:var(--ok)} .pch-t .pc-v.down{color:var(--bad)}
+.pch-t .pc-s{display:block;margin-top:2px;font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pch-t .pc-s.wrap{white-space:normal;overflow-wrap:anywhere}
+.pch-t tbody tr:hover td{background:var(--bg)}
+.pch-t th.w-when{width:15%}.pch-t th.w-pr{width:15%}.pch-t th.w-by{width:15%}.pch-t th.w-how{width:25%}
+/* price changes: column widths and the change line */
+table.pch-t{min-width:800px}
+.pch-t th.w-when{width:14%}.pch-t th.w-pr{width:15%}.pch-t th.w-by{width:14%}.pch-t th.w-how{width:27%}
+.pch-t th,.pch-t td{padding-left:12px;padding-right:12px}
+.pch-t .pc-d{display:inline-block;margin-top:3px;font-size:11.5px;font-weight:700;padding:1px 6px;border-radius:999px;font-variant-numeric:tabular-nums}
+.pch-t .pc-d.up{background:var(--okSoft);color:var(--ok)} .pch-t .pc-d.down{background:var(--badSoft);color:var(--bad)}
