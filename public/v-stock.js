@@ -714,7 +714,7 @@ function shipPickHTML(inSheet) {
     '<div class="sp-head"><span></span><span>Item</span><span class="r">Units to ship</span></div>' +
     '<div class="sp-list">' + free.map((l) => { const p = byId('products', l.productId) || {}; return '<label class="sp-it"><input type="checkbox" data-sp="' + l.id + '" checked><span class="grow">' + esc(p.name || '?') + '<span class="sub">' + esc([l.vendor, fmtDate(l.purchaseDate)].filter(Boolean).join(' · ')) + '</span></span>' +
       '<span class="sp-q"><input class="inp" inputmode="numeric" data-sq="' + l.id + '" data-max="' + num(l.qty) + '" value="' + num(l.qty) + '" aria-label="Units of ' + esc(p.name || '') + ' to ship"><span class="sp-of">of ' + fmt(l.qty) + '</span></span></label>'; }).join('') + '</div>' +
-    '<div class="hint mt">Ship part of a line? Type how many units go now — the rest stays waiting to ship.</div></div>';
+    '</div>';
 }
 function wireShipPick(sh) {
   const sum = () => { let n = 0, t = 0; $$('[data-sq]', sh).forEach((i) => { t += num(i.dataset.max); const c = $('[data-sp="' + i.dataset.sq + '"]', sh); if (c && c.checked) n += Math.min(num(i.dataset.max), Math.max(0, Math.floor(num(i.value)))); }); const e = $('#spSum', sh); if (e) e.textContent = fmt(n) + ' of ' + fmt(t) + ' units'; };
