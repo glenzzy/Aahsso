@@ -435,6 +435,7 @@ A.shAddItems = (el) => {
   wireShipPick(sh);
   $('#afGo', sh).onclick = async () => {
     const pick = readShipPick(sh); if (pick === false) return; if (!pick.length) return toast('Choose at least one item', true);
+    if (sx && stIdx(sx.status) >= 3 && !(await confirmLocalAdd(sx, pick))) return; // already in Cameroon: say what this does first
     for (const [lid, q] of pick) { const l = byId('lots', lid); if (l) await shipUnits(l, q, id); }
     closeSheet(); refreshSheets(); scheduleRender(); const units = pick.reduce((x, p) => x + p[1], 0);
     toast(fmt(units) + ' unit' + (units === 1 ? '' : 's') + ' added' + (sx && stIdx(sx.status) >= 5 ? ' — already in the warehouse, ready to sell' : ''));
@@ -777,3 +778,27 @@ document.addEventListener('change', async (e) => {
   const l = byId('lots', i.dataset.shq); if (!l) return;
   await setShipQty(l, num(i.value)); refreshSheets(); scheduleRender();
 });
+
+/** Adding to a shipment that already reached Cameroon: show what changes, then ask. Resolves true to go ahead. */
+function confirmLocalAdd(sx, pick) {
+  return new Promise((res) => {
+    const inStock = stIdx(sx.status) >= 5; const loc = sx.locationId || 'main';
+    const st = KC.SHIP_STATUSES[stIdx(sx.status)][1];
+    const by = {}; pick.forEach(([lid, q]) => { const l = byId('lots', lid); if (!l) return; by[l.productId] = (by[l.productId] || 0) + q; });
+    const units = Object.values(by).reduce((a, q) => a + q, 0);
+    const rows = Object.entries(by).map(([pid, q]) => { const p = byId('products', pid) || {}; const x = K.C.prodX[pid] || {}; const now = Math.max(0, (x.byLoc || {})[loc] || 0);
+      return '<tr><td>' + esc(p.name || '?') + '</td><td class="r b">+' + fmt(q) + '</td>' + (inStock ? '<td class="r">' + fmt(now) + '</td><td class="r b">' + fmt(now + q) + '</td>' : '') + '</tr>'; }).join('');
+    const el = openSheet({
+      title: inStock ? 'Add to the stock you already have?' : 'Add to a shipment already in Cameroon?',
+      body: '<div class="lw">' +
+        '<div class="lw-box' + (inStock ? ' strong' : '') + '">' + ic('alert') + '<div><b>' + esc(sx.name || 'This shipment') + '</b> is already <b>' + esc(st.toLowerCase()) + '</b>' + (allLocs().length > 1 && inStock ? ' at ' + esc(locName(loc)) : '') + '.<br>' +
+          (inStock ? 'These ' + fmt(units) + ' unit' + (units === 1 ? '' : 's') + ' will be added to your stock in Cameroon straight away and can be sold at once.' : 'These ' + fmt(units) + ' unit' + (units === 1 ? '' : 's') + ' will be added to it and counted when you unload it.') + '</div></div>' +
+        '<div class="lw-tw"><table class="lw-t"><thead><tr><th>Item</th><th class="r">Adding</th>' + (inStock ? '<th class="r">In stock now</th><th class="r">After</th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<p class="hint">Only do this if these goods really travelled in ' + esc(sx.name || 'this shipment') + '. Otherwise go back and start a new shipment.</p></div>',
+      foot: '<button class="btn grow" id="lwNo">Go back</button><button class="btn pri grow" id="lwYes">' + ic('check', 'sm') + (inStock ? 'Yes, add ' + fmt(units) + ' to stock' : 'Yes, add ' + fmt(units) + ' units') + '</button>',
+      onClose: () => res(false),
+    });
+    $('#lwNo', el).onclick = () => closeSheet();
+    $('#lwYes', el).onclick = () => { el._onClose = null; closeSheet(); res(true); };
+  });
+}

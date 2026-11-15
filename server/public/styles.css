@@ -1031,3 +1031,16 @@ table.pv-t{width:100%;min-width:720px;border-collapse:collapse;table-layout:fixe
 .phb.ph-ship{background:#eef2ff;color:#4f46e5} .phc.ph-ship .phc-bar i{background:#4f46e5}
 .phb.ph-receive{background:var(--accentSoft);color:#8a5a12} .phc.ph-receive .phc-bar i{background:var(--accent)}
 .phb.ph-sell{background:var(--okSoft);color:var(--ok)} .phc.ph-sell .phc-bar i{background:var(--ok)}
+
+/* warning: adding to a shipment already in Cameroon */
+.lw{display:flex;flex-direction:column;gap:14px}
+.lw-box{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:12px;background:var(--accentSoft);border:1px solid #f0d29f;color:var(--ink);font-size:14.5px;line-height:1.5}
+.lw-box .i{color:#b7791f;flex:none;margin-top:2px}
+.lw-box.strong{background:#fff4e5;border-color:#f3c27a}
+.lw-tw{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+table.lw-t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.lw-t th{font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:9px 12px;background:var(--bg);border-bottom:1px solid var(--line)}
+.lw-t th.r,.lw-t td.r{text-align:right}
+.lw-t td{padding:10px 12px;border-top:1px solid var(--line2)}
+.lw-t tbody tr:first-child td{border-top:0}
+.lw .hint{margin:0}
