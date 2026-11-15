@@ -361,12 +361,14 @@ function shipForm(id) {
   const n = K.raw.shipments.length + 1;
   const sh = openSheet({
     title: id ? 'Edit shipment' : 'New shipment',
-    body: '<div class="col">' + field('Name', inp('name', s.name || 'Shipment #' + n + ' – ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getFullYear())) + '<h3 class="mt">Container</h3><div class="grid2">' + field('Booking no.', inp('bookingNo', s.bookingNo)) + field('Container no.', inp('containerNo', s.containerNo, 'placeholder="MSCU1234567"')) + field('Seal no.', inp('sealNo', s.sealNo)) + field('Size', sel('size', ["20'", "40'", "40' HC", "45' HC"], s.size)) +
+    body: '<div class="col">' + field('Name', inp('name', s.name || 'Shipment #' + n + ' – ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getFullYear())) + (id ? '' : shipPickHTML()) + '<h3 class="mt">Container</h3><div class="grid2">' + field('Booking no.', inp('bookingNo', s.bookingNo)) + field('Container no.', inp('containerNo', s.containerNo, 'placeholder="MSCU1234567"')) + field('Seal no.', inp('sealNo', s.sealNo)) + field('Size', sel('size', ["20'", "40'", "40' HC", "45' HC"], s.size)) +
       field('Shipping line', inp('carrier', s.carrier, 'placeholder="MSC, Maersk, CMA CGM…"')) + field('Clearing agent (Douala)', inp('agent', s.agent)) + field('Ship from', inp('origin', s.origin)) + field('Ship to', inp('destination', s.destination)) + '</div><h3 class="mt">Progress</h3><div class="grid2">' +
       field('Step', sel('status', KC.SHIP_STATUSES, s.status)) + Object.keys(S().fxRates || { USD: 1 }).filter((c) => c !== baseCode()).map((c) => field('Rate: 1 ' + c + ' = ? ' + baseCode(), inp('fx_' + c, (s.fxRates && s.fxRates[c]) || (c === 'USD' && s.fxRate) || (S().fxRates || {})[c] || '', 'inputmode="decimal"'))).join('') + field('Loaded on', inp('loadedAt', s.loadedAt, 'type="date"')) + field('ETA / arrived in Cameroon', inp('arrivedAt', s.arrivedAt, 'type="date"')) + field('Customs cleared on', inp('clearedAt', s.clearedAt, 'type="date"')) + field('Unloaded in warehouse', inp('receivedAt', s.receivedAt, 'type="date"')) + '</div>' + field('Notes', '<textarea class="inp" name="notes">' + esc(s.notes || '') + '</textarea>') + '</div>',
     foot: (id ? '<button class="btn danger" id="sDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="sSave">Save</button>',
   });
-  $('#sSave', sh).onclick = async () => { const v = formVals(sh); v.fxRates = {}; Object.keys(v).filter((k) => k.startsWith('fx_')).forEach((k) => { if (num(v[k]) > 0) v.fxRates[k.slice(3)] = num(v[k]); delete v[k]; }); v.fxRate = v.fxRates.USD || num(S().fxRate) || 600; const o = Object.assign({ costs: [] }, s, v, { id: id || uid('sh_') }); if (await save('shipments', o)) { closeSheet(); scheduleRender(); refreshSheets(); if (!id) openShip(o.id); } };
+  $('#sSave', sh).onclick = async () => { const v = formVals(sh); v.fxRates = {}; Object.keys(v).filter((k) => k.startsWith('fx_')).forEach((k) => { if (num(v[k]) > 0) v.fxRates[k.slice(3)] = num(v[k]); delete v[k]; }); v.fxRate = v.fxRates.USD || num(S().fxRate) || 600; const o = Object.assign({ costs: [] }, s, v, { id: id || uid('sh_') }); const pick = id ? [] : $$('[data-sp]', sh).filter((c) => c.checked).map((c) => c.dataset.sp);
+    if (await save('shipments', o)) { for (const lid of pick) { const l = byId('lots', lid); if (l) await save('lots', Object.assign({}, l, { shipmentId: o.id })); } closeSheet(); scheduleRender(); refreshSheets(); if (!id) { openShip(o.id); toast(pick.length ? pick.length + ' line' + (pick.length === 1 ? '' : 's') + ' put in ' + (o.name || 'the shipment') : 'Shipment created — add its items on the Items tab'); } } };
+  if (!id) { const all = $('#spAll', sh); if (all) all.onchange = (e) => $$('[data-sp]', sh).forEach((c) => (c.checked = e.target.checked)); }
   if (id) $('#sDel', sh).onclick = async () => { if (K.raw.lots.some((l) => l.shipmentId === id)) return toast('Remove its items first', true); if (await confirmBox('Delete this shipment?', 'Delete', true)) { await remove('shipments', id); while (K.sheets.length) closeSheet(); scheduleRender(); } };
 }
 A.openShip = (el) => openShip(el.dataset.id);
@@ -411,16 +413,25 @@ function openShip(id, tab) {
 }
 A.shTab = (el) => { const sh = el.closest('.scrim'); sh._tab = el.dataset.v; sh._refresh(); };
 A.editShip = (el) => shipForm(el.dataset.id);
-A.shAdvance = async (el) => { const s = byId('shipments', el.dataset.id); const i = stIdx(s.status); const next = KC.SHIP_STATUSES[i + 1][0]; if (next === 'received') return A.shReceive(el); const dk = { loading: 'loadedAt', in_transit: 'departedAt', at_port: 'arrivedAt', cleared: 'clearedAt', closed: 'readyAt' }[next]; const o = Object.assign({}, s, { status: next }); if (dk && !o[dk]) o[dk] = todayStr(); await save('shipments', o); refreshSheets(); scheduleRender(); };
-A.shReceive = async (el) => { const s = byId('shipments', el.dataset.id); await saveRecv(el); if (!(await confirmBox('Mark "' + (s.name || 'container') + '" as unloaded in the warehouse? Its items become available for sale.', 'Confirm received'))) return; const rl = $('#recvLoc', el.closest('.scrim') || document); await save('shipments', Object.assign({}, byId('shipments', s.id), { status: 'received', receivedAt: todayStr(), locationId: rl ? rl.value : (s.locationId || K.loc) })); refreshSheets(); scheduleRender(); toast('Items are now in stock'); };
+/** Items in a shipment; moving an empty shipment forward is what left goods "waiting to ship" for ever. */
+const shipLots = (sid) => K.raw.lots.filter((l) => l.shipmentId === sid);
+function needsItems(s) {
+  if (shipLots(s.id).length) return false;
+  const w = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us').length;
+  toast((s.name || 'This shipment') + ' is empty — add its items first' + (w ? ' (' + w + ' line' + (w === 1 ? '' : 's') + ' waiting to ship)' : ''), true);
+  if (w && can('containers')) A.shAddItems({ dataset: { id: s.id } }); return true;
+}
+A.shAdvance = async (el) => { const s = byId('shipments', el.dataset.id); if (needsItems(s)) return; const i = stIdx(s.status); const next = KC.SHIP_STATUSES[i + 1][0]; if (next === 'received') return A.shReceive(el); const dk = { loading: 'loadedAt', in_transit: 'departedAt', at_port: 'arrivedAt', cleared: 'clearedAt', closed: 'readyAt' }[next]; const o = Object.assign({}, s, { status: next }); if (dk && !o[dk]) o[dk] = todayStr(); await save('shipments', o); refreshSheets(); scheduleRender(); };
+A.shReceive = async (el) => { const s = byId('shipments', el.dataset.id); if (needsItems(s)) return; await saveRecv(el); if (!(await confirmBox('Mark "' + (s.name || 'container') + '" as unloaded in the warehouse? Its items become available for sale.', 'Confirm received'))) return; const rl = $('#recvLoc', el.closest('.scrim') || document); await save('shipments', Object.assign({}, byId('shipments', s.id), { status: 'received', receivedAt: todayStr(), locationId: rl ? rl.value : (s.locationId || K.loc) })); refreshSheets(); scheduleRender(); toast('Items are now in stock'); };
 async function saveRecv(el) { const sh = el.closest('.scrim'); for (const i of $$('[data-rv]', sh)) { const l = byId('lots', i.dataset.id); const v = Math.max(0, Math.floor(num(i.value))); if (num(l[i.dataset.rv]) !== v) await save('lots', Object.assign({}, byId('lots', l.id), { [i.dataset.rv]: v })); } }
 A.shSaveRecv = async (el) => { await saveRecv(el); refreshSheets(); scheduleRender(); toast('Counts saved'); };
 A.shRemoveLot = async (el) => { const l = byId('lots', el.dataset.id); if (K.C.lotX[l.id].sold > 0) return toast('Item already has sales', true); await save('lots', Object.assign({}, l, { shipmentId: '' })); refreshSheets(); scheduleRender(); };
 A.shAddItems = (el) => {
   const id = el.dataset.id; const free = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us').sort((a, b) => (a.purchaseDate || '').localeCompare(b.purchaseDate || ''));
+  if (!free.length) return toast('Nothing is waiting to ship. Record what you bought abroad in Buy first.', true);
   const sh = openSheet({ title: 'Add items to the shipment', body: '<label class="toggle mb"><input type="checkbox" id="allF" checked> Select all (' + free.length + ')</label><div class="card list">' + free.map((l) => { const p = byId('products', l.productId) || {}; return '<label class="li"><input type="checkbox" data-fl="' + l.id + '" checked style="width:20px;height:20px;accent-color:var(--brand)"><div class="grow"><div class="t">' + esc(p.name) + '</div><div class="tiny muted">' + l.qty + ' units · ' + esc(l.vendor || '') + ' · ' + fmtDate(l.purchaseDate) + '</div></div></label>'; }).join('') + '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="afGo">Add to shipment</button>' });
   $('#allF', sh).onchange = (e) => $$('[data-fl]', sh).forEach((c) => (c.checked = e.target.checked));
-  $('#afGo', sh).onclick = async (e) => { e.target.disabled = true; const ids = $$('[data-fl]', sh).filter((c) => c.checked).map((c) => c.dataset.fl); for (const lid of ids) await save('lots', Object.assign({}, byId('lots', lid), { shipmentId: id })); closeSheet(); refreshSheets(); scheduleRender(); toast(ids.length + ' line(s) added'); };
+  $('#afGo', sh).onclick = async (e) => { e.target.disabled = true; const ids = $$('[data-fl]', sh).filter((c) => c.checked).map((c) => c.dataset.fl); for (const lid of ids) await save('lots', Object.assign({}, byId('lots', lid), { shipmentId: id })); closeSheet(); refreshSheets(); scheduleRender(); const sx = byId('shipments', id); toast(ids.length + ' line' + (ids.length === 1 ? '' : 's') + ' added' + (sx && stIdx(sx.status) >= 5 ? ' — already in the warehouse, ready to sell' : '')); };
 };
 A.shCost = (el) => {
   const s = byId('shipments', el.dataset.s); const c = el.dataset.c ? (s.costs || []).find((x) => x.id === el.dataset.c) : { side: el.dataset.side, currency: el.dataset.side === 'CM' ? baseCode() : 'USD', appliesTo: 'all', date: todayStr() };
@@ -684,4 +695,13 @@ function trTable(list, id) {
 function shipSteps(i) {
   const ph = { ship: 'Ship', receive: 'Receive', sell: 'Sell' };
   return '<ol class="ssteps">' + KC.SHIP_STATUSES.map(([k, l], j) => '<li class="' + (j < i ? 'done' : j === i ? 'on' : '') + '"><span class="ss-p">' + (j === 0 || KC.shipPhase(KC.SHIP_STATUSES[j - 1][0]) !== KC.shipPhase(k) ? ph[KC.shipPhase(k)] : '') + '</span><span class="ss-d"></span><span class="ss-l">' + esc(l) + '</span></li>').join('') + '</ol>';
+}
+
+/** New shipment: the items waiting to ship, all ticked (they go in when the shipment is saved). */
+function shipPickHTML() {
+  const free = K.raw.lots.filter((l) => K.C.lotX[l.id].stage === 'us').sort((a, b) => (a.purchaseDate || '').localeCompare(b.purchaseDate || ''));
+  if (!free.length) return '<div class="alert info">' + ic('buy', 'sm') + '<div>Nothing is waiting to ship yet. You can add items to this shipment later, once you record purchases made abroad.</div></div>';
+  const units = free.reduce((a, l) => a + num(l.qty), 0);
+  return '<div class="sp-box"><div class="row between wrap"><b>What goes in this shipment</b><label class="toggle"><input type="checkbox" id="spAll" checked> All ' + free.length + ' line' + (free.length === 1 ? '' : 's') + ' · ' + fmt(units) + ' units</label></div>' +
+    '<div class="sp-list">' + free.map((l) => { const p = byId('products', l.productId) || {}; return '<label class="sp-it"><input type="checkbox" data-sp="' + l.id + '" checked><span class="grow">' + esc(p.name || '?') + '<span class="sub">' + esc([l.vendor, fmtDate(l.purchaseDate)].filter(Boolean).join(' · ')) + '</span></span><b>×' + fmt(l.qty) + '</b></label>'; }).join('') + '</div></div>';
 }

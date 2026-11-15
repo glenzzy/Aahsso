@@ -308,7 +308,7 @@ VIEWS.ship = {
       '<div class="toolbar mb"><button class="btn pri" data-a="newShip">' + ic('plus') + 'New shipment</button></div>' +
       '<section class="card flow-card mb2"><div class="home-card-h"><h2>Waiting to ship</h2><span class="hint">' + (waitU ? fmt(waitU) + ' units · ' + wait.length + ' line' + (wait.length === 1 ? '' : 's') + (seeCost() ? ' · ' + F(waitVal) : '') : '') + '</span></div>' +
         (wait.length ? '<div class="mini-list">' + wait.slice(0, 6).map((l) => { const p = byId('products', l.productId) || {}; return '<div class="mini"><div class="grow"><div class="mini-t">' + esc(p.name || '?') + '</div><div class="mini-d">' + esc([l.vendor, fmtDate(l.purchaseDate)].filter(Boolean).join(' · ')) + '</div></div><div class="mini-v">×' + fmt(l.qty) + '</div></div>'; }).join('') + (wait.length > 6 ? '<div class="hint pad-x">…and ' + (wait.length - 6) + ' more</div>' : '') + '</div>' +
-          '<div class="pad row wrap">' + (active.length ? active.slice(0, 3).map((s) => '<button class="btn" data-a="shAddItems" data-id="' + s.id + '">' + ic('plus', 'sm') + 'Add to ' + esc(s.name || s.containerNo || 'shipment') + '</button>').join('') : '<button class="btn pri" data-a="newShip">' + ic('plus') + 'Start a shipment with them</button>') + '</div>'
+          '<div class="pad row wrap">' + (K.raw.shipments.length ? '<select class="inp" id="wtShip" style="width:auto;max-width:100%" aria-label="Shipment to put them in">' + active.concat(later).map((s) => '<option value="' + s.id + '">' + esc(s.name || s.containerNo || 'Shipment') + ' · ' + esc(KC.SHIP_STATUSES[stIdx(s.status)][1]) + '</option>').join('') + '</select><button class="btn pri" data-a="wtAdd">' + ic('plus', 'sm') + 'Put them in this shipment</button><span class="hint">or</span><button class="btn" data-a="newShip">New shipment</button>' : '<button class="btn pri" data-a="newShip">' + ic('plus') + 'Start a shipment with them</button>') + '</div>'
           : '<div class="hint pad">Nothing waiting. Everything you buy abroad appears here until it is put in a shipment. <a href="#buy">Record a purchase</a></div>') + '</section>' +
       '<h2 class="sec-t">Shipments in progress</h2>' + shipTable(active, 'shipActive') +
       (later.length ? '<details class="fold mt2"><summary>Arrived shipments (' + later.length + ')</summary><div class="fold-body">' + shipTable(later, 'shipDone') + '</div></details>' : '');
@@ -337,6 +337,7 @@ function recvCard(s) {
     return '<li class="rstep' + (done ? ' done' : now ? ' now' : '') + '"><span class="rs-dot">' + (done ? ic('check', 'sm') : n) + '</span><div class="grow"><div class="rs-t">' + title + '</div><div class="hint">' + esc(info || hint) + '</div></div><div class="row wrap gap6 rs-a">' + act + '</div></li>';
   };
   return '<section class="card recv-card"><div class="recv-h" data-a="openShipD" data-id="' + s.id + '" role="button" tabindex="0"><div class="grow"><b>' + esc(s.name || 'Shipment') + '</b><div class="hint">' + esc([s.containerNo, fmt(x ? x.units : 0) + ' units', s.agent ? 'agent ' + s.agent : ''].filter(Boolean).join(' · ')) + '</div></div><span class="badge ' + (s.status === 'received' ? 'ok' : 'info') + '">' + esc(KC.SHIP_STATUSES[i][1]) + '</span>' + ic('chev', 'sm') + '</div>' +
+    (lots.length ? '' : '<div class="alert bad recv-empty">' + ic('alert', 'sm') + '<div><b>This shipment is empty.</b> Put the items you bought in it' + (waitingLots().length ? ' — ' + waitingLots().length + ' line' + (waitingLots().length === 1 ? ' is' : 's are') + ' waiting to ship.' : '.') + '</div>' + (waitingLots().length ? '<button class="btn sm pri" data-a="shAddItems" data-id="' + s.id + '">Add items</button>' : '') + '</div>') +
     '<ol class="rsteps">' + RECV_STEPS.map(([k, t, h], j) => step(k, j + 1, t, h)).join('') + '</ol></section>';
 }
 VIEWS.receive = {
@@ -352,6 +353,7 @@ VIEWS.receive = {
 };
 A.rcvSet = async (el) => {
   const s = byId('shipments', el.dataset.id); const to = el.dataset.v;
+  if (needsItems(s)) return;
   if (to === 'received') return A.rcvCount(el);
   const dk = { at_port: 'arrivedAt', cleared: 'clearedAt', closed: 'readyAt' }[to];
   const o = Object.assign({}, s, { status: to }); if (dk) o[dk] = todayStr();
@@ -359,3 +361,5 @@ A.rcvSet = async (el) => {
 };
 A.rcvCount = (el) => openShip(el.dataset.id, 'recv');
 A.rcvLabels = (el) => { const ids = [...new Set(K.raw.lots.filter((l) => l.shipmentId === el.dataset.id).map((l) => l.productId))]; if (!ids.length) return toast('No items in this shipment', true); labelsSheet(ids); };
+
+A.wtAdd = () => { const s = $('#wtShip'); if (s && s.value) A.shAddItems({ dataset: { id: s.value } }); };

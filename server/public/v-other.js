@@ -18,6 +18,10 @@ function homeTodos() {
   const t = todayStr(); const w = num(S().expiryWarnDays) || 60, low = num(S().lowStock) || 3; const out = [];
   const add = (level, icon, title, detail, attrs) => out.push({ level, icon, title, detail, attrs });
   if (can('sell') || can('payments')) { const o = newOrders(); if (o.length) add('info', 'sell', o.length + ' online order' + (o.length === 1 ? '' : 's') + ' to confirm', F(o.reduce((a, x) => a + num(x.subtotal), 0)), 'data-a="go" data-r="orders"'); }
+  if (can('containers')) { // bought abroad but in no shipment yet: they can never reach the shop until they are put in one
+    const wl = K.raw.lots.filter((l) => (K.C.lotX[l.id] || {}).stage === 'us'); const wu = wl.reduce((a, l) => a + num(l.qty), 0);
+    if (wl.length) add('warn', 'ship', fmt(wu) + ' unit' + (wu === 1 ? '' : 's') + ' waiting to ship', 'Put them in a shipment so they can reach the shop', 'data-a="go" data-r="ship"');
+  }
   const toSend = visibleSales().filter((s) => KC.isDelivery(s) && s.delivery.status === 'to_send' && K.C.saleX[s.id].status !== 'cancelled');
   if (toSend.length) add('warn', 'ship', toSend.length + ' deliver' + (toSend.length === 1 ? 'y' : 'ies') + ' to send', toSend.slice(0, 2).map((s) => s.delivery.destination).filter(Boolean).join(', '), 'data-a="goSales" data-f="deliver"');
   if (can('reminders')) { const od = owingCustomers().filter((o) => o.daysLate > 0); if (od.length) add('bad', 'wa', od.length + ' customer' + (od.length === 1 ? '' : 's') + ' overdue', F(od.reduce((a, o) => a + o.balance, 0)) + ' to collect', 'data-a="go" data-r="reminders"'); }

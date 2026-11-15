@@ -950,3 +950,13 @@ table.pch-t{min-width:800px}
 .pch-t th,.pch-t td{padding-left:12px;padding-right:12px}
 .pch-t .pc-d{display:inline-block;margin-top:3px;font-size:11.5px;font-weight:700;padding:1px 6px;border-radius:999px;font-variant-numeric:tabular-nums}
 .pch-t .pc-d.up{background:var(--okSoft);color:var(--ok)} .pch-t .pc-d.down{background:var(--badSoft);color:var(--bad)}
+
+/* new shipment: what goes in it */
+.sp-box{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--card)}
+.sp-list{max-height:240px;overflow:auto;margin-top:8px;display:flex;flex-direction:column}
+.sp-it{display:flex;align-items:center;gap:10px;padding:7px 4px;border-top:1px solid var(--line2);cursor:pointer}
+.sp-it:first-child{border-top:0}
+.sp-it input{width:18px;height:18px;accent-color:var(--brand)}
+.sp-it .sub{display:block;font-size:12px;color:var(--ink3)}
+.recv-empty{margin:12px 16px 0;align-items:center}
+.recv-empty .btn{margin-left:auto}
