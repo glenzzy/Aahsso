@@ -176,8 +176,8 @@ A.remCopy = async (el) => { const o = owingCustomers().find((x) => x.id === el.d
 
 /* ================= LOCATIONS (settings card) ================= */
 function locationsCard() {
-  return '<div class="card pad2 mb"><h2 class="mb">Branches & warehouses</h2><div class="tiny muted mb">Each branch keeps its own stock. Move stock with Branch transfers. Staff can be tied to one branch in Team & access.</div><div class="card list mb">' +
-    allLocs().map((l) => '<div class="li" data-a="locEdit" data-id="' + l.id + '"><div class="av">' + ic('home', 'sm') + '</div><div class="grow"><div class="t">' + esc(l.name) + '</div><div class="tiny muted">' + (l.id === 'main' ? 'Main location — containers unload here by default' : esc(l.type || 'Shop') + (l.address ? ' · ' + esc(l.address) : '')) + '</div></div>' + ic('edit', 'sm') + '</div>').join('') + '</div><button class="btn" data-a="locEdit">' + ic('plus') + 'Add branch</button></div>';
+  return '<div class="card pad2 mb"><h2 class="mb">Branches & warehouses</h2><div class="tiny muted mb">Each branch keeps its own stock. Move stock with Branch transfers. Staff can be tied to one branch in Team & access.</div><div class="card list loc-list">' +
+    allLocs().map((l) => '<div class="li" data-a="locEdit" data-id="' + l.id + '"><div class="av">' + ic('home', 'sm') + '</div><div class="grow"><div class="t">' + esc(l.name) + '</div><div class="tiny muted">' + (l.id === 'main' ? 'Main location — containers unload here by default' : esc(l.type || 'Shop') + (l.address ? ' · ' + esc(l.address) : '')) + '</div></div>' + ic('edit', 'sm') + '</div>').join('') + '</div><div class="loc-acts"><button class="btn" data-a="locEdit">' + ic('plus') + 'Add branch</button></div></div>';
 }
 A.locEdit = (el) => {
   const id = el.dataset.id; const isMain = id === 'main'; const l = isMain ? { name: S().mainLocationName || 'Main warehouse' } : id ? byId('locations', id) : { type: 'Shop' };
