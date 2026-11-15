@@ -157,26 +157,46 @@ function dayCloseText(c) {
     (seeCost() ? '\nGross profit: ' + F(c.st.profit) + '\n*Profit after expenses: ' + F(c.profitLeft) + '*' : '');
 }
 // quick-add row: what was typed survives a background refresh (K.ui.eodQuick)
-const eodQ = () => (K.ui.eodQuick = K.ui.eodQuick || { category: KC.EXPENSE_CATS[0], amount: '', method: 'Cash', description: '' });
+const eodQ = () => (K.ui.eodQuick = K.ui.eodQuick || { category: KC.EXPENSE_CATS[0], amount: '', method: 'Cash', description: '', stage: 'general', shipmentId: '' });
+/** Steps grouped by phase (Day-to-day last), as a <select>. */
+function stageSel(id, val, attrs) {
+  const groups = KC.EXPENSE_PHASES.map((ph) => [ph, KC.EXPENSE_STAGES.filter((x) => x[2] === ph)]);
+  return '<select class="inp" id="' + id + '" ' + (attrs || '') + '>' + groups.map(([ph, list]) => ph === 'Day-to-day' ? list.map((x) => '<option value="' + x[0] + '"' + (x[0] === val ? ' selected' : '') + '>Day-to-day</option>').join('')
+    : '<optgroup label="' + ph + '">' + list.map((x) => '<option value="' + x[0] + '"' + (x[0] === val ? ' selected' : '') + '>' + (list.length > 1 ? ph + ' · ' : '') + x[1] + '</option>').join('') + '</optgroup>').join('') + '</select>';
+}
+const stageNeedsShip = (st) => ['Ship', 'Receive', 'Sell'].includes((KC.EXPENSE_STAGES.find((x) => x[0] === st) || [])[2]);
+/** Shipments to link an expense to (the ones at that step first). */
+function shipOpts(st, val) {
+  const list = K.raw.shipments.slice().sort((a, b) => (a.status === st ? 0 : 1) - (b.status === st ? 0 : 1) || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  return [['', '— No particular shipment —']].concat(list.map((x) => [x.id, (x.name || x.containerNo || 'Shipment') + ' · ' + KC.SHIP_STATUSES[stIdx(x.status)][1]]));
+}
 function eodQuickForm() {
-  const q = eodQ();
+  const q = eodQ(); const withShip = stageNeedsShip(q.stage) && K.raw.shipments.length;
   return '<div class="quick-add" id="eodQuick">' +
-    '<label class="f"><span class="lbl">What for</span>' + sel('qCat', KC.EXPENSE_CATS, q.category, 'id="qCat"') + '</label>' +
-    '<label class="f"><span class="lbl">Amount</span><div class="in-unit"><input class="inp" id="qAmt" inputmode="numeric" value="' + esc(q.amount) + '" placeholder="0" autocomplete="off"><span>' + esc(baseSym()) + '</span></div></label>' +
-    '<label class="f"><span class="lbl">Paid by</span>' + sel('qMethod', KC.PAY_METHODS, q.method, 'id="qMethod"') + '</label>' +
-    '<label class="f grow"><span class="lbl">Details <span class="hint">(optional)</span></span><input class="inp" id="qDesc" value="' + esc(q.description) + '" placeholder="e.g. lunch for staff" autocomplete="off"></label>' +
-    '<button type="button" class="btn pri" data-a="eodAdd">' + ic('plus') + 'Add</button></div>';
+    '<label class="f qa-cat"><span class="lbl">What for</span>' + sel('qCat', KC.EXPENSE_CATS, q.category, 'id="qCat"') + '</label>' +
+    '<label class="f qa-st"><span class="lbl">Phase</span>' + stageSel('qStage', q.stage) + '</label>' +
+    (withShip ? '<label class="f qa-sh"><span class="lbl">Shipment</span>' + sel('qShip', shipOpts(q.stage, q.shipmentId), q.shipmentId, 'id="qShip"') + '</label>' : '') +
+    '<label class="f qa-amt"><span class="lbl">Amount</span><div class="in-unit"><input class="inp" id="qAmt" inputmode="numeric" value="' + esc(q.amount) + '" placeholder="0" autocomplete="off"><span>' + esc(baseSym()) + '</span></div></label>' +
+    '<label class="f qa-pay"><span class="lbl">Paid by</span>' + sel('qMethod', KC.PAY_METHODS, q.method, 'id="qMethod"') + '</label>' +
+    '<label class="f grow qa-desc"><span class="lbl">Details <span class="hint">(optional)</span></span><input class="inp" id="qDesc" value="' + esc(q.description) + '" placeholder="e.g. lunch for staff" autocomplete="off"></label>' +
+    '<button type="button" class="btn pri qa-go" data-a="eodAdd">' + ic('plus') + 'Add</button></div>';
 }
 ['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
-  const m = { qCat: 'category', qAmt: 'amount', qMethod: 'method', qDesc: 'description' }[e.target.id]; if (m) eodQ()[m] = e.target.value;
+  const m = { qCat: 'category', qAmt: 'amount', qMethod: 'method', qDesc: 'description', qStage: 'stage', qShip: 'shipmentId' }[e.target.id]; if (!m) return;
+  eodQ()[m] = e.target.value;
+  if (m === 'stage' && t === 'change') { // show / hide the shipment box, keep what was typed
+    const q = eodQ(); if (!stageNeedsShip(q.stage)) q.shipmentId = ''; else { const at = K.raw.shipments.find((x) => x.status === q.stage); if (at) q.shipmentId = at.id; } // the shipment at that step, if there is one
+    const box = $('#eodQuick'); if (box) { box.outerHTML = eodQuickForm(); const st = $('#qStage'); if (st) st.focus(); }
+  }
 }));
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && ['qAmt', 'qDesc'].includes(e.target.id)) { e.preventDefault(); A.eodAdd(); } });
 A.eodAdd = async () => {
   const q = eodQ(); const amount = num(q.amount); const d = K.ui.eodDate || todayStr();
   if (!(amount > 0)) { const a = $('#qAmt'); if (a) a.focus(); return toast('Type the amount', true); }
-  if (await save('expenses', { id: uid('e_'), date: d, category: q.category, amount, method: q.method, description: (q.description || '').trim(), locationId: K.loc, by: K.me.name || '', byId: K.me.id || '' })) {
-    K.ui.eodQuick = { category: q.category, amount: '', method: q.method, description: '' };
-    render(true); const a = $('#qAmt'); if (a) a.focus(); toast(q.category + ' · ' + F(amount) + ' added');
+  const st = KC.expenseStage({ stage: q.stage });
+  if (await save('expenses', { id: uid('e_'), date: d, category: q.category, amount, method: q.method, description: (q.description || '').trim(), stage: st[0], shipmentId: stageNeedsShip(st[0]) ? q.shipmentId || '' : '', locationId: K.loc, by: K.me.name || '', byId: K.me.id || '' })) {
+    K.ui.eodQuick = { category: q.category, amount: '', method: q.method, description: '', stage: q.stage, shipmentId: q.shipmentId };
+    render(true); const a = $('#qAmt'); if (a) a.focus(); toast(q.category + ' · ' + F(amount) + ' · ' + (st[0] === 'general' ? 'day-to-day' : st[2] + ' · ' + st[1]));
   }
 };
 CH.eodDate = (el) => { K.ui.eodDate = el.value; render(true); };
@@ -198,15 +218,31 @@ VIEWS.expenses = {
         (c.exps.length ? '<div class="pad-x mt">' + expTable(c.exps, 'eodList', { noDate: true, plain: true }) + '</div>' : '<div class="hint pad-x mt">Nothing recorded for this day yet.</div>') +
         (modes.length ? '<details class="fold pad-x"><summary>Cash & mobile money breakdown</summary><div class="fold-body">' + modes.map((r) => '<div class="row between cl"><span>' + esc(r.m) + '</span><span class="hint">' + fmt(r.inn) + ' in · ' + fmt(r.out) + ' out</span><b class="money' + neg(r.left) + '">' + F(r.left) + '</b></div>').join('') + '</div></details>' : '') +
       '</section>' +
-      '<div class="page-head mt2"><div><h2>' + MONTHS[+m.slice(5) - 1] + ' ' + m.slice(0, 4) + ' · ' + F(monthTotal) + '</h2><div class="hint">Running costs. Shipping and customs costs go in each shipment; equipment and vehicles go in <a href="#assets">Assets</a>.</div></div><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth" aria-label="Choose the month"><button class="btn ghost" data-a="expEdit">' + ic('plus') + 'Other date</button></div></div>' +
-      expTable(list, 'expList', { empty: 'No expenses this month.' });
+      '<div class="page-head mt2"><div><h2>' + MONTHS[+m.slice(5) - 1] + ' ' + m.slice(0, 4) + ' · ' + F(monthTotal) + '</h2><div class="hint">Equipment and vehicles go in <a href="#assets">Assets</a>; costs added to a shipment raise the landed cost of its items.</div></div><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="expMonth" aria-label="Choose the month">' + (can('export') ? '<button class="btn ghost" data-a="expXlsx" data-m="' + m + '">' + ic('dl') + 'Excel</button>' : '') + '<button class="btn ghost" data-a="expEdit">' + ic('plus') + 'Other date</button></div></div>' +
+      expPhaseCards(list) +
+      expTable(K.ui.expPhase ? list.filter((e) => KC.expenseStage(e)[2] === K.ui.expPhase) : list, 'expList', { empty: K.ui.expPhase ? 'No ' + K.ui.expPhase.toLowerCase() + ' expenses this month.' : 'No expenses this month.' });
   },
 };
 CH.expMonth = (el) => { K.ui.expMonth = el.value; render(true); };
+/** The month by phase: total and count per phase, each card filters the list; steps listed inside. */
+function expPhaseCards(list) {
+  const tot = list.reduce((a, e) => a + num(e.amount), 0); const cur = K.ui.expPhase || '';
+  const by = {}; KC.EXPENSE_PHASES.forEach((p) => (by[p] = { amt: 0, n: 0, steps: {} }));
+  list.forEach((e) => { const st = KC.expenseStage(e); const b = by[st[2]]; b.amt += num(e.amount); b.n++; b.steps[st[1]] = (b.steps[st[1]] || 0) + num(e.amount); });
+  return '<div class="ph-cards" role="tablist" aria-label="Expenses by phase"><button class="phc' + (!cur ? ' on' : '') + '" data-a="expPhase" data-v=""><span class="phc-l">All phases</span><b>' + F(tot) + '</b><span class="phc-s">' + list.length + ' entr' + (list.length === 1 ? 'y' : 'ies') + '</span></button>' +
+    KC.EXPENSE_PHASES.map((p) => { const b = by[p]; const steps = Object.entries(b.steps).sort((x, y) => y[1] - x[1]); return '<button class="phc ph-' + p.toLowerCase().replace(/[^a-z]/g, '') + (cur === p ? ' on' : '') + (b.n ? '' : ' empty') + '" data-a="expPhase" data-v="' + p + '"><span class="phc-l">' + p + '</span><b>' + F(b.amt) + '</b><span class="phc-s">' + (b.n ? (steps.length > 1 || p === 'Ship' || p === 'Receive' ? steps.map(([k, v]) => k + ' ' + fmt(v)).join(' · ') : b.n + ' entr' + (b.n === 1 ? 'y' : 'ies')) : 'Nothing yet') + '</span>' + (tot && b.amt ? '<span class="phc-bar"><i style="width:' + Math.round(b.amt / tot * 100) + '%"></i></span>' : '') + '</button>'; }).join('') + '</div>';
+}
+A.expPhase = (el) => { K.ui.expPhase = el.dataset.v || ''; render(true); };
+A.expXlsx = (el) => {
+  const m = el.dataset.m; const rows = K.raw.expenses.filter((e) => (e.date || '').slice(0, 7) === m).sort((a, b) => a.date.localeCompare(b.date)).map((e) => { const st = KC.expenseStage(e); return { Date: e.date, 'What for': e.category, Phase: st[2], Step: st[0] === 'general' ? '' : st[1], Shipment: e.shipmentId ? ((byId('shipments', e.shipmentId) || {}).name || '') : '', Details: e.description || '', 'Paid by': e.method || 'Cash', ['Amount (' + baseSym() + ')']: num(e.amount), 'Recorded by': e.by || '', Branch: locName(e.locationId || 'main') }; });
+  const sum = KC.EXPENSE_PHASES.map((p) => ({ Phase: p, Entries: rows.filter((r) => r.Phase === p).length, ['Amount (' + baseSym() + ')']: rows.filter((r) => r.Phase === p).reduce((a, r) => a + r['Amount (' + baseSym() + ')'], 0) }));
+  xlsxDownload('Expenses-' + m + '.xlsx', { Expenses: rows, 'By phase': sum });
+};
 A.expEdit = (el) => {
   const id = el.dataset.id; const e = id ? byId('expenses', id) : { date: todayStr(), method: 'Cash', category: KC.EXPENSE_CATS[0] };
-  const sh = openSheet({ title: id ? 'Edit expense' : 'Add expense', body: '<div class="col"><div class="grid2">' + field('Date', inp('date', e.date, 'type="date"')) + field('Amount (' + baseSym() + ')', inp('amount', e.amount, 'inputmode="numeric"')) + field('Category', sel('category', KC.EXPENSE_CATS, e.category)) + field('Paid by', sel('method', KC.PAY_METHODS, e.method)) + '</div>' + field('Description', inp('description', e.description)) + (K.raw.assets.length ? field('For asset (optional)', sel('assetId', [['', '—']].concat(K.raw.assets.filter((a) => !KC.assetGone(a) || a.id === e.assetId).map((a) => [a.id, a.name + (a.tag ? ' · ' + a.tag : '')])), e.assetId || '')) : '') + '</div>', foot: (id ? '<button class="btn danger" id="eDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="eSave">Save</button>' });
-  $('#eSave', sh).onclick = async () => { const v = formVals(sh); v.amount = num(v.amount); if (!v.amount) return toast('Enter an amount', true); if (await save('expenses', Object.assign({ locationId: K.loc }, id ? {} : { by: K.me.name || '', byId: K.me.id || '' }, e, v, { id: id || uid('e_') }))) { closeSheet(); scheduleRender(); } };
+  const sh = openSheet({ title: id ? 'Edit expense' : 'Add expense', body: '<div class="col"><div class="grid2">' + field('Date', inp('date', e.date, 'type="date"')) + field('Amount (' + baseSym() + ')', inp('amount', e.amount, 'inputmode="numeric"')) + field('Category', sel('category', KC.EXPENSE_CATS, e.category)) + field('Paid by', sel('method', KC.PAY_METHODS, e.method)) + field('Phase', stageSel('eStage', KC.expenseStage(e)[0], 'name="stage"')) + '<div id="eShipBox" class="' + (stageNeedsShip(KC.expenseStage(e)[0]) && K.raw.shipments.length ? '' : 'hide') + '">' + field('Shipment', sel('shipmentId', shipOpts(KC.expenseStage(e)[0], e.shipmentId), e.shipmentId || '')) + '</div></div>' + field('Description', inp('description', e.description)) + (K.raw.assets.length ? field('For asset (optional)', sel('assetId', [['', '—']].concat(K.raw.assets.filter((a) => !KC.assetGone(a) || a.id === e.assetId).map((a) => [a.id, a.name + (a.tag ? ' · ' + a.tag : '')])), e.assetId || '')) : '') + '</div>', foot: (id ? '<button class="btn danger" id="eDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="eSave">Save</button>' });
+  $('#eStage', sh).addEventListener('change', (ev) => { const show = stageNeedsShip(ev.target.value) && K.raw.shipments.length; $('#eShipBox', sh).classList.toggle('hide', !show); if (!show) $('[name=shipmentId]', sh).value = ''; });
+  $('#eSave', sh).onclick = async () => { const v = formVals(sh); v.amount = num(v.amount); if (!v.amount) return toast('Enter an amount', true); if (!stageNeedsShip(v.stage)) v.shipmentId = ''; if (await save('expenses', Object.assign({ locationId: K.loc }, id ? {} : { by: K.me.name || '', byId: K.me.id || '' }, e, v, { id: id || uid('e_') }))) { closeSheet(); scheduleRender(); } };
   if (id) $('#eDel', sh).onclick = async () => { if (await confirmBox('Delete this expense?', 'Delete', true)) { await remove('expenses', id); closeSheet(); scheduleRender(); } };
 };
 
@@ -451,6 +487,8 @@ function expTable(list, id, opts = {}) {
     cols: [
       opts.noDate ? null : { k: 'date', label: 'Date', core: true, v: (e) => e.date, html: (e) => dtDate(e.date) },
       { k: 'cat', label: 'What for', core: true, v: (e) => e.category, html: (e) => '<b>' + esc(e.category) + '</b>' },
+      { k: 'phase', label: 'Phase', core: true, v: (e) => { const st = KC.expenseStage(e); return st[0] === 'general' ? 'Day-to-day' : st[2] === st[1] ? st[2] : st[2] + ' · ' + st[1]; }, html: (e) => { const st = KC.expenseStage(e); return '<span class="phb ph-' + st[2].toLowerCase().replace(/[^a-z]/g, '') + '">' + esc(st[0] === 'general' ? 'Day-to-day' : st[2] === st[1] ? st[2] : st[2] + ' · ' + st[1]) + '</span>'; } },
+      { k: 'ship', label: 'Shipment', v: (e) => e.shipmentId ? ((byId('shipments', e.shipmentId) || {}).name || '') : '', cls: 'mut' },
       { k: 'desc', label: 'Details', core: true, v: (e) => e.description || '' },
       { k: 'method', label: 'Paid by', core: true, v: (e) => e.method || 'Cash' },
       { k: 'amount', label: 'Amount', core: true, money: true, cls: 'b', v: (e) => num(e.amount), total: (rows) => fmt(dtSum(rows, (e) => e.amount)) },

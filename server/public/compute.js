@@ -89,6 +89,16 @@
     const step = num(S && S.roundTo); x = step > 0 ? Math.round(x / step) * step : Math.round(x);
     return Math.max(0, Math.min(base, x));
   }
+  /* Where in the flow an expense belongs: Buy, the Ship steps, the Receive steps, Sell — or day-to-day running costs. */
+  const EXPENSE_STAGES = [
+    ['general', 'Day-to-day', 'Day-to-day'], ['buy', 'Buy', 'Buy'],
+    ['planning', 'Consolidating', 'Ship'], ['loading', 'Loading', 'Ship'], ['in_transit', 'On the way', 'Ship'],
+    ['at_port', 'Arrived in Cameroon', 'Receive'], ['cleared', 'Customs cleared', 'Receive'], ['received', 'In warehouse', 'Receive'],
+    ['closed', 'Ready to sell', 'Sell'],
+  ];
+  const EXPENSE_PHASES = ['Buy', 'Ship', 'Receive', 'Sell', 'Day-to-day'];
+  /** [key, step label, phase] of an expense (older expenses have no step: day-to-day). */
+  const expenseStage = (e) => EXPENSE_STAGES.find((x) => x[0] === (e && e.stage)) || EXPENSE_STAGES[0];
   function allocTax(lines, taxTotal) {
     const t = Math.round(num(taxTotal) * 100) / 100; const vals = (lines || []).map((l) => Math.max(0, num(l.unitCost) * num(l.qty)));
     const sub = vals.reduce((a, v) => a + v, 0); if (!lines || !lines.length || !(t > 0)) return (lines || []).map(() => 0);
@@ -808,6 +818,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

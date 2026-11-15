@@ -404,3 +404,12 @@ test('promotions: lower the price and the floor while running; ignored when ende
   assert.equal(KC.promoPriceOf({ type: 'price', value: 99999 }, 2000, {}), 2000); // never above the normal price
   assert.equal(KC.promoStatus({ start: '2999-01-01' }), 'scheduled');
 });
+
+test('expense phases: each step belongs to a phase; older expenses are day-to-day', () => {
+  assert.deepEqual(KC.expenseStage({ stage: 'loading' }), ['loading', 'Loading', 'Ship']);
+  assert.deepEqual(KC.expenseStage({ stage: 'cleared' }).slice(1), ['Customs cleared', 'Receive']);
+  assert.equal(KC.expenseStage({ stage: 'closed' })[2], 'Sell');
+  assert.equal(KC.expenseStage({ stage: 'buy' })[2], 'Buy');
+  assert.equal(KC.expenseStage({})[2], 'Day-to-day');
+  assert.deepEqual(KC.EXPENSE_PHASES, ['Buy', 'Ship', 'Receive', 'Sell', 'Day-to-day']);
+});
