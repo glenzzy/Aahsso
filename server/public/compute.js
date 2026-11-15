@@ -237,6 +237,23 @@
     return out;
   }
 
+  /* ---------- online shop address: /s/<slug>, made from the store name, unique across Kargo ---------- */
+  const SHOP_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/;
+  const RESERVED_SLUGS = ['admin', 'api', 'app', 'www', 'kargo', 'shop', 'shops', 'store', 'stores', 'login', 'signup', 'register', 'help', 'support', 'settings', 'orders', 'static', 'assets', 'new', 'test', 'demo'];
+  /** "Mama's Beauté & Co" → "mamas-beaute-and-co" */
+  function shopSlugify(s) {
+    return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/['’]/g, '').replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+  }
+  /** Why a shop address can't be used ('' when fine). */
+  function shopSlugError(s) {
+    if (!s) return 'Type an address for your shop';
+    if (s.length < 3) return 'Use at least 3 letters or numbers';
+    if (!SHOP_SLUG_RE.test(s)) return 'Use only letters, numbers and dashes (3 to 40)';
+    if (RESERVED_SLUGS.includes(s)) return 'This address is reserved — choose another';
+    return '';
+  }
+
   /* ---------- public shop (clients order and type their own details) ---------- */
   /** What clients may see: items in stock with a price. Never costs; exact stock only when few are left. */
   function shopCatalog(raw, C) {
@@ -474,14 +491,14 @@
     ['customers', 'Add & edit customers', 'Sales'], ['credit', 'Sell beyond a customer\'s credit limit', 'Sales'], ['reminders', 'Send payment reminders to customers', 'Sales'],
     ['stockView', 'See stock list', 'Stock'], ['stockEdit', 'Adjust stock, set prices, photos & labels', 'Stock'],
     ['purchases', 'Record purchases', 'Stock'], ['containers', 'Containers & shipping costs', 'Stock'], ['transfers', 'Move stock between branches', 'Stock'], ['audit', 'Do stock counts (inventory audit)', 'Stock'], ['allLocations', 'Work at all locations (off = only their own)', 'Stock'],
-    ['costs', 'See costs, margins & profit', 'Money'], ['reports', 'See reports & analytics', 'Money'], ['expenses', 'Record expenses', 'Money'], ['handover', 'Confirm staff cash handovers', 'Money'], ['suppliers', 'Suppliers & bills to pay', 'Money'], ['assets', 'Business assets (equipment, vehicles…)', 'Money'],
-    ['export', 'Download Excel & backups', 'Admin'], ['activity', 'See the activity log (who did what)', 'Admin'], ['settings', 'Change business settings', 'Admin'], ['team', 'Manage team & permissions', 'Admin'],
+    ['costs', 'See costs, margins & profit', 'Money'], ['reports', 'See reports & analytics', 'Money'], ['expenses', 'Record expenses', 'Money'], ['handover', 'Confirm staff cash handovers', 'Money'], ['payroll', 'Payroll: salaries, advances & payslips', 'Money'], ['suppliers', 'Suppliers & bills to pay', 'Money'], ['assets', 'Business assets (equipment, vehicles…)', 'Money'],
+    ['export', 'Download Excel & backups', 'Admin'], ['activity', 'See the activity log (who did what)', 'Admin'], ['settings', 'Change business settings', 'Admin'], ['team', 'Manage team & permissions', 'Admin'], ['hr', 'Staff: attendance, leave approval & employee files', 'Admin'],
   ];
   const ALL = PERMS.map((p) => p[0]);
   const ROLES = {
     owner: { label: 'Owner', perms: ALL },
     admin: { label: 'Admin', perms: ALL },
-    manager: { label: 'Manager', perms: ALL.filter((p) => !['team', 'settings'].includes(p)) },
+    manager: { label: 'Manager', perms: ALL.filter((p) => !['team', 'settings', 'payroll'].includes(p)) },
     sales: { label: 'Sales rep', perms: ['sell', 'payments', 'returns', 'customers', 'stockView'] },
     viewer: { label: 'Viewer (read only)', perms: ['stockView', 'reports', 'salesAll', 'allLocations'] },
   };
@@ -663,7 +680,121 @@
   function collectedBy(raw, userId, date) {
     const by = {}, feesBy = {}; let total = 0, fees = 0; const items = [];
     (raw.sales || []).forEach((s) => (s.payments || []).forEach((p) => { if (p.byId === userId && p.date === date) { by[p.method] = (by[p.method] || 0) + num(p.amount); total += num(p.amount); const f = Math.max(0, num(p.fee)); if (f) { feesBy[p.method] = (feesBy[p.method] || 0) + f; fees += f; } items.push({ saleId: s.id, no: s.no, txnId: saleTxnId(s), customer: s.customerName, p }); } }));
-    return { by, total, feesBy, fees, items };
+    // till taken over from / handed to a colleague during the day moves what this person must hand over
+    const mv = tillMoves(raw, userId, date); const collected = total;
+    Object.entries(mv.into).forEach(([m, v]) => { by[m] = (by[m] || 0) + v; total += v; });
+    Object.entries(mv.outOf).forEach(([m, v]) => { by[m] = (by[m] || 0) - v; total -= v; });
+    Object.keys(by).forEach((m) => { if (Math.abs(by[m]) < 0.005) delete by[m]; });
+    return { by, total, feesBy, fees, items, collected, moves: mv.list };
+  }
+
+  /* ================= STAFF: attendance, leave, payroll, till takeovers ================= */
+  // Employees with a login have the staff id 'u_<userId>'; people without a login get their own id.
+  const staffIdOf = (userId) => 'u_' + String(userId || '').replace(/[^A-Za-z0-9_\-]/g, '');
+  const PAY_TYPES = [['monthly', 'Monthly salary'], ['daily', 'Daily rate'], ['hourly', 'Hourly rate']];
+  const LEAVE_TYPES = [['vacation', 'Paid vacation', true], ['sick', 'Sick leave (paid)', true], ['unpaid', 'Unpaid leave', false], ['other', 'Other paid leave', true]];
+  const LEAVE_STATUS = [['requested', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Declined'], ['cancelled', 'Cancelled']];
+  const CLOCK = { in: 'Clocked in', break: 'Break', back: 'Back from break', out: 'Clocked out' };
+  const STAFF_DEFAULTS = { workWeek: [1, 2, 3, 4, 5, 6], workStart: '08:00', workEnd: '18:00', lateGraceMin: 10, hoursPerDay: 8, overtimeRate: 1.5, leavePerYear: 18 };
+  const staffRules = (S) => { const o = Object.assign({}, STAFF_DEFAULTS, (S && S.staffRules) || {}); o.workWeek = Array.isArray(o.workWeek) && o.workWeek.length ? o.workWeek.map(Number) : STAFF_DEFAULTS.workWeek; return o; };
+  const ymdOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const dowOf = (ymd) => new Date(ymd + 'T12:00:00').getDay(); // 0 = Sunday
+  const hmMin = (hm) => { const [h, m] = String(hm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+  const minOfDay = (iso) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
+  function datesBetween(from, to) { const out = []; if (!from || !to || to < from) return out; let d = from; for (let i = 0; i < 400 && d <= to; i++) { out.push(d); d = addDays(d, 1); } return out; }
+  const monthDays = (month) => { const [y, m] = month.split('-').map(Number); const last = new Date(y, m, 0).getDate(); return datesBetween(month + '-01', month + '-' + String(last).padStart(2, '0')); };
+  const isWorkDay = (ymd, R) => R.workWeek.includes(dowOf(ymd));
+  /** One person's day from their clock events → state now, worked and break minutes. nowIso: the current time (for someone still working). */
+  function dayState(att, nowIso, S) {
+    const R = staffRules(S);
+    const ev = ((att && att.events) || []).filter((e) => CLOCK[e.t]).slice().sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    let state = 'off', since = null, worked = 0, brk = 0, start = null, firstIn = null, lastOut = null, breaks = 0;
+    const T = (iso) => new Date(iso).getTime();
+    ev.forEach((e) => {
+      if (e.t === 'in') { if (state === 'off' || state === 'done') { state = 'in'; start = e.at; since = e.at; if (!firstIn) firstIn = e.at; } }
+      else if (e.t === 'break') { if (state === 'in') { worked += T(e.at) - T(start); state = 'break'; start = e.at; since = e.at; breaks++; } }
+      else if (e.t === 'back') { if (state === 'break') { brk += T(e.at) - T(start); state = 'in'; start = e.at; since = e.at; } }
+      else if (e.t === 'out') { if (state === 'in') worked += T(e.at) - T(start); else if (state === 'break') brk += T(e.at) - T(start); if (state !== 'off') { state = 'done'; since = e.at; lastOut = e.at; start = null; } }
+    });
+    const today = nowIso ? ymdOf(new Date(nowIso)) : null;
+    const open = (state === 'in' || state === 'break') && att && today && att.date < today; // forgot to clock out
+    if (state === 'in' && nowIso && !open) worked += Math.max(0, T(nowIso) - T(start));
+    if (state === 'break' && nowIso && !open) brk += Math.max(0, T(nowIso) - T(start));
+    const lateMin = firstIn ? Math.max(0, minOfDay(firstIn) - hmMin(R.workStart)) : 0;
+    return { state, since, workedMin: Math.round(worked / 60000), breakMin: Math.round(brk / 60000), firstIn, lastOut, breaks, open, late: lateMin > R.lateGraceMin, lateMin };
+  }
+  /** Which clock buttons make sense now. */
+  const clockNext = (state) => state === 'in' ? ['break', 'out'] : state === 'break' ? ['back', 'out'] : ['in'];
+  /** Working days a leave covers (only the business's working days). */
+  function leaveDates(lv, S) { const R = staffRules(S); return datesBetween(lv.from, lv.to || lv.from).filter((d) => isWorkDay(d, R)); }
+  const leavePaid = (type) => (LEAVE_TYPES.find((x) => x[0] === type) || [0, 0, true])[2];
+  /** Paid-vacation balance for a calendar year: entitlement (pro rata from the start date) − approved − waiting. */
+  function leaveBalance(raw, staff, year, S) {
+    const R = staffRules(S); const per = num(staff && staff.leavePerYear) || R.leavePerYear;
+    let months = 12; const st = staff && staff.startDate;
+    if (st && st.slice(0, 4) === String(year)) months = 12 - Number(st.slice(5, 7)) + 1; else if (st && st.slice(0, 4) > String(year)) months = 0;
+    const entitled = Math.round(per * months / 12 * 2) / 2;
+    let taken = 0, pending = 0;
+    (raw.leaves || []).filter((l) => l.staffId === (staff && staff.id) && l.type === 'vacation').forEach((l) => {
+      const n = leaveDates(l, S).filter((d) => d.slice(0, 4) === String(year)).length * (l.half ? 0.5 : 1);
+      if (l.status === 'approved') taken += n; else if (l.status === 'requested') pending += n;
+    });
+    return { entitled, taken, pending, left: entitled - taken - pending };
+  }
+  /** Leave requests that overlap a period for the same person (to stop double booking). */
+  const leaveOverlaps = (raw, lv) => (raw.leaves || []).filter((l) => l.id !== lv.id && l.staffId === lv.staffId && ['requested', 'approved'].includes(l.status) && l.from <= (lv.to || lv.from) && (l.to || l.from) >= lv.from);
+  /** A month's figures for one employee: worked days/hours, leave, absences, lateness, overtime. */
+  function staffMonth(raw, staff, month, S, nowIso) {
+    const R = staffRules(S); const today = nowIso ? ymdOf(new Date(nowIso)) : ymdOf(new Date());
+    const days = monthDays(month); const sched = days.filter((d) => isWorkDay(d, R));
+    const att = {}; (raw.attendance || []).forEach((a) => { if (a.staffId === staff.id && a.date && a.date.slice(0, 7) === month) att[a.date] = a; });
+    const leaveOn = {}; (raw.leaves || []).filter((l) => l.staffId === staff.id && l.status === 'approved').forEach((l) => leaveDates(l, S).forEach((d) => { if (d.slice(0, 7) === month) leaveOn[d] = l; }));
+    let worked = 0, minutes = 0, ot = 0, late = 0, open = 0, paidLeave = 0, unpaidLeave = 0, absent = 0; const absentDays = [];
+    days.forEach((d) => {
+      const a = att[d]; const st = a ? dayState(a, nowIso, S) : null;
+      if (st && st.workedMin > 0) { worked++; minutes += st.workedMin; ot += Math.max(0, st.workedMin - R.hoursPerDay * 60); if (st.late) late++; if (st.open) open++; }
+      const lv = leaveOn[d];
+      if (lv && isWorkDay(d, R) && !(st && st.workedMin > 0)) { const n = lv.half ? 0.5 : 1; if (leavePaid(lv.type)) paidLeave += n; else unpaidLeave += n; }
+      if (!lv && isWorkDay(d, R) && !(st && st.workedMin > 0) && d < today && (!staff.startDate || d >= staff.startDate)) { absent++; absentDays.push(d); }
+    });
+    return { month, scheduled: sched.length, worked, hours: Math.round(minutes / 6) / 10, overtimeH: Math.round(ot / 6) / 10, late, open, paidLeave, unpaidLeave, absent, absentDays, tracked: Object.keys(att).length > 0 };
+  }
+  /** Draft payslip from the month's figures. opts: {deductAbsences, deductShortages, extra:{earnings:[], deductions:[]}} */
+  function payslipDraft(raw, staff, month, S, opts = {}, nowIso) {
+    const R = staffRules(S); const pay = staff.pay || {}; const rate = num(pay.rate); const type = pay.type || 'monthly';
+    const m = staffMonth(raw, staff, month, S, nowIso); const hpd = num(pay.hoursPerDay) || R.hoursPerDay;
+    const dayRate = type === 'monthly' ? (m.scheduled ? rate / m.scheduled : 0) : type === 'daily' ? rate : rate * hpd;
+    const hourRate = type === 'hourly' ? rate : dayRate / hpd;
+    const E = [], D = []; const r0 = (v) => Math.round(v);
+    if (type === 'monthly') E.push({ label: 'Monthly salary', amount: r0(rate), auto: true });
+    if (type === 'daily') E.push({ label: m.worked + ' day' + (m.worked === 1 ? '' : 's') + ' worked × ' + r0(rate), amount: r0(m.worked * rate), auto: true });
+    if (type === 'hourly') E.push({ label: m.hours + ' h worked × ' + r0(rate), amount: r0(m.hours * rate), auto: true });
+    if (type !== 'monthly' && m.paidLeave) E.push({ label: m.paidLeave + ' paid leave day' + (m.paidLeave === 1 ? '' : 's'), amount: r0(m.paidLeave * dayRate), auto: true });
+    if (pay.overtime && m.overtimeH > 0) { const mult = num(pay.overtimeRate) || R.overtimeRate; E.push({ label: 'Overtime ' + m.overtimeH + ' h × ' + mult, amount: r0(m.overtimeH * hourRate * (type === 'hourly' ? mult - 1 : mult)), auto: true }); }
+    if (type === 'monthly' && m.unpaidLeave) D.push({ label: 'Unpaid leave (' + m.unpaidLeave + ' day' + (m.unpaidLeave === 1 ? '' : 's') + ')', amount: r0(m.unpaidLeave * dayRate), auto: true });
+    if (type === 'monthly' && m.absent && opts.deductAbsences) D.push({ label: 'Absent without leave (' + m.absent + ' day' + (m.absent === 1 ? '' : 's') + ')', amount: r0(m.absent * dayRate), auto: true });
+    (raw.payroll || []).filter((p) => p.type === 'advance' && p.staffId === staff.id && (p.deductMonth || String(p.date).slice(0, 7)) === month && p.status !== 'cancelled')
+      .forEach((p) => D.push({ label: 'Advance ' + p.date + (p.note ? ' (' + p.note + ')' : ''), amount: r0(num(p.amount)), auto: true, ref: p.id }));
+    if (staff.userId && opts.deductShortages !== false) {
+      const sh = (raw.handovers || []).filter((h) => h.userId === staff.userId && h.status === 'confirmed' && String(h.date).slice(0, 7) === month && num(h.diff) <= -1);
+      const tot = sh.reduce((a, h) => a - num(h.diff), 0);
+      if (tot) D.push({ label: 'Cash shortages (' + sh.length + ' day' + (sh.length === 1 ? '' : 's') + ')', amount: r0(tot), auto: true });
+    }
+    ((opts.extra && opts.extra.earnings) || []).forEach((x) => num(x.amount) && E.push({ label: x.label || 'Bonus', amount: r0(num(x.amount)) }));
+    ((opts.extra && opts.extra.deductions) || []).forEach((x) => num(x.amount) && D.push({ label: x.label || 'Deduction', amount: r0(num(x.amount)) }));
+    const gross = E.reduce((a, x) => a + x.amount, 0), ded = D.reduce((a, x) => a + x.amount, 0);
+    return { month, staffId: staff.id, staffName: staff.name, payType: type, rate, stats: m, earnings: E, deductions: D, gross, deductionsTotal: ded, net: Math.max(0, gross - ded), dayRate: r0(dayRate) };
+  }
+  /* till takeover: money a person handed to / received from a colleague during the day (by method) */
+  function tillMoves(raw, userId, date) {
+    const into = {}, outOf = {}; const list = [];
+    (raw.tills || []).forEach((t) => {
+      if (t.date !== date || !['accepted', 'disputed', 'reviewed'].includes(t.status)) return;
+      const got = t.received || {};
+      if (t.toId === userId) { Object.entries(got).forEach(([m, v]) => (into[m] = (into[m] || 0) + num(v))); list.push({ dir: 'in', t }); }
+      if (t.fromId === userId) { Object.entries(got).forEach(([m, v]) => (outOf[m] = (outOf[m] || 0) + num(v))); list.push({ dir: 'out', t }); }
+    });
+    return { into, outOf, list };
   }
   /* supplier bills */
   function billTotals(b, S) {
@@ -677,7 +808,7 @@
 
 
   /* ---------------- activity log: plain-language description of any change ---------------- */
-  const ACT_TYPES = { sales: 'Sales', payments: 'Payments', lots: 'Purchases', products: 'Items & prices', shipments: 'Containers', adjustments: 'Stock & losses', transfers: 'Transfers', audits: 'Stock counts', customers: 'Customers', handovers: 'Cash handover', bills: 'Suppliers & bills', suppliers: 'Suppliers & bills', expenses: 'Expenses', settings: 'Settings & team', members: 'Settings & team', locations: 'Settings & team', reminders: 'Reminders', assets: 'Assets' };
+  const ACT_TYPES = { sales: 'Sales', payments: 'Payments', lots: 'Purchases', products: 'Items & prices', shipments: 'Containers', adjustments: 'Stock & losses', transfers: 'Transfers', audits: 'Stock counts', customers: 'Customers', handovers: 'Cash handover', bills: 'Suppliers & bills', suppliers: 'Suppliers & bills', expenses: 'Expenses', settings: 'Settings & team', members: 'Settings & team', locations: 'Settings & team', reminders: 'Reminders', assets: 'Assets', staff: 'Staff', attendance: 'Attendance', leaves: 'Leave', payroll: 'Payroll', tills: 'Cash handover' };
   /** L = lookups {product(id), customer(id), loc(id), ship(id), F(amount), money(v,cur)} → [{type, text, reason, amount, ref}] (one change can produce several lines) */
   function describeChange(col, b, a, L) {
     const out = []; const type = ACT_TYPES[col] || col; const push = (text, extra) => out.push(Object.assign({ type, text }, extra || {}));
@@ -767,6 +898,40 @@
       if (ch.length) push('Asset ' + nm + ': ' + ch.join(', '), { ref }); else if (!out.length) push('Asset ' + nm + ' details edited', { ref });
       return out;
     }
+    if (col === 'attendance') {
+      const d = a || b; const who = d.staffName || 'Staff'; const tm = (iso) => { const x = new Date(iso); return String(x.getHours()).padStart(2, '0') + ':' + String(x.getMinutes()).padStart(2, '0'); };
+      if (!a) { push('Deleted the times of ' + who + ' on ' + d.date); return out; }
+      const before = (b && b.events) || [], after = a.events || [];
+      const added = after.length >= before.length && before.every((e, i) => JSON.stringify(e) === JSON.stringify(after[i])) ? after.slice(before.length) : null;
+      if (added && !a.editedAt) added.forEach((e) => push(who + ': ' + (CLOCK[e.t] || e.t).toLowerCase() + ' at ' + tm(e.at)));
+      else push('Corrected the times of ' + who + ' on ' + d.date + ': ' + after.map((e) => (CLOCK[e.t] || e.t) + ' ' + tm(e.at)).join(', '), { reason: a.note || '' });
+      return out;
+    }
+    if (col === 'leaves') {
+      const d = a || b; const lbl = (LEAVE_TYPES.find((x) => x[0] === d.type) || [0, 'leave'])[1].toLowerCase(); const when = d.from + (d.to && d.to !== d.from ? ' to ' + d.to : '');
+      if (!a) push('Deleted ' + lbl + ' of ' + d.staffName + ' (' + when + ')');
+      else if (!b) push((a.status === 'requested' ? d.staffName + ' asked for ' : 'Recorded ' ) + lbl + (a.status === 'requested' ? '' : ' for ' + d.staffName) + ': ' + when, { reason: a.reason || '' });
+      else if (b.status !== a.status) push({ approved: 'Approved ', rejected: 'Declined ', cancelled: 'Cancelled ' }[a.status] + lbl + ' of ' + d.staffName + ' (' + when + ')');
+      else push('Changed ' + lbl + ' of ' + d.staffName + ': ' + when);
+      return out;
+    }
+    if (col === 'staff') { const d = a || b; push(!a ? 'Removed the file of ' + d.name : !b ? 'Added employee ' + a.name : (b.pay && a.pay && (num(b.pay.rate) !== num(a.pay.rate) || b.pay.type !== a.pay.type) ? 'Changed the pay of ' + a.name + ': ' + F(num(b.pay.rate)) + ' → ' + F(num(a.pay.rate)) + ' (' + a.pay.type + ')' : (b.active !== false && a.active === false ? a.name + ' left the business' : 'Updated the file of ' + a.name))); return out; }
+    if (col === 'payroll') {
+      const d = a || b;
+      if (d.type === 'advance') { push(!b ? 'Gave a salary advance of ' + F(num(d.amount)) + ' to ' + d.staffName : a && a.status === 'cancelled' ? 'Cancelled the advance of ' + F(num(d.amount)) + ' to ' + d.staffName : 'Changed the advance of ' + d.staffName, { amount: num(d.amount), reason: d.note || '' }); return out; }
+      if (a && a.status === 'paid' && (!b || b.status !== 'paid')) push('Paid ' + d.staffName + ' ' + F(num(a.net)) + ' for ' + d.month, { amount: num(a.net) });
+      else if (b && b.status === 'paid' && a && a.status !== 'paid') push('Undid the salary payment of ' + d.staffName + ' for ' + d.month);
+      else if (a) push('Saved the payslip draft of ' + d.staffName + ' for ' + d.month + ' — net ' + F(num(a.net)));
+      return out;
+    }
+    if (col === 'tills') {
+      const d = a || b; const sum = (o) => Object.values(o || {}).reduce((x, v) => x + num(v), 0);
+      if (a && !b) push(d.fromName + ' handed the till to ' + d.toName + ' — counted ' + F(sum(a.counted)), { amount: sum(a.counted), reason: a.note || '' });
+      else if (a && b && b.status === 'pending' && ['accepted', 'disputed'].includes(a.status)) push(d.toName + ' accepted the till from ' + d.fromName + ' — counted ' + F(sum(a.received)) + (a.status === 'disputed' ? ' (' + F(Math.abs(sum(a.received) - sum(a.counted))) + (sum(a.received) < sum(a.counted) ? ' less' : ' more') + ' than handed over)' : ''), { amount: sum(a.received), reason: a.receiveNote || '' });
+      else if (a && a.status === 'cancelled') push(d.fromName + ' cancelled handing the till to ' + d.toName);
+      else if (a && a.status === 'reviewed') push('Checked the till difference between ' + d.fromName + ' and ' + d.toName, { reason: a.reviewNote || '' });
+      return out;
+    }
     return out;
   }
 
@@ -841,6 +1006,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

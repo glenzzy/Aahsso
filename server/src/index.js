@@ -30,7 +30,7 @@ const PORT = process.env.PORT || 8080;
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 16) { console.error('Set JWT_SECRET (16+ chars) in .env'); process.exit(1); }
 
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills'];
 // Which permissions allow writing each collection (any one of them). Permission model lives in compute.js.
 const WRITE_PERMS = {
   settings: ['settings'], products: ['stockEdit', 'purchases'], lots: ['purchases', 'containers'], shipments: ['containers'],
@@ -39,8 +39,10 @@ const WRITE_PERMS = {
   bills: ['suppliers', 'purchases', 'containers', 'assets'], reminders: ['reminders'], audits: ['audit', 'stockEdit'], assets: ['assets'],
   orders: ['sell', 'payments'], // online-shop orders: staff confirm / reject them
   promos: ['stockEdit'], // promotions: whoever sets prices
+  staff: ['hr', 'payroll'], payroll: ['payroll'], tills: ['payments', 'handover'],
+  attendance: null, leaves: null, // everyone clocks in and asks for leave for themselves (checked below)
 };
-const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'], promos: ['stockEdit'] };
+const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'], promos: ['stockEdit'], staff: ['hr'], attendance: ['hr'], leaves: ['hr'], payroll: ['payroll'] };
 const grp = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
 const perms = (u) => KC.permsFor({ role: u.role, perms: u.perms || {} }, u.customRoles);
 // a client may propose a transaction id (offline-created records); otherwise the server makes one
@@ -260,10 +262,98 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
   if (col === 'handovers' && !P.handover) docs = docs.filter((d) => d.userId === u.id);
   if (col === 'orders' && !P.sell && !P.payments) docs = [];
   if (col === 'assets' && !P.assets) docs = [];
+  const me = KC.staffIdOf(u.id);
+  if (col === 'staff') docs = docs.map((d) => {
+    if (d.id === me) return d; // your own file, salary included
+    if (!P.hr && !P.payroll) return { id: d.id, name: d.name, title: d.title, userId: d.userId, active: d.active, locationId: d.locationId };
+    return P.payroll ? d : Object.assign({}, d, { pay: undefined });
+  });
+  if (col === 'attendance' && !P.hr) docs = docs.filter((d) => d.staffId === me);
+  if (col === 'leaves' && !P.hr) docs = docs.filter((d) => d.staffId === me || d.status === 'approved').map((d) => d.staffId === me ? d : { id: d.id, staffId: d.staffId, staffName: d.staffName, type: d.type === 'sick' ? 'other' : d.type, from: d.from, to: d.to, half: d.half, status: d.status });
+  if (col === 'payroll' && !P.payroll) docs = docs.filter((d) => d.staffId === me && (d.type === 'advance' || d.status === 'paid'));
+  if (col === 'tills' && !P.handover) docs = docs.filter((d) => d.fromId === u.id || d.toId === u.id);
   res.json({ docs });
 }));
 
-async function loadAllSales(c, tid) { const r = await c.query("SELECT id, data FROM documents WHERE tenant_id=$1 AND collection='sales'", [tid]); return { sales: r.rows.map((x) => Object.assign({}, x.data, { id: x.id })) }; }
+async function loadAllSales(c, tid) {
+  const r = await c.query("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('sales','tills')", [tid]);
+  const out = { sales: [], tills: [] }; r.rows.forEach((x) => out[x.collection].push(Object.assign({}, x.data, { id: x.id }))); return out;
+}
+/** Server rules for staff records. Returns {status, error} to refuse, or null. May correct `body`. */
+async function staffRules(c, u, P, col, id, body, old) {
+  const me = KC.staffIdOf(u.id); const nowIso = new Date().toISOString(); const no = (status, error) => ({ status, error });
+  if (col === 'attendance') {
+    if (!body.staffId || !body.date || id !== 'at_' + body.date + '_' + body.staffId) return no(400, 'Invalid attendance record');
+    const ev = Array.isArray(body.events) ? body.events : (body.events = []);
+    if (ev.some((e) => !e || !KC.CLOCK[e.t])) return no(400, 'Unknown clock action');
+    const before = (old && old.events) || [];
+    // earlier events unchanged? (compare action and time only: the server adds who/when fields the phone may not have yet)
+    const same = (o, n) => o.t === n.t && (o.fixed || Date.parse(o.at) === Date.parse(n.at));
+    const appendOnly = ev.length >= before.length && before.every((e, i) => same(e, ev[i]));
+    // a manager correcting someone's day (or their own, from the correction screen) sets the times as typed
+    const correcting = P.hr && (body.staffId !== me || (body.editedAt && (!old || body.editedAt !== old.editedAt)));
+    if (appendOnly && !correcting) {
+      // a clock tap: keep the stored events, stamp the new ones with the server's clock where the phone's is off
+      const now = Date.now(); const lastAt = before.length ? Date.parse(before[before.length - 1].at) : 0;
+      const added = ev.slice(before.length).map((e) => ({ t: e.t, at: e.at }));
+      for (const e of added) {
+        const t = Date.parse(e.at);
+        if (!t || t > now + 2 * 60e3 || t < now - 36 * 3600e3) { e.at = nowIso; e.fixed = true; } // the phone's clock is wrong
+        else if (Math.abs(t - now) > 3 * 60e3) e.syncedAt = nowIso; // recorded offline, sent later
+        if (Date.parse(e.at) < lastAt) return no(403, 'Clock times cannot be changed — ask a manager to correct them');
+        e.byId = u.id; e.by = u.name;
+      }
+      body.events = before.concat(added);
+      body.editedBy = old ? old.editedBy : undefined; body.editedAt = old ? old.editedAt : undefined;
+    } else if (!correcting) return no(403, 'Clock times cannot be changed — ask a manager to correct them');
+    else { body.events = ev.map((e) => Object.assign({}, e, { at: new Date(Date.parse(e.at) || Date.now()).toISOString() })).sort((x, y) => x.at.localeCompare(y.at)); body.editedBy = u.name; body.editedAt = nowIso; }
+    if (!P.hr) {
+      if (body.staffId !== me) return no(403, 'You can only clock in and out for yourself');
+      body.userId = u.id; body.staffName = u.name; body.note = old ? old.note : body.note;
+    }
+  }
+  if (col === 'leaves') {
+    if (!body.staffId || !body.from || (body.to && body.to < body.from)) return no(400, 'Choose the first and last day');
+    if (!KC.LEAVE_TYPES.some((t) => t[0] === body.type)) return no(400, 'Choose the type of leave');
+    if (!P.hr) {
+      if (body.staffId !== me || (old && old.staffId !== me)) return no(403, 'You can only ask for leave for yourself');
+      if (!old && body.status !== 'requested') return no(403, 'A manager must approve leave');
+      if (old && !(old.status === 'requested' && ['requested', 'cancelled'].includes(body.status))) return no(403, old.status === 'approved' ? 'This leave is approved — ask a manager to change it' : 'This request is closed');
+      body.decidedBy = old ? old.decidedBy : undefined; body.decidedAt = old ? old.decidedAt : undefined;
+      body.staffName = u.name; body.requestedById = u.id;
+    } else {
+      if (!body.staffName) body.staffName = (old && old.staffName) || (body.staffId === me ? u.name : '');
+      if (['approved', 'rejected'].includes(body.status) && (!old || old.status !== body.status)) { body.decidedBy = u.name; body.decidedAt = nowIso; }
+    }
+  }
+  if (col === 'staff' && !P.payroll) body.pay = old ? old.pay : undefined; // only payroll sees and sets salaries
+  if (col === 'tills') {
+    const clean = (o) => { const r = {}; Object.entries(o || {}).forEach(([m, v]) => { const n = Math.round(Number(v) || 0); if (m && n >= 0) r[String(m).slice(0, 40)] = n; }); return r; };
+    if (!old) {
+      if (body.fromId !== u.id && !P.handover) return no(403, 'You can only hand over your own till');
+      if (!body.toId || body.toId === body.fromId) return no(400, 'Choose who takes over');
+      const raw = await loadAllSales(c, u.tenant_id); raw.tills = raw.tills.filter((t) => t.id !== id);
+      body.expected = KC.collectedBy(raw, body.fromId, body.date).by; // never trust the phone's own total
+      body.counted = clean(body.counted); body.received = {}; body.status = 'pending';
+      if (body.fromId === u.id) body.fromName = u.name; body.createdAt = nowIso;
+      return null;
+    }
+    const keep = { fromId: old.fromId, fromName: old.fromName, toId: old.toId, toName: old.toName, date: old.date, expected: old.expected, counted: old.counted, createdAt: old.createdAt, locationId: old.locationId, note: old.note, payouts: old.payouts };
+    if (old.status === 'pending' && ['accepted', 'disputed'].includes(body.status)) {
+      if (old.toId !== u.id) return no(403, 'Only ' + (old.toName || 'the person taking over') + ' can accept this till');
+      const received = clean(body.received);
+      const same = Object.keys(Object.assign({}, old.counted, received)).every((m) => Math.abs((old.counted[m] || 0) - (received[m] || 0)) < 1);
+      Object.assign(body, keep, { received, status: same ? 'accepted' : 'disputed', acceptedAt: nowIso, toName: u.name, receiveNote: String(body.receiveNote || '').slice(0, 300) });
+    } else if (old.status === 'pending' && body.status === 'cancelled') {
+      if (old.fromId !== u.id && !P.handover) return no(403, 'Only the person handing over can cancel');
+      Object.assign(body, keep, { received: {}, cancelledAt: nowIso });
+    } else if (old.status === 'disputed' && body.status === 'reviewed') {
+      if (!P.handover) return no(403, 'Only a manager can close a disputed takeover');
+      Object.assign(body, keep, { received: old.received, acceptedAt: old.acceptedAt, receiveNote: old.receiveNote, reviewedBy: u.name, reviewedAt: nowIso, reviewNote: String(body.reviewNote || '').slice(0, 300) });
+    } else return no(403, 'This takeover is already ' + old.status);
+  }
+  return null;
+}
 async function loadAll(c, tid) {
   const r = await c.query("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('settings','products','lots','shipments','sales','adjustments','transfers','promos')", [tid]);
   const raw = { settings: {}, products: [], lots: [], shipments: [], sales: [], adjustments: [], transfers: [], promos: [] };
@@ -274,7 +364,7 @@ async function loadAll(c, tid) {
 app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) => {
   const { col, id } = req.params; const u = req.user;
   let receiving = false;
-  if (!anyU(u, WRITE_PERMS[col])) {
+  if (WRITE_PERMS[col] !== null && !anyU(u, WRITE_PERMS[col])) {
     // a branch may receive a transfer addressed to it without the full "move stock" permission
     if (col === 'transfers' && req.body && req.body.status === 'received') { const pr = (await q("SELECT data FROM documents WHERE tenant_id=$1 AND collection='transfers' AND id=$2", [u.tenant_id, id])).rows[0]; receiving = !!(pr && pr.data.status === 'in_transit' && pr.data.to === (u.location_id || 'main')); }
     if (!receiving) return err(res, 403, 'You do not have permission to change ' + col);
@@ -283,7 +373,8 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
   const body = req.body; if (!body || typeof body !== 'object' || Array.isArray(body)) return err(res, 400, 'Body must be an object');
   delete body.id;
 
-  const result = await tx(async (c) => {
+  let result;
+  try { result = await tx(async (c) => {
     // Serialize stock-affecting writes per tenant so two cashiers can't sell the same last item.
     if (['sales', 'adjustments', 'lots', 'shipments', 'transfers'].includes(col)) await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [u.tenant_id]);
     const prev = (await c.query('SELECT data FROM documents WHERE tenant_id=$1 AND collection=$2 AND id=$3 FOR UPDATE', [u.tenant_id, col, id])).rows[0];
@@ -298,6 +389,18 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       body.expectedTotal = KC.collectedBy(await loadAllSales(c, u.tenant_id), body.userId, body.date).total; // never trust the client's own total
     }
     if (col === 'audits' && body.status === 'applied' && !P.stockEdit) return { status: 403, error: 'Only a manager can approve a stock count' };
+    if (['attendance', 'leaves', 'tills', 'staff'].includes(col)) { const why = await staffRules(c, u, P, col, id, body, prev ? prev.data : null); if (why) return why; }
+    if (col === 'settings') {
+      const old = prev ? prev.data : {};
+      if (body.shopSlug === undefined) { if (old.shopSlug) body.shopSlug = old.shopSlug; } // an older copy of the settings doesn't drop the address
+      else if (body.shopSlug) {
+        body.shopSlug = String(body.shopSlug).trim().toLowerCase();
+        if (body.shopSlug !== old.shopSlug) {
+          const bad = KC.shopSlugError(body.shopSlug); if (bad) return { status: 400, error: bad };
+          if (await slugTaken(c, body.shopSlug, u.tenant_id)) return { status: 409, error: 'The address "' + body.shopSlug + '" is already used by another shop. Try ' + await freeSlug(c, body.shopSlug, u.tenant_id) };
+        }
+      } else body.shopSlug = '';
+    }
     if (col === 'bills') {
       // purchases: every bill has a transaction id; payments carry mode, txn id and MoMo charges (separate from amount)
       const old = prev ? prev.data : null;
@@ -406,7 +509,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
                    ON CONFLICT (tenant_id,collection,id) DO UPDATE SET data=EXCLUDED.data, updated_by=EXCLUDED.updated_by, updated_at=now()`, [u.tenant_id, col, id, JSON.stringify(body), u.id]);
     await c.query('INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,collection,doc_id,before,after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [u.tenant_id, u.id, u.name, body.locationId || body.to || u.location_id || 'main', prev ? 'update' : 'create', col, id, prev ? JSON.stringify(prev.data) : null, JSON.stringify(body)]);
     return { ok: true };
-  });
+  }); } catch (e) { if (e.code === '23505' && col === 'settings') return err(res, 409, 'This shop address was just taken by another shop. Choose another.'); throw e; }
   if (result.error) return err(res, result.status, result.error, result.details ? { details: result.details } : undefined);
   broadcast(u.tenant_id, col, id);
   res.json({ ok: true });
@@ -462,6 +565,9 @@ async function importBackup(tid, uid, b) {
 }
 
 /* ---------- team management ---------- */
+app.get('/api/team-names', auth, wrap(async (req, res) => {
+  res.json({ people: (await q('SELECT id, name, role, location_id AS "locationId", active FROM users WHERE tenant_id=$1 ORDER BY name', [req.user.tenant_id])).rows });
+}));
 app.get('/api/users', auth, requirePerm('team'), wrap(async (req, res) => {
   res.json({ users: (await q('SELECT id,name,login,email,role,perms,location_id AS "locationId",active,created_at,last_login_at FROM users WHERE tenant_id=$1 ORDER BY created_at', [req.user.tenant_id])).rows });
 }));
@@ -592,12 +698,29 @@ app.get('/api/images/:id', wrap(async (req, res) => {
 
 
 /* ---------- public online shop (no login): clients browse items in stock and send an order with their delivery details ---------- */
-const SHOP_KEY_RE = /^[A-Za-z0-9]{6,40}$/;
+const SHOP_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9-]{1,59}$/;
+/** Is this shop address used by another business (as an address, or as an old shop key)? */
+async function slugTaken(c, slug, tid) {
+  return (await c.query("SELECT 1 FROM documents WHERE collection='settings' AND id='main' AND tenant_id <> $2 AND (lower(data->>'shopSlug')=$1 OR lower(data->>'shopId')=$1) LIMIT 1", [slug, tid])).rowCount > 0;
+}
+/** The first free address like the one asked for: name, name-2, name-3… */
+async function freeSlug(c, slug, tid) {
+  const base = slug.slice(0, 36).replace(/-+$/, '');
+  for (let n = 2; n < 500; n++) { const cand = base + '-' + n; if (!(await slugTaken(c, cand, tid))) return cand; }
+  return base + '-' + crypto.randomBytes(2).toString('hex');
+}
+app.get('/api/shop-address', auth, wrap(async (req, res) => {
+  const slug = KC.shopSlugify(req.query.slug || '');
+  const bad = KC.shopSlugError(slug);
+  if (bad) return res.json({ slug, available: false, reason: bad });
+  const taken = await slugTaken(pool, slug, req.user.tenant_id);
+  res.json({ slug, available: !taken, reason: taken ? 'Already used by another shop' : '', suggestion: taken ? await freeSlug(pool, slug, req.user.tenant_id) : '' });
+}));
 const shopReadLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
 const shopOrderLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(process.env.SHOP_ORDERS_PER_10MIN || 15), standardHeaders: true, legacyHeaders: false, message: { error: 'Too many orders from this connection — please wait a few minutes' } });
 async function shopTenant(key) {
   if (!SHOP_KEY_RE.test(String(key || ''))) return null;
-  const r = await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND d.data->>'shopId'=$1 AND (d.data->>'shopEnabled')::boolean IS TRUE AND t.status <> 'suspended'", [key]);
+  const r = await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND (lower(d.data->>'shopSlug')=lower($1) OR d.data->>'shopId'=$1) AND (d.data->>'shopEnabled')::boolean IS TRUE AND t.status <> 'suspended' LIMIT 1", [key]);
   return r.rows[0] ? { tid: r.rows[0].tenant_id, settings: Object.assign({}, KC.DEFAULT_SETTINGS, r.rows[0].data) } : null;
 }
 app.get('/api/shop/:key', shopReadLimiter, wrap(async (req, res) => {
@@ -631,7 +754,13 @@ app.post('/api/shop/:key/orders', shopOrderLimiter, wrap(async (req, res) => {
   res.json({ ok: true, no, total: order.subtotal, whatsapp: st.whatsapp || st.phone || '', business: st.businessName });
 }));
 // pretty shop link: /s/<key>
-app.get('/s/:key', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'shop.html')));
+app.get('/s/:key', wrap(async (req, res) => {
+  // old links (random key) and differently-cased addresses go to the shop's current address
+  const t = SHOP_KEY_RE.test(req.params.key) ? await shopTenant(req.params.key) : null;
+  const slug = t && t.settings.shopSlug;
+  if (slug && slug !== req.params.key) return res.redirect(301, '/s/' + encodeURIComponent(slug) + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
+  res.sendFile(path.join(__dirname, '..', 'public', 'shop.html'));
+}));
 
 /* ---------- frontend ---------- */
 app.get('/healthz', (req, res) => res.json({ ok: true }));

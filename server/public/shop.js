@@ -2,7 +2,7 @@
  * delivery details (mode, agency, town, recipient name and phone). No login. Talks to /api/shop/<key>. */
 (function () {
   'use strict';
-  const KEY = (location.pathname.match(/\/s\/([A-Za-z0-9]+)/) || [])[1] || new URLSearchParams(location.search).get('s') || '';
+  const KEY = (location.pathname.match(/\/s\/([A-Za-z0-9-]+)/) || [])[1] || new URLSearchParams(location.search).get('s') || '';
   const API = '/api/shop/' + encodeURIComponent(KEY);
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));

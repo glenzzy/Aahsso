@@ -25,6 +25,14 @@ function homeTodos() {
   const toSend = visibleSales().filter((s) => KC.isDelivery(s) && s.delivery.status === 'to_send' && K.C.saleX[s.id].status !== 'cancelled');
   if (toSend.length) add('warn', 'ship', toSend.length + ' deliver' + (toSend.length === 1 ? 'y' : 'ies') + ' to send', toSend.slice(0, 2).map((s) => s.delivery.destination).filter(Boolean).join(', '), 'data-a="goSales" data-f="deliver"');
   if (can('reminders')) { const od = owingCustomers().filter((o) => o.daysLate > 0); if (od.length) add('bad', 'wa', od.length + ' customer' + (od.length === 1 ? '' : 's') + ' overdue', F(od.reduce((a, o) => a + o.balance, 0)) + ' to collect', 'data-a="go" data-r="reminders"'); }
+  const tIn = (K.raw.tills || []).filter((x) => x.toId === K.me.id && x.status === 'pending');
+  tIn.forEach((x) => add('warn', 'wallet', (x.fromName || 'A colleague') + ' is handing you the till', 'Count it and accept', 'data-a="go" data-r="cash"'));
+  if (can('hr')) {
+    const lr = (K.raw.leaves || []).filter((l) => l.status === 'requested'); if (lr.length) add('info', 'clock', lr.length + ' leave request' + (lr.length === 1 ? '' : 's') + ' to answer', lr.slice(0, 2).map((l) => l.staffName).join(', '), 'data-a="go" data-r="leave"');
+    const y = KC.addDays(t, -1); const open = (K.raw.attendance || []).filter((a) => a.date === y && KC.dayState(a, new Date().toISOString(), S()).open);
+    if (open.length) add('warn', 'clock', open.length + (open.length === 1 ? ' person' : ' people') + " didn't clock out yesterday", open.map((a) => a.staffName).join(', '), 'data-a="go" data-r="staff"');
+    const td = (K.raw.tills || []).filter((x) => x.status === 'disputed'); if (td.length && can('handover')) add('bad', 'wallet', td.length + ' till takeover' + (td.length === 1 ? '' : 's') + ' with a difference', 'Check and close', 'data-a="go" data-r="cash"');
+  }
   if (can('handover')) { const pend = K.raw.handovers.filter((h) => h.status === 'submitted'); if (pend.length) add('info', 'wallet', pend.length + ' cash handover' + (pend.length === 1 ? '' : 's') + ' to confirm', '', 'data-a="go" data-r="cash"'); }
   if (can('payments') && !byId('handovers', hoId(t, K.me.id))) { const mine = KC.collectedBy(K.raw, K.me.id, t).total; if (mine) add('info', 'wallet', 'Close your day', 'You collected ' + F(mine) + ' today', 'data-a="go" data-r="cash"'); }
   const pick = visibleSales().filter((s) => !KC.isDelivery(s) && !s.delivered && K.C.saleX[s.id].status !== 'cancelled');
@@ -71,6 +79,7 @@ VIEWS.home = {
     const byMode = Object.entries(d.byMethod).filter(([, v]) => v).map(([k, v]) => k.replace('Orange Money', 'OM').replace('MTN MoMo', 'MoMo') + ' ' + fmt(v)).join(' · ');
     if (empty) return homeWelcome(hello);
     return '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div><div class="row gap6"><button class="btn tour-btn" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>How Kargo works</button>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div></div>' + phaseHead('', true) +
+      (K.info.mode === 'saas' || K.raw.staff.length ? '<div class="mb2">' + clockCard(true) + '</div>' : '') +
       '<div class="kpis mb2">' + kpi('Sales today', F(d.revenue), d.n + ' receipt' + (d.n === 1 ? '' : 's') + (seeCost() && d.revenue ? ' · profit ' + fmt(d.profit) : '')) + kpi('Collected today', F(d.collected), byMode || 'Nothing yet') +
         kpi('Owed to you', F(receivables()), owing + ' open sale' + (owing === 1 ? '' : 's')) + kpi('This month', F(mo.revenue), seeCost() ? 'profit ' + fmt(mo.profit) : mo.n + ' receipts') + '</div>' +
       '<div class="home-grid">' +
@@ -248,7 +257,7 @@ A.expEdit = (el) => {
 
 /* ---------- settings + backup ---------- */
 /* ---------- settings page: section menu + one card per section ---------- */
-const SET_SECTIONS = [['business', 'Business', 'home'], ['currency', 'Currency', 'wallet'], ['pricing', 'Pricing', 'tag'], ['credit', 'Wholesale & credit', 'users'], ['money', 'Mobile money', 'wallet'], ['reminders', 'Reminders', 'wa'], ['catalogue', 'Stores & categories', 'buy'], ['delivery', 'Delivery', 'ship'], ['shop', 'Online shop', 'sell'], ['branches', 'Branches', 'home'], ['backup', 'Backup', 'dl'], ['account', 'Account', 'gear']];
+const SET_SECTIONS = [['business', 'Business', 'home'], ['currency', 'Currency', 'wallet'], ['pricing', 'Pricing', 'tag'], ['credit', 'Wholesale & credit', 'users'], ['money', 'Mobile money', 'wallet'], ['reminders', 'Reminders', 'wa'], ['catalogue', 'Stores & categories', 'buy'], ['delivery', 'Delivery', 'ship'], ['staff', 'Staff & pay', 'clock'], ['shop', 'Online shop', 'sell'], ['branches', 'Branches', 'home'], ['backup', 'Backup', 'dl'], ['account', 'Account', 'gear']];
 const setCard = (id, title, desc, body, side) => '<section class="card set-card" id="set-' + id + '"><header class="set-head"><div><h2>' + title + '</h2>' + (desc ? '<p>' + desc + '</p>' : '') + '</div>' + (side || '') + '</header>' + body + '</section>';
 /** label + input + optional hint (one small grey line). */
 const sf = (label, inner, hint, cls) => '<label class="f' + (cls ? ' ' + cls : '') + '"><span class="lbl">' + label + '</span>' + inner + (hint ? '<span class="hint">' + hint + '</span>' : '') + '</label>';
@@ -317,6 +326,7 @@ VIEWS.settings = {
           '<li><b>We deliver</b> (local, travel agency, courier)<span>The customer pays before delivery or on delivery — you choose at checkout. Before: it can\'t be sent until paid. On delivery: record the payment before marking it delivered.</span></li>' +
           '<li><b>Delivery fee</b><span>Always paid by the customer — added to the bill, or paid straight to the agency / driver.</span></li></ul></div>' +
         '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>') +
+      staffRulesCard() +
       '</div>';
     const rest = '<div id="set-shop" class="set-anchor">' + shopCard() + '</div><div id="set-branches" class="set-anchor">' + locationsCard() + '</div>' +
       setCard('backup', 'Backup & restore', 'Download all your records to keep them safe. You can restore the file here or load it into the full version of the app.',
@@ -343,6 +353,16 @@ function remPreview() {
   const ta = $('#remTpl'), out = $('#remPrev'); if (!ta || !out) return; const st = S();
   const momo = ($$('[data-mm]').map((r) => $('select', r).value + ' ' + $('[data-mmn]', r).value).filter((x) => /\d/.test(x)).join(', ')) || st.phone || '';
   out.textContent = ta.value.replace(/\{name\}/g, 'Jeanne').replace(/\{balance\}/g, F(25000)).replace(/\{due\}/g, fmtDate(KC.addDays(todayStr(), 7))).replace(/\{business\}/g, ($('[name=businessName]') || {}).value || st.businessName).replace(/\{momo\}/g, momo).replace(/\{receipts\}/g, 'S261111-A1B');
+}
+/* staff rules: working days and hours, lateness, overtime, vacation */
+function staffRulesCard() {
+  const R = KC.staffRules(S()); const DN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return setCard('staff', 'Staff & pay', 'Used by Attendance (late arrivals, absences), Leave and Payroll.',
+    '<h3>Working days</h3><div class="wd-row">' + [1, 2, 3, 4, 5, 6, 0].map((d) => '<label class="wd"><input type="checkbox" name="srD' + d + '"' + (R.workWeek.includes(d) ? ' checked' : '') + '><span>' + DN[d] + '</span></label>').join('') + '</div>' +
+    '<div class="set-grid mt">' + sf('Work starts', '<input class="inp" type="time" name="srStart" value="' + esc(R.workStart) + '">', 'Clocking in later than this counts as late.') + sf('Work ends', '<input class="inp" type="time" name="srEnd" value="' + esc(R.workEnd) + '">') +
+    sf('Late after', unitIn('srGrace', R.lateGraceMin, 'min', 'inputmode="numeric"'), 'Minutes of grace before someone is marked late.') + sf('Normal working day', unitIn('srHours', R.hoursPerDay, 'hours', 'inputmode="decimal"'), 'Hours beyond this are overtime.') +
+    sf('Overtime pay', unitIn('srOT', R.overtimeRate, '× normal', 'inputmode="decimal"'), 'Only for people whose file says overtime is paid.') + sf('Paid vacation per year', unitIn('srLeave', R.leavePerYear, 'days', 'inputmode="decimal"'), 'Can be changed per person in Employees.') + '</div>' +
+    '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>');
 }
 const setDirty = () => { K.viewDirty = true; const b = $('#setBar'); if (b) b.classList.add('show'); };
 ['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
@@ -371,6 +391,11 @@ async function saveSettings(patch) {
   K.raw.settings = cur; recompute();
   return save('settings', cur);
 }
+function readStaffRules(v) {
+  const R = KC.staffRules(S()); const wk = [0, 1, 2, 3, 4, 5, 6].filter((d) => v['srD' + d]);
+  if (v.srStart === undefined) return S().staffRules || null;
+  return { workWeek: wk.length ? wk : R.workWeek, workStart: v.srStart || R.workStart, workEnd: v.srEnd || R.workEnd, lateGraceMin: Math.max(0, num(v.srGrace)), hoursPerDay: num(v.srHours) || R.hoursPerDay, overtimeRate: num(v.srOT) || R.overtimeRate, leavePerYear: v.srLeave === '' ? R.leavePerYear : num(v.srLeave) };
+}
 A.saveSettings = async () => {
   const v = formVals($('#setForm'));
   const cd = catDraftForSave(); const cats = cd.cats;
@@ -381,7 +406,7 @@ A.saveSettings = async () => {
   const momoFeeTables = fee.tables;
   const rates = {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
   const curInfo = KC.CURRENCIES.find((c) => c[0] === v.baseCurrency) || [v.baseCurrency, v.baseCurrency];
-  const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, momoFeeTables, vendors: K.ui.storeDraft.slice(), shopAgencies: (K.ui.agDraft || []).slice(0, 30), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
+  const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit), momoAccounts: mm, momoFeeTables, vendors: K.ui.storeDraft.slice(), shopAgencies: (K.ui.agDraft || []).slice(0, 30), staffRules: readStaffRules(v), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
   if (await saveSettings(patch)) {
     // items that used a renamed category / subcategory follow the new name
     for (const pr of cd.items) { const m = cd.moves.find((x) => (pr.category || 'Other') === x.from && (x.sub === undefined || (pr.subcategory || '') === x.sub)); await save('products', Object.assign({}, pr, { category: m.to }, m.toSub !== undefined ? { subcategory: m.toSub } : {})); }
@@ -518,25 +543,52 @@ function expTable(list, id, opts = {}) {
 /* ---------- settings: online shop ---------- */
 const newShopKey = () => { const a = new Uint8Array(10); crypto.getRandomValues(a); return Array.from(a, (b) => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join(''); };
 function shopCard() {
-  const s = S(); const on = !!s.shopEnabled && !!s.shopId;
+  const s = S(); const on = !!s.shopEnabled && !!(s.shopSlug || s.shopId);
+  const slug = s.shopSlug || KC.shopSlugify(s.businessName) || '';
   if (K.info.mode !== 'saas') return '<div class="card pad2 mb"><h2 class="mb">Online shop</h2><p class="muted small" style="margin:0">Clients can browse your stock and send orders with their delivery details from a public link. This needs the online (server) version of Kargo.</p></div>';
   return '<div class="card pad2 mb" id="shopCard"><div class="row between wrap mb"><h2>Online shop</h2>' + (on ? '<span class="badge ok">On</span>' : '<span class="badge">Off</span>') + '</div>' +
     '<p class="muted small" style="margin-top:0">A public page where clients see items in stock with prices and photos, choose quantities and type their own details: name, phone, delivery (pickup, local, travel agency, courier), town, agency, recipient name and number. Orders arrive under <a href="#orders">Online orders</a> for you to confirm. Costs and exact stock are never shown.</p>' +
     (on ? '<div class="shop-link"><div class="lbl">Your shop link</div><div class="shop-url">' + esc(shopLink()) + '</div><div class="shop-acts"><button class="btn sm" data-a="shopCopy">' + ic('copy', 'sm') + 'Copy link</button><a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent('Order from ' + s.businessName + ' here: ' + shopLink()) + '">' + ic('wa', 'sm') + 'Share on WhatsApp</a><a class="btn sm" target="_blank" rel="noopener" href="' + esc(shopLink()) + '">Open shop</a></div></div>' : '') +
     '<label class="toggle shop-toggle"><input type="checkbox" id="shopOn"' + (on ? ' checked' : '') + '> Online shop is on</label>' +
+    '<label class="f"><span class="lbl">Shop address</span><div class="slug-in"><span class="slug-pre">' + esc(location.host) + '/s/</span><input class="inp" id="shopSlug" value="' + esc(slug) + '" maxlength="40" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="your-store-name"></div>' +
+      '<span class="hint slug-msg" id="slugMsg">Your store name, easy to remember and share. Letters, numbers and dashes.</span></label>' +
     field('Message at the top of your shop (optional)', '<textarea class="inp" id="shopMsg" rows="2" maxlength="300" placeholder="e.g. Delivery everywhere in Cameroon by travel agency. Pay by MTN MoMo or Orange Money.">' + esc(s.shopMessage || '') + '</textarea>') +
     '<p class="hint" style="margin:4px 0 0">Travel agencies offered to customers are set in <b>Delivery</b>.</p>' +
-    '<div class="row wrap shop-save"><button class="btn pri" data-a="shopSave">' + ic('check') + 'Save online shop</button>' + (s.shopId ? '<button class="btn" data-a="shopNewLink">New link</button>' : '') + '</div></div>';
+    '<div class="row wrap shop-save"><button class="btn pri" data-a="shopSave">' + ic('check') + 'Save online shop</button></div></div>';
 }
 A.shopSave = async () => {
   const on = $('#shopOn').checked; const s = S();
-  const patch = { shopEnabled: on, shopId: s.shopId || newShopKey(), shopMessage: $('#shopMsg').value.trim().slice(0, 300) };
-  await saveSettings(patch); toast(on ? 'Online shop is on — copy the link and share it' : 'Online shop saved (off)'); render(true);
+  const slug = KC.shopSlugify($('#shopSlug').value); $('#shopSlug').value = slug;
+  const bad = KC.shopSlugError(slug); if (bad) { slugMsg(bad, 'bad'); $('#shopSlug').focus(); return toast(bad, true); }
+  if (s.shopSlug && slug !== s.shopSlug && s.shopEnabled && !(await confirmBox('Change your shop address to /s/' + slug + '? The old address /s/' + s.shopSlug + ' will stop working for anyone who has it.', 'Change address', true))) return;
+  try {
+    const chk = await K.store.req('GET', '/api/shop-address?slug=' + encodeURIComponent(slug));
+    if (!chk.available && slug !== s.shopSlug) { slugMsg(chk.reason + (chk.suggestion ? ' — try ' + chk.suggestion : ''), 'bad'); return toast('That address is taken' + (chk.suggestion ? ' — try ' + chk.suggestion : ''), true); }
+  } catch (e) { /* offline: the server checks again when it saves */ }
+  const patch = { shopEnabled: on, shopId: s.shopId || newShopKey(), shopSlug: slug, shopMessage: $('#shopMsg').value.trim().slice(0, 300) };
+  const before = { shopSlug: s.shopSlug, shopEnabled: s.shopEnabled };
+  const ok = await saveSettings(patch);
+  if (!ok) { Object.assign(K.raw.settings, before); recompute(); render(true); return; }
+  toast(on ? 'Online shop is on — copy the link and share it' : 'Online shop saved (off)'); render(true);
 };
-A.shopNewLink = async () => {
-  if (!(await confirmBox('Make a new shop link? The old link will stop working for anyone who has it.', 'New link', true))) return;
-  await saveSettings({ shopId: newShopKey() }); toast('New link ready'); render(true);
-};
+const slugMsg = (t, cls) => { const m = $('#slugMsg'); if (m) { m.textContent = t; m.className = 'hint slug-msg' + (cls ? ' ' + cls : ''); } };
+let slugTimer = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'shopSlug') return;
+  clearTimeout(slugTimer);
+  const raw = e.target.value; const slug = KC.shopSlugify(raw);
+  const bad = KC.shopSlugError(slug); if (bad) return slugMsg(bad, 'bad');
+  if (slug === S().shopSlug) return slugMsg('✓ This is your current address: ' + location.host + '/s/' + slug, 'ok');
+  slugMsg('Checking…');
+  slugTimer = setTimeout(async () => {
+    try {
+      const r = await K.store.req('GET', '/api/shop-address?slug=' + encodeURIComponent(slug));
+      if (KC.shopSlugify($('#shopSlug').value) !== r.slug) return;
+      slugMsg(r.available ? '✓ Available: ' + location.host + '/s/' + r.slug : (r.reason || 'Not available') + (r.suggestion ? ' — try ' + r.suggestion : ''), r.available ? 'ok' : 'bad');
+    } catch (err) { slugMsg('Could not check right now — it will be checked when you save.'); }
+  }, 400);
+});
+document.addEventListener('blur', (e) => { if (e.target.id === 'shopSlug') { const v = KC.shopSlugify(e.target.value); if (v) e.target.value = v; } }, true);
 
 /* ---------- settings: MoMo / Orange Money withdrawal charges (visual editor, no JSON) ---------- */
 const FEE_OPS = ['MTN MoMo', 'Orange Money'];

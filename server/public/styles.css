@@ -1084,3 +1084,44 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 /* login: forgot password */
 .auth-forgot { display: flex; justify-content: flex-end; margin-top: -4px; }
 .auth-ok { background: var(--okSoft); color: var(--ok); border-radius: 10px; padding: 12px 14px; font-size: 14px; line-height: 1.45; }
+
+/* online shop address */
+.slug-in { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card, #fff); }
+.slug-in:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.slug-pre { display: flex; align-items: center; padding: 0 4px 0 12px; color: var(--ink3); font-size: 14px; white-space: nowrap; background: var(--bg); border-right: 1px solid var(--line); padding-right: 10px; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+.slug-in .inp { border: 0; border-radius: 0; box-shadow: none; min-width: 0; flex: 1; }
+.slug-msg.ok { color: var(--ok); }
+.slug-msg.bad { color: var(--bad); }
+
+/* ---------- staff: clock, attendance, leave, payroll ---------- */
+.clock-card { display: flex; align-items: center; gap: 14px; padding: 14px 16px; flex-wrap: wrap; }
+.clock-ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--line2); color: var(--ink3); flex: none; }
+.clock-ic.in { background: var(--okSoft); color: var(--ok); }
+.clock-ic.break { background: var(--warnSoft); color: var(--warn); }
+.clock-ic.done { background: var(--infoSoft); color: var(--info); }
+.clock-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.clock-card.compact { padding: 12px 14px; }
+@media (max-width: 560px) { .clock-btns { width: 100%; margin-left: 0; } .clock-btns .btn { flex: 1; } }
+.st-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.st-chip { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.st-chip .st-v { font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-chip .st-l { font-size: 12px; color: var(--ink3); }
+.st-chip.ok .st-v { color: var(--ok); } .st-chip.warn .st-v { color: var(--warn); } .st-chip.bad .st-v { color: var(--bad); }
+.late-t { color: var(--warn); font-weight: 600; } .bad-t { color: var(--bad); font-weight: 600; }
+.at-rows { display: flex; flex-direction: column; gap: 8px; }
+.at-row { display: grid; grid-template-columns: 1fr 120px auto; gap: 8px; align-items: center; }
+.lv-req { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.lv-req .row { flex: none; }
+.ps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 720px) { .ps-grid { grid-template-columns: 1fr; } }
+.ps-exs { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.ps-ex { display: grid; grid-template-columns: 1fr 110px auto; gap: 6px; align-items: center; }
+.ps-net { background: var(--okSoft); border-color: transparent; }
+.ps-net .big { font-size: 20px; }
+.wd-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.wd { position: relative; }
+.wd input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.wd span { display: inline-block; min-width: 46px; text-align: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-weight: 600; font-size: 14px; background: var(--card); }
+.wd input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+.wd input:focus-visible + span { outline: 2px solid var(--info); outline-offset: 2px; }
+.till-in { border-color: var(--warn); background: var(--warnSoft); }

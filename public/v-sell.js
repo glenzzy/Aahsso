@@ -828,7 +828,7 @@ VIEWS.orders = {
     const tab = K.ui.ordTab || 'new'; const all = (K.raw.orders || []).slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     const quoted = all.filter((o) => o.status === 'quoted');
     const list = tab === 'new' ? all.filter((o) => o.status === 'new') : tab === 'quoted' ? quoted : all;
-    const link = S().shopEnabled && S().shopId ? shopLink() : '';
+    const link = S().shopEnabled && (S().shopSlug || S().shopId) ? shopLink() : '';
     return '<div class="kpis mb">' + kpi('To price', fmt(newOrders().length), 'new orders from the shop') + kpi('Waiting for customer', fmt(quoted.length), quoted.length ? F(quoted.reduce((a, o) => a + orderTotal(o), 0)) + ' to collect' : 'priced and sent') + kpi('Sold', fmt(all.filter((o) => o.status === 'done').length), 'turned into sales') + '</div>' +
       (link ? '<div class="alert info mb row between wrap"><span>Your shop: <b>' + esc(link) + '</b></span><span class="row"><button class="btn sm" data-a="shopCopy">' + ic('copy', 'sm') + 'Copy link</button><a class="btn sm" target="_blank" rel="noopener" href="' + esc(link) + '">Open shop</a></span></div>'
         : '<div class="alert mb">' + (can('settings') ? 'Your online shop is off. Turn it on in <a href="#settings">Settings → Online shop</a> and share the link with clients.' : 'The online shop is off. Ask the owner to turn it on in Settings.') + '</div>') +
@@ -938,5 +938,5 @@ A.orderReject = async (el) => {
   const why = await askReason('Reject order ' + o.no + '?', ['Out of stock', 'Client not reachable', 'Duplicate order', 'Client cancelled', 'Other'], 'Reject order'); if (why === null) return;
   if (await save('orders', Object.assign({}, o, { status: 'rejected', rejectReason: why, handledBy: K.me.name || '', handledAt: new Date().toISOString() }))) { refreshSheets(); scheduleRender(); toast('Order rejected'); }
 };
-const shopLink = () => location.origin + '/s/' + S().shopId;
+const shopLink = () => location.origin + '/s/' + (S().shopSlug || S().shopId);
 A.shopCopy = () => copyText(shopLink());

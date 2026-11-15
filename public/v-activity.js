@@ -43,7 +43,7 @@ VIEWS.activity = {
         actTable(list));
   },
 };
-const ACT_ICON = { Sales: 'sell', Payments: 'wallet', Purchases: 'buy', 'Items & prices': 'tag', Containers: 'ship', 'Stock & losses': 'alert', Transfers: 'ship', 'Stock counts': 'check', Customers: 'users', 'Cash handover': 'wallet', 'Suppliers & bills': 'buy', Expenses: 'wallet', 'Settings & team': 'gear', Reminders: 'wa' };
+const ACT_ICON = { Sales: 'sell', Payments: 'wallet', Purchases: 'buy', 'Items & prices': 'tag', Containers: 'ship', 'Stock & losses': 'alert', Transfers: 'ship', 'Stock counts': 'check', Customers: 'users', 'Cash handover': 'wallet', 'Suppliers & bills': 'buy', Expenses: 'wallet', 'Settings & team': 'gear', Reminders: 'wa', Staff: 'users', Attendance: 'clock', Leave: 'clock', Payroll: 'wallet' };
 function actRow(e, idx) {
   const t = new Date(e.at); const time = pad2(t.getHours()) + ':' + pad2(t.getMinutes());
   const warn = /Cancelled|Deleted|Removed|missing|short|theft|Unaccounted|written off|Refunded/i.test(e.text + ' ' + (e.reason || ''));

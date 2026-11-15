@@ -9,10 +9,12 @@ VIEWS.cash = {
     const mine = KC.collectedBy(K.raw, K.me.id, d);
     const ho = byId('handovers', hoId(d, K.me.id));
     let html = '<div class="row wrap mb"><input type="date" class="inp" style="width:auto" value="' + d + '" data-c="cashDate"><span class="small muted">' + fmtDate(d) + '</span></div>';
+    html += tillIncoming(); loadPeople();
     if (can('payments')) {
       html += '<div class="card pad2 mb"><div class="row between mb"><h2>My cash & mobile money</h2>' + (ho ? hoBadge(ho) : '') + '</div>' +
         '<div class="tiny muted mb">Everything you recorded today, by method. Count your cash and check your MoMo/OM balances, then hand over.</div>' +
-        (mine.items.length ? Object.entries(mine.by).map(([m, v]) => '<div class="row between cl"><span>' + esc(m) + (mine.feesBy[m] ? ' <span class="tiny muted">+ ' + F(mine.feesBy[m]) + ' charges</span>' : '') + '</span><b class="money">' + F(v) + '</b></div>').join('') + '<div class="row between cl b"><span>Total collected</span><span class="money">' + F(mine.total) + '</span></div>' : '<div class="muted small">You recorded no payments on this day.</div>') +
+        (mine.items.length || mine.moves.length ? (mine.moves.length ? '<div class="row between cl"><span>Collected by you</span><span class="money">' + F(mine.collected) + '</span></div>' + mine.moves.map((x) => '<div class="row between cl small"><span>' + (x.dir === 'in' ? 'Till taken over from ' + esc(x.t.fromName || 'colleague') : 'Till handed to ' + esc(x.t.toName || 'colleague')) + ' · ' + hm(x.t.acceptedAt) + (x.t.status === 'disputed' ? ' <span class="badge bad">difference</span>' : '') + '</span><span class="money">' + (x.dir === 'in' ? '+ ' : '− ') + fmt(sumObj(x.t.received)) + '</span></div>').join('') + '<div class="tiny muted mt mb">Now in your hands, by method:</div>' : '') + Object.entries(mine.by).map(([m, v]) => '<div class="row between cl"><span>' + esc(m) + (mine.feesBy[m] ? ' <span class="tiny muted">+ ' + F(mine.feesBy[m]) + ' charges</span>' : '') + '</span><b class="money">' + F(v) + '</b></div>').join('') + '<div class="row between cl b"><span>' + (mine.moves.length ? 'To hand over' : 'Total collected') + '</span><span class="money">' + F(mine.total) + '</span></div>' : '<div class="muted small">You recorded no payments on this day.</div>') +
+        tillOutgoing(d, mine) +
         (ho ? '<div class="alert ' + (Math.abs(ho.diff) < 1 ? 'info' : 'bad') + ' mt">Handed over ' + F(sumObj(ho.declared) + num(ho.payouts)) + ' · ' + diffText(ho.diff) + (ho.status === 'confirmed' ? ' · confirmed by ' + esc(ho.confirmedBy || '') : ' · waiting for manager') + '</div>' : '') +
         (!ho || ho.status !== 'confirmed' ? '<button class="btn pri block mt" data-a="hoOpen" data-d="' + d + '">' + ic('wallet') + (ho ? 'Update my handover' : 'Close my day & hand over') + '</button>' : '') + '</div>';
     }
@@ -22,6 +24,8 @@ VIEWS.cash = {
       K.raw.handovers.filter((h) => h.date === d).forEach((h) => (people[h.userId] = people[h.userId] || h.userName));
       const rows = Object.entries(people).map(([id, name]) => ({ id, name, exp: KC.collectedBy(K.raw, id, d), ho: byId('handovers', hoId(d, id)) }));
       html += '<h2 class="mb">Team handovers · ' + fmtDate(d) + '</h2><div class="mb">' + hoTable(rows, d) + '</div>';
+      const tl = (K.raw.tills || []).filter((x) => x.date === d && x.status !== 'cancelled');
+      if (tl.length) html += '<h2 class="mb">Till takeovers · ' + fmtDate(d) + '</h2><div class="mb">' + tillTable(tl) + '</div>';
       // shortages over 30 days
       const from = KC.addDays(todayStr(), -29); const agg = {};
       K.raw.handovers.filter((h) => h.date >= from).forEach((h) => { const o = (agg[h.userId] = agg[h.userId] || { name: h.userName, short: 0, over: 0, days: 0 }); o.days++; if (h.diff < 0) o.short += -h.diff; else o.over += h.diff; });
@@ -64,6 +68,86 @@ A.hoReview = (el) => {
     '<h3 class="mb">Payments recorded</h3><div class="card list">' + exp.items.map((it) => '<div class="li" data-a="openSale" data-id="' + it.saleId + '"><div class="grow"><div class="t">' + esc(it.customer) + '</div><div class="tiny muted">' + esc(it.no) + ' · ' + esc(it.txnId) + ' · ' + esc(it.p.method) + (it.p.account ? ' → ' + esc(it.p.account) : '') + (it.p.ref ? ' · txn ' + esc(it.p.ref) : '') + (num(it.p.fee) > 0 ? ' · charges ' + F(it.p.fee) : '') + '</div></div><b class="money">' + F(it.p.amount) + '</b></div>').join('') + '</div>',
     foot: ho && ho.status !== 'confirmed' ? '<button class="btn grow" data-a="sheetClose">Close</button><button class="btn pri grow" id="hoConfirm">' + ic('check') + 'Confirm money received</button>' : '' });
   if ($('#hoConfirm', sh)) $('#hoConfirm', sh).onclick = async () => { const diff = sumObj(ho.declared) + num(ho.payouts) - exp.total; if (await save('handovers', Object.assign({}, ho, { status: 'confirmed', confirmedBy: K.me.name || 'Manager', confirmedById: K.me.id, confirmedAt: new Date().toISOString(), diff, expectedTotal: exp.total }))) { closeSheet(); scheduleRender(); toast('Handover confirmed'); } };
+};
+
+/* ================= TILL TAKEOVER (one cashier hands the till to another during the day) ================= */
+const tillMethods = (o) => Array.from(new Set(['Cash'].concat(Object.keys(o || {}).filter((m) => num(o[m]) !== 0))));
+const tillDiff = (t) => sumObj(t.received) - sumObj(t.counted);
+function tillIncoming() {
+  const mine = (K.raw.tills || []).filter((t) => t.toId === K.me.id && t.status === 'pending');
+  return mine.map((t) => '<div class="card pad2 mb till-in"><div class="row between wrap"><div><h2>' + esc(t.fromName || 'A colleague') + ' is handing you the till</h2><div class="small muted">' + fmtDate(t.date) + ' · ' + hm(t.createdAt) + '. Count everything yourself — without looking at their figures — then accept.</div></div>' +
+    '<button class="btn pri" data-a="tillAccept" data-id="' + t.id + '">' + ic('check') + 'Count and accept</button></div></div>').join('');
+}
+function tillOutgoing(d, mine) {
+  if (d !== todayStr()) return '';
+  const out = (K.raw.tills || []).filter((t) => t.fromId === K.me.id && t.date === d && t.status === 'pending');
+  if (out.length) return out.map((t) => '<div class="alert info mt">Waiting for <b>' + esc(t.toName) + '</b> to count and accept the till (you counted ' + F(sumObj(t.counted)) + '). <button class="btn sm" data-a="tillCancel" data-id="' + t.id + '">Cancel</button></div>').join('');
+  return '<button class="btn block mt" data-a="tillGive" data-d="' + d + '">' + ic('users') + 'Hand the till to a colleague</button>';
+}
+A.tillGive = async (el) => {
+  if (K.info.mode === 'saas' && !K._people) await loadPeople();
+  const d = el.dataset.d; const exp = KC.collectedBy(K.raw, K.me.id, d);
+  const ppl = teamPeople().filter((p) => p.id !== K.me.id).sort((a, b) => ((b.locationId || 'main') === K.loc) - ((a.locationId || 'main') === K.loc) || a.name.localeCompare(b.name));
+  if (!ppl.length) return toast('Add the colleague to your team first (Team & access)', true);
+  const methods = tillMethods(exp.by);
+  const paid = K.raw.expenses.filter((e) => e.date === d && e.byId === K.me.id && (e.method || 'Cash') === 'Cash').reduce((a, e) => a + num(e.amount), 0);
+  const sh = openSheet({ title: 'Hand the till to a colleague', body: '<div class="col">' + field('Who takes over', sel('tlTo', [['', 'Choose…']].concat(ppl.map((p) => [p.id, p.name])), '')) +
+    '<div class="tiny muted">Count what is in the till now. Your colleague counts it again on their phone before accepting.</div>' +
+    methods.map((m) => '<div class="row between cl"><div class="grow"><div class="b">' + esc(m) + '</div><div class="tiny muted">Should be: ' + F(exp.by[m] || 0) + (m === 'Cash' && paid ? ' (you paid out ' + F(paid) + ' today — that stays on your day)' : '') + '</div></div><input class="inp price-in" inputmode="numeric" data-tc="' + esc(m) + '" value=""></div>').join('') +
+    '<div class="card pad small"><div class="row between"><span>Should be in the till</span><b class="money">' + F(exp.total) + '</b></div><div class="row between"><span>You counted</span><b class="money" id="tlSum">—</b></div><div class="row between b"><span>Difference</span><span id="tlDiff">—</span></div></div>' +
+    field('Note (optional)', inp('tlNote', '')) + '</div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="tlSave">Hand over</button>' });
+  const calc = () => { const c = $$('[data-tc]', sh).reduce((a, i) => a + num(i.value), 0); const df = c - exp.total; $('#tlSum', sh).textContent = F(c); const o = $('#tlDiff', sh); o.textContent = diffText(df); o.style.color = Math.abs(df) < 1 ? 'var(--ok)' : df < 0 ? 'var(--bad)' : 'var(--warn)'; return df; };
+  sh.addEventListener('input', calc); calc();
+  $('#tlSave', sh).onclick = async () => {
+    const v = formVals(sh); if (!v.tlTo) return toast('Choose who takes over', true);
+    if ($$('[data-tc]', sh).every((i) => i.value === '')) return toast('Type what you counted (0 if empty)', true);
+    const counted = {}; $$('[data-tc]', sh).forEach((i) => (counted[i.dataset.tc] = num(i.value)));
+    const df = calc(); const to = ppl.find((p) => p.id === v.tlTo);
+    if (Math.abs(df) >= 1 && !(await confirmBox('Your count is ' + diffText(df) + ' compared with what the till should hold. Hand over anyway?', 'Hand over'))) return;
+    if (await save('tills', { id: uid('tl_'), date: d, fromId: K.me.id, fromName: K.me.name || 'Cashier', toId: to.id, toName: to.name, locationId: K.loc, expected: exp.by, counted, note: v.tlNote, status: 'pending', createdAt: new Date().toISOString() })) { closeSheet(); scheduleRender(); toast(to.name + ' must now count and accept the till'); }
+  };
+};
+A.tillCancel = async (el) => { const t = byId('tills', el.dataset.id); if (t && (await confirmBox('Cancel handing the till to ' + t.toName + '?', 'Cancel handover', true))) { if (await save('tills', Object.assign({}, t, { status: 'cancelled' }))) scheduleRender(); } };
+A.tillAccept = (el) => {
+  const t = byId('tills', el.dataset.id); if (!t) return;
+  const methods = tillMethods(t.counted);
+  const sh = openSheet({ title: 'Count the till from ' + (t.fromName || 'your colleague'), body: '<div class="col"><div class="alert info">Count everything in the till now and type what you find. You become responsible for this money.</div>' +
+    methods.map((m) => '<div class="row between cl"><div class="grow b">' + esc(m) + '</div><input class="inp price-in" inputmode="numeric" data-tr="' + esc(m) + '" value=""></div>').join('') +
+    '<div class="row between card pad small"><span>You counted</span><b class="money" id="trSum">—</b></div>' + field('Note (optional)', inp('trNote', '')) + '</div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Not now</button><button class="btn pri grow" id="trSave">' + ic('check') + 'Accept the till</button>' });
+  sh.addEventListener('input', () => ($('#trSum', sh).textContent = F($$('[data-tr]', sh).reduce((a, i) => a + num(i.value), 0))));
+  $('#trSave', sh).onclick = async () => {
+    if ($$('[data-tr]', sh).every((i) => i.value === '')) return toast('Type what you counted (0 if empty)', true);
+    const received = {}; $$('[data-tr]', sh).forEach((i) => (received[i.dataset.tr] = num(i.value)));
+    const same = Object.keys(Object.assign({}, t.counted, received)).every((m) => Math.abs(num(t.counted[m]) - num(received[m])) < 1);
+    if (!same && !(await confirmBox('Your count (' + F(sumObj(received)) + ') is different from ' + t.fromName + "'s count (" + F(sumObj(t.counted)) + '). Accept with your count? The difference is flagged for the manager.', 'Accept my count'))) return;
+    if (await save('tills', Object.assign({}, t, { received, status: same ? 'accepted' : 'disputed', acceptedAt: new Date().toISOString(), toName: K.me.name || t.toName, receiveNote: formVals(sh).trNote }))) { closeSheet(); scheduleRender(); toast(same ? 'Till accepted — counts match ✓' : 'Till accepted — difference sent to the manager'); }
+  };
+};
+const tillBadge = (t) => ({ pending: '<span class="badge warn">Waiting</span>', accepted: '<span class="badge ok">Accepted</span>', disputed: '<span class="badge bad">Difference</span>', reviewed: '<span class="badge">Checked</span>' })[t.status] || '';
+function tillTable(rows) {
+  return dataTable({ id: 'tillList', rows, noun: 'takeover', rowAttr: (t) => ' data-a="tillReview" data-id="' + t.id + '"', cols: [
+    { k: 'at', label: 'Time', core: true, v: (t) => t.createdAt || '', html: (t) => hm(t.createdAt) },
+    { k: 'who', label: 'From → to', core: true, v: (t) => (t.fromName || '') + ' → ' + (t.toName || '') },
+    { k: 'e', label: 'Should be', money: true, v: (t) => sumObj(t.expected) },
+    { k: 'c', label: 'Handed over', money: true, v: (t) => sumObj(t.counted) },
+    { k: 'r', label: 'Received', core: true, money: true, v: (t) => t.status === 'pending' ? '' : sumObj(t.received) },
+    { k: 'd', label: 'Difference', core: true, v: (t) => t.status === 'pending' ? '' : tillDiff(t), html: (t) => t.status === 'pending' ? '—' : '<span style="color:' + (Math.abs(tillDiff(t)) < 1 ? 'var(--ok)' : 'var(--bad)') + '">' + diffText(tillDiff(t)) + '</span>' },
+    { k: 's', label: 'Status', core: true, v: (t) => t.status, html: tillBadge },
+  ] });
+}
+A.tillReview = (el) => {
+  const t = byId('tills', el.dataset.id); if (!t) return;
+  const ms = tillMethods(Object.assign({}, t.expected, t.counted, t.received));
+  const sh = openSheet({ title: (t.fromName || '') + ' → ' + (t.toName || '') + ' · ' + hm(t.createdAt), wide: true, body:
+    '<div class="card tw mb"><table class="t"><thead><tr><th>Method</th><th class="r">Should be</th><th class="r">' + esc(t.fromName || 'Out') + ' counted</th><th class="r">' + esc(t.toName || 'In') + ' counted</th></tr></thead><tbody>' +
+    ms.map((m) => '<tr><td>' + esc(m) + '</td><td class="r money">' + fmt(num((t.expected || {})[m])) + '</td><td class="r money">' + fmt(num((t.counted || {})[m])) + '</td><td class="r money">' + (t.status === 'pending' ? '—' : fmt(num((t.received || {})[m]))) + '</td></tr>').join('') + '</tbody></table></div>' +
+    (t.note ? '<div class="small mb"><b>' + esc(t.fromName) + ':</b> ' + esc(t.note) + '</div>' : '') + (t.receiveNote ? '<div class="small mb"><b>' + esc(t.toName) + ':</b> ' + esc(t.receiveNote) + '</div>' : '') +
+    (t.status === 'disputed' ? '<div class="alert bad mb">The two counts differ by ' + F(Math.abs(tillDiff(t))) + '. The money counted by ' + esc(t.toName) + ' is what moved; any shortage stays on ' + esc(t.fromName) + '\'s day.</div>' + field('What you found (optional)', inp('rvNote', '')) : '') +
+    (t.reviewedBy ? '<div class="tiny muted">Checked by ' + esc(t.reviewedBy) + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') + '</div>' : ''),
+    foot: t.status === 'disputed' && can('handover') ? '<button class="btn grow" data-a="sheetClose">Close</button><button class="btn pri grow" id="rvSave">' + ic('check') + 'Mark as checked</button>' : '' });
+  if ($('#rvSave', sh)) $('#rvSave', sh).onclick = async () => { if (await save('tills', Object.assign({}, t, { status: 'reviewed', reviewedBy: K.me.name || 'Manager', reviewNote: formVals(sh).rvNote }))) { closeSheet(); scheduleRender(); toast('Takeover checked'); } };
 };
 
 /* ================= SUPPLIERS & BILLS ================= */

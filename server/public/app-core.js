@@ -2,7 +2,7 @@
 const { num } = KC;
 const K = {
   store: null, info: { role: 'admin' }, me: { id: 'local', name: '' }, member: { role: 'owner' }, perms: {}, route: 'home', pending: false, sheets: [],
-  raw: { audits: [], settings: {}, products: [], lots: [], shipments: [], customers: [], sales: [], adjustments: [], expenses: [], members: [], requests: [], locations: [], transfers: [], handovers: [], suppliers: [], bills: [], reminders: [], assets: [] },
+  raw: { audits: [], settings: {}, products: [], lots: [], shipments: [], customers: [], sales: [], adjustments: [], expenses: [], members: [], requests: [], locations: [], transfers: [], handovers: [], suppliers: [], bills: [], reminders: [], assets: [], staff: [], attendance: [], leaves: [], payroll: [], tills: [] },
   outbox: [], failed: [], loc: 'main',
   loaded: {}, C: null, sync: 'loading',
   ui: { stockFilter: 'all', stockCat: '', stockQ: '', salesRange: 'today', salesStatus: 'all', salesQ: '', posQ: '', posCat: '', buyQ: '', custQ: '', repTab: 'daily', repDate: '', repMonth: '', expanded: {} },
@@ -284,12 +284,16 @@ const NAV = [
   ['orders', 'Online orders', 'sell', () => can('sell') || can('payments'), () => (K.raw.orders || []).filter((o) => o.status === 'new').length],
   ['stock', 'Stock & prices', 'stock', () => can('stockView') || can('stockEdit')], ['buy', 'Buy', 'buy', () => can('purchases')], ['ship', 'Ship', 'ship', () => can('containers')], ['receive', 'Receive', 'check', () => can('containers')],
   ['customers', 'Customers', 'users', () => can('customers') || can('sell')], ['reports', 'Reports', 'chart', () => can('reports')], ['expenses', 'Expenses', 'wallet', () => can('expenses')],
-  ['cash', 'Cash handover', 'wallet', () => can('payments') || can('handover')], ['suppliers', 'Suppliers & bills', 'buy', () => can('suppliers')], ['reminders', 'Debt reminders', 'wa', () => can('reminders')],
+  ['cash', 'Cash handover', 'wallet', () => can('payments') || can('handover'), () => (K.raw.tills || []).filter((t) => t.toId === K.me.id && t.status === 'pending').length], ['suppliers', 'Suppliers & bills', 'buy', () => can('suppliers')], ['reminders', 'Debt reminders', 'wa', () => can('reminders')],
   ['assets', 'Assets', 'truck', () => can('assets')],
   ['transfers', 'Branch transfers', 'ship', () => can('transfers') || (allLocs().length > 1 && K.raw.transfers.some((t) => t.status === 'in_transit' && t.to === K.loc))],
   ['audit', 'Stock count', 'check', () => can('audit') || can('stockEdit')],
   ['promos', 'Promotions', 'tag', () => can('stockView') || can('stockEdit')],
   ['activity', 'Activity log', 'clock', () => true],
+  ['staff', 'Attendance', 'clock', () => true],
+  ['leave', 'Leave', 'clock', () => true, () => can('hr') ? (K.raw.leaves || []).filter((l) => l.status === 'requested').length : 0],
+  ['payroll', 'Payroll', 'wallet', () => true],
+  ['employees', 'Employees', 'users', () => can('hr') || can('payroll')],
   ['team', 'Team & access', 'key', () => can('team')], ['settings', 'Settings', 'gear', () => can('settings') || can('export')],
 ];
 const navOk = (r) => { const n = NAV.find((x) => x[0] === r); return !n || n[3](); };
@@ -303,9 +307,10 @@ const SECTIONS = [
   ['stock', 'Stock', 'stock', ['stock', 'promos', 'audit', 'transfers']],
   ['customers', 'Customers', 'users', ['customers', 'reminders']],
   ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'reports', 'assets']],
+  ['people', 'Staff', 'clock', ['staff', 'leave', 'payroll', 'employees']],
   ['settings', 'Settings', 'gear', ['settings', 'team', 'activity']],
 ];
-const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log' };
+const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
 /** Routes of a section this person can open (transfers only when there is more than one branch). */
 const secRoutes = (sec) => sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
 const secOf = (r) => SECTIONS.find((x) => x[3].includes(r)) || SECTIONS[0];
