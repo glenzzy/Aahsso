@@ -971,3 +971,39 @@ table.pch-t{min-width:800px}
 .sp-q .inp{width:76px;min-height:36px;padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums}
 .sp-of{font-size:12px;color:var(--ink3);white-space:nowrap;min-width:44px}
 .sq-in{width:78px;min-height:34px;padding:5px 8px;text-align:right;display:inline-block}
+
+/* new purchase: weight column, cost breakdown, review */
+table.pu-t2 td:nth-child(2){width:80px} table.pu-t2 td:nth-child(3){width:110px} table.pu-t2 td:nth-child(4){width:140px} table.pu-t2 td:nth-child(5){width:130px} table.pu-t2 td:nth-child(6){width:84px}
+table.pu-t2 tr.pu-cost td{padding:0 6px 10px;border-top:0;width:auto!important}
+.pu-cb{display:flex;flex-wrap:wrap;gap:6px 18px;padding:8px 12px;background:var(--bg);border-radius:10px;font-variant-numeric:tabular-nums}
+.pu-cb .cb{display:flex;flex-direction:column;min-width:96px}
+.pu-cb .cb span{font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.pu-cb .cb b{font-size:13.5px;font-weight:600}
+.pu-cb .cb.main b{font-weight:750}
+.pu-cb .cb i{font-style:normal;font-size:12px;color:var(--ink3)}
+@media (max-width:699px){table.pu-t2 tr.pu-cost{display:block;margin-top:-10px} table.pu-t2 tr.pu-cost td{display:block;border:1px solid var(--line);border-top:0;border-radius:0 0 var(--r2) var(--r2);padding:8px} .pu-cb .cb{min-width:calc(50% - 10px)}}
+.pv{display:flex;flex-direction:column;gap:16px}
+.pv-head{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.pv-kv span{display:block;font-size:11.5px;color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.pv-kv b{font-size:14px;font-weight:650}
+.pv-tw{border:1px solid var(--line);border-radius:12px;overflow-x:auto;background:var(--card)}
+table.pv-t{width:100%;min-width:720px;border-collapse:collapse;table-layout:fixed}
+.pv-t th{font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:10px 12px;background:var(--bg);border-bottom:1px solid var(--line);white-space:nowrap}
+.pv-t th.w-it{width:26%}
+.pv-t th.r,.pv-t td.r{text-align:right}
+.pv-t td{padding:10px 12px;border-top:1px solid var(--line2);vertical-align:top;font-variant-numeric:tabular-nums;overflow:hidden}
+.pv-t tbody tr:first-child td{border-top:0}
+.pv-n{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pv-s{display:block;font-size:12px;color:var(--ink3)}
+.pv-loc{display:block;font-size:12px;color:var(--ink3);font-weight:500}
+.pv-foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.pv-pay{flex:1;min-width:240px;font-size:14px}
+.pv-l{font-size:11.5px;color:var(--ink3);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.pv-tot{min-width:280px;background:var(--bg);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:14px;font-variant-numeric:tabular-nums}
+.pv-grand{border-top:1px solid var(--line);padding-top:8px;font-size:16px}
+/* cost line under each item: even columns, left aligned */
+.pu-cb{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px 16px;text-align:left}
+.pu-cb .cb{min-width:0}
+.pu-cb .cb b,.pu-cb .cb i,.pu-cb .cb span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pu-cb > .hint{grid-column:1/-1}
+@media (max-width:699px){.pu-cb{grid-template-columns:1fr 1fr} table.pu-t2 tr.pu-cost td{text-align:left!important}}

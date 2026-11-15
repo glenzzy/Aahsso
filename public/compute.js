@@ -103,7 +103,7 @@
   /* Payment modes. Local sales in Cameroon: Cash, MTN MoMo, Orange Money only.
    * Purchases (often US stores / USD) may also use bank transfers. PAY_METHODS = every known mode. */
   const SALE_PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money'];
-  const PURCHASE_PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer', 'Zelle / US bank', 'Other'];
+  const PURCHASE_PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer', 'Credit card', 'Zelle / US bank', 'Other'];
   const PAY_METHODS = PURCHASE_PAY_METHODS;
   const isMobileMoney = (method) => method === 'MTN MoMo' || method === 'Orange Money';
   /** New transaction id, e.g. TX261110-K3F9QZ (sales) or PU261110-… (purchases). */

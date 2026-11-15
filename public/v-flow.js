@@ -54,13 +54,13 @@ VIEWS.buy = {
 
 /* ----- New purchase: seller, items (with tax shared over them), payment ----- */
 const defCat = () => (catOpts().includes('Food & Snacks') ? 'Food & Snacks' : catOpts()[0] || 'Other');
-const puRow = (o) => Object.assign({ name: '', category: defCat(), subcategory: '', qty: '1', unitCost: '', condition: 'New', working: 'Working', regularPrice: '', packOf: '1', expiry: '', barcode: '', reservedFor: '', notes: '', unit: '', size: null, sizeUnit: '', photo: null, open: false }, o || {});
+const puRow = (o) => Object.assign({ name: '', category: defCat(), subcategory: '', qty: '1', unitCost: '', weight: '', condition: 'New', working: 'Working', regularPrice: '', packOf: '1', expiry: '', barcode: '', reservedFor: '', notes: '', unit: '', size: null, sizeUnit: '', photo: null, open: false }, o || {});
 const SELLER_SUP_TYPE = { Store: 'Store / wholesaler', Online: 'Store / wholesaler', Auction: 'Auction (B-Stock…)', 'Local (Cameroon)': 'Store / wholesaler' };
 A.newPurchase = () => purchaseForm();
 /* Where it was bought decides the money: abroad = US dollars, in Cameroon = local currency (FCFA). */
 const PU_WHERE = {
-  abroad: { cur: () => 'USD', methods: ['Cash', 'Bank transfer', 'Zelle / US bank', 'Other'] },
-  local: { cur: () => baseCode(), methods: ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer'] },
+  abroad: { cur: () => 'USD', methods: ['Cash', 'Credit card', 'Bank transfer', 'Zelle / US bank', 'Other'] },
+  local: { cur: () => baseCode(), methods: ['Cash', 'MTN MoMo', 'Orange Money', 'Credit card', 'Bank transfer'] },
 };
 /** Sellers you bought from before (newest first), plus the usual US stores; the ones that fit "where" come first. */
 function puSellers(where) {
@@ -91,18 +91,18 @@ function purchaseForm() {
           field('Receipt / order no.', inp('poNumber', '', 'placeholder="Optional"')) + field('Collected from the seller?', sel('puCollected', [['yes', 'Yes, we have the goods'], ['no', 'No — pick up later']], 'yes')) + '</div></details></section>' +
       // items
       '<section class="pu-sec"><div class="pu-h2"><h3 class="pu-t3">Items</h3><div class="row gap6"><button type="button" class="btn sm ghost" data-a="puImport">' + ic('up', 'sm') + 'Import Excel</button><button type="button" class="btn sm ghost" data-a="tplPurch">' + ic('dl', 'sm') + 'Template</button></div></div>' +
-        '<div class="pu-tw"><table class="t pu-t2"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r" id="puPriceH">Price each</th><th class="r">Total</th><th></th></tr></thead><tbody id="puRows"></tbody></table></div>' +
+        '<div class="pu-tw"><table class="t pu-t2"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Weight each</th><th class="r" id="puPriceH">Price each</th><th class="r">Total</th><th></th></tr></thead><tbody id="puRows"></tbody></table></div>' +
         '<div class="pu-under"><div class="col" style="gap:10px"><button type="button" class="btn sm" data-a="puAdd" style="align-self:flex-start">' + ic('plus', 'sm') + 'Add item</button><span class="hint">Tip: press Enter in the price to add the next item.</span>' +
           '<div id="puSpread" class="hide"><div class="hint mb">Paid one price for the items without a price?</div><div class="row gap6"><input class="inp" id="puLot" inputmode="decimal" placeholder="Total paid" style="width:140px"><button type="button" class="btn sm" data-a="puSpread">Spread it</button></div></div></div>' +
           '<div class="pu-tot"><div class="row between"><span>Items</span><span class="money" id="puSub"></span></div>' +
             '<div class="row between pu-taxrow"><span class="row gap6"><span>Tax</span><input class="inp" id="puTax" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="Tax"><span class="seg sm" id="puTaxMode"><button type="button" class="on" data-a="puTaxMode" data-v="pct">%</button><button type="button" data-a="puTaxMode" data-v="amt" id="puTaxCur">$</button></span></span><span class="money" id="puTaxV"></span></div>' +
-            '<div class="row between pu-grand"><b>Total</b><b class="money" id="puGrand"></b></div><div class="pu-local hint" id="puLocal"></div><div class="hint" id="puTaxHint"></div></div></div></section>' +
+            '<div class="row between hide"><span>Total weight</span><span id="puWt"></span></div><div class="row between pu-grand"><b>Total</b><b class="money" id="puGrand"></b></div><div class="pu-local hint" id="puLocal"></div><div class="hint" id="puTaxHint"></div></div></div></section>' +
       // payment
       '<section class="pu-sec"><h3 class="pu-t3">Payment</h3>' +
         '<div class="seg mb" id="puPaidSeg"><button type="button" class="on" data-a="puPaid" data-v="paid">Paid in full</button><button type="button" data-a="puPaid" data-v="part">Part paid</button>' + (can('suppliers') ? '<button type="button" data-a="puPaid" data-v="credit">Not paid yet</button>' : '') + '</div>' +
         '<div id="puPayBy" class="hide" style="max-width:260px">' + field('Pay the rest by', inp('payBy', KC.addDays(todayStr(), 14), 'type="date"')) + '</div>' +
         '<div id="puPay"></div></section>',
-    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="puSave">Save purchase</button>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="puSave">Review purchase</button>',
   });
   sh._rows = [puRow()]; sh._taxMode = 'pct'; sh._paid = 'paid'; sh._where = 'abroad';
   const cur = () => $('#puCur', sh).value;
@@ -115,7 +115,9 @@ function purchaseForm() {
   const m = (v) => money(v, cur());
   const totals = () => {
     const s = sums();
-    $$('#puRows tr[data-r]', sh).forEach((tr) => { const i = +tr.dataset.r, r = sh._rows[i]; $('[data-out=total]', tr).textContent = lineVal(r) ? m(lineVal(r)) : '—'; $('[data-out=tax]', tr).textContent = s.shares[i] ? '+ ' + m(s.shares[i]) + ' tax' : ''; });
+    const fx0 = cur() === baseCode() ? 1 : KC.rateOf(S(), cur());
+    $$('#puRows tr[data-r]', sh).forEach((tr) => { const i = +tr.dataset.r, r = sh._rows[i]; $('[data-out=total]', tr).textContent = lineVal(r) ? m(lineVal(r)) : '—'; $('[data-out=tax]', tr).textContent = s.shares[i] ? '+ ' + m(s.shares[i]) + ' tax' : ''; const cb = $('#puRows tr[data-c="' + i + '"] [data-out=cost]', sh); if (cb) cb.innerHTML = puCostHTML(r, s.shares[i] || 0, cur(), fx0); });
+    const wt = sh._rows.reduce((a, r) => a + num(r.qty) * num(r.weight), 0); const we = $('#puWt', sh); if (we) { we.textContent = wt ? fmtKg(wt) : '—'; we.parentNode.classList.toggle('hide', !wt); }
     const rate = s.sub ? s.tax / s.sub * 100 : 0;
     $('#puSub', sh).textContent = m(s.sub); $('#puTaxV', sh).textContent = m(s.tax); $('#puGrand', sh).textContent = m(s.total);
     const fx = cur() === baseCode() ? 1 : KC.rateOf(S(), cur());
@@ -125,15 +127,17 @@ function purchaseForm() {
     $$('#puRows [data-unit]', sh).forEach((u) => (u.textContent = curSym(cur())));
     $('#puSpread', sh).classList.toggle('hide', !(sh._rows.length > 1 && sh._rows.some((r) => r.name && r.unitCost === '')));
     const short = matchMedia('(max-width: 600px)').matches;
-    $('#puSave', sh).textContent = s.total ? (short ? 'Save · ' : 'Save purchase · ') + m(s.total) : 'Save purchase';
+    $('#puSave', sh).textContent = s.total ? (short ? 'Review · ' : 'Review purchase · ') + m(s.total) : 'Review purchase';
     const pa = $('#payAmount', sh); if (pa) { pa.dataset.def = s.total; pa.placeholder = s.total ? fmt(s.total) : 'Total of the receipt'; if (sh._paid === 'paid') pa.value = ''; syncPayCharges(sh); }
   };
   const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" list="dlNames" value="' + esc(r.name) + '" placeholder="Item name" autocomplete="off" aria-label="Item"></td>' +
     '<td data-l="Qty"><input class="inp r" data-f="qty" inputmode="numeric" value="' + esc(r.qty) + '" aria-label="Quantity"></td>' +
+    '<td data-l="Weight each"><div class="in-unit"><input class="inp r" data-f="weight" inputmode="decimal" value="' + esc(r.weight) + '" placeholder="0" aria-label="Weight of one item in kg"><span>kg</span></div></td>' +
     '<td data-l="Price each"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="0" aria-label="Price each"><span data-unit>' + esc(curSym(cur())) + '</span></div></td>' +
     '<td class="r pu-ltot" data-l="Total"><b class="money" data-out="total">—</b><span class="pu-tx" data-out="tax"></span></td>' +
     '<td class="nowrap r"><button type="button" class="icon-btn' + (r.open ? ' on' : '') + '" data-a="puMore" data-i="' + i + '" title="Category, condition, expiry, barcode, photo…" aria-label="Item details">' + ic('more', 'sm') + '</button><button type="button" class="icon-btn" data-a="puRm" data-i="' + i + '" aria-label="Remove item">' + ic('x', 'sm') + '</button></td></tr>' +
-    (r.open ? '<tr class="pu-more" data-m="' + i + '"><td colspan="5"><div class="grid4">' +
+    '<tr class="pu-cost" data-c="' + i + '"><td colspan="6"><div class="pu-cb" data-out="cost"></div></td></tr>' +
+    (r.open ? '<tr class="pu-more" data-m="' + i + '"><td colspan="6"><div class="grid4">' +
       field('Category', sel('cat_' + i, catOpts(), r.category, 'data-f="category"')) + field('Condition', sel('cond_' + i, KC.CONDITIONS, r.condition, 'data-f="condition"')) + field('Working?', sel('work_' + i, KC.WORKING, r.working, 'data-f="working"')) +
       field('Pack of', '<input class="inp" data-f="packOf" inputmode="numeric" value="' + esc(r.packOf) + '" title="Units you will sell for each one bought">') +
       field('Shelf price each', '<input class="inp" data-f="regularPrice" inputmode="decimal" value="' + esc(r.regularPrice) + '" placeholder="Optional">') + field('Expiry date', '<input class="inp" type="date" data-f="expiry" value="' + esc(r.expiry) + '">') + field('Barcode', '<input class="inp" data-f="barcode" value="' + esc(r.barcode) + '" placeholder="Optional">') +
@@ -207,7 +211,7 @@ function purchaseForm() {
     const lines = rows.map((r, i) => {
       const pack = Math.max(1, Math.floor(num(r.packOf) || 1)); const qty = Math.floor(num(r.qty)) * pack;
       return { name: r.name.trim(), category: r.category, subcategory: r.subcategory || subOpts(r.category)[0] || '', condition: r.condition, working: r.working, unit: r.unit, size: r.size, sizeUnit: r.sizeUnit,
-        regularPrice: num(r.regularPrice) ? num(r.regularPrice) / pack : null, unitCost: num(r.unitCost) / pack, unitTax: qty ? shares[i] / qty : 0, qty,
+        regularPrice: num(r.regularPrice) ? num(r.regularPrice) / pack : null, unitCost: num(r.unitCost) / pack, unitTax: qty ? shares[i] / qty : 0, qty, weightKg: num(r.weight) ? num(r.weight) / pack : null, boughtQty: Math.floor(num(r.qty)), weightEach: num(r.weight) || 0, pack,
         expiry: r.expiry, barcode: r.barcode, reservedFor: r.reservedFor || '', notes: [r.notes, pack > 1 ? 'Bought ' + Math.floor(num(r.qty)) + ' pack(s) of ' + pack : ''].filter(Boolean).join(' · '), photo: r.photo };
     });
     const credit = pv.payStatus === 'credit';
@@ -216,13 +220,16 @@ function purchaseForm() {
       if (String(pv.payAmount || '').trim() === '') pv.payAmount = s.total;
       pay = readPayment(pv, 'purchase'); if (pay === false) return;
     }
+    const go = async () => {
     Object.assign(h, { shipmentId: h.where === 'local' ? '__local' : '', purchaseTxnId: KC.newTxnId('PU', h.purchaseDate) });
     await savePurchaseLines(h, lines);
     if (credit || pay) {
       await createBillFor({ txnId: h.purchaseTxnId, payment: pay, supplierId: (K.raw.suppliers.find((x) => x.name.toLowerCase() === (h.vendor || '').toLowerCase()) || {}).id, newSupplier: h.vendor || h.sourceType || 'Seller', newSupplierType: SELLER_SUP_TYPE[h.sourceType] || 'Other', description: 'Purchase ' + (h.poNumber ? '#' + h.poNumber + ' ' : '') + fmtDate(h.purchaseDate) + (s.tax ? ' (tax ' + money(s.tax, h.currency) + ')' : ''), amount: s.total, currency: h.currency || 'USD', date: h.purchaseDate, dueDate: sh._paid === 'paid' ? h.purchaseDate : pv.payBy });
     }
-    closeSheet(); scheduleRender();
+    while (K.sheets.length && K.sheets[K.sheets.length - 1] !== sh) closeSheet(); closeSheet(); scheduleRender();
     toast(lines.length + ' item' + (lines.length === 1 ? '' : 's') + ' saved' + (h.where === 'local' ? ' · in stock now' : ' · waiting to ship') + (credit ? ' · bill created' : pay && pay.amount < s.total - 0.005 ? ' · part paid, rest added to bills' : ''));
+    };
+    puPreview({ h, lines, s, pay, credit, paid: sh._paid, payBy: pv.payBy, sellerType: h.sourceType }, go);
   };
   setTimeout(() => { const v = $('#puSeller', sh); if (v && matchMedia('(min-width: 900px)').matches) v.focus(); }, 60);
 }
@@ -260,7 +267,7 @@ function parsePurchaseRows(rows) {
     condition: (() => { const c = String(pickCol(r, ['Condition', 'Grade'])).toLowerCase(); return !c ? 'New' : /open|box/.test(c) ? 'Open box' : /refurb/.test(c) ? 'Refurbished' : /damag|part|salvage/.test(c) ? 'Damaged / Parts' : /used|return/.test(c) ? 'Used' : 'New'; })(),
     regularPrice: num(pickCol(r, ['Regular Price', 'Shelf Price', 'Retail Price', 'MSRP', 'Unit Retail', 'Ext Retail'])) || '', unitCost: pickCol(r, ['Price Paid', 'Price Each', 'Unit Cost', 'Cost', 'Price']), qty: Math.floor(num(pickCol(r, ['Quantity', 'Qty', 'Units']))) || 1,
     expiry: xlDate(pickCol(r, ['Expiry Date', 'Expiry', 'Expiration'])), barcode: String(pickCol(r, ['Barcode', 'UPC', 'EAN'])), notes: String(pickCol(r, ['Notes'])),
-    unit: String(pickCol(r, ['Unit', 'Sold By'])), size: num(pickCol(r, ['Size', 'Weight'])) || null, sizeUnit: String(pickCol(r, ['Size Unit', 'Weight Unit'])), packOf: Math.max(1, Math.floor(num(pickCol(r, ['Pack Of', 'Units Per Pack', 'Pack'])) || 1)),
+    unit: String(pickCol(r, ['Unit', 'Sold By'])), size: num(pickCol(r, ['Size'])) || null, weight: num(pickCol(r, ['Weight (kg)', 'Weight Kg', 'Weight', 'Kg'])) || '', sizeUnit: String(pickCol(r, ['Size Unit', 'Weight Unit'])), packOf: Math.max(1, Math.floor(num(pickCol(r, ['Pack Of', 'Units Per Pack', 'Pack'])) || 1)),
     tax: pickCol(r, ['Tax', 'Tax Rate', 'Tax %']),
   })).filter((l) => l.name);
   lines.forEach((l) => {
@@ -286,14 +293,14 @@ A.puImport = async (el) => {
   } setIf('poNumber', f0.poNumber); setIf('purchaseDate', f0.purchaseDate);
   if (f0.sourceType && KC.SOURCE_TYPES.includes(f0.sourceType)) $('#puSrc', sh).value = f0.sourceType; else if (/b-?stock|auction/i.test(f0.vendor)) $('#puSrc', sh).value = 'Auction';
   const taxCol = lines.map((l) => String(l.tax).replace('%', '')).find((t) => num(t) > 0); if (taxCol && !$('#puTax', sh).value) $('#puTax', sh).value = taxCol;
-  sh._rows = sh._rows.filter((r) => r.name.trim()).concat(lines.map((l) => puRow({ name: l.name, category: l.category, subcategory: l.subcategory, qty: String(l.qty), unitCost: l.unitCost === '' ? '' : String(num(l.unitCost)), condition: l.condition, regularPrice: l.regularPrice === '' ? '' : String(l.regularPrice), packOf: String(l.packOf), expiry: l.expiry, barcode: l.barcode, notes: l.notes, unit: l.unit, size: l.size, sizeUnit: l.sizeUnit })));
+  sh._rows = sh._rows.filter((r) => r.name.trim()).concat(lines.map((l) => puRow({ name: l.name, category: l.category, subcategory: l.subcategory, qty: String(l.qty), unitCost: l.unitCost === '' ? '' : String(num(l.unitCost)), condition: l.condition, regularPrice: l.regularPrice === '' ? '' : String(l.regularPrice), weight: l.weight === '' ? '' : String(l.weight), packOf: String(l.packOf), expiry: l.expiry, barcode: l.barcode, notes: l.notes, unit: l.unit, size: l.size, sizeUnit: l.sizeUnit })));
   sh._draw();
   const noPrice = lines.filter((l) => l.unitCost === '').length;
   toast(lines.length + ' item' + (lines.length === 1 ? '' : 's') + ' imported' + (noPrice ? ' · ' + noPrice + ' without a price' : '') + ' — check them, then save');
 };
 A.tplPurch = () => xlsxDownload('Purchase-template.xlsx', { Purchases: [
-  { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Quaker Oats Old Fashioned 2x2.6kg', Category: 'Food & Snacks', Subcategory: 'Cereal & Oats', Condition: 'New', 'Shelf Price': 12.99, 'Price Each': 9.98, Quantity: 10, 'Pack Of': 1, Unit: 'pack', Size: 2.6, 'Size Unit': 'kg', 'Expiry Date': '2027-06-30', Barcode: '', 'Tax %': 8.25, Notes: '' },
-  { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Kirkland Olive Oil 2L', Category: 'Food & Snacks', Subcategory: '', Condition: 'New', 'Shelf Price': 24.99, 'Price Each': 19.99, Quantity: 6, 'Pack Of': 1, Unit: 'bottle', Size: 2, 'Size Unit': 'L', 'Expiry Date': '', Barcode: '', 'Tax %': '', Notes: '' },
+  { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Quaker Oats Old Fashioned 2x2.6kg', Category: 'Food & Snacks', Subcategory: 'Cereal & Oats', Condition: 'New', 'Shelf Price': 12.99, 'Price Each': 9.98, Quantity: 10, 'Pack Of': 1, Unit: 'pack', Size: 2.6, 'Size Unit': 'kg', 'Expiry Date': '2027-06-30', Barcode: '', 'Weight (kg)': 2.6, 'Tax %': 8.25, Notes: '' },
+  { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Kirkland Olive Oil 2L', Category: 'Food & Snacks', Subcategory: '', Condition: 'New', 'Shelf Price': 24.99, 'Price Each': 19.99, Quantity: 6, 'Pack Of': 1, Unit: 'bottle', Size: 2, 'Size Unit': 'L', 'Expiry Date': '', Barcode: '', 'Weight (kg)': 2, 'Tax %': '', Notes: '' },
 ] });
 
 /* ================= 2 · SHIP ================= */
@@ -363,3 +370,35 @@ A.rcvCount = (el) => openShip(el.dataset.id, 'recv');
 A.rcvLabels = (el) => { const ids = [...new Set(K.raw.lots.filter((l) => l.shipmentId === el.dataset.id).map((l) => l.productId))]; if (!ids.length) return toast('No items in this shipment', true); labelsSheet(ids); };
 
 A.wtAdd = () => { const s = $('#wtShip'); if (s && s.value) A.shAddItems({ dataset: { id: s.value } }); };
+
+/* ---------- New purchase: costs per item and the review step ---------- */
+const fmtKg = (v) => (Math.round(num(v) * 100) / 100).toLocaleString('en-US') + ' kg';
+/** Under each item: price each, tax each, each with tax, line with tax — in the purchase currency and in FCFA. */
+function puCostHTML(r, share, cur, fx) {
+  if (r.unitCost === '' || !(num(r.qty) > 0)) return '<span class="hint">Type the quantity and price to see the cost of each item.</span>';
+  const q = num(r.qty), each = num(r.unitCost), taxEach = q ? share / q : 0; const foreign = cur !== baseCode();
+  const cell = (l, v, main) => '<div class="cb' + (main ? ' main' : '') + '"><span>' + l + '</span><b>' + money(v, cur) + '</b>' + (foreign && fx ? '<i>' + F(v * fx) + '</i>' : '') + '</div>';
+  return cell('Each, no tax', each) + cell('Tax each', taxEach) + cell('Each with tax', each + taxEach, true) + cell('Line with tax', (each + taxEach) * q, true) +
+    (num(r.weight) ? '<div class="cb"><span>Weight</span><b>' + fmtKg(num(r.weight) * q) + '</b><i>' + fmt(q) + ' × ' + fmtKg(r.weight) + '</i></div>' : '');
+}
+/** Review everything before it is saved; `go` saves it. */
+function puPreview(d, go) {
+  const { h, lines, s, pay, credit } = d; const cur = h.currency || 'USD'; const foreign = cur !== baseCode(); const fx = foreign ? KC.rateOf(S(), cur) : 1;
+  const m = (v) => money(v, cur); const loc = (v) => foreign ? '<span class="pv-loc">' + F(v * fx) + '</span>' : '';
+  const wt = lines.reduce((a, l) => a + num(l.weightEach) * num(l.boughtQty), 0);
+  const kv = (k, v) => v ? '<div class="pv-kv"><span>' + k + '</span><b>' + v + '</b></div>' : '';
+  const payTxt = credit ? 'Not paid yet · pay by ' + fmtDate(d.payBy)
+    : pay ? esc(pay.method) + ' · ' + m(pay.amount) + (pay.fee ? ' + ' + m(pay.fee) + ' charges' : '') + (pay.ref ? ' · ref ' + esc(pay.ref) : '') + (pay.amount < s.total - 0.005 ? ' · rest ' + m(s.total - pay.amount) + ' by ' + fmtDate(d.payBy) : '') : '—';
+  const body = '<div class="pv">' +
+    '<div class="pv-head">' + kv('Bought', h.where === 'local' ? '🇨🇲 In Cameroon' : '🇺🇸 Abroad') + kv('Seller', esc(h.vendor) + (h.sourceType ? ' <span class="hint">' + esc(h.sourceType) + '</span>' : '')) + kv('Phone', esc(h.vendorPhone || '')) + kv('Date', fmtDate(h.purchaseDate)) + kv('Receipt no.', esc(h.poNumber || '')) + kv('Currency', foreign ? curSym(cur) + ' · 1 ' + curSym(cur) + ' = ' + fmt(fx) + ' ' + esc(baseSym()) : esc(baseSym())) + kv('Collected', h.puCollected === 'no' ? 'No — pick up later' : 'Yes') + '</div>' +
+    '<div class="pv-tw"><table class="pv-t"><thead><tr><th class="w-it">Item</th><th class="r">Qty</th><th class="r">Weight</th><th class="r">Each</th><th class="r">Tax each</th><th class="r">Each with tax</th><th class="r">Line total</th></tr></thead><tbody>' +
+      lines.map((l) => { const pk = num(l.pack) || 1; const bq = num(l.boughtQty); const each = num(l.unitCost) * pk, tx = num(l.unitTax) * pk; return '<tr><td><span class="pv-n">' + esc(l.name) + '</span><span class="pv-s">' + esc([l.category, l.condition !== 'New' ? l.condition : '', pk > 1 ? 'pack of ' + pk : ''].filter(Boolean).join(' · ')) + '</span></td>' +
+        '<td class="r">' + fmt(bq) + '</td><td class="r">' + (num(l.weightEach) ? fmtKg(num(l.weightEach) * bq) : '<span class="faint">—</span>') + '</td>' +
+        '<td class="r">' + m(each) + loc(each) + '</td><td class="r">' + m(tx) + loc(tx) + '</td><td class="r b">' + m(each + tx) + loc(each + tx) + '</td><td class="r b">' + m((each + tx) * bq) + loc((each + tx) * bq) + '</td></tr>'; }).join('') +
+    '</tbody></table></div>' +
+    '<div class="pv-foot"><div class="pv-pay"><div class="pv-l">Payment</div><div>' + payTxt + '</div><div class="pv-l mt">Next</div><div>' + (h.where === 'local' ? 'Goes straight to stock, ready to sell.' : 'Waits in <b>Ship</b> until you put it in a shipment.') + '</div></div>' +
+      '<div class="pv-tot">' + '<div class="row between"><span>Items</span><span>' + m(s.sub) + '</span></div><div class="row between"><span>Tax</span><span>' + m(s.tax) + '</span></div>' + (wt ? '<div class="row between"><span>Total weight</span><span>' + fmtKg(wt) + '</span></div>' : '') +
+        '<div class="row between pv-grand"><b>Total</b><b>' + m(s.total) + '</b></div>' + (foreign ? '<div class="pv-loc r">≈ ' + F(s.total * fx) + '</div>' : '') + '</div></div></div>';
+  const pv = openSheet({ title: 'Review purchase', wide: true, body, foot: '<button class="btn grow" data-a="sheetClose">' + ic('back', 'sm') + 'Back to edit</button><button class="btn pri grow" id="pvGo">' + ic('check', 'sm') + 'Confirm purchase · ' + m(s.total) + '</button>' });
+  $('#pvGo', pv).onclick = () => go();
+}
