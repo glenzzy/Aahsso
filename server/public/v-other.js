@@ -508,22 +508,27 @@ function feeEditor() { return '<div id="feeEd">' + feeEditorInner() + '</div>'; 
 function feeEditorInner() {
   const op = K.ui.feeOp || FEE_OPS[0]; const tiers = K.ui.feeDraft[op] || (K.ui.feeDraft[op] = []);
   const tables = Object.assign({}, K.ui.feeDraft); const iss = feeIssues(tiers);
-  const numIn = (i, k, v, unit, ph) => '<div class="fee-in"><input class="inp" inputmode="decimal" data-ft="' + k + '" data-fi="' + i + '" value="' + (v === undefined || v === null ? '' : esc(v)) + '" placeholder="' + (ph || '') + '" aria-label="' + k + ' for range ' + (i + 1) + '"><span>' + unit + '</span></div>';
+  const LBL = { min: 'From', max: 'To', fee: 'Charge', pct: 'Charge %', taxPct: 'Tax %', taxFixed: 'Extra' };
+  const numIn = (i, k, v, unit, ph) => '<div class="fee-in' + (unit ? (unit === '%' ? ' pct' : '') : ' bare') + '"><input class="inp" inputmode="decimal" data-ft="' + k + '" data-fi="' + i + '" value="' + (v === undefined || v === null ? '' : esc(v)) + '" placeholder="' + (ph || '') + '" aria-label="' + LBL[k] + ' for range ' + (i + 1) + '">' + (unit ? '<span class="fee-u">' + unit + '</span>' : '') + '</div>';
   const top = (t) => { const hi = t.max === '' || t.max == null ? null : num(t.max); return hi === null ? '—' : fmt(KC.calcMomoFee(op, hi, { momoFeeTables: tables })) + ' ' + baseSym(); };
   const tryAmt = K.ui.feeTry === undefined ? 50000 : K.ui.feeTry; const tryFee = KC.calcMomoFee(op, tryAmt, { momoFeeTables: tables });
   return '<div class="row wrap between mb"><div class="seg" role="tablist">' + FEE_OPS.map((o) => '<button type="button" role="tab" aria-selected="' + (o === op) + '" class="' + (o === op ? 'on' : '') + '" data-a="feeOp" data-v="' + esc(o) + '">' + esc(o) + ' <span class="tiny muted">' + (K.ui.feeDraft[o] || []).length + '</span></button>').join('') + '</div>' +
       '<div class="row wrap"><button type="button" class="btn sm" data-a="feeAdd">' + ic('plus', 'sm') + 'Add a range</button><button type="button" class="btn sm" data-a="feeReset">Reset to standard grid</button></div></div>' +
-    (tiers.length ? '<div class="card tw"><table class="t fee-tbl"><thead><tr><th>#</th><th>From</th><th>To</th><th>Charge type</th><th>Charge</th><th>+ Tax</th><th>+ Extra</th><th class="r" title="The charge for the largest amount in this range">At top of range</th><th></th></tr></thead><tbody>' +
-      tiers.map((t, i) => { const pct = t.type === 'pct'; return '<tr><td class="muted">' + (i + 1) + '</td>' +
-        '<td>' + numIn(i, 'min', t.min, baseSym(), '0') + '</td><td>' + numIn(i, 'max', t.max, baseSym(), 'No limit') + '</td>' +
-        '<td><select class="inp" data-ft="type" data-fi="' + i + '" aria-label="Charge type for range ' + (i + 1) + '"><option value="fixed"' + (pct ? '' : ' selected') + '>Fixed amount</option><option value="pct"' + (pct ? ' selected' : '') + '>Percentage</option></select></td>' +
-        '<td>' + (pct ? numIn(i, 'pct', t.pct, '%', '1') : numIn(i, 'fee', t.fee, baseSym(), '0')) + '</td>' +
-        '<td>' + (pct ? numIn(i, 'taxPct', t.taxPct, '%', '0') : dtNil) + '</td><td>' + (pct ? numIn(i, 'taxFixed', t.taxFixed, baseSym(), '0') : dtNil) + '</td>' +
-        '<td class="r b fee-top" data-top="' + i + '">' + top(t) + '</td>' +
-        '<td><button type="button" class="icon-btn" data-a="feeDel" data-i="' + i + '" title="Remove this range" aria-label="Remove range ' + (i + 1) + '">' + ic('trash', 'sm') + '</button></td></tr>'; }).join('') +
-      '</tbody></table></div>' : '<div class="card empty small">No ranges for ' + esc(op) + ' — no charge will be suggested. <button type="button" class="btn sm" data-a="feeAdd">Add a range</button></div>') +
+    (tiers.length ? '<div class="fee-grid"><div class="fee-hd" aria-hidden="true"><span>#</span><span>From <i>' + baseSym() + '</i></span><span>To <i>' + baseSym() + '</i></span><span>Charge type</span><span>Charge <i>' + baseSym() + ' / %</i></span><span>+ Tax <i>%</i></span><span>+ Extra <i>' + baseSym() + '</i></span><span class="r" title="The charge for the largest amount in this range">At top</span><span></span></div>' +
+      tiers.map((t, i) => { const pct = t.type === 'pct'; const na = '<span class="fee-na" title="Only for percentage charges">—</span>';
+        const cell = (cls, label, inner) => '<div class="fee-c ' + cls + '"><span class="fee-ml">' + label + '</span>' + inner + '</div>';
+        return '<div class="fee-r"><div class="fee-c c-n"><span class="fee-num">' + (i + 1) + '</span></div>' +
+          cell('c-min', 'From (' + baseSym() + ')', numIn(i, 'min', t.min, '', '0')) +
+          cell('c-max', 'To (' + baseSym() + ')', numIn(i, 'max', t.max, '', 'No limit')) +
+          cell('c-type', 'Charge type', '<select class="inp fee-type" data-ft="type" data-fi="' + i + '" aria-label="Charge type for range ' + (i + 1) + '"><option value="fixed"' + (pct ? '' : ' selected') + '>Fixed</option><option value="pct"' + (pct ? ' selected' : '') + '>Percent</option></select>') +
+          cell('c-fee', pct ? 'Charge (%)' : 'Charge (' + baseSym() + ')', pct ? numIn(i, 'pct', t.pct, '', '1') : numIn(i, 'fee', t.fee, '', '0')) +
+          cell('c-tax', '+ Tax (%)', pct ? numIn(i, 'taxPct', t.taxPct, '', '0') : na) +
+          cell('c-ext', '+ Extra (' + baseSym() + ')', pct ? numIn(i, 'taxFixed', t.taxFixed, '', '0') : na) +
+          cell('c-top', 'At top of range', '<b class="fee-top" data-top="' + i + '" title="The charge for the largest amount in this range">' + top(t) + '</b>') +
+          '<div class="fee-c c-del"><button type="button" class="icon-btn" data-a="feeDel" data-i="' + i + '" title="Remove this range" aria-label="Remove range ' + (i + 1) + '">' + ic('trash', 'sm') + '</button></div></div>'; }).join('') +
+      '</div>' : '<div class="card empty small">No ranges for ' + esc(op) + ' — no charge will be suggested. <button type="button" class="btn sm" data-a="feeAdd">Add a range</button></div>') +
     '<div id="feeMsgs">' + feeMsgs(iss) + '</div>' +
-    '<div class="card pad mt fee-try"><div class="row wrap"><b>Try it</b><span class="muted small">A customer pays</span><div class="fee-in" style="width:150px"><input class="inp" inputmode="numeric" id="feeTry" value="' + esc(tryAmt) + '" aria-label="Amount to test"><span>F</span></div><span class="muted small">by ' + esc(op) + ' →</span>' +
+    '<div class="card pad mt fee-try"><div class="row wrap"><b>Try it</b><span class="muted small">A customer pays</span><div class="fee-in fee-try-in"><input class="inp" inputmode="numeric" id="feeTry" value="' + esc(tryAmt) + '" aria-label="Amount to test"><span class="fee-u">' + baseSym() + '</span></div><span class="muted small">by ' + esc(op) + ' →</span>' +
       '<span>charge <b id="feeTryOut">' + fmt(tryFee) + ' ' + baseSym() + '</b></span><span class="muted small">· customer sends <b id="feeTryGross">' + fmt(num(tryAmt) + tryFee) + ' ' + baseSym() + '</b></span></div></div>';
 }
 const feeMsgs = (iss) => (iss.errors.length ? '<div class="alert bad mt">' + iss.errors.map(esc).join('<br>') + '</div>' : '') + (iss.warnings.length ? '<div class="alert mt small">' + iss.warnings.map(esc).join('<br>') + '</div>' : '') + (!iss.errors.length && !iss.warnings.length && iss.covers ? '<div class="tiny mt" style="color:var(--ok)">✓ Ranges are complete and do not overlap · covers ' + esc(iss.covers) + '</div>' : '');

@@ -776,3 +776,105 @@ table.pu-t2 tr.pu-more td{background:var(--bg);padding:12px}
 table.pu-t2 .in-unit .inp{padding-right:44px}
 table.pu-t2 .in-unit span{right:10px}
 @media (max-width:699px){.pu-where2{grid-template-columns:1fr}}
+
+/* ---------- withdrawal charges editor: unit tags beside the number (never on top of it) ---------- */
+table.t.fee-tbl{border-collapse:separate;border-spacing:0}
+table.t.fee-tbl th{font-size:11.5px;padding:10px 8px;white-space:nowrap}
+table.t.fee-tbl td{padding:10px 8px;vertical-align:middle}
+table.t.fee-tbl tbody tr+tr td{border-top:1px solid var(--line2)}
+.fee-h{font-weight:500;color:var(--ink3);text-transform:none;letter-spacing:0;margin-left:2px}
+.fee-n{width:36px;text-align:center}
+.fee-num{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--line2);color:var(--ink2);font-size:12px;font-weight:700}
+.fee-in{display:flex;align-items:stretch;min-width:118px;border:1px solid var(--line);border-radius:10px;background:#fff;overflow:hidden;transition:border-color .15s,box-shadow .15s}
+.fee-in:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px var(--brandSoft)}
+.fee-in .inp,.fee-in input{flex:1;min-width:0;width:100%;border:0!important;box-shadow:none!important;border-radius:0;background:transparent;min-height:40px;padding:8px 10px!important;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+.fee-in input::placeholder{text-align:right}
+.fee-in .fee-u{position:static;transform:none;display:flex;align-items:center;padding:0 10px;background:var(--bg);border-left:1px solid var(--line);font-size:12px;font-weight:600;color:var(--ink3);white-space:nowrap;flex:none}
+.fee-in.bare{min-width:130px}
+.fee-tbl select.inp{min-height:42px;min-width:140px}
+.fee-na{color:var(--ink3);display:block;text-align:center}
+.fee-top{white-space:nowrap;font-variant-numeric:tabular-nums}
+.fee-try-in{width:190px;min-width:0}
+.fee-try .row{gap:12px;align-items:center}
+.fee-in{min-width:150px}.fee-in.pct{min-width:104px}.fee-in.bare{min-width:140px}.fee-try-in{width:190px;min-width:0}
+
+/* withdrawal charges: one small card per range (fits any width, nothing scrolls sideways) */
+.fee-ranges{display:flex;flex-direction:column;gap:10px}
+.fee-r{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.fee-r1,.fee-r2{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap}
+.fee-r2{padding-top:10px;border-top:1px dashed var(--line2)}
+.fee-l{font-size:13px;color:var(--ink2);font-weight:550;white-space:nowrap}
+.fee-cur{color:var(--ink3);font-weight:600;font-size:12px}
+.fee-sp{flex:1}
+.fee-topl{font-size:12.5px;color:var(--ink3);white-space:nowrap}
+.fee-topl b{color:var(--ink);font-variant-numeric:tabular-nums}
+.fee-r .fee-in{min-width:0;width:150px}
+.fee-r .fee-in.bare{width:140px}
+.fee-r .fee-in.pct{width:96px}
+.fee-type{width:auto;min-width:150px;min-height:42px;padding:8px 10px;font-size:14px}
+@media (max-width:600px){.fee-r .fee-in,.fee-r .fee-in.bare{width:calc(50% - 30px)}.fee-sp{flex-basis:100%;height:0}.fee-topl{order:5}}
+.fee-r .fee-in.pct{width:112px}
+@media (max-width:600px){.fee-r .fee-r2 .fee-in{flex:1 1 150px;width:auto}.fee-r .fee-r2 .fee-in.pct{flex:1 1 112px}.fee-type{flex:1 1 100%}}
+select.inp.fee-type{width:auto;flex:none}
+.fee-r1 .icon-btn{margin-left:auto}
+@media (max-width:600px){.fee-r1 .fee-in,.fee-r1 .fee-in.bare{flex:1 1 70px;width:auto;min-width:0}.fee-r1 .fee-in input{padding:8px 8px!important}.fee-sp{display:none}.fee-topl{order:5;flex:1}.fee-r1 .icon-btn{order:6}select.inp.fee-type{flex:1 1 100%}}
+@media (max-width:600px){.fee-r1 .fee-in,.fee-r1 .fee-in.bare{flex:1 1 150px}}
+
+/* ===== withdrawal charges: one aligned row per range on wide screens, cards when narrow ===== */
+#feeEd{container-type:inline-size;container-name:fee}
+.fee-grid{border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
+.fee-hd,.fee-r{display:grid;grid-template-columns:26px minmax(92px,1fr) minmax(92px,1fr) 132px minmax(84px,.9fr) minmax(70px,.7fr) minmax(84px,.9fr) minmax(96px,auto) 34px;gap:10px;align-items:center;padding:10px 14px}
+.fee-hd{background:var(--bg);border-bottom:1px solid var(--line);padding-top:9px;padding-bottom:9px}
+.fee-hd span{font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);white-space:nowrap}
+.fee-hd i{font-style:normal;text-transform:none;letter-spacing:0;font-weight:500;margin-left:2px}
+.fee-hd .r{text-align:right}
+.fee-r+.fee-r{border-top:1px solid var(--line2)}
+.fee-r .fee-c{min-width:0}
+.fee-ml{display:none}
+.fee-r .fee-in,.fee-r .fee-in.bare,.fee-r .fee-in.pct{width:100%;min-width:0}
+.fee-r select.inp.fee-type{width:100%;min-width:0}
+.fee-r .c-top{text-align:right;white-space:nowrap}
+.fee-r .c-del{text-align:right}
+.fee-r .fee-na{display:block;text-align:center;color:var(--ink3)}
+/* not enough room for one row: each range becomes a small card, every box labelled */
+@container fee (max-width: 820px){
+  .fee-grid{border:0;background:transparent;display:flex;flex-direction:column;gap:10px;overflow:visible}
+  .fee-hd{display:none}
+  .fee-r{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;border:1px solid var(--line)!important;border-radius:12px;background:var(--card);padding:12px 14px;position:relative}
+  .fee-r .c-n{grid-column:1/-1;display:flex;align-items:center;gap:8px}
+  .fee-r .c-n::after{content:'Range';font-size:13px;font-weight:650;color:var(--ink2);order:-1;display:none}
+  .fee-r .c-type{grid-column:1/-1}
+  .fee-r .c-top{grid-column:1/2;text-align:left}
+  .fee-r .c-del{position:absolute;top:8px;right:8px}
+  .fee-ml{display:block;font-size:12px;font-weight:600;color:var(--ink3);margin-bottom:4px}
+  .fee-r .fee-na{text-align:left;padding:10px 0}
+}
+/* tighter columns so a whole range fits on one row from ~700px */
+.fee-hd,.fee-r{grid-template-columns:24px minmax(84px,1fr) minmax(84px,1fr) 118px minmax(74px,.9fr) minmax(62px,.7fr) minmax(72px,.85fr) minmax(78px,auto) 30px;gap:8px;padding:10px 12px}
+.fee-hd span{white-space:normal;line-height:1.2}
+.fee-r .fee-in input{padding:8px 9px!important;font-size:14px}
+.fee-r select.inp.fee-type{padding:8px 8px;font-size:13.5px}
+.fee-r .c-top{font-size:13.5px}
+@container fee (min-width: 700px){
+  .fee-grid{border:1px solid var(--line);background:var(--card);display:block;overflow:hidden}
+  .fee-hd{display:grid}
+  .fee-r{display:grid;grid-template-columns:24px minmax(84px,1fr) minmax(84px,1fr) 118px minmax(74px,.9fr) minmax(62px,.7fr) minmax(72px,.85fr) minmax(78px,auto) 30px;gap:8px;border:0!important;border-radius:0;padding:10px 12px;position:static}
+  .fee-r+.fee-r{border-top:1px solid var(--line2)!important}
+  .fee-r .c-n,.fee-r .c-type{grid-column:auto;display:block}
+  .fee-r .c-top{grid-column:auto;text-align:right}
+  .fee-r .c-del{position:static}
+  .fee-ml{display:none}
+  .fee-r .fee-na{text-align:center;padding:0}
+}
+@container fee (min-width: 700px){
+  .fee-hd,.fee-r{grid-template-columns:22px minmax(86px,1.15fr) minmax(86px,1.15fr) 108px minmax(70px,.85fr) minmax(60px,.6fr) minmax(70px,.8fr) minmax(70px,auto) 28px!important;gap:6px!important;padding:10px 10px!important}
+  .fee-r .fee-in input{padding:8px 8px!important;font-size:13.5px}
+}
+@container fee (max-width: 699px){
+  .fee-r .fee-in,.fee-r .fee-in.bare,.fee-r .fee-in.pct{width:100%!important;flex:none!important;min-width:0}
+  .fee-r select.inp.fee-type{width:100%!important;flex:none!important}
+  .fee-r{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}
+}
+@container fee (min-width: 700px){
+  .fee-hd,.fee-r{grid-template-columns:22px minmax(84px,1.15fr) minmax(84px,1.15fr) 108px minmax(70px,.85fr) minmax(56px,.6fr) minmax(76px,.85fr) 80px 28px!important}
+}
