@@ -24,7 +24,8 @@ h1 { font-size: 22px; font-weight: 800; } h2 { font-size: 17px; font-weight: 750
 .auth-card { width: min(440px, 100%); background: var(--card); border-radius: 18px; padding: 30px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
 .auth-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
 .mark { width: 38px; height: 38px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; font-weight: 800; color: var(--ink); flex: none; }
-.auth h1 { font-size: 22px; margin: 0 0 4px; }
+.auth h1 { font-size: 22px; margin: 0 0 18px; }
+.auth h1:has(+ .sub) { margin-bottom: 4px; }
 .auth p.sub { margin: 0 0 18px; color: var(--ink2); font-size: 14px; }
 .qr { width: 190px; height: 190px; margin: 6px auto 10px; padding: 8px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
 .qr svg { width: 100%; height: 100%; display: block; }

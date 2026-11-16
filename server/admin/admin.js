@@ -103,7 +103,7 @@
     const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Something went wrong'); return j;
   }
   function renderLogin(msg) {
-    authShell('<h1>Sign in</h1><p class="sub">Restricted area. Every sign-in is recorded.</p>' + (msg ? '<div class="alert warn mb">' + esc(msg) + '</div>' : '') +
+    authShell('<h1>Sign in</h1>' + (msg ? '<div class="alert warn mb">' + esc(msg) + '</div>' : '') +
       '<form id="lf" class="col" novalidate>' + field('Email', inp('email', '', 'type="email" autocomplete="username" required')) + field('Password', inp('password', '', 'type="password" autocomplete="current-password" required')) +
       '<div class="alert bad hide" id="lerr" role="alert"></div><button class="btn pri block" id="lgo">Continue</button></form>');
     $('#lf').onsubmit = (e) => { e.preventDefault(); const v = vals($('#lf')); if (!v.email || !v.password) return showErr('#lerr', 'Type your email and password.');
