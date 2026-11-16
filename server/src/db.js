@@ -9,7 +9,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : undefined,
   max: Number(process.env.PG_POOL_MAX || (serverless ? 3 : 10)),
-  idleTimeoutMillis: serverless ? 5000 : 30000,
+  idleTimeoutMillis: serverless ? 5000 : 300000, // a new connection to a far database costs ~2 s: keep them for 5 minutes on a normal server
   connectionTimeoutMillis: 10000,
 });
 pool.on('error', (e) => console.error('[db] idle client error', e.message)); // a dropped idle connection must not crash the process

@@ -212,3 +212,15 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: #f
 .tab-body.loading::before { content: ''; position: absolute; left: 0; right: 0; top: -9px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, var(--brand), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: tabload 1s linear infinite; }
 @keyframes tabload { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 @media (prefers-reduced-motion: reduce) { .tab-body, .tab-body.loading::before { transition: none; animation: none; } }
+
+/* ---------- loading states ---------- */
+/* a button at work: spinner in place of its icon, cannot be clicked again */
+.is-busy { cursor: progress !important; pointer-events: none; }
+.btn.is-busy:disabled { opacity: .8; }
+.is-busy > svg { display: none; }
+.is-busy::before { content: ''; width: 14px; height: 14px; flex: none; display: inline-block; vertical-align: -2px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: btnspin .7s linear infinite; }
+.link.is-busy::before, a.is-busy::before { margin-right: 6px; }
+@keyframes btnspin { to { transform: rotate(360deg); } }
+/* a page loading: thin moving bar under the top bar */
+.top.loading::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: linear-gradient(90deg, transparent, var(--brand), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: tabload 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .is-busy::before { animation-duration: 2s; } .top.loading::after { animation: none; background: var(--brand); opacity: .5; } }

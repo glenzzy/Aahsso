@@ -9,6 +9,7 @@
  *  5. CSRF: custom header + Origin check on every change. Risky actions need the admin's 4-digit PIN again (5 min).
  *  6. Roles (super / admin / support / finance) and an append-only audit log of every action. */
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcryptjs');
@@ -181,9 +182,25 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
 
   /* the dashboard page itself */
   const dir = path.join(__dirname, '..', 'admin');
-  r.get('/admin', (req, res) => res.sendFile(path.join(dir, 'index.html')));
-  r.get('/admin/admin.js', (req, res) => res.type('application/javascript').sendFile(path.join(dir, 'admin.js')));
-  r.get('/admin/admin.css', (req, res) => res.type('text/css').sendFile(path.join(dir, 'admin.css')));
+  // admin.js / admin.css carry a version (hash of the file) in their URL, so the browser keeps them until they change;
+  // the page itself and every API answer stay no-store. Re-read only when a file changes (cheap stat per page load).
+  const assets = {}; let page = { key: '', html: '' };
+  const asset = (f) => {
+    const full = path.join(dir, f); const st = fs.statSync(full); const key = st.mtimeMs + ':' + st.size;
+    if (!assets[f] || assets[f].key !== key) { const buf = fs.readFileSync(full); assets[f] = { key, v: crypto.createHash('sha256').update(buf).digest('hex').slice(0, 12) }; }
+    return assets[f].v;
+  };
+  r.get('/admin', (req, res) => {
+    const js = asset('admin.js'), css = asset('admin.css'), key = js + css + asset('index.html');
+    if (page.key !== key) page = { key, html: fs.readFileSync(path.join(dir, 'index.html'), 'utf8').replace('/admin/admin.js"', '/admin/admin.js?v=' + js + '"').replace('/admin/admin.css"', '/admin/admin.css?v=' + css + '"') };
+    res.type('html').send(page.html);
+  });
+  const sendAsset = (f, type) => (req, res) => {
+    if (req.query.v && req.query.v === asset(f)) res.set('Cache-Control', 'private, max-age=31536000, immutable'); else res.set('Cache-Control', 'no-cache');
+    res.type(type).sendFile(path.join(dir, f));
+  };
+  r.get('/admin/admin.js', sendAsset('admin.js', 'application/javascript'));
+  r.get('/admin/admin.css', sendAsset('admin.css', 'text/css'));
   r.get('/admin/fonts/:file', (req, res, next) => (/^[a-z0-9-]+\.woff2$/.test(req.params.file) ? res.type('font/woff2').set('Cache-Control', 'public, max-age=31536000, immutable').sendFile(path.join(dir, 'fonts', req.params.file), (e) => e && next()) : next())); // Plus Jakarta Sans, self-hosted (OFL)
 
   r.post('/api/admin/auth/login', authLimiter, wrap(async (req, res) => {
@@ -284,22 +301,22 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
 
   /* ---------- overview ---------- */
   A.get('/overview', need('overview.view'), wrap(async (req, res) => {
-    const one = async (sql, p) => (await q(sql, p || [])).rows[0];
-    const statuses = Object.fromEntries((await q('SELECT status, count(*)::int AS n FROM subscriptions GROUP BY status')).rows.map((x) => [x.status, x.n]));
-    res.json({
-      statuses, tenants: (await one('SELECT count(*)::int AS n FROM tenants')).n,
-      mrr: (await one("SELECT coalesce(sum(CASE WHEN cycle='yearly' THEN price/12.0 ELSE price END),0)::int AS v FROM subscriptions WHERE status IN ('active','past_due') AND price IS NOT NULL")).v,
-      collectedMonth: (await one("SELECT coalesce(sum(amount),0)::int AS v FROM payments WHERE status='confirmed' AND date_trunc('month', paid_on) = date_trunc('month', now())")).v,
-      revenue: (await q("SELECT to_char(date_trunc('month', paid_on),'YYYY-MM') AS m, sum(amount)::int AS v FROM payments WHERE status='confirmed' AND paid_on >= date_trunc('month', now()) - interval '5 months' GROUP BY 1 ORDER BY 1")).rows,
-      signups30: (await one("SELECT count(*)::int AS n FROM tenants WHERE created_at > now() - interval '30 days'")).n,
-      conversion: await one("SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM payments p WHERE p.tenant_id=t.id AND p.status='confirmed'))::int AS paid, count(*)::int AS total FROM tenants t WHERE created_at > now() - interval '180 days'"),
-      lost30: (await one("SELECT count(*)::int AS n FROM subscriptions WHERE status IN ('expired','cancelled') AND updated_at > now() - interval '30 days' AND plan_id IS NOT NULL")).n,
-      due: await one("SELECT count(*) FILTER (WHERE due_date <= current_date + 7)::int AS week, coalesce(sum(amount) FILTER (WHERE due_date <= current_date + 7),0)::int AS week_amount, count(*) FILTER (WHERE due_date < current_date)::int AS overdue FROM invoices WHERE status='open'"),
-      pendingPayments: (await one("SELECT count(*)::int AS n FROM payments WHERE status='pending'")).n,
-      openTickets: (await one("SELECT count(*)::int AS n FROM support_tickets WHERE status='open'")).n,
-      recentSignups: (await q("SELECT t.id, t.name, t.created_at, s.status FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id ORDER BY t.created_at DESC LIMIT 8")).rows,
-      recentPayments: (await q("SELECT p.id, p.amount, p.currency, p.method, p.paid_on, p.status, t.name AS tenant, t.id AS tenant_id FROM payments p JOIN tenants t ON t.id=p.tenant_id ORDER BY p.created_at DESC LIMIT 8")).rows,
-    });
+    // everything in ONE query: each round trip to the database costs ~100-200 ms when it is far away
+    const d = (await q(`SELECT
+      (SELECT coalesce(json_object_agg(status, n), '{}') FROM (SELECT status, count(*)::int AS n FROM subscriptions GROUP BY status) x) AS statuses,
+      (SELECT count(*)::int FROM tenants) AS tenants,
+      (SELECT coalesce(sum(CASE WHEN cycle='yearly' THEN price/12.0 ELSE price END),0)::int FROM subscriptions WHERE status IN ('active','past_due') AND price IS NOT NULL) AS mrr,
+      (SELECT coalesce(sum(amount),0)::int FROM payments WHERE status='confirmed' AND date_trunc('month', paid_on) = date_trunc('month', now())) AS "collectedMonth",
+      (SELECT coalesce(json_agg(x ORDER BY x.m), '[]') FROM (SELECT to_char(date_trunc('month', paid_on),'YYYY-MM') AS m, sum(amount)::int AS v FROM payments WHERE status='confirmed' AND paid_on >= date_trunc('month', now()) - interval '5 months' GROUP BY 1) x) AS revenue,
+      (SELECT count(*)::int FROM tenants WHERE created_at > now() - interval '30 days') AS signups30,
+      (SELECT row_to_json(x) FROM (SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM payments p WHERE p.tenant_id=t.id AND p.status='confirmed'))::int AS paid, count(*)::int AS total FROM tenants t WHERE created_at > now() - interval '180 days') x) AS conversion,
+      (SELECT count(*)::int FROM subscriptions WHERE status IN ('expired','cancelled') AND updated_at > now() - interval '30 days' AND plan_id IS NOT NULL) AS lost30,
+      (SELECT row_to_json(x) FROM (SELECT count(*) FILTER (WHERE due_date <= current_date + 7)::int AS week, coalesce(sum(amount) FILTER (WHERE due_date <= current_date + 7),0)::int AS week_amount, count(*) FILTER (WHERE due_date < current_date)::int AS overdue FROM invoices WHERE status='open') x) AS due,
+      (SELECT count(*)::int FROM payments WHERE status='pending') AS "pendingPayments",
+      (SELECT count(*)::int FROM support_tickets WHERE status='open') AS "openTickets",
+      (SELECT coalesce(json_agg(x), '[]') FROM (SELECT t.id, t.name, t.created_at, s.status FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id ORDER BY t.created_at DESC LIMIT 8) x) AS "recentSignups",
+      (SELECT coalesce(json_agg(x), '[]') FROM (SELECT p.id, p.amount, p.currency, p.method, p.paid_on, p.status, t.name AS tenant, t.id AS tenant_id FROM payments p JOIN tenants t ON t.id=p.tenant_id ORDER BY p.created_at DESC LIMIT 8) x) AS "recentPayments"`)).rows[0];
+    res.json(d);
   }));
 
   /* ---------- businesses ---------- */
@@ -318,18 +335,24 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   async function tenantOr404(req, res) { const t = (await q('SELECT * FROM tenants WHERE id::text=$1', [req.params.id])).rows[0]; if (!t) bad(res, 'Business not found', 404); return t; }
   A.get('/tenants/:id', need('tenants.view'), wrap(async (req, res) => {
     const t = await tenantOr404(req, res); if (!t) return; const id = t.id;
-    const st = (await q("SELECT data FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [id])).rows[0];
-    const counts = Object.fromEntries((await q("SELECT collection, count(*)::int AS n FROM documents WHERE tenant_id=$1 AND collection IN ('products','sales','customers','orders') GROUP BY collection", [id])).rows.map((x) => [x.collection, x.n]));
-    const showMoney = can(req.admin, 'billing') || can(req.admin, 'subs.write');
+    // the lists in one query, the subscription / usage / limits alongside it (in parallel)
+    const [d, subscription, usage, ent] = await Promise.all([
+      q(`SELECT
+        (SELECT data FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main') AS settings,
+        (SELECT coalesce(json_object_agg(collection, n), '{}') FROM (SELECT collection, count(*)::int AS n FROM documents WHERE tenant_id=$1 AND collection IN ('products','sales','customers','orders') GROUP BY collection) x) AS counts,
+        (SELECT coalesce(json_agg(x ORDER BY x.created_at), '[]') FROM (SELECT id, name, login, email, role, active, created_at, last_login_at FROM users WHERE tenant_id=$1) x) AS users,
+        (SELECT coalesce(json_agg(x ORDER BY x.issued_at DESC), '[]') FROM (SELECT i.*, p.name AS plan_name FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE tenant_id=$1 ORDER BY issued_at DESC LIMIT 50) x) AS invoices,
+        (SELECT coalesce(json_agg(x ORDER BY x.created_at DESC), '[]') FROM (SELECT * FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 50) x) AS payments,
+        (SELECT coalesce(json_agg(x ORDER BY x.at DESC), '[]') FROM (SELECT at, user_name, action, collection, doc_id FROM audit_log WHERE tenant_id=$1 ORDER BY at DESC LIMIT 25) x) AS activity,
+        (SELECT coalesce(json_agg(x ORDER BY x.created_at DESC), '[]') FROM (SELECT id, topic, status, created_at, updated_at, user_name FROM support_tickets WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 20) x) AS tickets,
+        (SELECT coalesce(json_agg(x ORDER BY x.at DESC), '[]') FROM (SELECT at, admin_email, action, reason, details FROM admin_audit WHERE tenant_id=$1 ORDER BY at DESC LIMIT 25) x) AS "adminLog"`, [id]).then((r) => r.rows[0]),
+      B.getSub(pool, id), B.usage(pool, id), B.limitsFor(pool, id),
+    ]);
+    const st = d.settings;
     res.json({
-      tenant: t, subscription: await B.getSub(pool, id), settings: st ? { businessName: st.data.businessName, phone: st.data.phone, address: st.data.address, currency: st.data.currency, shopSlug: st.data.shopSlug, shopEnabled: !!st.data.shopEnabled } : {},
-      users: (await q('SELECT id, name, login, email, role, active, created_at, last_login_at FROM users WHERE tenant_id=$1 ORDER BY created_at', [id])).rows,
-      usage: await B.usage(pool, id), limits: (await B.limitsFor(pool, id)).limits, features: (await B.limitsFor(pool, id)).features, catalog: KC.FEATURES, counts,
-      invoices: showMoney || can(req.admin, 'tenants.view') ? (await q('SELECT i.*, p.name AS plan_name FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE tenant_id=$1 ORDER BY issued_at DESC LIMIT 50', [id])).rows : [],
-      payments: (await q('SELECT * FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 50', [id])).rows,
-      activity: (await q('SELECT at, user_name, action, collection, doc_id FROM audit_log WHERE tenant_id=$1 ORDER BY at DESC LIMIT 25', [id])).rows,
-      tickets: (await q('SELECT id, topic, status, created_at, updated_at, user_name FROM support_tickets WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 20', [id])).rows,
-      adminLog: (await q('SELECT at, admin_email, action, reason, details FROM admin_audit WHERE tenant_id=$1 ORDER BY at DESC LIMIT 25', [id])).rows,
+      tenant: t, subscription, settings: st ? { businessName: st.businessName, phone: st.phone, address: st.address, currency: st.currency, shopSlug: st.shopSlug, shopEnabled: !!st.shopEnabled } : {},
+      users: d.users, usage, limits: ent.limits, features: ent.features, catalog: KC.FEATURES, counts: d.counts,
+      invoices: d.invoices, payments: d.payments, activity: d.activity, tickets: d.tickets, adminLog: d.adminLog,
     });
   }));
   A.post('/tenants/:id/subscription', wrap(async (req, res) => {
@@ -409,10 +432,11 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   A.get('/users', need('users.view'), wrap(async (req, res) => {
     const page = Math.max(0, Number(req.query.page) || 0); const qs = String(req.query.q || '').slice(0, 80).replace(/[%_]/g, '');
     const st = String(req.query.status || ''); const role = String(req.query.role || '').slice(0, 40);
-    const rows = (await q(USER_SEL + " WHERE ($1='' OR u.name ILIKE '%'||$1||'%' OR u.login ILIKE '%'||$1||'%' OR coalesce(u.email,'') ILIKE '%'||$1||'%' OR t.name ILIKE '%'||$1||'%')" +
+    const [list, cnt] = await Promise.all([q(USER_SEL + " WHERE ($1='' OR u.name ILIKE '%'||$1||'%' OR u.login ILIKE '%'||$1||'%' OR coalesce(u.email,'') ILIKE '%'||$1||'%' OR t.name ILIKE '%'||$1||'%')" +
       " AND ($2='' OR u.tenant_id::text=$2) AND ($3='' OR ($3='active' AND u.active) OR ($3='disabled' AND NOT u.active)) AND ($4='' OR u.role=$4 OR ($4='staff' AND u.role<>'owner'))" +
-      ' ORDER BY u.created_at DESC LIMIT 51 OFFSET $5', [qs, String(req.query.tenant || ''), st, role, page * 50])).rows;
-    const counts = (await q("SELECT count(*)::int AS total, count(*) FILTER (WHERE active)::int AS active, count(*) FILTER (WHERE role='owner')::int AS owners, count(*) FILTER (WHERE last_login_at > now() - interval '30 days')::int AS recent FROM users")).rows[0];
+      ' ORDER BY u.created_at DESC LIMIT 51 OFFSET $5', [qs, String(req.query.tenant || ''), st, role, page * 50]),
+    q("SELECT count(*)::int AS total, count(*) FILTER (WHERE active)::int AS active, count(*) FILTER (WHERE role='owner')::int AS owners, count(*) FILTER (WHERE last_login_at > now() - interval '30 days')::int AS recent FROM users")]);
+    const rows = list.rows; const counts = cnt.rows[0];
     res.json({ users: rows.slice(0, 50), more: rows.length > 50, counts });
   }));
   A.get('/users/roles', need('users.view'), wrap(async (req, res) => {
@@ -586,7 +610,9 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       graceDays: Math.min(60, Math.max(0, Math.round(Number(b.graceDays) || 0))),
       renewalNoticeDays: Math.min(30, Math.max(1, Math.round(Number(b.renewalNoticeDays) || 7))), invoiceDueDays: Math.min(60, Math.max(0, Math.round(Number(b.invoiceDueDays) || 0))),
     };
-    for (const [k, val] of Object.entries(v)) await q('INSERT INTO platform_settings (key, value, updated_by) VALUES ($1,$2,$3) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now(), updated_by=EXCLUDED.updated_by', [k, JSON.stringify(val), req.admin.id]);
+    const ents = Object.entries(v);
+    await q('INSERT INTO platform_settings (key, value, updated_by) VALUES ' + ents.map((_, i) => '($' + (i * 2 + 2) + ',$' + (i * 2 + 3) + ',$1)').join(',') + ' ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now(), updated_by=EXCLUDED.updated_by',
+      [req.admin.id].concat(...ents.map(([k, val]) => [k, JSON.stringify(val)])));
     await audit(req, 'settings_updated', { details: v }); res.json({ ok: true, settings: await B.platformSettings() });
   }));
 
@@ -596,8 +622,10 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     res.json({ tickets: (await q("SELECT k.*, t.name AS tenant, (SELECT body FROM support_messages m WHERE m.ticket_id=k.id ORDER BY m.id DESC LIMIT 1) AS last FROM support_tickets k LEFT JOIN tenants t ON t.id=k.tenant_id WHERE ($1='' OR k.status=$1) ORDER BY k.updated_at DESC LIMIT 200", [st])).rows });
   }));
   A.get('/support/:id', need('support'), wrap(async (req, res) => {
-    const k = (await q('SELECT k.*, t.name AS tenant FROM support_tickets k LEFT JOIN tenants t ON t.id=k.tenant_id WHERE k.id::text=$1', [req.params.id])).rows[0]; if (!k) return bad(res, 'Ticket not found', 404);
-    res.json({ ticket: k, messages: (await q('SELECT * FROM support_messages WHERE ticket_id=$1 ORDER BY id', [k.id])).rows });
+    const [kr, mr] = await Promise.all([q('SELECT k.*, t.name AS tenant FROM support_tickets k LEFT JOIN tenants t ON t.id=k.tenant_id WHERE k.id::text=$1', [req.params.id]),
+      q('SELECT m.* FROM support_messages m WHERE m.ticket_id::text=$1 ORDER BY m.id', [req.params.id])]);
+    const k = kr.rows[0]; if (!k) return bad(res, 'Ticket not found', 404);
+    res.json({ ticket: k, messages: mr.rows });
   }));
   A.post('/support/:id/reply', need('support'), wrap(async (req, res) => {
     const body = String((req.body || {}).body || '').trim(); if (body.length < 2) return bad(res, 'Write a reply');
@@ -628,21 +656,20 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     ].map(([label, ok]) => ({ label, ok }));
   }
   A.get('/health', need('health.view'), wrap(async (req, res) => {
-    res.json({
-      uptimeS: Math.round(process.uptime()), node: process.version, dbSize: (await q('SELECT pg_size_pretty(pg_database_size(current_database())) AS s')).rows[0].s,
-      migrations: (await q('SELECT name, run_at FROM schema_migrations ORDER BY name DESC LIMIT 5')).rows,
-      emails7d: Object.fromEntries((await q("SELECT status, count(*)::int AS n FROM email_log WHERE created_at > now() - interval '7 days' GROUP BY status")).rows.map((x) => [x.status, x.n])),
-      emailFailures: (await q("SELECT created_at, kind, to_addr, error FROM email_log WHERE status='failed' ORDER BY created_at DESC LIMIT 10")).rows,
-      reminderRuns: (await q('SELECT r.run_date, r.sent, t.name FROM reminder_runs r JOIN tenants t ON t.id=r.tenant_id ORDER BY r.at DESC LIMIT 10')).rows,
-      security: securityChecks(),
-    });
+    const d = (await q(`SELECT pg_size_pretty(pg_database_size(current_database())) AS "dbSize",
+      (SELECT coalesce(json_agg(x ORDER BY x.name DESC), '[]') FROM (SELECT name, run_at FROM schema_migrations ORDER BY name DESC LIMIT 5) x) AS migrations,
+      (SELECT coalesce(json_object_agg(status, n), '{}') FROM (SELECT status, count(*)::int AS n FROM email_log WHERE created_at > now() - interval '7 days' GROUP BY status) x) AS emails7d,
+      (SELECT coalesce(json_agg(x ORDER BY x.created_at DESC), '[]') FROM (SELECT created_at, kind, to_addr, error FROM email_log WHERE status='failed' ORDER BY created_at DESC LIMIT 10) x) AS "emailFailures",
+      (SELECT coalesce(json_agg(x ORDER BY x.at DESC), '[]') FROM (SELECT r.run_date, r.sent, t.name, r.at FROM reminder_runs r JOIN tenants t ON t.id=r.tenant_id ORDER BY r.at DESC LIMIT 10) x) AS "reminderRuns"`)).rows[0];
+    res.json(Object.assign({ uptimeS: Math.round(process.uptime()), node: process.version, security: securityChecks() }, d));
   }));
 
   /* ---------- admins, sessions, audit ---------- */
   A.get('/admins', wrap(async (req, res) => {
     const all = can(req.admin, 'admins.manage');
-    res.json({ admins: (await q('SELECT id, email, name, role, active, totp_enabled, (pin_hash IS NOT NULL) AS has_pin, last_login_at, last_login_ip, locked_until, created_at, jsonb_array_length(recovery_codes) AS recovery_left FROM platform_admins WHERE $1 OR id=$2 ORDER BY created_at', [all, req.admin.id])).rows,
-      sessions: (await q('SELECT s.id, s.admin_id, a.email, s.created_at, s.last_seen_at, s.ip, s.user_agent, (s.id = $3) AS current FROM admin_sessions s JOIN platform_admins a ON a.id=s.admin_id WHERE s.revoked_at IS NULL AND s.expires_at > now() AND s.last_seen_at > now() - interval \'30 minutes\' AND ($1 OR s.admin_id=$2) ORDER BY s.last_seen_at DESC', [all, req.admin.id, req.sid])).rows.map((x) => Object.assign(x, { id: x.id.slice(0, 16) })) });
+    const [ad, se] = await Promise.all([q('SELECT id, email, name, role, active, totp_enabled, (pin_hash IS NOT NULL) AS has_pin, last_login_at, last_login_ip, locked_until, created_at, jsonb_array_length(recovery_codes) AS recovery_left FROM platform_admins WHERE $1 OR id=$2 ORDER BY created_at', [all, req.admin.id]),
+      q('SELECT s.id, s.admin_id, a.email, s.created_at, s.last_seen_at, s.ip, s.user_agent, (s.id = $3) AS current FROM admin_sessions s JOIN platform_admins a ON a.id=s.admin_id WHERE s.revoked_at IS NULL AND s.expires_at > now() AND s.last_seen_at > now() - interval \'30 minutes\' AND ($1 OR s.admin_id=$2) ORDER BY s.last_seen_at DESC', [all, req.admin.id, req.sid])]);
+    res.json({ admins: ad.rows, sessions: se.rows.map((x) => Object.assign(x, { id: x.id.slice(0, 16) })) });
   }));
   A.post('/sessions/:id/revoke', wrap(async (req, res) => {
     const all = can(req.admin, 'admins.manage');

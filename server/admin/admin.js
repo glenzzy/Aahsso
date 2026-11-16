@@ -50,7 +50,17 @@
     return { val, clear: () => { ds.forEach((d) => (d.value = '')); ds[0].focus(); }, focus: () => ds[0].focus() };
   }
   const vals = (root) => { const o = {}; $$('[name]', root).forEach((el) => { o[el.name] = el.type === 'checkbox' ? el.checked : el.value.trim(); }); return o; };
-  async function busy(btn, fn) { if (btn) btn.disabled = true; try { return await fn(); } catch (e) { if (!e.quiet) toast(e.message, true); } finally { if (btn) btn.disabled = false; } }
+  /** a button shows a spinner and cannot be clicked again while its work runs */
+  const btnOf = (el) => (el && el.closest ? el.closest('button, a, .btn') : null);
+  function setBusy(btn, on) {
+    if (!btn) return; const n = (Number(btn.dataset.busy) || 0) + (on ? 1 : -1);
+    if (n > 0) { btn.dataset.busy = n; btn.classList.add('is-busy'); btn.setAttribute('aria-busy', 'true'); if (btn.tagName === 'BUTTON') btn.disabled = true; }
+    else { delete btn.dataset.busy; btn.classList.remove('is-busy'); btn.removeAttribute('aria-busy'); if (btn.tagName === 'BUTTON') btn.disabled = false; }
+  }
+  async function busy(el, fn) {
+    const btn = btnOf(el); setBusy(btn, true);
+    try { return await fn(); } catch (e) { if (!e.quiet) toast(e.message, true); } finally { setBusy(btn, false); }
+  }
   const table = (cols, rows, opts = {}) => rows.length ? '<div class="tw"><table class="t"><thead><tr>' + cols.map((c) => '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.label) + '</th>').join('') + '</tr></thead><tbody>' +
     rows.map((r) => '<tr' + (opts.href ? ' class="click" data-go="' + esc(opts.href(r)) + '" tabindex="0"' : '') + '>' + cols.map((c) => '<td' + (c.num ? ' class="num"' : '') + '>' + c.v(r) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' : '<div class="empty">' + esc(opts.empty || 'Nothing here yet.') + '</div>';
 
@@ -201,12 +211,14 @@
     $('#title').textContent = r === 'tenants' && parts[1] ? 'Business' : (NAV.find((x) => x[0] === r) || [0, 'Admin'])[1];
     drawNav(S.counts); let view = $('#view');
     const soft = view.dataset.page === r && !!$('#tabBody', view); // same page, other tab: keep the header and tabs, reload only the content
+    const tb = $('.top'); if (tb) tb.dataset.loading = (Number(tb.dataset.loading) || 0) + 1, tb.classList.add('loading');
     if (!soft) { // a fresh element per page: a slower page that finishes late writes into the old, detached one
       const fresh = view.cloneNode(false); fresh.removeAttribute('data-page'); view.replaceWith(fresh); view = fresh;
       view.innerHTML = '<div class="empty">Loading…</div>';
     }
     try { await PAGES[r](view, parts.slice(1)); if (!soft && INTRO[r] && !(r === 'tenants' && parts[1]) && !$('.page-intro', view)) view.insertAdjacentHTML('afterbegin', '<div class="page-intro"><p>' + esc(INTRO[r]) + '</p></div>'); }
     catch (e) { if (!e.quiet) { const b = $('#tabBody', view); if (b) { b.classList.remove('loading'); b.removeAttribute('aria-busy'); b.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; } else view.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; } }
+    finally { if (tb) { const n = Number(tb.dataset.loading) - 1; tb.dataset.loading = n; if (n <= 0) tb.classList.remove('loading'); } }
     if (!soft) window.scrollTo(0, 0);
   }
 
@@ -256,7 +268,7 @@
     v.innerHTML = '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search businesses</span>' + ic('search', 'sm') + '<input class="inp" id="tq" type="search" placeholder="Search business, owner, login or email" value="' + esc(f.q) + '"></label>' +
       sel('ts', [['', 'All statuses']].concat(Object.entries(STATUS).map(([k, x]) => [k, x[0]])), f.status, 'id="ts" style="width:auto"') +
       sel('tp', [['', 'All plans']].concat(S.plans.map((p) => [p.id, p.name])), f.plan, 'id="tp" style="width:auto"') +
-      '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
+      '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" data-act="dl" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
     let page = 0; let timer;
     const load = async (more) => {
       page = more ? page + 1 : 0;
@@ -269,8 +281,8 @@
         { label: 'Users', num: true, v: (r) => esc(r.users) }, { label: 'Last activity', v: (r) => esc(ago(r.last_activity)) }, { label: 'Joined', v: (r) => esc(fmtD(r.created_at)) },
       ], d.tenants, { href: (r) => '#/tenants/' + r.id, empty: 'No business matches.' });
       if (more) { $('#tl tbody').insertAdjacentHTML('beforeend', html.split('<tbody>')[1].split('</tbody>')[0]); } else $('#tl').innerHTML = html;
-      $('#tmore') && $('#tmore').remove(); if (d.more) $('#tl').insertAdjacentHTML('afterend', '<div class="row mt"><button class="btn" id="tmore">Show more</button></div>');
-      if ($('#tmore')) $('#tmore').onclick = () => load(true);
+      $('#tmore') && $('#tmore').parentElement.remove(); if (d.more) $('#tl').insertAdjacentHTML('afterend', '<div class="row mt"><button class="btn" id="tmore">Show more</button></div>');
+      if ($('#tmore')) $('#tmore').onclick = (e) => busy(e.currentTarget, () => load(true));
     };
     $('#tq').oninput = (e) => { f.q = e.target.value; clearTimeout(timer); timer = setTimeout(() => load(), 250); };
     $('#ts').onchange = (e) => { f.status = e.target.value; load(); }; $('#tp').onchange = (e) => { f.plan = e.target.value; load(); };
@@ -278,7 +290,7 @@
   };
   async function plans(force) { if (!S.plans || force) S.plans = (await api('GET', '/plans')).plans; return S.plans; }
   async function tenantPage(v, id) {
-    const d = await api('GET', '/tenants/' + id); const s = d.subscription || {}; const t = d.tenant; S.t = d; await plans();
+    const [d] = await Promise.all([api('GET', '/tenants/' + id), plans()]); const s = d.subscription || {}; const t = d.tenant; S.t = d;
     $('#title').textContent = t.name;
     const end = s.status === 'trialing' ? s.trial_ends_at : s.current_period_end; const n = daysLeft(end);
     const A = (act, label, cls, perm) => (can(perm) ? '<button class="btn sm ' + (cls || '') + '" data-act="' + act + '">' + label + '</button>' : '');
@@ -331,6 +343,14 @@
     },
     menu: () => { const o = $('#side').classList.toggle('open'); $('#scrim').classList.toggle('on', o); },
     amToggle: () => amOpen($('#amPop').classList.contains('hide')),
+    /* CSV export: downloaded through the page so the button can show it is working */
+    dl: async (el) => {
+      const r = await fetch(el.getAttribute('href'), { credentials: 'same-origin' });
+      if (!r.ok) throw new Error(r.status === 404 ? 'Your session ended. Sign in again to export.' : 'The export did not work (' + r.status + ')');
+      const name = (/filename="?([^";]+)/.exec(r.headers.get('content-disposition') || '') || [])[1] || 'kargo-export.csv';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    },
     logout: async () => { await api('POST', '/auth/logout').catch(() => { }); S.me = null; renderLogin('You are signed out.'); },
     tPlan: () => { const s = S.t.subscription; const box = modal({ title: 'Change plan', body: '<div class="col">' + field('Plan', sel('planId', planOpts(), s.plan_id || '')) + '<div class="grid2">' + field('Billed', sel('cycle', [['monthly', 'Monthly'], ['yearly', 'Yearly']], s.cycle)) + field('Price for this business (FCFA)', inp('price', '', 'inputmode="numeric" placeholder="Plan price"')) + '</div>' + field('Paid until (optional)', inp('periodEnd', '', 'type="date"')) + '<div class="tiny muted">Without a date: the current paid period is kept, or one period starts today.</div>' + reasonField(true) + '</div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Change plan</button>' });
       $('#go', box).onclick = (e) => busy(e.target, () => subAction(Object.assign({ action: 'change_plan' }, vals(box)), 'Plan changed')); },
@@ -441,7 +461,7 @@
       ], d.users, { empty: 'No user matches.' });
       if (more) $('#ul tbody').insertAdjacentHTML('beforeend', html.split('<tbody>')[1].split('</tbody>')[0]); else $('#ul').innerHTML = html;
       $('#umore') && $('#umore').parentElement.remove(); if (d.more) $('#ul').insertAdjacentHTML('afterend', '<div class="row mt"><button class="btn" id="umore">Show more</button></div>');
-      if ($('#umore')) $('#umore').onclick = () => load(true);
+      if ($('#umore')) $('#umore').onclick = (e) => busy(e.currentTarget, () => load(true));
     };
     $('#uq').oninput = (e) => { f.q = e.target.value; clearTimeout(timer); timer = setTimeout(() => load(), 250); };
     $('#us').onchange = (e) => { f.status = e.target.value; load(); }; $('#ur').onchange = (e) => { f.role = e.target.value; load(); };
@@ -555,11 +575,11 @@
       html += '<p class="muted small">Businesses tapped “I have paid”. Check the money arrived on your MoMo / Orange Money / bank account with the reference, then confirm.</p><div class="card">' + payTable(d.payments, true) + '</div>';
     } else if (tab === 'invoices') {
       const f = S.if || (S.if = ''); const d = await api('GET', '/invoices?status=' + f);
-      html += '<div class="row mb">' + sel('if', [['', 'All'], ['open', 'Open'], ['overdue', 'Overdue'], ['paid', 'Paid'], ['void', 'Void']], f, 'id="if" style="width:auto"') + '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" href="/api/admin/export/invoices">Export CSV</a>' : '') + '</div><div class="card">' +
+      html += '<div class="row mb">' + sel('if', [['', 'All'], ['open', 'Open'], ['overdue', 'Overdue'], ['paid', 'Paid'], ['void', 'Void']], f, 'id="if" style="width:auto"') + '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" data-act="dl" href="/api/admin/export/invoices">Export CSV</a>' : '') + '</div><div class="card">' +
         table([{ label: 'Number', v: (i) => '<span class="mono">' + esc(i.number) + '</span>' }, { label: 'Business', v: (i) => '<a href="#/tenants/' + esc(i.tenant_id) + '">' + esc(i.tenant) + '</a>' }, { label: 'Plan', v: (i) => esc((i.plan_name || '') + ' · ' + i.cycle) }, { label: 'Amount', num: true, v: (i) => esc(money(i.amount, i.currency)) }, { label: 'Due', v: (i) => esc(fmtD(i.due_date)) + (i.status === 'open' && daysLeft(i.due_date + 'T23:59:59') < 0 ? ' <span class="badge bad">overdue</span>' : '') }, { label: 'Status', v: (i) => badge(i.status, INV[i.status]) }, { label: 'By', v: (i) => '<span class="tiny faint">' + esc(i.created_by) + '</span>' }], d.invoices, { empty: 'No invoices.' }) + '</div>';
     } else {
       const d = await api('GET', '/payments');
-      html += '<div class="row mb"><span class="grow"></span>' + (can('export') ? '<a class="btn sm" href="/api/admin/export/payments">Export CSV</a>' : '') + '</div><div class="card">' + payTable(d.payments, true) + '</div>';
+      html += '<div class="row mb"><span class="grow"></span>' + (can('export') ? '<a class="btn sm" data-act="dl" href="/api/admin/export/payments">Export CSV</a>' : '') + '</div><div class="card">' + payTable(d.payments, true) + '</div>';
     }
     if (!T.done(html)) return;
     if ($('#if')) $('#if').onchange = (e) => { S.if = e.target.value; route(); };
@@ -602,7 +622,7 @@
   /* users page: business users, admins, roles */
   const USER_TABS = () => [['', 'Business users', 'users.view'], ['admins', 'Admins', 'admins.manage'], ['roles', 'Roles', 'admins.manage']].filter((t) => can(t[2]));
   async function adminsTab(T) {
-    await loadRoles(); const a = S.me.admin; const d = await api('GET', '/admins'); let html = '';
+    const [, d] = await Promise.all([loadRoles(), api('GET', '/admins')]); const a = S.me.admin; let html = '';
       html += '<div class="page-intro"><p>People who work in this admin. Only you, the Super Admin, add admins and change their roles.</p><div class="acts"><button class="btn pri" data-act4="admAdd">' + ic('plus', 'sm') + 'Add admin</button></div></div><section class="card">' +
         table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => (x.role === 'super' ? badge('Super Admin', 'info') : esc(roleName(x.role))) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
           { label: 'Last sign-in', v: (x) => esc(ago(x.last_login_at)) + (x.last_login_ip ? '<div class="tiny faint">' + esc(x.last_login_ip) + '</div>' : '') }, { label: 'Status', v: (x) => (x.active ? (x.locked_until && new Date(x.locked_until) > new Date() ? badge('Locked', 'bad') : badge('Active', 'ok')) : badge('Disabled')) },
@@ -694,7 +714,10 @@
     const el = e.target.closest('[data-act],[data-act2],[data-act3],[data-act4],[data-act5]'); if (!el) return;
     const k = el.dataset.act || el.dataset.act2 || el.dataset.act3 || el.dataset.act4 || el.dataset.act5;
     const fn = { raToggle: ACT_raToggle, recToggle: ACT_recToggle, copyCodes: ACT_copyCodes, dlCodes: ACT_dlCodes }[k] || ACT[k] || ACT2[k] || ACT3[k] || ACT4[k] || ACT5[k];
-    if (fn) { if (el.tagName === 'A') e.preventDefault(); fn(el, e); }
+    if (!fn) return; if (el.tagName === 'A') e.preventDefault();
+    if (el.dataset.busy) return; // already working
+    const out = fn(el, e);
+    if (out && typeof out.then === 'function' && !el.dataset.busy) { setBusy(el, true); out.then(() => setBusy(el, false), (er) => { setBusy(el, false); if (er && !er.quiet) toast(er.message, true); }); }
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('tr[data-go]')) location.hash = e.target.dataset.go; });
   boot();
