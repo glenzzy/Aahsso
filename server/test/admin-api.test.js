@@ -146,7 +146,8 @@ test('plans: risky changes need the code again', async () => {
   assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', reauthBody(3))).status, 200);
   assert.equal((await S.c.call('PUT', '/api/admin/plans/starter', plan)).status, 200);
   assert.equal((await S.c.call('PUT', '/api/admin/plans/business', { name: 'Business', price_monthly: 25000, price_yearly: null, active: true, public: true, sort: 2, features: ['Branches'], limits: {} })).status, 200);
-  assert.equal((await S.c.call('PUT', '/api/admin/plans/enterprise', { name: 'Enterprise', price_monthly: null, price_yearly: null, active: true, public: true })).status, 400, 'no price → cannot be shown');
+  assert.equal((await S.c.call('PUT', '/api/admin/plans/enterprise', { name: 'Enterprise', price_monthly: null, price_yearly: null, active: true, public: true })).status, 200, 'no price = a Free plan, can be shown');
+  assert.equal((await S.c.call('PUT', '/api/admin/plans/enterprise', { name: 'Enterprise', price_monthly: null, price_yearly: null, active: true, public: false })).status, 200);
   assert.equal((await S.c.call('POST', '/api/admin/plans', { id: 'trial', name: 'X', price_monthly: 1 })).status, 400);
   const plans = (await S.c.call('GET', '/api/admin/plans')).body.plans; assert.equal(plans.find((p) => p.id === 'starter').limits.maxUsers, 2);
 });
@@ -154,7 +155,7 @@ test('plans: risky changes need the code again', async () => {
 test('business: trial → chooses a plan → reports payment → admin confirms → active with limits', async () => {
   const tid = (await db.query("SELECT tenant_id FROM users WHERE login=$1", ['biz' + rnd])).rows[0].tenant_id; S.tid = tid;
   let bill = (await api('GET', '/api/billing', S.biz)).body;
-  assert.equal(bill.subscription.status, 'trialing'); assert.deepEqual(bill.plans.map((p) => p.id), ['starter', 'business']);
+  assert.equal(bill.subscription.status, 'trialing'); assert.ok(['starter', 'business'].every((id) => bill.plans.some((p) => p.id === id)), 'published plans listed');
   // trial: no limits
   for (const n of [1, 2]) assert.equal((await api('POST', '/api/users', S.biz, { name: 'U' + n, login: 'u' + n + rnd, password: 'pass1234', role: 'sales', sendEmail: false })).status, 200);
   const ch = await api('POST', '/api/billing/choose', S.biz, { planId: 'starter', cycle: 'monthly' }); assert.equal(ch.status, 200); assert.equal(ch.body.invoice.amount, 10000);

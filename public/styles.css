@@ -1203,3 +1203,37 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .nf-tills [data-a=tillGive], .nf-tills [data-a=tillAccept], .nf-tills .till-in,
 .nf-autoReminders .auto-rem,
 .nf-credit .credit-only { display: none !important; }
+
+/* plans compared */
+.plans-head { text-align: center; max-width: 680px; margin: 4px auto 18px; }
+.plans-head h1 { font-size: 26px; margin: 0 0 6px; }
+.plans-head p { color: var(--ink2); margin: 0; }
+.plans-foot { text-align: center; margin-top: 14px; }
+.pt-toggle { display: flex; width: max-content; margin: 0 auto 14px; }
+.pt-save { font-size: 11px; font-weight: 800; background: var(--okSoft); color: var(--ok); border-radius: 99px; padding: 1px 7px; margin-left: 4px; }
+.bill-cycle button.on .pt-save { background: rgba(255,255,255,.2); color: #fff; }
+.pt-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--card); -webkit-overflow-scrolling: touch; }
+.pt-wrap:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.ptable { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 560px; font-size: 14px; }
+.ptable th, .ptable td { padding: 11px 14px; border-bottom: 1px solid var(--line2); }
+.ptable .pt-feat { position: sticky; left: 0; z-index: 1; background: var(--card); text-align: left; font-weight: 600; min-width: 170px; max-width: 240px; box-shadow: 1px 0 0 var(--line2); }
+.pt-fdesc { display: block; font-weight: 400; font-size: 12px; color: var(--ink3); margin-top: 2px; }
+.pt-plan { vertical-align: top; text-align: center; min-width: 150px; padding-top: 18px !important; position: relative; border-bottom: 1px solid var(--line) !important; }
+.pt-plan.cur { background: var(--brandSoft); }
+.pt-badge { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); font-size: 11px; }
+.pt-name { font-size: 16px; font-weight: 800; margin-top: 6px; }
+.pt-desc { font-size: 12.5px; color: var(--ink3); font-weight: 400; margin-top: 2px; min-height: 18px; }
+.pt-price { font-size: 22px; font-weight: 800; margin-top: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pt-sub { font-size: 12px; color: var(--ink3); font-weight: 400; }
+.pt-cta { margin-top: 12px; }
+.pt-cta .btn, .ptable tfoot .btn { white-space: nowrap; font-size: 14px; }
+.pt-cell { text-align: center; }
+.ptable tbody tr:hover td, .ptable tbody tr:hover .pt-feat { background: #faf9f6; }
+.pt-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.pt-tick { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--okSoft); color: var(--ok); }
+.pt-tick .i { width: 15px; height: 15px; }
+.pt-group th { background: var(--bg) !important; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--ink3); text-align: left; padding: 9px 14px; position: sticky; left: 0; }
+.ptable tfoot td, .ptable tfoot th { border-bottom: 0; padding-top: 14px; padding-bottom: 14px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 560px) { .plans-head h1 { font-size: 22px; } .ptable .pt-feat { min-width: 130px; max-width: 150px; font-size: 13px; } .pt-plan { min-width: 128px; } .pt-price { font-size: 19px; } .ptable th, .ptable td { padding: 9px 10px; } }
+.pt-corner { vertical-align: bottom; } .pt-corner-t { font-size: 15px; font-weight: 800; }

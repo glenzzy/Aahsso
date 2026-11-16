@@ -43,6 +43,7 @@ function renderLogin() {
     if (miss) { err('Please enter ' + miss[1] + '.'); $('[name=' + miss[0] + ']').focus(); return; }
     try {
       if (!reg) delete v.email;
+      if (reg) { try { localStorage.setItem('kargo-choose-plan', '1'); } catch (e) { } } // a new business goes straight to Choose your plan
       const r = await fetch(api + (reg ? '/api/auth/register' : '/api/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.');
       localStorage.setItem('kargo-token', j.token); location.reload();
@@ -125,6 +126,7 @@ A.reqAccess = async () => {
   if (cachedAt) K.sync = 'offline';
   if (info.mode === 'saas') A.logout = () => { if (info.supportView) { sessionStorage.removeItem('kargo-imp'); window.close(); return location.reload(); } localStorage.removeItem('kargo-token'); location.reload(); };
   if (info.supportView) supportBanner(info.supportView);
+  try { if (info.mode === 'saas' && localStorage.getItem('kargo-choose-plan')) { localStorage.removeItem('kargo-choose-plan'); history.replaceState(null, '', '#plans'); } } catch (e) { }
   resolveAccess(); if (info.mode === 'cloud' && !cachedAt) K.member = null; // decided once the team list loads (or from the cached copy)
   if (cachedAt) recompute();
   const cols = COLLECTIONS.concat(info.mode === 'cloud' ? TEAM_COLLECTIONS : []);

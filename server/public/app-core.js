@@ -303,7 +303,7 @@ const NAV = [
   ['leave', 'Leave', 'clock', () => true, () => can('hr') ? (K.raw.leaves || []).filter((l) => l.status === 'requested').length : 0],
   ['payroll', 'Payroll', 'wallet', () => true],
   ['employees', 'Employees', 'users', () => can('hr') || can('payroll')],
-  ['profile', 'My profile', 'user', () => true], ['billing', 'Billing & subscription', 'card', () => K.info.mode === 'saas' && canBilling()], ['help', 'Help & support', 'help', () => true],
+  ['profile', 'My profile', 'user', () => true], ['billing', 'Billing & subscription', 'card', () => K.info.mode === 'saas' && canBilling()], ['plans', 'Choose your plan', 'card', () => K.info.mode === 'saas' && canBilling()], ['help', 'Help & support', 'help', () => true],
   ['team', 'Team & access', 'key', () => can('team')], ['settings', 'Settings', 'gear', () => can('settings') || can('export')],
 ];
 const navOk = (r) => { if (!KC.routeFeatureOn(K.info && K.info.features, r)) return false; const n = NAV.find((x) => x[0] === r); return !n || n[3](); }; // pages of features outside the plan do not exist

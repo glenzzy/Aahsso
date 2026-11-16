@@ -438,7 +438,6 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const p = { name: String(b.name || '').trim().slice(0, 40), description: String(b.description || '').trim().slice(0, 200), price_monthly: intOrNull(b.price_monthly), price_yearly: intOrNull(b.price_yearly), active: b.active !== false, public: !!b.public, sort: Math.round(Number(b.sort) || 0), features: (Array.isArray(b.features) ? b.features : []).map((f) => String(f).trim().slice(0, 80)).filter(Boolean).slice(0, 12), limits: {}, modules: {} };
     if (p.name.length < 2) return { error: 'Give the plan a name' };
     if ([p.price_monthly, p.price_yearly].some((v) => v !== null && !(v >= 0))) return { error: 'Prices must be 0 or more' };
-    if (p.public && p.active && p.price_monthly === null && p.price_yearly === null) return { error: 'Set a monthly or yearly price before showing the plan to businesses' };
     const L = b.limits || {};
     Object.keys(B.COUNT_LIMITS).forEach((k) => { const v = intOrNull(L[k]); if (v !== null) p.limits[k] = Math.max(1, v); });
     const M = b.modules || {}; KC.FEATURE_KEYS.forEach((k) => { if (M[k] === false) p.modules[k] = false; }); // only what is OFF is stored

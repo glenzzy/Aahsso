@@ -153,13 +153,13 @@ VIEWS.billing = {
     const ask = 'Hello Kargo team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ';
     // current plan + usage
     const lim = b.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items' };
-    let html = '<div class="card pad2 mb bill-cur"><div class="row between wrap"><div><div class="hint">Current plan</div><h2>' + esc(s.status === 'trialing' || !s.planName ? 'Free trial' : s.planName) + '</h2>' +
+    let html = '<div class="card pad2 mb bill-cur"><div class="row between wrap"><div><div class="hint">Current plan</div><h2>' + esc(!s.planName ? 'Free trial' : s.planName + (s.status === 'trialing' ? ' · free trial' : '')) + '</h2>' +
       (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? '<div class="small muted">' + money0(s.price, s.currency) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') + '</div>' : '') + '</div><span class="badge ' + st.tone + '">' + esc(st.label) + '</span></div>' +
       '<div class="bill-rows mt">' + (s.status === 'trialing' && s.trialEndsAt ? '<div class="row between cl"><span>Trial ends</span><b>' + esc(fmtDate(String(s.trialEndsAt).slice(0, 10))) + '</b></div>' : '') +
         (s.status !== 'trialing' && s.periodEnd ? '<div class="row between cl"><span>' + (s.status === 'cancelled' ? 'Access until' : 'Paid until') + '</span><b>' + esc(fmtDate(String(s.periodEnd).slice(0, 10))) + '</b></div>' : '') + '</div>' +
       (ended ? '<div class="alert bad mt">' + (s.status === 'suspended' ? 'Your account is suspended. Contact the Kargo team.' : 'Your subscription has ended.') + ' You can still open and export all your data; recording new sales and stock is paused until you pay.</div>'
         : s.status === 'past_due' ? '<div class="alert warn mt">Your payment is overdue. Pay within ' + esc(s.graceDays) + ' days of the end date to keep recording.</div>'
-        : s.status === 'trialing' ? '<p class="small muted mt" style="margin-bottom:0">Everything is unlocked during the trial. Choose a plan below before it ends to keep recording without a break.</p>' : '') +
+        : s.status === 'trialing' ? '<p class="small muted mt" style="margin-bottom:0">' + (s.planName ? 'You have the features of ' + esc(s.planName) + ' during your free trial. Choose a paid plan below before it ends to keep recording without a break.' : 'Everything is unlocked during the trial. Choose a plan below before it ends to keep recording without a break.') + '</p>' : '') +
       '<div class="mt">' + Object.entries(LBL).map(([k, l]) => { const used = (b.usage || {})[k] || 0; const max = lim[k]; return '<div class="mb"><div class="row between small"><span>' + l + '</span><b>' + used + (max ? ' / ' + max : '') + '</b></div>' + (max ? '<div class="meter' + (used >= max ? ' full' : '') + '"><span style="width:' + Math.min(100, used / max * 100) + '%"></span></div>' : '') + '</div>'; }).join('') + '</div></div>';
     // invoices to pay
     const pi = b.instructions || {};
@@ -177,21 +177,8 @@ VIEWS.billing = {
           '<button class="btn pri mt" data-a="billClaim" data-id="' + i.id + '">' + ic('check') + 'Send payment details</button></div>';
       }
     });
-    // plans
-    const plans = b.plans || [];
-    if (plans.length) {
-      const hasYear = plans.some((p) => p.price_yearly !== null);
-      html += '<div class="row between wrap mb mt2"><h2>Plans</h2>' + (hasYear ? '<div class="bill-cycle" role="group" aria-label="Billing period"><button class="' + (cyc === 'monthly' ? 'on' : '') + '" data-a="billCycle" data-v="monthly">Monthly</button><button class="' + (cyc === 'yearly' ? 'on' : '') + '" data-a="billCycle" data-v="yearly">Yearly</button></div>' : '') + '</div>' +
-        '<div class="bill-plans mb2">' + plans.map((p) => {
-          const price = p['price_' + cyc]; const cur = p.id === s.planId && s.status !== 'trialing' && !ended; const L = p.limits || {};
-          const lims = [L.maxUsers ? L.maxUsers + ' team members' : 'Unlimited team', L.maxLocations ? (L.maxLocations === 1 ? '1 location' : L.maxLocations + ' branches') : 'Unlimited branches', L.maxProducts ? L.maxProducts + ' items' : null].filter(Boolean);
-          const off = (b.catalog || []).filter(([k]) => (p.modules || {})[k] === false).map(([, l]) => l);
-          return '<div class="card pad2 bill-plan' + (cur ? ' cur' : '') + '"><div class="row between"><h3>' + esc(p.name) + '</h3>' + (cur ? '<span class="badge ok">Your plan</span>' : '') + '</div>' + (p.description ? '<div class="small muted">' + esc(p.description) + '</div>' : '') +
-            '<div class="bill-price">' + (price === null ? '<span class="small muted">Not available ' + (cyc === 'yearly' ? 'yearly' : 'monthly') + '</span>' : money0(price, p.currency) + '<span class="small muted"> / ' + (cyc === 'yearly' ? 'year' : 'month') + '</span>') + '</div>' +
-            '<ul class="bill-feat">' + (p.features || []).concat(lims).map((f) => '<li>' + ic('check', 'sm') + esc(f) + '</li>').join('') + off.map((f) => '<li class="muted">' + ic('x', 'sm') + esc(f) + ' not included</li>').join('') + '</ul>' +
-            (price !== null && !(cur && cyc === s.cycle) ? '<button class="btn block mt ' + (s.status === 'trialing' || ended ? 'pri' : '') + '" data-a="billChoose" data-id="' + esc(p.id) + '">' + (cur ? 'Switch to ' + cyc : s.status === 'trialing' || ended || !s.planId ? 'Choose ' + esc(p.name) : 'Change to ' + esc(p.name)) + '</button>' : '') + '</div>';
-        }).join('') + '</div>';
-    } else html += '<div class="card pad2 mb2"><div class="small muted mb">Plans are not published yet. Contact the Kargo team to subscribe.</div><div class="row wrap">' + supportLinks(ask + 'I would like to subscribe.') + '</div></div>';
+    // plans: the same comparison table as the Choose-your-plan page
+    html += '<div class="mt2"></div>' + planTable(b) + '<div class="mb2"></div>';
     // history
     const past = b.invoices.filter((i) => i.status !== 'open');
     if (past.length) html += '<h2 class="mb">Invoices</h2>' + dataTable({ id: 'billInv', rows: past, noun: 'invoice', cols: [
@@ -204,12 +191,80 @@ VIEWS.billing = {
   },
 };
 A.billCycle = (el) => { K.ui.billCycle = el.dataset.v; render(true); };
+const isFreePlan = (p) => (p.price_monthly === null || p.price_monthly === undefined) && (p.price_yearly === null || p.price_yearly === undefined);
+const ALWAYS = 'Home, stock & prices, settings, team members, profile, billing and help';
+/** Plans side by side: limits and every feature, ticked when included. Used on Choose your plan and on Billing. */
+function planTable(b) {
+  const plans = b.plans || []; const s = b.subscription || {}; const ended = ['expired', 'suspended'].includes(s.status);
+  if (!plans.length) return '<div class="card pad2"><div class="small muted mb">Plans are not published yet. Contact the Kargo team to subscribe.</div><div class="row wrap">' + supportLinks('Hello Kargo team, I am ' + myName() + ' from ' + (S().businessName || '') + '. I would like to subscribe.') + '</div></div>';
+  const hasM = plans.some((p) => p.price_monthly !== null), hasY = plans.some((p) => p.price_yearly !== null);
+  let cyc = K.ui.billCycle || (s.cycle === 'yearly' ? 'yearly' : 'monthly'); if (cyc === 'yearly' && !hasY) cyc = 'monthly'; if (cyc === 'monthly' && !hasM && hasY) cyc = 'yearly';
+  const save = Math.max(0, ...plans.filter((p) => p.price_monthly > 0 && p.price_yearly !== null).map((p) => Math.round((1 - p.price_yearly / (p.price_monthly * 12)) * 100)));
+  const days = b.trialDays || 5;
+  const cta = (p) => {
+    const cur = p.id === s.planId && !ended;
+    if (isFreePlan(p)) {
+      if (cur && s.status === 'trialing') return '<button class="btn block" disabled>Your free trial</button>';
+      return b.trialAvailable ? '<button class="btn pri block" data-a="billChoose" data-id="' + esc(p.id) + '">Start free trial</button>' : '<button class="btn block" disabled title="Each business gets one free trial">Trial used</button>';
+    }
+    const price = p['price_' + cyc];
+    if (price === null) return '<button class="btn block" disabled>Not sold ' + (cyc === 'yearly' ? 'yearly' : 'monthly') + '</button>';
+    if (cur && s.status !== 'trialing' && s.cycle === cyc) return '<button class="btn block" disabled>Current plan</button>';
+    return '<button class="btn block ' + (s.status === 'trialing' || ended || !s.planId ? 'pri' : '') + '" data-a="billChoose" data-id="' + esc(p.id) + '">' + (cur ? 'Switch to ' + cyc : 'Choose ' + esc(p.name)) + '</button>';
+  };
+  const head = (p) => {
+    const cur = p.id === s.planId && !ended; const price = p['price_' + cyc];
+    const priceHtml = isFreePlan(p) ? '<div class="pt-price">Free</div><div class="pt-sub">' + days + '-day free trial</div>'
+      : price === null ? '<div class="pt-price muted">—</div><div class="pt-sub">' + (cyc === 'yearly' ? 'monthly only' : 'yearly only') + '</div>'
+      : '<div class="pt-price">' + money0(price, p.currency) + '</div><div class="pt-sub">per ' + (cyc === 'yearly' ? 'year' + (price ? ' · ≈ ' + money0(Math.round(price / 12), p.currency) + '/month' : '') : 'month') + '</div>';
+    return '<th scope="col" class="pt-plan' + (cur ? ' cur' : '') + '">' + (cur ? '<span class="badge ok pt-badge">' + (s.status === 'trialing' ? 'Your trial' : 'Your plan') + '</span>' : '') +
+      '<div class="pt-name">' + esc(p.name) + '</div>' + (p.description ? '<div class="pt-desc">' + esc(p.description) + '</div>' : '') + priceHtml + '<div class="pt-cta">' + cta(p) + '</div></th>';
+  };
+  const tick = (on) => '<td class="pt-cell">' + (on ? '<span class="pt-tick" role="img" aria-label="Included">' + ic('check') + '</span>' : '<span class="sr-only">Not included</span>') + '</td>';
+  const row = (label, cells, desc) => '<tr><th scope="row" class="pt-feat">' + esc(label) + (desc ? '<span class="pt-fdesc">' + esc(desc) + '</span>' : '') + '</th>' + cells + '</tr>';
+  const group = (title) => '<tr class="pt-group"><th scope="rowgroup" colspan="' + (plans.length + 1) + '">' + esc(title) + '</th></tr>';
+  const lim = (p, k) => { const v = (p.limits || {})[k]; return '<td class="pt-cell pt-val">' + (v ? esc(fmt(v)) : 'Unlimited') + '</td>'; };
+  let body = group('Limits') + row('Team members', plans.map((p) => lim(p, 'maxUsers')).join('')) + row('Branches', plans.map((p) => lim(p, 'maxLocations')).join(''), 'Including the main one') + row('Items', plans.map((p) => lim(p, 'maxProducts')).join(''));
+  const groups = {}; (b.catalog || []).forEach(([k, l, g, d]) => (groups[g] = groups[g] || []).push([k, l, d]));
+  Object.entries(groups).forEach(([g, items]) => { body += group(g) + items.map(([k, l, d]) => row(l, plans.map((p) => tick((p.modules || {})[k] !== false)).join(''), d)).join(''); });
+  body += group('Always included') + row('Essentials', plans.map(() => tick(true)).join(''), ALWAYS);
+  const toggle = hasM && hasY ? '<div class="bill-cycle pt-toggle" role="group" aria-label="Billing period"><button class="' + (cyc === 'monthly' ? 'on' : '') + '" data-a="billCycle" data-v="monthly" aria-pressed="' + (cyc === 'monthly') + '">Monthly</button><button class="' + (cyc === 'yearly' ? 'on' : '') + '" data-a="billCycle" data-v="yearly" aria-pressed="' + (cyc === 'yearly') + '">Yearly' + (save > 0 ? ' <span class="pt-save">save up to ' + save + '%</span>' : '') + '</button></div>' : '';
+  return toggle + '<div class="pt-wrap" role="region" aria-label="Plans compared" tabindex="0"><table class="ptable"><thead><tr><th class="pt-feat pt-corner"><span class="pt-corner-t">Compare plans</span><span class="pt-fdesc">Limits and features of each plan</span></th>' + plans.map(head).join('') + '</tr></thead><tbody>' + body + '</tbody>' +
+    '<tfoot><tr><th class="pt-feat"></th>' + plans.map((p) => '<td class="pt-cell">' + cta(p) + '</td>').join('') + '</tr></tfoot></table></div>';
+}
+/** after sign-up (and from the Home reminder): choose a plan */
+VIEWS.plans = {
+  render() {
+    if (K.info.mode !== 'saas') return '<div class="card pad2 muted">Plans apply to the online version of Kargo.</div>';
+    if (!canBilling()) return '<div class="card pad2 muted">Only the business owner or an admin can choose the plan.</div>';
+    const b = K._bill; if (!b) { loadBilling(); return K._billErr ? '<div class="alert bad">' + esc(K._billErr) + '</div>' : '<div class="empty">Loading plans…</div>'; }
+    const s = b.subscription || {}; const left = s.trialEndsAt ? Math.ceil((new Date(s.trialEndsAt).getTime() - Date.now()) / 864e5) : null;
+    const line = s.status === 'trialing' ? (s.planId ? 'You are on a free trial of ' + esc(s.planName) + (left !== null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '') + '. Choose a paid plan any time.' : 'Welcome to Kargo! Pick the plan that fits your business. Free plans start a ' + (b.trialDays || 5) + '-day free trial — no payment needed.')
+      : s.status === 'active' ? 'You are on ' + esc(s.planName || 'a paid plan') + '. Compare plans or switch below.' : 'Your subscription has ended. Choose a plan to keep recording — your data is safe.';
+    return '<div class="plans-head"><h1>Choose your plan</h1><p>' + line + '</p></div>' + planTable(b) +
+      '<p class="hint plans-foot">Prices in ' + esc((b.plans[0] || {}).currency === 'XAF' || !(b.plans[0] || {}).currency ? 'FCFA' : b.plans[0].currency) + '. You can change plan later in <a href="#billing">Billing & subscription</a>. ' + (s.status === 'trialing' && !s.planId ? '<a href="#home">Decide later</a>' : '') + '</p>';
+  },
+};
+/** the plan and features changed: reload what the app is allowed to show */
+async function refreshEntitlements() {
+  try { const me = await K.store.req('GET', '/api/me'); Object.assign(K.info, { features: me.features || {}, subscription: me.subscription || null, limits: me.limits || {}, tenant: me.tenant }); resolveAccess(); } catch (e) { }
+}
 A.billCopy = (el) => copyText(el.dataset.v);
 A.billChoose = async (el) => {
   const p = K._bill.plans.find((x) => x.id === el.dataset.id); const cyc = K.ui.billCycle || 'monthly';
+  if (isFreePlan(p)) {
+    if (!(await confirmBox('Start your ' + (K._bill.trialDays || 5) + '-day free trial of ' + p.name + '? You get its features straight away — no payment needed.', 'Start free trial'))) return;
+    try { const r = await K.store.req('POST', '/api/billing/choose', { planId: p.id }); await refreshEntitlements(); K._bill = null; toast('Your free trial of ' + r.plan + ' has started'); location.hash = '#home'; render(true); }
+    catch (e) { toast(e.message, true); }
+    return;
+  }
   if (!(await confirmBox('Choose ' + p.name + ' (' + money0(p['price_' + cyc], p.currency) + ' / ' + (cyc === 'yearly' ? 'year' : 'month') + ')? An invoice is created for you to pay.', 'Choose plan'))) return;
-  try { const r = await K.store.req('POST', '/api/billing/choose', { planId: p.id, cycle: cyc }); toast(r.reused ? 'You already have this invoice — pay it below' : 'Invoice ' + r.invoice.number + ' created'); await loadBilling(); const el2 = document.getElementById('inv-' + r.invoice.id); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-  catch (e) { toast(e.message, true); }
+  try {
+    const r = await K.store.req('POST', '/api/billing/choose', { planId: p.id, cycle: cyc });
+    toast(r.reused ? 'You already have this invoice — pay it below' : 'Invoice ' + r.invoice.number + ' created — pay it below');
+    if (K.route !== 'billing') location.hash = '#billing';
+    await loadBilling(); setTimeout(() => { const el2 = document.getElementById('inv-' + r.invoice.id); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 300);
+  } catch (e) { toast(e.message, true); }
 };
 A.billClaim = async (el) => {
   const id = el.dataset.id; const method = $('[name=pm_' + id + ']').value; const reference = $('[name=pr_' + id + ']').value.trim();

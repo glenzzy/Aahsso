@@ -118,3 +118,25 @@ test('admin roles: the Super Admin creates granular roles; admins get exactly th
   assert.equal((await S.sa('PUT', '/api/admin/roles/support', { name: sup.name, description: sup.description, perms: sup.perms })).status, 200);
   const log = (await S.sa('GET', '/api/admin/audit?action=role_')).body.entries.map((x) => x.action); assert.ok(log.includes('role_created') && log.includes('role_updated'));
 });
+
+test('a plan without a price is Free: it starts the 5-day trial with that plan\'s features, once', async () => {
+  await fresh();
+  const free = { id: 'free' + rnd, name: 'Starter Free ' + rnd, price_monthly: null, price_yearly: null, active: true, public: true, sort: 0, limits: { maxUsers: 2 }, modules: { payroll: false, reports: false } };
+  assert.equal((await S.sa('POST', '/api/admin/plans', free)).status, 200, 'a plan with no price can be shown to businesses');
+  assert.equal((await S.sa('PUT', '/api/admin/settings', { paymentInstructions: {}, trialDays: 5, graceDays: 7, renewalNoticeDays: 7, invoiceDueDays: 7 })).status, 200);
+  const r = await api('POST', '/api/auth/register', null, { businessName: 'Newbie ' + rnd, name: 'Nia', login: 'nia' + rnd, password: 'secret1' });
+  const tok = r.body.token;
+  let bill = (await api('GET', '/api/billing', tok)).body;
+  assert.equal(bill.subscription.status, 'trialing'); assert.equal(bill.subscription.planId, null); assert.equal(bill.trialAvailable, true); assert.equal(bill.trialDays, 5);
+  const days = (new Date(bill.subscription.trialEndsAt) - Date.now()) / 864e5; assert.ok(days > 4.9 && days <= 5.01, 'sign-up trial is 5 days: ' + days);
+  assert.ok(bill.plans.some((p) => p.id === free.id && p.price_monthly === null));
+  assert.deepEqual((await api('GET', '/api/me', tok)).body.features, {}, 'before choosing: everything open');
+  const c = await api('POST', '/api/billing/choose', tok, { planId: free.id }); assert.equal(c.status, 200, JSON.stringify(c.body)); assert.equal(c.body.trial, true);
+  bill = (await api('GET', '/api/billing', tok)).body; assert.equal(bill.subscription.planId, free.id); assert.equal(bill.subscription.status, 'trialing');
+  assert.equal(new Date(bill.subscription.trialEndsAt).getTime(), new Date(c.body.trialEndsAt).getTime(), 'trial end kept, not restarted');
+  const me = (await api('GET', '/api/me', tok)).body; assert.equal(me.features.payroll, false); assert.equal(me.features.reports, false); assert.equal(me.limits.maxUsers, 2, 'the free plan\'s limits apply during its trial');
+  const tid = (await db.query('SELECT tenant_id FROM users WHERE login=$1', ['nia' + rnd])).rows[0].tenant_id;
+  await db.query("UPDATE subscriptions SET status='expired', trial_ends_at = now() - interval '1 day' WHERE tenant_id=$1", [tid]);
+  const again = await api('POST', '/api/billing/choose', tok, { planId: free.id }); assert.equal(again.status, 400); assert.match(again.body.error, /free trial has ended/);
+  assert.equal((await api('GET', '/api/billing', tok)).body.trialAvailable, false);
+});

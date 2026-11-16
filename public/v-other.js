@@ -25,6 +25,9 @@ function homeTodos() {
   const toSend = !has('delivery') ? [] : visibleSales().filter((s) => KC.isDelivery(s) && s.delivery.status === 'to_send' && K.C.saleX[s.id].status !== 'cancelled');
   if (toSend.length) add('warn', 'ship', toSend.length + ' deliver' + (toSend.length === 1 ? 'y' : 'ies') + ' to send', toSend.slice(0, 2).map((s) => s.delivery.destination).filter(Boolean).join(', '), 'data-a="goSales" data-f="deliver"');
   if (can('reminders')) { const od = owingCustomers().filter((o) => o.daysLate > 0); if (od.length) add('bad', 'wa', od.length + ' customer' + (od.length === 1 ? '' : 's') + ' overdue', F(od.reduce((a, o) => a + o.balance, 0)) + ' to collect', 'data-a="go" data-r="reminders"'); }
+  const sub = K.info.mode === 'saas' && canBilling() ? K.info.subscription : null;
+  if (sub && sub.status === 'trialing' && !sub.planId) { const left = sub.trialEndsAt ? Math.ceil((new Date(sub.trialEndsAt).getTime() - Date.now()) / 864e5) : null; add('info', 'card', 'Choose your plan', left !== null ? 'Free trial: ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : 'Compare plans and features', 'data-a="go" data-r="plans"'); }
+  if (sub && ['expired', 'suspended'].includes(sub.status)) add('bad', 'card', sub.status === 'suspended' ? 'Account suspended' : 'Your subscription has ended', 'Choose a plan to keep recording', 'data-a="go" data-r="plans"');
   const tIn = !has('tills') ? [] : (K.raw.tills || []).filter((x) => x.toId === K.me.id && x.status === 'pending');
   tIn.forEach((x) => add('warn', 'wallet', (x.fromName || 'A colleague') + ' is handing you the till', 'Count it and accept', 'data-a="go" data-r="cash"'));
   if (can('hr')) {

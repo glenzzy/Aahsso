@@ -8,11 +8,13 @@ const mailer = require('./mailer');
 const COUNT_LIMITS = { maxUsers: 'team members', maxLocations: 'branches (including the main one)', maxProducts: 'items' };
 const FEATURES = Object.fromEntries(KC.FEATURES.map(([k, l]) => [k, l])); // every business feature a plan can include
 const LIMIT_KEYS = Object.keys(COUNT_LIMITS);
+/** a plan without any price is Free: choosing it starts the free trial (once per business) */
+const isFree = (p) => p && (p.price_monthly === null || p.price_monthly === undefined) && (p.price_yearly === null || p.price_yearly === undefined);
 const PAY_METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
 const STATUS_LABEL = { trialing: 'Free trial', active: 'Active', past_due: 'Payment overdue', expired: 'Expired', suspended: 'Suspended', cancelled: 'Cancelled' };
 
 /* ---------- platform settings ---------- */
-const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, trialDays: Number(process.env.TRIAL_DAYS || 30), renewalNoticeDays: 7, invoiceDueDays: 7 };
+const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, trialDays: Number(process.env.TRIAL_DAYS || 5), renewalNoticeDays: 7, invoiceDueDays: 7 };
 async function platformSettings(c = pool) {
   const rows = (await c.query('SELECT key, value FROM platform_settings')).rows;
   const o = JSON.parse(JSON.stringify(DEFAULTS)); rows.forEach((r) => { o[r.key] = r.value; });
@@ -66,10 +68,11 @@ function invalidate(tid) { if (tid) entCache.delete(tid); else entCache.clear();
 async function limitsFor(c, tid) {
   const hit = entCache.get(tid); if (hit && Date.now() - hit.at < ENT_TTL) return hit.v;
   const s = await getSub(c, tid); const ov = (s && s.overrides) || {};
-  const trial = !s || s.status === 'trialing' || !s.plan_id;
-  const modules = Object.assign({}, trial ? {} : (s.modules || {}), ov.modules || {});
+  const trial = !s || s.status === 'trialing';
+  const open = !s || !s.plan_id; // no plan chosen yet: everything is open (the free trial right after sign-up)
+  const modules = Object.assign({}, open ? {} : (s.modules || {}), ov.modules || {});
   const features = {}; KC.FEATURE_KEYS.forEach((k) => { if (modules[k] === false) features[k] = false; });
-  const limits = Object.assign({}, trial ? {} : (s.limits || {}), ov.limits || {});
+  const limits = Object.assign({}, open ? {} : (s.limits || {}), ov.limits || {});
   Object.keys(limits).forEach((k) => { if (!COUNT_LIMITS[k] || limits[k] === null || limits[k] === '') delete limits[k]; });
   const v = { features, limits, plan: s && s.plan_name, trial };
   entCache.set(tid, { at: Date.now(), v }); return v;
@@ -203,7 +206,7 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
       limits: (await limitsFor(pool, tid)).limits, features: (await limitsFor(pool, tid)).features, catalog: KC.FEATURES, usage: await usage(pool, tid), plans: await plansPublic(),
       invoices: (await q('SELECT i.id, i.number, i.plan_id, p.name AS plan_name, i.cycle, i.period_start, i.period_end, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.created_by FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE i.tenant_id=$1 ORDER BY i.issued_at DESC LIMIT 36', [tid])).rows,
       payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
-      instructions: S.paymentInstructions, methods: PAY_METHODS,
+      instructions: S.paymentInstructions, methods: PAY_METHODS, trialDays: Number(S.trialDays) || 5, trialAvailable: !!s && s.status === 'trialing',
     });
   }));
   // the business picks a plan: an invoice to pay (reuses an open one for the same plan)
@@ -211,6 +214,13 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
     const { planId, cycle } = req.body || {}; const tid = req.user.tenant_id;
     const plan = (await q('SELECT * FROM plans WHERE id=$1 AND active AND public', [planId])).rows[0]; if (!plan) return err(res, 400, 'Choose one of the plans');
     const cyc = cycle === 'yearly' ? 'yearly' : 'monthly';
+    if (isFree(plan)) { // Free = the free trial, with this plan's features
+      const s = await getSub(pool, tid); const S0 = await platformSettings();
+      if (!s || s.status !== 'trialing') return err(res, 400, s && s.plan_id && s.status === 'active' ? 'You already have a paid plan' : 'Your free trial has ended — choose a paid plan to continue');
+      const ends = s.trial_ends_at && new Date(s.trial_ends_at) > new Date() ? s.trial_ends_at : new Date(Date.now() + (Number(S0.trialDays) || 5) * 864e5);
+      await tx((c) => setSub(c, tid, { plan_id: plan.id, status: 'trialing', trial_ends_at: ends, price: 0 }));
+      return res.json({ trial: true, plan: plan.name, trialEndsAt: ends });
+    }
     const existing = (await q("SELECT * FROM invoices WHERE tenant_id=$1 AND status='open' AND plan_id=$2 AND cycle=$3 ORDER BY issued_at DESC LIMIT 1", [tid, planId, cyc])).rows[0];
     if (existing) return res.json({ invoice: existing, reused: true });
     let inv; try { inv = await tx((c) => createInvoice(c, { tid, planId, cycle: cyc, createdBy: 'owner' })); } catch (e) { return err(res, e.status || 500, e.message); }
@@ -241,4 +251,4 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
   }));
 }
 
-module.exports = { COUNT_LIMITS, FEATURES, LIMIT_KEYS, PAY_METHODS, STATUS_LABEL, DEFAULTS, platformSettings, addPeriod, dayStr, money, invalidate, checkFeature, getSub, ensureSub, syncTenant, setSub, limitsFor, usage, checkLimit, createInvoice, applyPayment, ownerOf, mailOwner, mailAdmins, invoiceMail, daily, mountTenant };
+module.exports = { isFree, COUNT_LIMITS, FEATURES, LIMIT_KEYS, PAY_METHODS, STATUS_LABEL, DEFAULTS, platformSettings, addPeriod, dayStr, money, invalidate, checkFeature, getSub, ensureSub, syncTenant, setSub, limitsFor, usage, checkLimit, createInvoice, applyPayment, ownerOf, mailOwner, mailAdmins, invoiceMail, daily, mountTenant };
