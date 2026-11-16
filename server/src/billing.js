@@ -121,7 +121,7 @@ async function mailOwner(c, tid, kind, tpl, dedupe) {
   return mailer.sendEmail(Object.assign({ to, kind, tenantId: tid, dedupe }, tpl(o)));
 }
 /** Owners/finance admins (and ADMIN_ALERT_EMAIL) for things the platform team must act on. */
-async function mailAdmins(c, kind, mail, roles = ['owner', 'finance']) {
+async function mailAdmins(c, kind, mail, roles = ['super', 'admin', 'finance']) {
   const to = new Set((await c.query('SELECT email FROM platform_admins WHERE active AND role = ANY($1)', [roles])).rows.map((r) => r.email));
   if (process.env.ADMIN_ALERT_EMAIL) to.add(process.env.ADMIN_ALERT_EMAIL);
   for (const t of to) await mailer.sendEmail(Object.assign({ to: t, kind }, mail));

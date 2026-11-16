@@ -11,7 +11,8 @@
   const fmtDT = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
   const ago = (d) => { if (!d) return 'never'; const s = (Date.now() - new Date(d).getTime()) / 1000; if (s < 90) return 'just now'; if (s < 5400) return Math.round(s / 60) + ' min ago'; if (s < 129600) return Math.round(s / 3600) + ' h ago'; return Math.round(s / 86400) + ' days ago'; };
   const daysLeft = (d) => (d ? Math.ceil((new Date(d).getTime() - Date.now()) / 864e5) : null);
-  const can = (p) => !!S.me && (S.me.admin.perms.includes('*') || S.me.admin.perms.includes(p));
+  const can = (p) => !!S.me && !S.me.admin.perms.includes('!' + p) && (S.me.admin.perms.includes('*') || S.me.admin.perms.includes(p));
+  const ROLE_NAME = { super: 'Super Admin', admin: 'Admin', support: 'Support', finance: 'Finance' };
   const STATUS = { trialing: ['Free trial', 'info'], active: ['Active', 'ok'], past_due: ['Payment overdue', 'warn'], expired: ['Expired', 'bad'], suspended: ['Suspended', 'bad'], cancelled: ['Cancelled', 'warn'] };
   const stBadge = (s) => { const x = STATUS[s] || [s || '—', '']; return '<span class="badge ' + x[1] + '">' + esc(x[0]) + '</span>'; };
   const INV = { open: 'warn', paid: 'ok', void: '' }; const PAY = { pending: 'warn', confirmed: 'ok', rejected: 'bad' };
@@ -140,7 +141,7 @@
   function shell() {
     const a = S.me.admin;
     $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side"><div class="brand"><div class="mark">K</div><div>Kargo<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div>' +
-      '<div class="who"><b>' + esc(a.name) + '</b>' + esc(a.email) + ' · ' + esc(a.role) + '<div class="mt"><button class="btn sm block" data-act="logout">Sign out</button></div></div></aside>' +
+      '<div class="who"><b>' + esc(a.name) + '</b>' + esc(a.email) + ' · ' + esc(ROLE_NAME[a.role] || a.role) + '<div class="mt"><button class="btn sm block" data-act="logout">Sign out</button></div></div></aside>' +
       '<div class="main"><header class="top"><button class="btn sm menu-btn" data-act="menu" aria-label="Menu">☰</button><h1 id="title"></h1><span class="tiny faint" id="idle"></span></header><main class="view" id="view"></main></div></div>';
     drawNav();
   }
@@ -362,14 +363,14 @@
 
   PAGES.security = async (v) => {
     const a = S.me.admin; const d = await api('GET', '/admins');
-    let html = '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">My account</h2><dl class="kv"><dt>Name</dt><dd>' + esc(a.name) + '</dd><dt>Email</dt><dd>' + esc(a.email) + '</dd><dt>Role</dt><dd>' + esc(a.role) + '</dd>' + (S.me.twoFactor ? '<dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd>' : '<dt>Two-step sign-in</dt><dd><span class="badge warn">Off for now</span></dd>') + '</dl>' +
+    let html = '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">My account</h2><dl class="kv"><dt>Name</dt><dd>' + esc(a.name) + '</dd><dt>Email</dt><dd>' + esc(a.email) + '</dd><dt>Role</dt><dd>' + esc(ROLE_NAME[a.role] || a.role) + '</dd>' + (S.me.twoFactor ? '<dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd>' : '<dt>Two-step sign-in</dt><dd><span class="badge warn">Off for now</span></dd>') + '</dl>' +
       '<div class="row mt"><button class="btn" data-act4="myPw">Change password</button>' + (S.me.twoFactor ? '<button class="btn" data-act4="myCodes">New recovery codes</button>' : '') + '</div></section>' +
       '<section class="card pad2"><h2 class="mb">Active sessions</h2>' + table([{ label: 'Admin', v: (s) => esc(s.email) + (s.current ? ' <span class="badge ok">this one</span>' : '') }, { label: 'Device', v: (s) => '<span class="tiny">' + esc((s.user_agent || '').slice(0, 60)) + '</span><div class="tiny faint">' + esc(s.ip) + '</div>' }, { label: 'Seen', v: (s) => esc(ago(s.last_seen_at)) }, { label: '', v: (s) => (s.current ? '' : '<button class="btn sm" data-act4="endSession" data-id="' + esc(s.id) + '">End</button>') }], d.sessions) + '</section></div>';
     if (can('admins.manage')) {
       html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Admins</h2><button class="btn pri" data-act4="admAdd">Add admin</button></div>' +
-        table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => esc(x.role) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
+        table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => (x.role === 'super' ? badge('Super Admin', 'info') : esc(ROLE_NAME[x.role] || x.role)) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
           { label: 'Last sign-in', v: (x) => esc(ago(x.last_login_at)) + (x.last_login_ip ? '<div class="tiny faint">' + esc(x.last_login_ip) + '</div>' : '') }, { label: 'Status', v: (x) => (x.active ? (x.locked_until && new Date(x.locked_until) > new Date() ? badge('Locked', 'bad') : badge('Active', 'ok')) : badge('Disabled')) },
-          { label: '', v: (x) => (x.id === a.id ? '' : '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="admRole" data-id="' + x.id + '" data-role="' + esc(x.role) + '" data-name="' + esc(x.name) + '">Change role</button>' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
+          { label: '', v: (x) => (x.id === a.id || x.role === 'super' ? '' : '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="admRole" data-id="' + x.id + '" data-role="' + esc(x.role) + '" data-name="' + esc(x.name) + '">Change role</button>' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
     }
     if (can('audit.view')) {
       const f = S.af || (S.af = { action: '', admin: '' }); const au = await api('GET', '/audit?action=' + encodeURIComponent(f.action) + '&admin=' + encodeURIComponent(f.admin));
@@ -379,7 +380,7 @@
     v.innerHTML = html;
     let t; ['afA', 'afW'].forEach((id) => { const el = $('#' + id); if (el) el.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.af = { action: $('#afA').value.trim(), admin: $('#afW').value.trim() }; route(); }, 400); }; });
   };
-  const ROLE_HELP = { owner: 'Owner — everything, including plans, prices, settings and admins', support: 'Support — businesses, view as owner, owner password resets, support inbox', finance: 'Finance — invoices, payments, subscriptions' };
+  const ROLE_HELP = { admin: 'Admin — everything except adding or changing admins', support: 'Support — businesses, view as owner, owner password resets, support inbox', finance: 'Finance — invoices, payments, subscriptions' };
   const ACT4 = {
     admAdd: () => {
       const box = modal({ title: 'Add an admin', body: '<div class="col">' + field('Full name', inp('name', '', 'autocomplete="off"')) + field('Email', inp('email', '', 'type="email" autocomplete="off"')) +

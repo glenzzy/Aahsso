@@ -30,7 +30,7 @@ async function api(method, p, token, body) {
   const r = await fetch(B + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const ct = r.headers.get('content-type') || ''; return { status: r.status, body: ct.includes('json') ? await r.json() : await r.text() };
 }
-const cli = (...args) => execFileSync('node', [path.join(__dirname, '..', 'scripts', 'admin.js'), ...args], { env: process.env, encoding: 'utf8' });
+const cli = (...args) => execFileSync('node', [path.join(__dirname, '..', 'scripts', 'admin.js'), ...args], { env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); // errors land in the thrown message, not the console
 const tempPw = (out) => out.match(/\(shown once\):\s+(\S+)/)[1];
 /** full first sign-in: password → set up authenticator → change password. Returns {c, secret, recovery} */
 async function firstSignIn(email, temp, newPw) {
@@ -52,6 +52,12 @@ async function signIn(c, n) {
 }
 /** confirm a risky action: password (two-step off) or a recovery code */
 const reauthBody = (n) => (TWO ? { recoveryCode: S.recovery[n] } : { password: S.pw });
+/** the Super Admin adds an admin in the dashboard; returns the temporary password */
+async function addAdmin(email, name, role) {
+  await db.query("UPDATE admin_sessions SET reauth_at = now() WHERE revoked_at IS NULL AND admin_id=(SELECT id FROM platform_admins WHERE email=$1)", [S.ownerEmail]);
+  const r = await S.c.call('POST', '/api/admin/admins', { email, name, role, sendEmail: false }); assert.equal(r.status, 200, JSON.stringify(r.body));
+  return r.body;
+}
 
 test('the admin does not exist for strangers or business users', async () => {
   const anon = await api('GET', '/api/admin/me'); assert.equal(anon.status, 404); assert.deepEqual(anon.body, { error: 'Not found' });
@@ -65,7 +71,10 @@ test('the admin does not exist for strangers or business users', async () => {
 
 test('first sign-in: password' + (TWO ? ', authenticator setup, recovery codes' : ' only (two-step is off)') + ', forced password change', async () => {
   S.ownerEmail = 'boss' + rnd + '@kargo.test';
-  const out = cli('create', '--email', S.ownerEmail, '--name', 'Boss Owner', '--role', 'owner'); S.temp = tempPw(out);
+  await db.query("UPDATE platform_admins SET role='admin' WHERE role='super'"); // test database only: earlier runs left a Super Admin
+  const out = cli('create', '--email', S.ownerEmail, '--name', 'Boss Owner'); S.temp = tempPw(out);
+  assert.match(out, /Super Admin created/);
+  assert.throws(() => cli('create', '--email', 'second' + rnd + '@kargo.test', '--name', 'Second Super'), /Super Admin already exists/, 'only one Super Admin');
   assert.match(cli('list'), new RegExp(S.ownerEmail));
   const c = adminClient();
   assert.equal((await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: 'wrong-password' })).status, 401);
@@ -95,7 +104,7 @@ test('first sign-in: password' + (TWO ? ', authenticator setup, recovery codes' 
   assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'Correct-Horse-' + rnd })).status, 200);
   S.pw = 'Correct-Horse-' + rnd; S.c = c;
   assert.equal((await c.call('GET', '/api/admin/overview')).status, 200);
-  const me = (await c.call('GET', '/api/admin/me')).body; assert.equal(me.admin.role, 'owner'); assert.ok(Array.isArray(me.security));
+  const me = (await c.call('GET', '/api/admin/me')).body; assert.equal(me.admin.role, 'super'); assert.equal(me.roleName, 'Super Admin'); assert.ok(Array.isArray(me.security));
 });
 
 test('password-only sign-in (two-step off): no code needed, logout ends the session', { skip: TWO && 'two-step is on' }, async () => {
@@ -239,15 +248,15 @@ test('support view is read-only and visible to the business; owner password rese
 });
 
 test('roles: support and finance only do their part; lockout after 5 failures', async () => {
-  const sup = cli('create', '--email', 'sup' + rnd + '@kargo.test', '--name', 'Sam Support', '--role', 'support');
-  const s = await firstSignIn('sup' + rnd + '@kargo.test', tempPw(sup), 'Support-Pass-' + rnd);
+  const sup = await addAdmin('sup' + rnd + '@kargo.test', 'Sam Support', 'support');
+  const s = await firstSignIn('sup' + rnd + '@kargo.test', sup.password, 'Support-Pass-' + rnd);
   assert.equal((await s.c.call('GET', '/api/admin/tenants')).status, 200);
   assert.equal((await s.c.call('GET', '/api/admin/invoices')).status, 403, 'support: no billing');
   assert.equal((await s.c.call('PUT', '/api/admin/plans/starter', { name: 'Hack', price_monthly: 1 })).status, 403);
   assert.equal((await s.c.call('POST', '/api/admin/tenants/' + S.tid + '/subscription', { action: 'extend_period', days: 365 })).status, 403);
   assert.equal((await s.c.call('GET', '/api/admin/audit')).status, 403);
-  const fin = cli('create', '--email', 'fin' + rnd + '@kargo.test', '--name', 'Fiona Finance', '--role', 'finance');
-  const f = await firstSignIn('fin' + rnd + '@kargo.test', tempPw(fin), 'Finance-Pass-' + rnd);
+  const fin = await addAdmin('fin' + rnd + '@kargo.test', 'Fiona Finance', 'finance');
+  const f = await firstSignIn('fin' + rnd + '@kargo.test', fin.password, 'Finance-Pass-' + rnd);
   assert.equal((await f.c.call('GET', '/api/admin/invoices')).status, 200);
   assert.equal((await f.c.call('POST', '/api/admin/tenants/' + S.tid + '/view', { reason: 'curious' })).status, 403, 'finance cannot view as owner');
   assert.equal((await f.c.call('GET', '/api/admin/support')).status, 403);
@@ -261,7 +270,7 @@ test('roles: support and finance only do their part; lockout after 5 failures', 
   cli('unlock', '--email', 'fin' + rnd + '@kargo.test');
 });
 
-test('owners add admins from the dashboard and change roles; others cannot', async () => {
+test('only the Super Admin adds admins and changes roles; the Super Admin cannot be changed', async () => {
   await db.query("UPDATE admin_sessions SET reauth_at = now() - interval '10 minutes' WHERE revoked_at IS NULL");
   const body = { name: 'Nadia New', email: 'nadia' + rnd + '@kargo.test', role: 'support' };
   const r0 = await S.c.call('POST', '/api/admin/admins', body); assert.equal(r0.body.code, 'reauth', 'confirming is required');
@@ -276,13 +285,25 @@ test('owners add admins from the dashboard and change roles; others cannot', asy
   // the new admin signs in and must choose a password first
   const n = await firstSignIn(body.email, r.body.password, 'Nadia-Own-Pass-' + rnd);
   assert.equal((await n.c.call('GET', '/api/admin/me')).body.admin.role, 'support');
-  assert.equal((await n.c.call('POST', '/api/admin/admins', { name: 'Eve Evil', email: 'eve' + rnd + '@x.test', role: 'owner' })).status, 403, 'support cannot add admins');
+  assert.equal((await n.c.call('POST', '/api/admin/admins', { name: 'Eve Evil', email: 'eve' + rnd + '@x.test', role: 'admin' })).status, 403, 'support cannot add admins');
+  assert.equal((await S.c.call('POST', '/api/admin/admins', { name: 'Two Supers', email: 'two' + rnd + '@x.test', role: 'super' })).status, 400, 'no second Super Admin from the dashboard');
+  // an Admin can do everything except manage admins
+  const adm = await addAdmin('adm' + rnd + '@kargo.test', 'Ada Admin', 'admin');
+  const ac = await firstSignIn('adm' + rnd + '@kargo.test', adm.password, 'Ada-Admin-Pass-' + rnd);
+  assert.equal((await ac.c.call('GET', '/api/admin/invoices')).status, 200); assert.equal((await ac.c.call('GET', '/api/admin/plans')).status, 200);
+  await db.query("UPDATE admin_sessions SET reauth_at = now() WHERE revoked_at IS NULL");
+  assert.equal((await ac.c.call('POST', '/api/admin/admins', { name: 'Eve Evil', email: 'eve2' + rnd + '@x.test', role: 'support' })).status, 403, 'an Admin cannot add admins');
+  assert.equal((await ac.c.call('POST', '/api/admin/admins/' + adm.admin.id + '/role', { role: 'support' })).status, 403);
+  assert.equal((await ac.c.call('GET', '/api/admin/admins')).body.admins.length, 1, 'an Admin sees only their own account');
+  // nobody changes the Super Admin from the dashboard
+  const sup = (await S.c.call('GET', '/api/admin/me')).body.admin;
+  const ids = (await S.c.call('GET', '/api/admin/admins')).body.admins; assert.ok(ids.some((x) => x.role === 'super'));
+  assert.equal((await S.c.call('POST', '/api/admin/admins/' + sup.id + '/deactivate')).status, 400);
   // role change, and the last owner is protected
   const id = r.body.admin.id;
   assert.equal((await S.c.call('POST', '/api/admin/admins/' + id + '/role', { role: 'finance' })).status, 200);
   assert.equal((await n.c.call('GET', '/api/admin/invoices')).status, 200, 'now finance');
-  const me = (await S.c.call('GET', '/api/admin/me')).body.admin;
-  assert.equal((await S.c.call('POST', '/api/admin/admins/' + me.id + '/role', { role: 'support' })).status, 400, 'not your own role');
+  assert.equal((await S.c.call('POST', '/api/admin/admins/' + sup.id + '/role', { role: 'support' })).status, 400, 'not your own role');
   const log = (await S.c.call('GET', '/api/admin/audit?action=admin_')).body.entries.map((e) => e.action);
   assert.ok(log.includes('admin_created') && log.includes('admin_role_changed'));
 });
