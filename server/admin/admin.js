@@ -198,9 +198,34 @@
     if (r === 'security') { r = 'account'; history.replaceState(null, '', '#/account'); } // old link
     const n = NAV.find((x) => x[0] === r); if (!n || !canAny(n[2])) r = can('overview.view') ? 'overview' : can('tenants.view') ? 'tenants' : 'account';
     $('#title').textContent = r === 'tenants' && parts[1] ? 'Business' : (NAV.find((x) => x[0] === r) || [0, 'Admin'])[1];
-    drawNav(S.counts); const view = $('#view'); view.innerHTML = '<div class="empty">Loading…</div>';
-    try { await PAGES[r](view, parts.slice(1)); if (INTRO[r] && !(r === 'tenants' && parts[1]) && !$('.page-intro', view)) view.insertAdjacentHTML('afterbegin', '<div class="page-intro"><p>' + esc(INTRO[r]) + '</p></div>'); } catch (e) { if (!e.quiet) view.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; }
-    view.focus && window.scrollTo(0, 0);
+    drawNav(S.counts); let view = $('#view');
+    const soft = view.dataset.page === r && !!$('#tabBody', view); // same page, other tab: keep the header and tabs, reload only the content
+    if (!soft) { // a fresh element per page: a slower page that finishes late writes into the old, detached one
+      const fresh = view.cloneNode(false); fresh.removeAttribute('data-page'); view.replaceWith(fresh); view = fresh;
+      view.innerHTML = '<div class="empty">Loading…</div>';
+    }
+    try { await PAGES[r](view, parts.slice(1)); if (!soft && INTRO[r] && !(r === 'tenants' && parts[1]) && !$('.page-intro', view)) view.insertAdjacentHTML('afterbegin', '<div class="page-intro"><p>' + esc(INTRO[r]) + '</p></div>'); }
+    catch (e) { if (!e.quiet) { const b = $('#tabBody', view); if (b) { b.classList.remove('loading'); b.removeAttribute('aria-busy'); b.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; } else view.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; } }
+    if (!soft) window.scrollTo(0, 0);
+  }
+
+  /* ---------- tabbed pages: header + tabs drawn once; switching tabs reloads only #tabBody ---------- */
+  let tabTok = 0;
+  /** returns { body, live(), done(html) }: content is written only while live() — a newer tab click wins */
+  function tabbed(v, page, tabs, cur, head) {
+    let body = v.dataset.page === page ? $('#tabBody', v) : null;
+    if (body) {
+      $$('.tabs a', v).forEach((a) => { const on = a.dataset.tab === cur; a.classList.toggle('on', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+      body.classList.add('loading'); body.setAttribute('aria-busy', 'true');
+    } else {
+      v.innerHTML = (head || '') + (tabs.length > 1 ? '<nav class="tabs" aria-label="Sections">' + tabs.map(([k, l, href]) => '<a href="' + href + '" data-tab="' + esc(k) + '" class="' + (k === cur ? 'on' : '') + '"' + (k === cur ? ' aria-current="page"' : '') + '>' + esc(l) + '</a>').join('') + '</nav>' : '') +
+        '<div id="tabBody" class="tab-body"><div class="empty">Loading…</div></div>';
+      v.dataset.page = page; body = $('#tabBody', v);
+    }
+    const tok = ++tabTok;
+    const live = () => tok === tabTok && body.isConnected;
+    const done = (html) => { if (!live()) return false; body.innerHTML = html; body.classList.remove('loading'); body.removeAttribute('aria-busy'); return true; };
+    return { body, live, done };
   }
 
   /* ---------- pages ---------- */
@@ -386,20 +411,22 @@
   const ROLE_L = { owner: 'Owner', admin: 'Admin', manager: 'Manager', sales: 'Sales rep', viewer: 'Viewer' };
   const userRole = (r) => '<span class="badge' + (r === 'owner' ? ' info' : '') + '">' + esc(ROLE_L[r] || r) + '</span>';
   PAGES.users = async (v, [tab]) => {
-    if (tab === 'admins' && can('admins.manage')) return adminsTab(v);
-    if (tab === 'roles' && can('admins.manage')) return rolesTab(v);
-    if (!can('users.view')) return adminsTab(v);
+    const tabs = USER_TABS(); tab = tabs.some((t) => t[0] === (tab || '')) ? tab || '' : tabs[0][0];
+    const T = tabbed(v, 'users', tabs.map(([k, l]) => [k, l, '#/users' + (k ? '/' + k : '')]), tab);
+    if (tab === 'admins') return adminsTab(T);
+    if (tab === 'roles') return rolesTab(T);
     const f = S.uf || (S.uf = { q: '', status: '', role: '', tenant: '', tenantName: '' });
-    v.innerHTML = userTabs('') + '<div class="page-intro"><p>' + esc(INTRO.users) + '</p><div class="acts">' + (can('users.write') ? '<button class="btn pri" data-act5="uAdd">' + ic('plus', 'sm') + 'Add user</button>' : '') + '</div></div>' +
+    if (!T.done('<div class="page-intro"><p>' + esc(INTRO.users) + '</p><div class="acts">' + (can('users.write') ? '<button class="btn pri" data-act5="uAdd">' + ic('plus', 'sm') + 'Add user</button>' : '') + '</div></div>' +
       '<div class="kpis mb2" id="ukpi"></div>' +
       '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search users</span>' + ic('search', 'sm') + '<input class="inp" id="uq" type="search" placeholder="Search name, login, email or business" value="' + esc(f.q) + '"></label>' +
       sel('us', [['', 'Active and disabled'], ['active', 'Active'], ['disabled', 'Disabled']], f.status, 'id="us" style="width:auto"') +
       sel('ur', [['', 'All roles'], ['owner', 'Owners'], ['staff', 'Team members']], f.role, 'id="ur" style="width:auto"') +
-      (f.tenant ? '<span class="badge info">' + esc(f.tenantName) + ' <button type="button" class="link tiny" data-act5="uClearT" aria-label="Show all businesses">✕</button></span>' : '') + '</div><div class="card" id="ul"><div class="empty">Loading…</div></div>';
+      (f.tenant ? '<span class="badge info">' + esc(f.tenantName) + ' <button type="button" class="link tiny" data-act5="uClearT" aria-label="Show all businesses">✕</button></span>' : '') + '</div><div class="card" id="ul"><div class="empty">Loading…</div></div>')) return;
     let page = 0; let timer;
     const load = async (more) => {
       page = more ? page + 1 : 0;
       const d = await api('GET', '/users?q=' + encodeURIComponent(f.q) + '&status=' + f.status + '&role=' + f.role + '&tenant=' + encodeURIComponent(f.tenant) + '&page=' + page);
+      if (!T.live() || !$('#ul')) return; // another tab was opened meanwhile
       S.users = more ? (S.users || []).concat(d.users) : d.users; const c = d.counts;
       $('#ukpi').innerHTML = kpi('Users', esc(c.total)) + kpi('Active', esc(c.active), esc(c.total - c.active) + ' disabled') + kpi('Owners', esc(c.owners), 'one per business') + kpi('Signed in · 30 days', esc(c.recent));
       const html = table([
@@ -520,7 +547,8 @@
   PAGES.billing = async (v, [tab]) => {
     tab = tab || 'check';
     const tabs = [['check', 'To check'], ['invoices', 'Invoices'], ['payments', 'Payments']];
-    let html = '<div class="page-intro"><p>' + esc(INTRO.billing) + '</p><div class="acts">' + (can('billing.write') ? '<button class="btn pri" data-act5="payAny">' + ic('money', 'sm') + 'Record payment</button>' : '') + '</div></div><nav class="tabs">' + tabs.map(([k, l]) => '<a href="#/billing/' + k + '" class="' + (k === tab ? 'on' : '') + '">' + l + '</a>').join('') + '</nav>';
+    const T = tabbed(v, 'billing', tabs.map(([k, l]) => [k, l, '#/billing/' + k]), tab, '<div class="page-intro"><p>' + esc(INTRO.billing) + '</p><div class="acts">' + (can('billing.write') ? '<button class="btn pri" data-act5="payAny">' + ic('money', 'sm') + 'Record payment</button>' : '') + '</div></div>');
+    let html = '';
     if (tab === 'check') {
       const d = await api('GET', '/payments?status=pending');
       html += '<p class="muted small">Businesses tapped “I have paid”. Check the money arrived on your MoMo / Orange Money / bank account with the reference, then confirm.</p><div class="card">' + payTable(d.payments, true) + '</div>';
@@ -532,7 +560,7 @@
       const d = await api('GET', '/payments');
       html += '<div class="row mb"><span class="grow"></span>' + (can('export') ? '<a class="btn sm" href="/api/admin/export/payments">Export CSV</a>' : '') + '</div><div class="card">' + payTable(d.payments, true) + '</div>';
     }
-    v.innerHTML = html;
+    if (!T.done(html)) return;
     if ($('#if')) $('#if').onchange = (e) => { S.if = e.target.value; route(); };
   };
 
@@ -572,22 +600,21 @@
   };
   /* users page: business users, admins, roles */
   const USER_TABS = () => [['', 'Business users', 'users.view'], ['admins', 'Admins', 'admins.manage'], ['roles', 'Roles', 'admins.manage']].filter((t) => can(t[2]));
-  const userTabs = (cur) => { const t = USER_TABS(); return t.length > 1 ? '<nav class="tabs">' + t.map(([k, l]) => '<a href="#/users' + (k ? '/' + k : '') + '" class="' + (k === cur ? 'on' : '') + '">' + l + '</a>').join('') + '</nav>' : ''; };
-  async function adminsTab(v) {
-    await loadRoles(); const a = S.me.admin; const d = await api('GET', '/admins'); let html = userTabs('admins');
+  async function adminsTab(T) {
+    await loadRoles(); const a = S.me.admin; const d = await api('GET', '/admins'); let html = '';
       html += '<div class="page-intro"><p>People who work in this admin. Only you, the Super Admin, add admins and change their roles.</p><div class="acts"><button class="btn pri" data-act4="admAdd">' + ic('plus', 'sm') + 'Add admin</button></div></div><section class="card">' +
         table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => (x.role === 'super' ? badge('Super Admin', 'info') : esc(roleName(x.role))) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
           { label: 'Last sign-in', v: (x) => esc(ago(x.last_login_at)) + (x.last_login_ip ? '<div class="tiny faint">' + esc(x.last_login_ip) + '</div>' : '') }, { label: 'Status', v: (x) => (x.active ? (x.locked_until && new Date(x.locked_until) > new Date() ? badge('Locked', 'bad') : badge('Active', 'ok')) : badge('Disabled')) },
           { label: '', v: (x) => (x.id === a.id || x.role === 'super' ? '' : '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="admRole" data-id="' + x.id + '" data-role="' + esc(x.role) + '" data-name="' + esc(x.name) + '">Change role</button>' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '<button class="btn sm" data-act4="adm" data-v="reset-pin" data-id="' + x.id + '"' + (x.has_pin ? '' : ' disabled title="No PIN yet"') + '>Reset PIN</button>') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
-    v.innerHTML = html;
+    T.done(html);
   }
-  async function rolesTab(v) {
-    await loadRoles(); let html = userTabs('roles');
+  async function rolesTab(T) {
+    await loadRoles(); let html = '';
       html += '<div class="page-intro"><p>Roles are sets of permissions. Give each admin the role that matches their job.</p><div class="acts"><button class="btn pri" data-act4="roleNew">' + ic('plus', 'sm') + 'New role</button></div></div><section class="card">' +
         table([{ label: 'Role', v: (r) => '<b>' + esc(r.name) + '</b>' + (r.builtin ? ' <span class="badge">built-in</span>' : '') + '<div class="tiny faint">' + esc(r.description) + '</div>' }, { label: 'Permissions', num: true, v: (r) => esc((r.perms || []).length + ' / ' + S.permCatalog.length) }, { label: 'Admins', num: true, v: (r) => esc(r.admins) },
           { label: '', v: (r) => '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="roleEdit" data-id="' + esc(r.id) + '">Edit</button>' + (r.builtin ? '' : '<button class="btn sm danger" data-act4="roleDel" data-id="' + esc(r.id) + '">Delete</button>') + '</div>' }], S.roles) +
         '<p class="tiny muted pad" style="margin:0">The Super Admin can do everything and is the only one who manages admins and roles.</p></section>';
-    v.innerHTML = html;
+    T.done(html);
   }
   /* ---------- audit log ---------- */
   PAGES.audit = async (v) => {

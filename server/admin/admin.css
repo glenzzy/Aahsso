@@ -204,3 +204,10 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: #f
 /* my account */
 .acct-h { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
 .acct-h h2 { font-size: 18px; }
+
+/* tabbed pages: only the content under the tabs reloads */
+.tab-body { position: relative; min-height: 160px; transition: opacity .15s ease; }
+.tab-body.loading { opacity: .5; pointer-events: none; }
+.tab-body.loading::before { content: ''; position: absolute; left: 0; right: 0; top: -9px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, var(--brand), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: tabload 1s linear infinite; }
+@keyframes tabload { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+@media (prefers-reduced-motion: reduce) { .tab-body, .tab-body.loading::before { transition: none; animation: none; } }
