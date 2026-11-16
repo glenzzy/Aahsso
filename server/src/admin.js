@@ -494,6 +494,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   }));
   A.post('/invoices/:id/void', need('billing.void'), reauth, wrap(async (req, res) => {
     const reason = needReason(req, res); if (!reason) return;
+    if ((await q("SELECT 1 FROM payments WHERE invoice_id::text=$1 AND status='processing'", [req.params.id])).rowCount) return bad(res, 'A mobile money payment for this invoice is waiting for approval — wait until it is paid or fails');
     const inv = (await q("UPDATE invoices SET status='void', void_reason=$2 WHERE id::text=$1 AND status='open' RETURNING *", [req.params.id, reason])).rows[0];
     if (!inv) return bad(res, 'Only an open invoice can be voided');
     await q("UPDATE payments SET status='rejected', decided_at=now(), note=coalesce(note,'') || ' (invoice voided)' WHERE invoice_id=$1 AND status='pending'", [inv.id]);
@@ -622,6 +623,8 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       ['Security alerts email (ADMIN_ALERT_EMAIL)', !!process.env.ADMIN_ALERT_EMAIL],
       ['Emails can be sent (RESEND_API_KEY)', mailer.enabled()],
       ['Public app address set (APP_URL)', !!process.env.APP_URL],
+      ['Mobile money payments (PAWAPAY_API_TOKEN)' + (process.env.PAWAPAY_API_TOKEN ? (process.env.PAWAPAY_SANDBOX === 'false' ? ' — live' : ' — sandbox, test money only') : ''), !!process.env.PAWAPAY_API_TOKEN],
+      ['Mobile money callbacks protected (PAWAPAY_CALLBACK_SECRET)', !!process.env.PAWAPAY_CALLBACK_SECRET],
     ].map(([label, ok]) => ({ label, ok }));
   }
   A.get('/health', need('health.view'), wrap(async (req, res) => {

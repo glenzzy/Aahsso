@@ -1264,3 +1264,27 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .pt-group.open .pt-gcount { opacity: .55; }
 @media (prefers-reduced-motion: reduce) { .pt-gbtn .i { transition: none; } }
 @media (max-width: 560px) { .pt-tools { justify-content: center; } .pt-fold { margin-left: 0; width: 100%; justify-content: center; } .pt-wrap { max-height: calc(100vh - 210px); } }
+
+/* billing: mobile money */
+.momo-nets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.momo-net { flex: 1 1 140px; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 12px; background: var(--card); font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; }
+.momo-net:hover { border-color: var(--ink3); }
+.momo-net.on { border-color: var(--brand); background: var(--brandSoft); }
+.momo-net:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.momo-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(0,0,0,.06); }
+.momo-dot.mtn { background: #ffcb05; } .momo-dot.orange { background: #ff7900; }
+.momo-phone { display: flex; align-items: stretch; }
+.momo-phone > span { display: grid; place-items: center; padding: 0 12px; border: 1px solid var(--line); border-right: 0; border-radius: 11px 0 0 11px; background: var(--bg); font-weight: 700; color: var(--ink2); }
+.momo-phone .inp { border-radius: 0 11px 11px 0; font-size: 17px; letter-spacing: .02em; }
+.momo-pay { min-width: 220px; }
+@media (max-width: 560px) { .momo-pay { width: 100%; } }
+.momo-wait { display: flex; gap: 14px; align-items: flex-start; padding: 16px; border-radius: 12px; background: var(--brandSoft); border: 1px solid #c9e2df; }
+.momo-wait h3 { margin: 0 0 4px; }
+.momo-wait p { margin: 0 0 6px; }
+.momo-steps { margin: 6px 0 12px; padding-left: 18px; }
+.momo-spin { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(13,92,99,.18); border-top-color: var(--brand); animation: momospin .9s linear infinite; flex: none; margin-top: 2px; }
+@keyframes momospin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .momo-spin { animation: none; } }
+.bill-other { border-top: 1px solid var(--line2); padding-top: 12px; }
+.bill-other > summary { cursor: pointer; font-weight: 700; list-style-position: inside; }
+.bill-other > summary .hint { font-weight: 400; }

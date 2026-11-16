@@ -15,6 +15,7 @@ const KC = require('../public/compute.js'); // same business logic as the browse
 const mailer = require('./mailer');
 const { migrate } = require('./migrate');
 const billing = require('./billing');
+const momo = require('./pawapay'); // mobile money (pawaPay)
 const mountAdmin = require('./admin');
 /* The database schema is brought up to date before the first request is served (also on Vercel, where there is no start
    script). If it fails, requests get a clear 503 instead of odd errors, and the next request tries again. */
@@ -74,7 +75,8 @@ app.use(compression({ filter: (req, res) => req.path !== '/api/stream' && compre
 const origins = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 if (origins.length) app.use(cors({ origin: origins }));
 app.use('/api/shop', express.json({ limit: '64kb' })); // public, no login: keep requests small
-app.use(express.json({ limit: '25mb' }));
+const jsonBody = express.json({ limit: '25mb' });
+app.use((req, res, next) => (req.path === '/api/pawapay/callback' ? next() : jsonBody(req, res, next))); // the pawaPay callback reads its raw body (Content-Digest)
 app.use('/api', (req, res, next) => ensureSchema().then(() => next(), (e) => { console.error('[migrate]', e.message); err(res, 503, 'The server is updating its database. Please try again in a moment.'); }));
 mountAdmin(app, { tenantSecret: SECRET, KC }); // platform admin: its own host, accounts, sessions — see src/admin.js
 
@@ -207,7 +209,8 @@ app.post('/api/support', auth, supportLimiter, wrap(async (req, res) => {
   const r = await mailer.sendEmail(Object.assign({ to, kind: 'support', tenantId: u.tenant_id, replyTo: reply || undefined }, mailer.T.support({ business: u.tenant_name, from: u.name, login: u.login, email: reply || '', role: u.role, plan: u.plan + (u.status !== 'active' ? ' (' + u.status + ')' : ''), topic: String(topic || 'Question').slice(0, 80), message: msg.slice(0, 4000), page: String(page || '').slice(0, 60), tenantId: u.tenant_id })));
   res.json({ ok: true, replyTo: reply || '', ticket: tk.id, emailed: r.status }); // the ticket is saved even if the email failed
 }));
-billing.mountTenant(app, { auth, wrap, err, canU, tx });
+billing.mountTenant(app, { auth, wrap, err, canU, tx, momo });
+momo.mount(app, { auth, wrap, err, express, guard: (req, res, next) => (['owner', 'admin'].includes(req.user.role) || canU(req.user, 'settings') ? next() : err(res, 403, 'Only the owner or an admin can manage billing')) });
 app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enabled(), from: mailer.enabled() ? mailer.FROM() : '' }));
 app.get('/api/me', auth, wrap(async (req, res) => {
   const u = req.user; const sub = await billing.getSub(pool, u.tenant_id); const lim = await billing.limitsFor(pool, u.tenant_id);
@@ -740,7 +743,8 @@ async function dailyEmails(url) {
     }
   }
   let bill = {}; try { bill = await billing.daily(url || mailer.appUrl()); } catch (e) { console.error('[billing] daily', e.message); }
-  return { trialEnding: sent, billing: bill };
+  let mm = {}; try { mm = await momo.sweep(); } catch (e) { console.error('[pawapay] daily sweep', e.message); }
+  return { trialEnding: sent, billing: bill, momo: mm };
 }
 
 /* ---------- product photos ---------- */
@@ -841,7 +845,7 @@ app.use((e, req, res, next) => {
   console.error(e); err(res, 500, 'Server error');
 });
 if (require.main === module) ensureSchema().catch((e) => console.error('[migrate] at startup:', e.message));
-if (require.main === module) { app.listen(PORT, () => console.log('Kargo running on http://localhost:' + PORT)); reminders.startScheduler(); startEmailScheduler(); }
+if (require.main === module) { app.listen(PORT, () => console.log('Kargo running on http://localhost:' + PORT)); reminders.startScheduler(); startEmailScheduler(); momo.startSweeper(); }
 /** Daily emails (trial ending) without an external cron: checked every hour, each email goes out once (dedupe). */
 function startEmailScheduler() {
   if (process.env.EMAILS_SCHEDULER_DISABLED === 'true') return;

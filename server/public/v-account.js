@@ -174,15 +174,17 @@ VIEWS.billing = {
     open.forEach((i) => {
       const pend = pendingFor(i), rej = rejectedFor(i);
       html += '<div class="card pad2 mb bill-pay" id="inv-' + i.id + '"><div class="row between wrap mb"><div><div class="hint">Invoice ' + esc(i.number) + '</div><h2>' + money0(i.amount, i.currency) + '</h2><div class="small muted">' + esc((i.plan_name || '') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly') + ' · due ' + fmtDate(String(i.due_date).slice(0, 10))) + '</div></div>' +
-        '<div class="row"><button class="btn sm" data-a="billPdf" data-id="' + i.id + '">' + ic('dl', 'sm') + 'PDF</button>' + (i.created_by === 'owner' && !pend ? '<button class="btn sm" data-a="billCancel" data-id="' + i.id + '">Cancel</button>' : '') + '</div></div>';
+        '<div class="row"><button class="btn sm" data-a="billPdf" data-id="' + i.id + '">' + ic('dl', 'sm') + 'PDF</button>' + (i.created_by === 'owner' && !pend && !b.payments.some((p) => p.invoice_id === i.id && p.status === 'processing') ? '<button class="btn sm" data-a="billCancel" data-id="' + i.id + '">Cancel</button>' : '') + '</div></div>';
       if (pend) html += '<div class="alert info">We are checking your payment (' + esc(pend.method) + (pend.reference ? ' · ' + esc(pend.reference) : '') + '). Your subscription starts as soon as it is confirmed — usually within a few hours.</div></div>';
       else {
         const lines = [['MTN MoMo', pi.momoNumber, pi.momoName], ['Orange Money', pi.omNumber, pi.omName]].filter((x) => x[1]);
+        const mm = b.momo || {}; const auto = mm.enabled ? momoBox(i, b) : '';
+        if (auto) html += auto + '<details class="bill-other mt2"' + (rej ? ' open' : '') + '><summary>Other ways to pay <span class="hint">— transfer, bank or cash, then send us the reference</span></summary><div class="mt">';
         html += (rej ? '<div class="alert bad mb">Your last payment report was not confirmed' + (rej.note ? ': ' + esc(rej.note) : '') + '. Check the reference and report it again.</div>' : '') +
           '<h3 class="mb">How to pay</h3>' + (lines.length || pi.bank ? lines.map(([m, n, nm]) => '<div class="pay-line"><div><div class="b">' + esc(m) + '</div><div class="small muted">' + esc(n) + (nm ? ' · ' + esc(nm) : '') + '</div></div><button class="btn sm" data-a="billCopy" data-v="' + esc(n) + '">' + ic('copy', 'sm') + 'Copy</button></div>').join('') + (pi.bank ? '<div class="pay-line"><div><div class="b">Bank</div><div class="small muted">' + esc(pi.bank) + '</div></div></div>' : '') : '<div class="small muted mb">Contact the Kargo team for payment details.</div>') +
           (pi.note ? '<div class="small muted mt">' + esc(pi.note) + '</div>' : '') +
           '<h3 class="mb mt2">I have paid</h3><div class="grid2">' + field('How you paid', sel('pm_' + i.id, b.methods || ['MTN MoMo', 'Orange Money'], 'MTN MoMo')) + field('Transaction reference', inp('pr_' + i.id, '', 'placeholder="From your payment SMS" autocomplete="off"')) + '</div>' +
-          '<button class="btn pri mt" data-a="billClaim" data-id="' + i.id + '">' + ic('check') + 'Send payment details</button></div>';
+          '<button class="btn ' + (auto ? '' : 'pri ') + 'mt" data-a="billClaim" data-id="' + i.id + '">' + ic('check') + 'Send payment details</button>' + (auto ? '</div></details>' : '') + '</div>';
       }
     });
     // plans: the same comparison table as the Choose-your-plan page
@@ -199,6 +201,82 @@ VIEWS.billing = {
   },
 };
 A.billCycle = (el) => { K.ui.billCycle = el.dataset.v; render(true); };
+/* ---------- mobile money (pawaPay): pay an invoice from the phone, approve with the PIN ---------- */
+const MOMO_KEY = 'kargo-momo-phone';
+const momoSaved = () => { try { return localStorage.getItem(MOMO_KEY) || ''; } catch (e) { return ''; } };
+/** network from a Cameroon number: MTN 67x / 650-654 / 680-683, Orange 69x / 655-659 / 686-689 */
+function momoGuess(v) {
+  let d = String(v || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.startsWith('237')) d = d.slice(3); if (d.length < 3) return null;
+  const p2 = +d.slice(0, 2), p3 = +d.slice(0, 3);
+  if (p2 === 67 || (p3 >= 650 && p3 <= 654) || (p3 >= 680 && p3 <= 683)) return 'MTN_MOMO_CMR';
+  if (p2 === 69 || (p3 >= 655 && p3 <= 659) || (p3 >= 686 && p3 <= 689)) return 'ORANGE_CMR';
+  return null;
+}
+const momoDigits = (v) => { let d = String(v || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.length === 12 && d.startsWith('237')) d = d.slice(3); return d; };
+function momoBox(i, b) {
+  const mm = b.momo; const mine = b.payments.filter((p) => p.invoice_id === i.id && p.provider === 'pawapay');
+  const live = mine.find((p) => p.status === 'processing');
+  if (live) {
+    momoWatch(live.id);
+    const net = mm.networks.find((n) => n.code === live.network) || { label: live.method };
+    return '<div class="momo-wait" role="status" aria-live="polite"><span class="momo-spin" aria-hidden="true"></span><div class="grow"><h3>Check your phone</h3>' +
+      '<p class="small">Approve <b>' + money0(live.amount, live.currency) + '</b> with your <b>' + esc(net.label) + '</b> PIN. This page updates by itself as soon as it is paid.</p>' +
+      '<ol class="small muted momo-steps"><li>' + (/^[AEIOU]/.test(net.label) ? 'An ' : 'A ') + esc(net.label) + ' message appears on the phone' + (net.code === 'MTN_MOMO_CMR' ? ' (or dial *126# if it does not)' : net.code === 'ORANGE_CMR' ? ' (or dial #150*50# if it does not)' : '') + '</li><li>Enter your PIN to approve</li></ol>' +
+      '<button class="btn sm" data-a="momoCheck" data-id="' + esc(live.id) + '">I approved — check now</button></div></div>';
+  }
+  const last = mine[0]; // newest first
+  const phone = K.ui.momoPhone !== undefined ? K.ui.momoPhone : momoSaved();
+  const net = K.ui.momoNet || momoGuess(phone) || mm.networks[0].code;
+  const paid = b.payments.filter((p) => p.invoice_id === i.id && p.status === 'confirmed').reduce((a, p) => a + p.amount, 0);
+  return (last && last.status === 'failed' ? '<div class="alert bad mb">' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '') +
+    '<h3 class="mb">Pay with Mobile Money</h3>' +
+    '<div class="momo-nets" role="radiogroup" aria-label="Mobile money network">' + mm.networks.map((n) => '<button type="button" role="radio" aria-checked="' + (n.code === net) + '" class="momo-net' + (n.code === net ? ' on' : '') + '" data-a="momoNet" data-v="' + esc(n.code) + '"><span class="momo-dot ' + (n.code.startsWith('MTN') ? 'mtn' : 'orange') + '" aria-hidden="true"></span>' + esc(n.label) + '</button>').join('') + '</div>' +
+    field('Mobile money number', '<div class="momo-phone"><span aria-hidden="true">+' + esc(mm.prefix) + '</span>' + inp('mp_' + i.id, phone, 'type="tel" inputmode="tel" autocomplete="tel-national" placeholder="6 77 12 34 56" data-momo-phone aria-label="Mobile money number"') + '</div>') +
+    '<button class="btn pri mt momo-pay" data-a="momoPay" data-id="' + esc(i.id) + '">' + ic('wallet') + 'Pay ' + money0(i.amount - paid, i.currency) + '</button>' +
+    '<p class="hint mt">You get a message on this phone to approve with your PIN. Your plan starts as soon as it is paid — no reference to send.' + (mm.sandbox ? ' <b>Test mode: no real money moves.</b>' : '') + '</p>';
+}
+/* pick the network as the number is typed (until the payer picks one themselves) */
+document.addEventListener('input', (e) => {
+  if (!e.target.matches || !e.target.matches('[data-momo-phone]')) return;
+  K.ui.momoPhone = e.target.value; if (K.ui.momoPicked) return;
+  const g = momoGuess(e.target.value); if (g && g !== K.ui.momoNet) { K.ui.momoNet = g; momoNetMark(); }
+});
+function momoNetMark() { $$('.momo-net').forEach((b) => { const on = b.dataset.v === K.ui.momoNet; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); }
+A.momoNet = (el) => { K.ui.momoNet = el.dataset.v; K.ui.momoPicked = true; momoNetMark(); };
+A.momoPay = async (el) => {
+  const id = el.dataset.id; const box = $('[name="mp_' + id + '"]'); const phone = box ? box.value.trim() : '';
+  const d = momoDigits(phone);
+  if (!/^6\d{8}$/.test(d)) { toast('Type your mobile money number — 9 digits, e.g. 6 77 12 34 56', true); if (box) box.focus(); return; }
+  const network = K.ui.momoPicked ? K.ui.momoNet : momoGuess(d) || K.ui.momoNet || (K._bill.momo.networks[0] || {}).code;
+  K.ui.momoPhone = phone; try { localStorage.setItem(MOMO_KEY, phone); } catch (e) { }
+  el.disabled = true; el.textContent = 'Sending…';
+  try { const r = await K.store.req('POST', '/api/billing/invoices/' + id + '/momo', { phone: d, network }); toast(r.message || 'Check your phone and approve with your PIN'); }
+  catch (e) { toast(e.message, true); }
+  await loadBilling();
+};
+A.momoCheck = (el) => { if (K._mmw) clearTimeout(K._mmw.t); K._mmw = null; el.disabled = true; momoWatch(el.dataset.id, 0); };
+/** ask the server until the payment is settled: every 4 s for 3 minutes, then every 15 s while Billing is open */
+function momoWatch(id, first) {
+  if (K._mmw && K._mmw.id === id) return; if (K._mmw) clearTimeout(K._mmw.t);
+  const w = K._mmw = { id, start: Date.now() };
+  const tick = async () => {
+    if (K._mmw !== w) return;
+    if (K.route !== 'billing') { K._mmw = null; return; }
+    try {
+      const p = (await K.store.req('GET', '/api/billing/momo/' + id)).payment;
+      if (K._mmw !== w) return;
+      if (p.status !== 'processing') {
+        K._mmw = null;
+        if (p.status === 'confirmed') { toast('Payment received — thank you! Your plan is active.'); await refreshEntitlements(); }
+        else if (p.status === 'failed') toast(p.failure || 'The payment did not go through', true);
+        else toast('Payment received — the Kargo team is checking it');
+        await loadBilling(); return;
+      }
+    } catch (e) { /* network hiccup: keep asking */ }
+    w.t = setTimeout(tick, Date.now() - w.start < 180000 ? 4000 : 15000);
+  };
+  w.t = setTimeout(tick, first === undefined ? 3000 : first);
+}
 const isFreePlan = (p) => (p.price_monthly === null || p.price_monthly === undefined) && (p.price_yearly === null || p.price_yearly === undefined);
 const ALWAYS = 'Home, stock & prices, settings, team members, profile, billing and help';
 /** Plans side by side: limits and every feature, ticked when included. Used on Choose your plan and on Billing. */

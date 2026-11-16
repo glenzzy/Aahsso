@@ -195,7 +195,7 @@ async function daily(url) {
 }
 
 /* ---------- business side: Billing page ---------- */
-function mountTenant(app, { auth, wrap, err, canU, tx }) {
+function mountTenant(app, { auth, wrap, err, canU, tx, momo }) {
   const may = (u) => ['owner', 'admin'].includes(u.role) || canU(u, 'settings');
   const guard = (req, res, next) => (may(req.user) ? next() : err(res, 403, 'Only the owner or an admin can manage billing'));
   const plansPublic = async () => (await q('SELECT id, name, description, price_monthly, price_yearly, currency, limits, modules, features FROM plans WHERE active AND public ORDER BY sort, name')).rows;
@@ -206,7 +206,8 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
       subscription: s && { planId: s.plan_id, planName: s.plan_name, status: s.status, statusLabel: STATUS_LABEL[s.status], cycle: s.cycle, price: s.price, currency: s.currency, trialEndsAt: s.trial_ends_at, periodEnd: s.current_period_end, graceDays: s.grace_days },
       limits: (await limitsFor(pool, tid)).limits, features: (await limitsFor(pool, tid)).features, catalog: KC.FEATURES, usage: await usage(pool, tid), plans: await plansPublic(),
       invoices: (await q('SELECT i.id, i.number, i.plan_id, p.name AS plan_name, i.cycle, i.period_start, i.period_end, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.created_by FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE i.tenant_id=$1 ORDER BY i.issued_at DESC LIMIT 36', [tid])).rows,
-      payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
+      payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, provider, network, failure, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
+      momo: momo ? momo.publicInfo() : { enabled: false },
       instructions: S.paymentInstructions, methods: PAY_METHODS, trialDays: FREE_TRIAL_DAYS, trialAvailable: !!s && s.status === 'trialing',
     });
   }));
@@ -237,6 +238,7 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
     if (!PAY_METHODS.includes(method)) return err(res, 400, 'Choose how you paid');
     const ref = String(reference || '').trim().slice(0, 80); if (method !== 'Cash' && ref.length < 4) return err(res, 400, 'Type the transaction reference from your payment message');
     if ((await q("SELECT 1 FROM payments WHERE invoice_id=$1 AND status='pending'", [inv.id])).rowCount) return err(res, 409, 'You already reported a payment for this invoice — we are checking it');
+    if ((await q("SELECT 1 FROM payments WHERE invoice_id=$1 AND status='processing'", [inv.id])).rowCount) return err(res, 409, 'A mobile money payment for this invoice is waiting for approval on the phone');
     const on = /^\d{4}-\d{2}-\d{2}$/.test(String(paidOn || '')) ? paidOn : dayStr(new Date());
     let p; try { p = (await q("INSERT INTO payments (tenant_id, invoice_id, amount, currency, method, reference, paid_on, status, claimed_by) VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8) RETURNING *", [tid, inv.id, inv.amount, inv.currency, method, ref || null, on, req.user.name])).rows[0]; }
     catch (e) { if (e.code === '23505') return err(res, 409, 'This transaction reference was already used'); throw e; }
@@ -246,7 +248,7 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
   app.post('/api/billing/invoices/:id/cancel', auth, guard, wrap(async (req, res) => {
     const inv = (await q("SELECT * FROM invoices WHERE id=$1 AND tenant_id=$2", [req.params.id, req.user.tenant_id])).rows[0];
     if (!inv || inv.status !== 'open' || inv.created_by !== 'owner') return err(res, 400, 'Only an invoice you asked for and have not paid can be cancelled');
-    if ((await q("SELECT 1 FROM payments WHERE invoice_id=$1 AND status IN ('pending','confirmed')", [inv.id])).rowCount) return err(res, 400, 'A payment is linked to this invoice');
+    if ((await q("SELECT 1 FROM payments WHERE invoice_id=$1 AND status IN ('pending','processing','confirmed')", [inv.id])).rowCount) return err(res, 400, 'A payment is linked to this invoice');
     await q("UPDATE invoices SET status='void', void_reason='Cancelled by the business' WHERE id=$1", [inv.id]);
     res.json({ ok: true });
   }));
