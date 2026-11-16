@@ -10,6 +10,7 @@ const { Pool } = require('pg');
 const B = process.env.KARGO_URL || 'http://localhost:8080';
 const db = new Pool({ connectionString: process.env.DATABASE_URL });
 const rnd = Math.random().toString(36).slice(2, 8);
+const TWO = process.env.ADMIN_REQUIRE_2FA === 'true'; // TODO(2FA): two-step sign-in is off by default for now
 const cron = () => fetch(B + '/api/cron/reminders', { headers: { Authorization: 'Bearer ' + process.env.CRON_SECRET } }).then((r) => r.json());
 
 /** a tiny browser: keeps the admin cookie and sends the anti-CSRF header */
@@ -34,7 +35,9 @@ const tempPw = (out) => out.match(/\(shown once\):\s+(\S+)/)[1];
 /** full first sign-in: password → set up authenticator → change password. Returns {c, secret, recovery} */
 async function firstSignIn(email, temp, newPw) {
   const c = adminClient();
-  const l = await c.call('POST', '/api/admin/auth/login', { email, password: temp }); assert.equal(l.status, 200, JSON.stringify(l.body)); assert.equal(l.body.next, 'setup');
+  const l = await c.call('POST', '/api/admin/auth/login', { email, password: temp }); assert.equal(l.status, 200, JSON.stringify(l.body));
+  if (!TWO) { assert.equal(l.body.next, 'done'); const pw0 = await c.call('POST', '/api/admin/auth/password', { current: temp, password: newPw }); assert.equal(pw0.status, 200, JSON.stringify(pw0.body)); return { c }; }
+  assert.equal(l.body.next, 'setup');
   const secret = l.body.secret.replace(/\s/g, '');
   const v = await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: totp.codeAt(secret, totp.stepNow()) }); assert.equal(v.status, 200, JSON.stringify(v.body));
   const pw = await c.call('POST', '/api/admin/auth/password', { current: temp, password: newPw }); assert.equal(pw.status, 200, JSON.stringify(pw.body));
@@ -42,6 +45,13 @@ async function firstSignIn(email, temp, newPw) {
 }
 const S = {};
 test.after(() => db.end());
+/** sign in an existing admin (n: which recovery code to use when two-step is on) */
+async function signIn(c, n) {
+  const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.pw }); assert.equal(l.status, 200, JSON.stringify(l.body));
+  if (TWO) await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, recoveryCode: S.recovery[n] });
+}
+/** confirm a risky action: password (two-step off) or a recovery code */
+const reauthBody = (n) => (TWO ? { recoveryCode: S.recovery[n] } : { password: S.pw });
 
 test('the admin does not exist for strangers or business users', async () => {
   const anon = await api('GET', '/api/admin/me'); assert.equal(anon.status, 404); assert.deepEqual(anon.body, { error: 'Not found' });
@@ -53,24 +63,30 @@ test('the admin does not exist for strangers or business users', async () => {
   const page = await fetch(B + '/admin'); assert.equal(page.headers.get('x-robots-tag'), 'noindex, nofollow'); assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
 });
 
-test('first sign-in: password, authenticator setup, recovery codes, forced password change', async () => {
+test('first sign-in: password' + (TWO ? ', authenticator setup, recovery codes' : ' only (two-step is off)') + ', forced password change', async () => {
   S.ownerEmail = 'boss' + rnd + '@kargo.test';
   const out = cli('create', '--email', S.ownerEmail, '--name', 'Boss Owner', '--role', 'owner'); S.temp = tempPw(out);
   assert.match(cli('list'), new RegExp(S.ownerEmail));
   const c = adminClient();
   assert.equal((await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: 'wrong-password' })).status, 401);
   assert.equal((await c.call('POST', '/api/admin/auth/login', { email: 'nobody@x.test', password: 'x' })).body.error, 'Wrong email or password', 'same answer for unknown emails');
-  const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.temp });
-  assert.equal(l.body.next, 'setup'); assert.match(l.body.qr, /^<svg/); assert.match(l.body.otpauth, /^otpauth:\/\/totp\//);
-  const secret = l.body.secret.replace(/\s/g, ''); S.secret = secret;
-  assert.equal((await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: '000000' })).status, 401);
-  const v = await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: totp.codeAt(secret, totp.stepNow()) });
-  assert.equal(v.status, 200); assert.equal(v.body.recoveryCodes.length, 10); assert.equal(v.body.mustChangePassword, true); S.recovery = v.body.recoveryCodes;
-  assert.match(v.setCookie, /^__Host-kargo_adm=[^;]+; Path=\/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800/);
-  const row = (await db.query('SELECT totp_secret, recovery_codes FROM platform_admins WHERE email=$1', [S.ownerEmail])).rows[0];
-  assert.ok(row.totp_secret.startsWith('v1.') && !row.totp_secret.includes(secret), 'secret stored encrypted');
-  assert.ok(!JSON.stringify(row.recovery_codes).includes(S.recovery[0]), 'recovery codes stored hashed');
-  assert.equal((await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: totp.codeAt(secret, totp.stepNow()) })).status, 401, 'a ticket works once');
+  if (!TWO) {
+    const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.temp });
+    assert.equal(l.status, 200); assert.equal(l.body.next, 'done', 'no code asked while two-step is off'); assert.equal(l.body.mustChangePassword, true);
+    assert.match(l.setCookie, /^__Host-kargo_adm=[^;]+; Path=\/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800/);
+  } else {
+    const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.temp });
+    assert.equal(l.body.next, 'setup'); assert.match(l.body.qr, /^<svg/); assert.match(l.body.otpauth, /^otpauth:\/\/totp\//);
+    const secret = l.body.secret.replace(/\s/g, ''); S.secret = secret;
+    assert.equal((await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: '000000' })).status, 401);
+    const v = await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: totp.codeAt(secret, totp.stepNow()) });
+    assert.equal(v.status, 200); assert.equal(v.body.recoveryCodes.length, 10); assert.equal(v.body.mustChangePassword, true); S.recovery = v.body.recoveryCodes;
+    assert.match(v.setCookie, /^__Host-kargo_adm=[^;]+; Path=\/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800/);
+    const row = (await db.query('SELECT totp_secret, recovery_codes FROM platform_admins WHERE email=$1', [S.ownerEmail])).rows[0];
+    assert.ok(row.totp_secret.startsWith('v1.') && !row.totp_secret.includes(secret), 'secret stored encrypted');
+    assert.ok(!JSON.stringify(row.recovery_codes).includes(S.recovery[0]), 'recovery codes stored hashed');
+    assert.equal((await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: totp.codeAt(secret, totp.stepNow()) })).status, 401, 'a ticket works once');
+  }
   // must change the password before anything else
   assert.equal((await c.call('GET', '/api/admin/overview')).body.code, 'change_password');
   assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'short' })).status, 400);
@@ -82,7 +98,13 @@ test('first sign-in: password, authenticator setup, recovery codes, forced passw
   const me = (await c.call('GET', '/api/admin/me')).body; assert.equal(me.admin.role, 'owner'); assert.ok(Array.isArray(me.security));
 });
 
-test('second sign-in needs a fresh code; codes cannot be reused; recovery code works once', async () => {
+test('password-only sign-in (two-step off): no code needed, logout ends the session', { skip: TWO && 'two-step is on' }, async () => {
+  const c = adminClient(); const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.pw });
+  assert.equal(l.body.next, 'done'); assert.equal((await c.call('GET', '/api/admin/me')).body.twoFactor, false);
+  assert.equal((await c.call('POST', '/api/admin/auth/verify', { ticket: 'x', code: '123456' })).status, 401, 'the code step is not a way in');
+  assert.equal((await c.call('POST', '/api/admin/auth/logout')).status, 200); assert.equal((await c.call('GET', '/api/admin/me')).status, 404);
+});
+test('second sign-in needs a fresh code; codes cannot be reused; recovery code works once', { skip: !TWO && 'two-step sign-in is off (ADMIN_REQUIRE_2FA)' }, async () => {
   const c = adminClient();
   const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.pw }); assert.equal(l.body.next, 'totp');
   const used = (await db.query('SELECT totp_last_step FROM platform_admins WHERE email=$1', [S.ownerEmail])).rows[0].totp_last_step;
@@ -97,15 +119,13 @@ test('second sign-in needs a fresh code; codes cannot be reused; recovery code w
 });
 
 test('sessions: idle timeout and revocation', async () => {
-  const c = adminClient(); const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.pw });
-  await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, recoveryCode: S.recovery[1] });
+  const c = adminClient(); await signIn(c, 1);
   assert.equal((await c.call('GET', '/api/admin/me')).status, 200);
   await db.query("UPDATE admin_sessions SET last_seen_at = now() - interval '31 minutes' WHERE revoked_at IS NULL AND admin_id = (SELECT id FROM platform_admins WHERE email=$1)", [S.ownerEmail]);
   assert.equal((await c.call('GET', '/api/admin/me')).status, 404, 'idle 30 min → signed out');
   assert.equal((await S.c.call('GET', '/api/admin/me')).status, 404, 'other sessions too (they were idle in this test)');
   // sign in again for the rest of the tests
-  const c2 = adminClient(); const l2 = await c2.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.pw });
-  await c2.call('POST', '/api/admin/auth/verify', { ticket: l2.body.ticket, recoveryCode: S.recovery[2] }); S.c = c2;
+  const c2 = adminClient(); await signIn(c2, 2); S.c = c2;
   assert.equal((await c2.call('GET', '/api/admin/me')).status, 200);
 });
 
@@ -113,7 +133,8 @@ test('plans: risky changes need the code again', async () => {
   await db.query("UPDATE admin_sessions SET reauth_at = now() - interval '10 minutes' WHERE revoked_at IS NULL");
   const plan = { name: 'Starter', description: 'One shop', price_monthly: 10000, price_yearly: 100000, active: true, public: true, sort: 1, features: ['1 shop', '2 team members'], limits: { maxUsers: 2, maxLocations: 1, onlineShop: false } };
   const r = await S.c.call('PUT', '/api/admin/plans/starter', plan); assert.equal(r.status, 403); assert.equal(r.body.code, 'reauth');
-  assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', { recoveryCode: S.recovery[3] })).status, 200);
+  if (!TWO) assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', { password: 'wrong-' + rnd })).status, 401, 'wrong password');
+  assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', reauthBody(3))).status, 200);
   assert.equal((await S.c.call('PUT', '/api/admin/plans/starter', plan)).status, 200);
   assert.equal((await S.c.call('PUT', '/api/admin/plans/business', { name: 'Business', price_monthly: 25000, price_yearly: null, active: true, public: true, sort: 2, features: ['Branches'], limits: {} })).status, 200);
   assert.equal((await S.c.call('PUT', '/api/admin/plans/enterprise', { name: 'Enterprise', price_monthly: null, price_yearly: null, active: true, public: true })).status, 400, 'no price → cannot be shown');
@@ -175,7 +196,7 @@ test('admin: change plan, record payment, renewal keeps the price, suspend needs
   // suspend: needs a fresh code and a reason
   await db.query("UPDATE admin_sessions SET reauth_at = now() - interval '10 minutes' WHERE revoked_at IS NULL");
   assert.equal((await S.c.call('POST', '/api/admin/tenants/' + S.tid + '/subscription', { action: 'suspend', reason: 'Fraud check' })).body.code, 'reauth');
-  await S.c.call('POST', '/api/admin/auth/reauth', { recoveryCode: S.recovery[4] });
+  await S.c.call('POST', '/api/admin/auth/reauth', reauthBody(4));
   assert.equal((await S.c.call('POST', '/api/admin/tenants/' + S.tid + '/subscription', { action: 'suspend', reason: 'Fraud check' })).status, 200);
   assert.equal((await api('PUT', '/api/data/products/px', S.biz, { name: 'X', category: 'Beauty' })).status, 402, 'suspended: cannot record');
   assert.equal((await api('GET', '/api/data/products', S.biz)).status, 200, 'suspended: can still read / export');
@@ -242,7 +263,7 @@ test('roles: support and finance only do their part; lockout after 5 failures', 
 
 test('audit log is complete and cannot be edited; support inbox; CSV export is formula-safe', async () => {
   const log = (await S.c.call('GET', '/api/admin/audit')).body.entries.map((e) => e.action);
-  for (const a of ['login_2fa_setup', 'plan_updated', 'payment_confirmed', 'subscription_suspend', 'view_as_owner', 'owner_password_reset', 'login_locked', 'admin_created']) assert.ok(log.includes(a), 'audit has ' + a);
+  for (const a of [TWO ? 'login_2fa_setup' : 'login', 'plan_updated', 'payment_confirmed', 'subscription_suspend', 'view_as_owner', 'owner_password_reset', 'login_locked', 'admin_created']) assert.ok(log.includes(a), 'audit has ' + a);
   await assert.rejects(db.query('DELETE FROM admin_audit'), /append-only/);
   await assert.rejects(db.query("UPDATE admin_audit SET action='x'"), /append-only/);
   // support

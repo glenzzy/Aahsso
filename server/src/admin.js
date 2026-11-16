@@ -3,7 +3,7 @@
  *     Cloudflare Access check (CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD). Anything else gets a plain 404.
  *     In production (NODE_ENV=production) the admin is OFF unless ADMIN_HOST is set.
  *  2. Separate accounts (platform_admins), created only from the command line: node scripts/admin.js create …
- *  3. Password + authenticator code (TOTP), one-time recovery codes, lockout after 5 failures, email alerts.
+ *  3. Password (+ authenticator code when ADMIN_REQUIRE_2FA=true — TODO: on by default later), lockout after 5 failures, email alerts.
  *  4. Server-side sessions in an httpOnly, Secure, SameSite=Strict __Host- cookie: 30 min idle, 8 h max, revocable.
  *  5. CSRF: custom header + Origin check on every change. Risky actions need the code again (5 min).
  *  6. Roles (owner / support / finance) and an append-only audit log of every action. */
@@ -20,6 +20,10 @@ const B = require('./billing');
 const mailer = require('./mailer');
 
 const COOKIE = '__Host-kargo_adm';
+// TODO(2FA): two-step sign-in (authenticator app + recovery codes) is switched OFF for now — admins sign in with
+// email + password only, and risky actions ask for the password again. All the 2FA code below is kept;
+// set ADMIN_REQUIRE_2FA=true to turn it back on (each admin then sets up their authenticator at the next sign-in).
+const TWO_FA = () => process.env.ADMIN_REQUIRE_2FA === 'true';
 const IDLE_MS = 30 * 60e3, MAX_MS = 8 * 3600e3, REAUTH_MS = 5 * 60e3, LOCK_AFTER = 5, LOCK_MIN = 15;
 const ROLES = {
   owner: ['*'],
@@ -104,7 +108,7 @@ async function auth(req, res, next) {
   next();
 }
 const need = (perm) => (req, res, next) => (can(req.admin, perm) ? next() : res.status(403).json({ error: 'Your admin role cannot do this' }));
-const reauth = (req, res, next) => (req.admin.reauth_at && Date.now() - new Date(req.admin.reauth_at).getTime() < REAUTH_MS ? next() : res.status(403).json({ error: 'Confirm it is you with your authenticator code', code: 'reauth' }));
+const reauth = (req, res, next) => (req.admin.reauth_at && Date.now() - new Date(req.admin.reauth_at).getTime() < REAUTH_MS ? next() : res.status(403).json({ error: 'Confirm it is you', code: 'reauth' }));
 function csrf(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   if (req.get('x-kargo-admin') !== '1') return res.status(403).json({ error: 'Blocked (missing request header)' });
@@ -153,6 +157,14 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
     if (a && locked(a)) return bad(res, 'Too many attempts. Try again in ' + LOCK_MIN + ' minutes.', 429);
     const ok = await bcrypt.compare(pw, a ? a.password_hash : DUMMY);
     if (!a || !a.active || !ok) { if (a) await failed(req, a); return bad(res, 'Wrong email or password', 401); }
+    if (!TWO_FA()) { // TODO(2FA): password-only sign-in until two-step is turned back on
+      const ua = String(req.get('user-agent') || '').slice(0, 300); const ip = clientIp(req);
+      const seen = (await q('SELECT 1 FROM admin_sessions WHERE admin_id=$1 AND ip=$2 AND user_agent=$3 LIMIT 1', [a.id, ip, ua])).rowCount > 0;
+      await q('UPDATE platform_admins SET failed_attempts=0, locked_until=NULL, last_login_at=now(), last_login_ip=$2 WHERE id=$1', [a.id, ip]);
+      await newSession(req, res, a.id); req.admin = a; await audit(req, 'login');
+      mailer.sendEmail(Object.assign({ to: a.email, kind: 'admin_login' }, mailer.T.adminLogin({ name: a.name, when: new Date().toUTCString(), ip, agent: ua, fresh: !seen }))).catch(() => { });
+      return res.json({ next: 'done', mustChangePassword: a.must_change_pw });
+    }
     const ticket = rand(32); const purpose = a.totp_enabled ? 'totp' : 'setup';
     await q("INSERT INTO admin_login_tickets (id, admin_id, purpose, expires_at) VALUES ($1,$2,$3, now() + interval '5 minutes')", [sha(ticket), a.id, purpose]);
     if (purpose === 'totp') return res.json({ next: 'totp', ticket });
@@ -196,14 +208,17 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
   A.use(wrap(auth));
   A.get('/me', wrap(async (req, res) => {
     const a = req.admin;
-    res.json({ admin: { id: a.id, email: a.email, name: a.name, role: a.role, mustChangePassword: a.must_change_pw, recoveryLeft: (a.recovery_codes || []).length, perms: ROLES[a.role] },
+    res.json({ twoFactor: TWO_FA(), admin: { id: a.id, email: a.email, name: a.name, role: a.role, mustChangePassword: a.must_change_pw, recoveryLeft: (a.recovery_codes || []).length, perms: ROLES[a.role] },
       security: a.role === 'owner' ? securityChecks() : undefined });
   }));
   A.post('/auth/logout', wrap(async (req, res) => { await q('UPDATE admin_sessions SET revoked_at=now() WHERE id=$1', [req.sid]); setCookie(res, '', 0); await audit(req, 'logout'); res.json({ ok: true }); }));
   A.post('/auth/reauth', authLimiter, wrap(async (req, res) => {
-    const a = (await q('SELECT * FROM platform_admins WHERE id=$1', [req.admin.id])).rows[0]; const { code, recoveryCode } = req.body || {};
+    const a = (await q('SELECT * FROM platform_admins WHERE id=$1', [req.admin.id])).rows[0]; const { code, recoveryCode, password } = req.body || {};
     if (locked(a)) return bad(res, 'Too many attempts. Try again later.', 429);
-    if (recoveryCode) { const h = totp.hashCode(recoveryCode); if (!(a.recovery_codes || []).includes(h)) { await failed(req, a); return bad(res, 'That recovery code is not valid', 401); } await q('UPDATE platform_admins SET recovery_codes=$2 WHERE id=$1', [a.id, JSON.stringify(a.recovery_codes.filter((x) => x !== h))]); }
+    if (!TWO_FA()) { // TODO(2FA): confirm risky actions with the password until two-step is back
+      if (!(await bcrypt.compare(String(password || ''), a.password_hash))) { await failed(req, a); return bad(res, 'That password is not right', 401); }
+      await q('UPDATE platform_admins SET failed_attempts=0 WHERE id=$1', [a.id]);
+    } else if (recoveryCode) { const h = totp.hashCode(recoveryCode); if (!(a.recovery_codes || []).includes(h)) { await failed(req, a); return bad(res, 'That recovery code is not valid', 401); } await q('UPDATE platform_admins SET recovery_codes=$2 WHERE id=$1', [a.id, JSON.stringify(a.recovery_codes.filter((x) => x !== h))]); }
     else { const step = totp.verify(totp.open(a.totp_secret), code, a.totp_last_step); if (step === null) { await failed(req, a); return bad(res, 'That code is not right', 401); } await q('UPDATE platform_admins SET totp_last_step=$2, failed_attempts=0 WHERE id=$1', [a.id, step]); }
     await q('UPDATE admin_sessions SET reauth_at=now() WHERE id=$1', [req.sid]); res.json({ ok: true });
   }));
@@ -276,7 +291,7 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
     const t = await tenantOr404(req, res); if (!t) return; const b = req.body || {}; const act = b.action;
     const isSuspend = act === 'suspend' || act === 'reactivate';
     if (!can(req.admin, isSuspend ? 'tenants.suspend' : 'subs.write')) return bad(res, 'Your admin role cannot do this', 403);
-    if (isSuspend && !(req.admin.reauth_at && Date.now() - new Date(req.admin.reauth_at).getTime() < REAUTH_MS)) return bad(res, 'Confirm it is you with your authenticator code', 403, { code: 'reauth' });
+    if (isSuspend && !(req.admin.reauth_at && Date.now() - new Date(req.admin.reauth_at).getTime() < REAUTH_MS)) return bad(res, 'Confirm it is you', 403, { code: 'reauth' });
     const s = await B.getSub(pool, t.id); if (!s) return bad(res, 'No subscription');
     const now = new Date(); const days = Math.round(Number(b.days)); let patch = {};
     const reason = String(b.reason || '').trim().slice(0, 300);
@@ -450,6 +465,7 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
   /* ---------- platform health ---------- */
   function securityChecks() {
     return [
+      ['Two-step sign-in (ADMIN_REQUIRE_2FA) — TODO', TWO_FA()],
       ['Admin served on its own host (ADMIN_HOST)', !!ADMIN_HOST()],
       ['Access gate in front (Cloudflare Access)', !!(process.env.CF_ACCESS_TEAM_DOMAIN && process.env.CF_ACCESS_AUD)],
       ['IP allowlist (ADMIN_IP_ALLOWLIST)', !!process.env.ADMIN_IP_ALLOWLIST],

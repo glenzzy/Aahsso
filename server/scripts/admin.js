@@ -32,7 +32,7 @@ const die = (m) => { console.error('✖ ' + m); process.exit(1); };
     await log('admin_created', email);
     console.log('\n✔ Admin created: ' + name + ' <' + email + '> · role ' + role);
     console.log('\n  Temporary password (shown once):  ' + pw);
-    console.log('\n  At the first sign-in they set up an authenticator app and choose a new password.\n');
+    console.log('\n  At the first sign-in they choose a new password' + (process.env.ADMIN_REQUIRE_2FA === 'true' ? ' and set up an authenticator app' : '') + '.\n');
   } else if (cmd === 'list') {
     const rows = (await pool.query('SELECT email, name, role, active, totp_enabled, last_login_at, locked_until FROM platform_admins ORDER BY created_at')).rows;
     if (!rows.length) console.log('No admins yet. Create one: node scripts/admin.js create --email … --name "…"');

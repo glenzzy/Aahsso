@@ -51,6 +51,14 @@
   /** risky actions: confirm with the authenticator code, then the action is retried */
   function reauth() {
     return new Promise((resolve) => {
+      if (!S.me.twoFactor) { // TODO(2FA): password confirmation until two-step sign-in is back
+        const box = modal({ title: 'Confirm it is you', body: '<p class="muted small" style="margin-top:0">This is a sensitive action. Type your password to continue.</p>' + field('Password', inp('password', '', 'type="password" autocomplete="current-password"')),
+          foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="raGo">Confirm</button>' });
+        modalDone = resolve;
+        const go = () => busy($('#raGo', box), async () => { await api('POST', '/auth/reauth', { password: vals(box).password }, false); modalDone = null; closeModal(); resolve(true); });
+        $('#raGo', box).onclick = go; box.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+        return;
+      }
       const box = modal({ title: 'Confirm it is you', body: '<p class="muted small" style="margin-top:0">This action needs a fresh code from your authenticator app.</p>' +
         '<div id="raCode">' + field('6-digit code', inp('code', '', 'class="inp otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*"')) + '</div>' +
         '<div id="raRec" class="hide">' + field('Recovery code', inp('recoveryCode', '', 'autocomplete="off" spellcheck="false"')) + '</div>' +
@@ -78,7 +86,7 @@
       '<form id="lf" class="col" novalidate>' + field('Email', inp('email', '', 'type="email" autocomplete="username" required')) + field('Password', inp('password', '', 'type="password" autocomplete="current-password" required')) +
       '<div class="alert bad hide" id="lerr" role="alert"></div><button class="btn pri block" id="lgo">Continue</button></form>');
     $('#lf').onsubmit = (e) => { e.preventDefault(); const v = vals($('#lf')); if (!v.email || !v.password) return showErr('#lerr', 'Type your email and password.');
-      busy($('#lgo'), async () => { try { const r = await pub('/auth/login', v); r.next === 'setup' ? renderSetup(r) : renderCode(r.ticket); } catch (er) { showErr('#lerr', er.message); } }); };
+      busy($('#lgo'), async () => { try { const r = await pub('/auth/login', v); if (r.next === 'done') return boot(); r.next === 'setup' ? renderSetup(r) : renderCode(r.ticket); } catch (er) { showErr('#lerr', er.message); } }); };
     $('[name=email]').focus();
   }
   const showErr = (sel1, m) => { const e = $(sel1); e.textContent = m; e.classList.remove('hide'); };
@@ -355,14 +363,14 @@
 
   PAGES.security = async (v) => {
     const a = S.me.admin; const d = await api('GET', '/admins');
-    let html = '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">My account</h2><dl class="kv"><dt>Name</dt><dd>' + esc(a.name) + '</dd><dt>Email</dt><dd>' + esc(a.email) + '</dd><dt>Role</dt><dd>' + esc(a.role) + '</dd><dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd></dl>' +
-      '<div class="row mt"><button class="btn" data-act4="myPw">Change password</button><button class="btn" data-act4="myCodes">New recovery codes</button></div></section>' +
+    let html = '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">My account</h2><dl class="kv"><dt>Name</dt><dd>' + esc(a.name) + '</dd><dt>Email</dt><dd>' + esc(a.email) + '</dd><dt>Role</dt><dd>' + esc(a.role) + '</dd>' + (S.me.twoFactor ? '<dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd>' : '<dt>Two-step sign-in</dt><dd><span class="badge warn">Off for now</span></dd>') + '</dl>' +
+      '<div class="row mt"><button class="btn" data-act4="myPw">Change password</button>' + (S.me.twoFactor ? '<button class="btn" data-act4="myCodes">New recovery codes</button>' : '') + '</div></section>' +
       '<section class="card pad2"><h2 class="mb">Active sessions</h2>' + table([{ label: 'Admin', v: (s) => esc(s.email) + (s.current ? ' <span class="badge ok">this one</span>' : '') }, { label: 'Device', v: (s) => '<span class="tiny">' + esc((s.user_agent || '').slice(0, 60)) + '</span><div class="tiny faint">' + esc(s.ip) + '</div>' }, { label: 'Seen', v: (s) => esc(ago(s.last_seen_at)) }, { label: '', v: (s) => (s.current ? '' : '<button class="btn sm" data-act4="endSession" data-id="' + esc(s.id) + '">End</button>') }], d.sessions) + '</section></div>';
     if (can('admins.manage')) {
       html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Admins</h2><span class="tiny muted">New admins are created on the server: <span class="mono">node scripts/admin.js create --email … --name "…" --role support</span></span></div>' +
-        table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => esc(x.role) }, { label: 'Two-step', v: (x) => (x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
+        table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => esc(x.role) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
           { label: 'Last sign-in', v: (x) => esc(ago(x.last_login_at)) + (x.last_login_ip ? '<div class="tiny faint">' + esc(x.last_login_ip) + '</div>' : '') }, { label: 'Status', v: (x) => (x.active ? (x.locked_until && new Date(x.locked_until) > new Date() ? badge('Locked', 'bad') : badge('Active', 'ok')) : badge('Disabled')) },
-          { label: '', v: (x) => (x.id === a.id ? '' : '<div class="row" style="flex-wrap:nowrap">' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
+          { label: '', v: (x) => (x.id === a.id ? '' : '<div class="row" style="flex-wrap:nowrap">' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
     }
     if (can('audit.view')) {
       const f = S.af || (S.af = { action: '', admin: '' }); const au = await api('GET', '/audit?action=' + encodeURIComponent(f.action) + '&admin=' + encodeURIComponent(f.admin));
