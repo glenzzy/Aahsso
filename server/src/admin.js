@@ -180,6 +180,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   r.get('/admin', (req, res) => res.sendFile(path.join(dir, 'index.html')));
   r.get('/admin/admin.js', (req, res) => res.type('application/javascript').sendFile(path.join(dir, 'admin.js')));
   r.get('/admin/admin.css', (req, res) => res.type('text/css').sendFile(path.join(dir, 'admin.css')));
+  r.get('/admin/fonts/:file', (req, res, next) => (/^[a-z0-9-]+\.woff2$/.test(req.params.file) ? res.type('font/woff2').set('Cache-Control', 'public, max-age=31536000, immutable').sendFile(path.join(dir, 'fonts', req.params.file), (e) => e && next()) : next())); // Plus Jakarta Sans, self-hosted (OFL)
 
   r.post('/api/admin/auth/login', authLimiter, wrap(async (req, res) => {
     const email = String((req.body || {}).email || '').trim().toLowerCase(); const pw = String((req.body || {}).password || '');

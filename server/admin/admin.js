@@ -161,7 +161,12 @@
   }
 
   /* ---------- shell & routing ---------- */
-  const NAV = [['overview', 'Overview', 'overview.view'], ['tenants', 'Businesses', 'tenants.view'], ['plans', 'Plans', 'plans.view'], ['billing', 'Billing', 'billing'], ['support', 'Support', 'support'], ['health', 'Health', 'health.view'], ['security', 'Security', ''], ['settings', 'Settings', 'plans.view']];
+  const NAV = [['overview', 'Overview', 'overview.view', 'home'], ['tenants', 'Businesses', 'tenants.view', 'store'], ['plans', 'Plans', 'plans.view', 'tag'], ['billing', 'Billing', 'billing', 'card'], ['support', 'Support', 'support', 'chat'], ['health', 'Health', 'health.view', 'pulse'], ['security', 'Security', '', 'shield'], ['settings', 'Settings', 'plans.view', 'gear']];
+  /* one short line under the title of each page — what it is for */
+  const INTRO = { overview: 'Revenue, sign-ups and what needs your attention today.', tenants: 'Every business on Kargo — search, open one to see its plan, usage and invoices.', plans: 'What each plan costs and which features and limits it includes.', billing: 'Invoices, payments to confirm, and money received.', support: 'Questions and problems sent by businesses from the app.', health: 'Server, database, emails and automatic reminders.', security: 'Your account, sessions, roles, admins and the audit log.', settings: 'How businesses pay you and the subscription rules.' };
+  const IC = { home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', store: 'M3 9l1.5-5h15L21 9M3 9h18M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 12v8h14v-8', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', card: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2zM2 10h20M6 15h4', chat: 'M21 12a8 8 0 01-11.6 7.1L3 21l1.9-6.4A8 8 0 1121 12z', pulse: 'M3 12h4l3-8 4 16 3-8h4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4', gear: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z', menu: 'M4 6h16M4 12h16M4 18h16', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3', out: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9' };
+  const ic = (n, c) => '<svg class="i' + (c ? ' ' + c : '') + '" viewBox="0 0 24 24" aria-hidden="true"><path d="' + IC[n] + '"/></svg>';
+  const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   async function boot() {
     try { S.me = await api('GET', '/me'); } catch (e) { if (!e.quiet) renderLogin(); return; }
     if (S.me.admin.mustChangePassword) return renderChangePw();
@@ -170,24 +175,25 @@
   }
   function shell() {
     const a = S.me.admin;
-    $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side"><div class="brand"><div class="mark">K</div><div>Kargo<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div>' +
-      '<div class="who"><b>' + esc(a.name) + '</b>' + esc(a.email) + ' · ' + esc(roleName(a.role)) + '<div class="mt"><button class="btn sm block" data-act="logout">Sign out</button></div></div></aside>' +
-      '<div class="main"><header class="top"><button class="btn sm menu-btn" data-act="menu" aria-label="Menu">☰</button><h1 id="title"></h1><span class="tiny faint" id="idle"></span></header><main class="view" id="view"></main></div></div>';
+    $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side" aria-label="Main menu"><div class="brand"><div class="mark">K</div><div>Kargo<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div>' +
+      '<div class="who"><b>' + esc(a.name) + '</b><span style="overflow-wrap:anywhere">' + esc(a.email) + '</span><span>' + esc(roleName(a.role)) + '</span><button class="btn sm block" data-act="logout">' + ic('out', 'sm') + 'Sign out</button></div></aside><div class="scrim" id="scrim" data-act="menu"></div>' +
+      '<div class="main"><header class="top"><button class="btn sm ghost menu-btn" data-act="menu" aria-label="Open menu" aria-controls="side">' + ic('menu') + '</button><div class="mark tmark" aria-hidden="true">K</div><h1 id="title"></h1><span class="tiny faint" id="idle"></span>' +
+      '<a class="top-me" href="#/security" title="My account"><span class="tm-txt"><span class="tm-n">' + esc(a.name) + '</span><br><span class="tm-r">' + esc(roleName(a.role)) + '</span></span><span class="uav">' + esc(initials(a.name)) + '</span></a></header><main class="view" id="view" tabindex="-1"></main></div></div>';
     drawNav();
   }
   async function drawNav(counts) {
     const r = (location.hash.slice(2).split('/')[0]) || 'overview';
-    $('#nav').innerHTML = NAV.filter(([, , p]) => !p || can(p)).map(([k, l]) => '<a class="nav' + (k === r ? ' on' : '') + '" href="#/' + k + '">' + l + (counts && counts[k] ? '<span class="n">' + counts[k] + '</span>' : '') + '</a>').join('');
+    $('#nav').innerHTML = NAV.filter(([, , p]) => !p || can(p)).map(([k, l, , i]) => '<a class="nav' + (k === r ? ' on' : '') + '" href="#/' + k + '"' + (k === r ? ' aria-current="page"' : '') + '>' + ic(i) + '<span>' + l + '</span>' + (counts && counts[k] ? '<span class="n">' + counts[k] + '</span>' : '') + '</a>').join('');
   }
   window.addEventListener('hashchange', () => { if (S.me) route(); });
   async function route() {
     if (!S.me) return;
-    $('#side') && $('#side').classList.remove('open');
+    $('#side') && $('#side').classList.remove('open'); $('#scrim') && $('#scrim').classList.remove('on');
     const parts = location.hash.slice(2).split('/'); let r = parts[0] || 'overview';
     const n = NAV.find((x) => x[0] === r); if (!n || (n[2] && !can(n[2]))) r = can('overview.view') ? 'overview' : can('tenants.view') ? 'tenants' : 'security';
     $('#title').textContent = r === 'tenants' && parts[1] ? 'Business' : (NAV.find((x) => x[0] === r) || [0, 'Admin'])[1];
     drawNav(S.counts); const view = $('#view'); view.innerHTML = '<div class="empty">Loading…</div>';
-    try { await PAGES[r](view, parts.slice(1)); } catch (e) { if (!e.quiet) view.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; }
+    try { await PAGES[r](view, parts.slice(1)); if (INTRO[r] && !(r === 'tenants' && parts[1]) && !$('.page-intro', view)) view.insertAdjacentHTML('afterbegin', '<div class="page-intro"><p>' + esc(INTRO[r]) + '</p></div>'); } catch (e) { if (!e.quiet) view.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; }
     view.focus && window.scrollTo(0, 0);
   }
 
@@ -215,7 +221,7 @@
   PAGES.tenants = async (v, [id]) => {
     if (id) return tenantPage(v, id);
     const f = S.tf || (S.tf = { q: '', status: '', plan: '' }); await plans();
-    v.innerHTML = '<div class="row mb"><input class="inp grow" id="tq" placeholder="Search business, owner name, login or email" value="' + esc(f.q) + '" style="max-width:420px">' +
+    v.innerHTML = '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search businesses</span>' + ic('search', 'sm') + '<input class="inp" id="tq" type="search" placeholder="Search business, owner, login or email" value="' + esc(f.q) + '"></label>' +
       sel('ts', [['', 'All statuses']].concat(Object.entries(STATUS).map(([k, x]) => [k, x[0]])), f.status, 'id="ts" style="width:auto"') +
       sel('tp', [['', 'All plans']].concat(S.plans.map((p) => [p.id, p.name])), f.plan, 'id="tp" style="width:auto"') +
       '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
@@ -291,7 +297,7 @@
         await api('POST', '/tenants/' + d.tenant.id + '/features', { modules, limits, reason: v.reason }); closeModal(); toast('Saved — the business sees the change within seconds'); route();
       });
     },
-    menu: () => $('#side').classList.toggle('open'),
+    menu: () => { const o = $('#side').classList.toggle('open'); $('#scrim').classList.toggle('on', o); },
     logout: async () => { await api('POST', '/auth/logout').catch(() => { }); S.me = null; renderLogin('You are signed out.'); },
     tPlan: () => { const s = S.t.subscription; const box = modal({ title: 'Change plan', body: '<div class="col">' + field('Plan', sel('planId', planOpts(), s.plan_id || '')) + '<div class="grid2">' + field('Billed', sel('cycle', [['monthly', 'Monthly'], ['yearly', 'Yearly']], s.cycle)) + field('Price for this business (FCFA)', inp('price', '', 'inputmode="numeric" placeholder="Plan price"')) + '</div>' + field('Paid until (optional)', inp('periodEnd', '', 'type="date"')) + '<div class="tiny muted">Without a date: the current paid period is kept, or one period starts today.</div>' + reasonField(true) + '</div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Change plan</button>' });
       $('#go', box).onclick = (e) => busy(e.target, () => subAction(Object.assign({ action: 'change_plan' }, vals(box)), 'Plan changed')); },
@@ -333,7 +339,7 @@
     const d = await api('GET', '/plans'); S.plans = d.plans; S.limitKeys = d.limitKeys;
     S.catalog = d.catalog;
     const lim = (p) => { const L = p.limits || {}; const off = d.catalog.filter(([k]) => (p.modules || {})[k] === false).length; return Object.entries(d.limitKeys.counts).map(([k, l]) => (L[k] ? L[k] : '∞') + ' ' + l.split(' (')[0]).join(' · ') + ' · ' + (d.catalog.length - off) + '/' + d.catalog.length + ' features'; };
-    v.innerHTML = (d.plans.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No plan is shown to businesses yet.</b> Their Plans and Billing pages stay empty until you click <b>Publish</b> on at least one plan.</div>') + '<div class="row between mb"><p class="muted small" style="margin:0">Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes. During the free trial everything is open.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
+    v.innerHTML = (d.plans.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No plan is shown to businesses yet.</b> Their Plans and Billing pages stay empty until you click <b>Publish</b> on at least one plan.</div>') + '<div class="page-intro"><p>What each plan costs and which features and limits it includes. Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
       '<div class="card">' + table([
         { label: 'Plan', v: (p) => '<b>' + esc(p.name) + '</b> <span class="tiny faint mono">' + esc(p.id) + '</span><div class="tiny faint">' + esc(p.description) + '</div>' },
         { label: 'Monthly', num: true, v: (p) => (p.price_monthly === null && p.price_yearly === null ? badge('Free · trial', 'info') : esc(p.price_monthly === null ? '—' : money(p.price_monthly, p.currency))) }, { label: 'Yearly', num: true, v: (p) => esc(p.price_yearly === null ? '—' : money(p.price_yearly, p.currency)) },
@@ -494,12 +500,12 @@
 
   PAGES.settings = async (v) => {
     const s = (await api('GET', '/settings')).settings; const p = s.paymentInstructions; const ro = can('settings.write') ? '' : ' disabled';
-    v.innerHTML = '<form id="setf" class="col" style="max-width:760px"><section class="card pad2"><h2 class="mb">How businesses pay you</h2><p class="small muted" style="margin-top:0">Shown on the Billing page in the app and on every invoice email.</p><div class="grid2">' +
+    v.innerHTML = '<form id="setf" class="set-grid"><section class="card pad2"><h2 class="mb">How businesses pay you</h2><p class="small muted" style="margin-top:0">Shown on the Billing page in the app and on every invoice email.</p><div class="grid2">' +
       field('MTN MoMo number', inp('momoNumber', p.momoNumber, 'inputmode="tel"' + ro)) + field('MTN MoMo account name', inp('momoName', p.momoName, ro)) + field('Orange Money number', inp('omNumber', p.omNumber, 'inputmode="tel"' + ro)) + field('Orange Money account name', inp('omName', p.omName, ro)) + '</div>' +
       field('Bank details', '<textarea class="inp" name="bank" rows="2"' + ro + '>' + esc(p.bank) + '</textarea>', 'mt') + field('Note to businesses', inp('note', p.note, 'placeholder="e.g. Put your business name in the payment message"' + ro), 'mt') + '</section>' +
       '<section class="card pad2"><h2 class="mb">Subscription rules</h2><div class="grid2">' + field('Grace period after the paid period (days)', inp('graceDays', s.graceDays, 'inputmode="numeric"' + ro)) +
       field('Renewal invoice sent … days before the end', inp('renewalNoticeDays', s.renewalNoticeDays, 'inputmode="numeric"' + ro)) + field('Invoices are due after (days)', inp('invoiceDueDays', s.invoiceDueDays, 'inputmode="numeric"' + ro)) + '</div>' +
-      '<p class="tiny muted">The free trial is 5 days (after sign-up, and on Free plans). The grace period applies to new subscriptions; change it for one business on its page.</p></section>' + (ro ? '' : '<div><button class="btn pri" id="sgo">Save settings</button></div>') + '</form>';
+      '<p class="tiny muted">The free trial is 5 days (after sign-up, and on Free plans). The grace period applies to new subscriptions; change it for one business on its page.</p></section>' + (ro ? '' : '<div class="set-save"><button class="btn pri" id="sgo">Save settings</button></div>') + '</form>';
     if (!ro) $('#setf').onsubmit = (e) => { e.preventDefault(); const x = vals($('#setf')); busy($('#sgo'), async () => { await api('PUT', '/settings', { paymentInstructions: { momoNumber: x.momoNumber, momoName: x.momoName, omNumber: x.omNumber, omName: x.omName, bank: x.bank, note: x.note }, graceDays: x.graceDays, renewalNoticeDays: x.renewalNoticeDays, invoiceDueDays: x.invoiceDueDays }); toast('Settings saved'); }); };
   };
 
