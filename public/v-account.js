@@ -20,9 +20,9 @@ function subState() {
 }
 function drawAvatar() {
   const box = document.getElementById('pmenu'); if (!box) return;
-  const name = myName(); const first = name.split(' ')[0];
+  const name = myName();
   const open = !!document.getElementById('pmPop');
-  box.innerHTML = '<button type="button" class="pm-btn" id="pmBtn" aria-haspopup="menu" aria-expanded="' + open + '" aria-controls="pmPop" aria-label="Account menu for ' + esc(name) + '">' + avatarHTML(name) + '<span class="pm-name">' + esc(first) + '</span>' + ic('down', 'sm') + '</button>';
+  box.innerHTML = '<button type="button" class="pm-btn" id="pmBtn" aria-haspopup="menu" aria-expanded="' + open + '" aria-controls="pmPop" aria-label="Account menu for ' + esc(name) + '" title="' + esc(name) + '">' + avatarHTML(name) + '</button>';
 }
 function openPMenu() {
   closePMenu(); const btn = document.getElementById('pmBtn'); if (!btn) return;
