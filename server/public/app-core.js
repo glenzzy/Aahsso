@@ -72,6 +72,11 @@ const daysUntil = (s) => s ? Math.round((new Date(s + 'T00:00:00') - new Date(to
 const initials = (s) => String(s || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const S = () => K.C ? K.C.S : Object.assign({}, KC.DEFAULT_SETTINGS, K.raw.settings);
 const can = (p) => !!K.perms[p];
+/** is this feature in the business's plan? (this-device / trial: everything is) */
+const has = (f) => KC.featureOn(K.info && K.info.features, f);
+const hasAny = (...fs) => KC.anyOn(K.info && K.info.features, fs);
+/** page classes nf-<feature> for each feature that is off — the stylesheet hides those features' buttons */
+function featureClasses() { const f = (K.info && K.info.features) || {}; KC.FEATURE_KEYS.forEach((k) => document.body.classList.toggle('nf-' + k, f[k] === false)); }
 const isAdmin = () => can('settings') || can('team');
 const seeCost = () => can('costs');
 const roleLabel = () => (KC.rolesWith(S().roles)[(K.member || {}).role] || { label: 'Custom' }).label;
@@ -83,7 +88,9 @@ function resolveAccessInner() {
   else if (K.info.mode === 'saas') m = { role: K.info.user.role, perms: K.info.user.perms };
   else if (K.info.isOwner) m = { role: 'owner' };
   else m = K.raw.members.find((x) => x.id === K.me.id && x.active !== false) || null;
-  K.member = m; K.perms = KC.permsFor(m, S().roles);
+  const F = K.info && K.info.features;
+  const base = KC.featureOn(F, 'customRoles') ? KC.permsFor(m, S().roles) : KC.permsFor(m && { role: m.role, active: m.active }, {}); // no custom roles in the plan → standard roles only
+  K.member = m; K.perms = KC.permsWithFeatures(base, F); featureClasses();
 }
 function resolveAccess() { resolveAccessInner(); if (K.member && K.info.mode === 'saas' && K.info.user.locationId) K.member = Object.assign({}, K.member, { locationId: K.info.user.locationId }); fixLoc(); }
 const allLocs = () => [{ id: 'main', name: S().mainLocationName || 'Main warehouse' }].concat(K.raw.locations.filter((l) => !l.archived).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
@@ -299,7 +306,7 @@ const NAV = [
   ['profile', 'My profile', 'user', () => true], ['billing', 'Billing & subscription', 'card', () => K.info.mode === 'saas' && canBilling()], ['help', 'Help & support', 'help', () => true],
   ['team', 'Team & access', 'key', () => can('team')], ['settings', 'Settings', 'gear', () => can('settings') || can('export')],
 ];
-const navOk = (r) => { const n = NAV.find((x) => x[0] === r); return !n || n[3](); };
+const navOk = (r) => { if (!KC.routeFeatureOn(K.info && K.info.features, r)) return false; const n = NAV.find((x) => x[0] === r); return !n || n[3](); }; // pages of features outside the plan do not exist
 /* The menu: 9 places. Related pages live as tabs inside one place (e.g. Sell = New sale · Sales · Online orders). */
 const SECTIONS = [
   ['home', 'Home', 'home', ['home']],
@@ -359,7 +366,7 @@ function shell() {
   $('#title').textContent = secOf(K.route)[1] === 'Home' && K.route !== 'home' ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
   shellSync();
   if (K.tour && typeof tourMark === 'function') setTimeout(tourMark, 0);
-  const lb = $('#locBtn'); if (lb) { const L = myLocs(); lb.classList.toggle('hide', allLocs().length < 2); lb.disabled = L.length < 2; lb.innerHTML = ic('home', 'sm') + '<span class="ellipsis" style="max-width:110px">' + esc(locName(K.loc)) + '</span>'; }
+  const lb = $('#locBtn'); if (lb) { const L = myLocs(); lb.classList.toggle('hide', allLocs().length < 2 || !has('branches')); lb.disabled = L.length < 2; lb.innerHTML = ic('home', 'sm') + '<span class="ellipsis" style="max-width:110px">' + esc(locName(K.loc)) + '</span>'; }
 }
 
 /* ---------- render ---------- */
@@ -472,7 +479,7 @@ async function storePhoto(file) {
   if (K.store.uploadImage) { try { const id = await K.store.uploadImage(big.blob); if (id) return id; } catch (e) { console.warn('upload failed, using inline photo', e); } }
   return (await resizeImage(file, 260, 0.72)).dataUrl;
 }
-function photoPicker() { return chooseFile('image/*', 'environment'); }
+function photoPicker() { if (!has('photos')) { toast('Photos are not included in your plan', true); return Promise.resolve(null); } return chooseFile('image/*', 'environment'); }
 
 document.addEventListener('error', (e) => { const t = e.target; if (t && t.tagName === 'IMG' && (t.classList.contains('thumb') || t.closest('.pimg'))) t.style.visibility = 'hidden'; }, true);
 

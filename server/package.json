@@ -11,7 +11,7 @@
     "test": "node scripts/sync-public.js --check && node --test test/compute.test.js test/staff.test.js test/platform.test.js",
     "test:api": "node --test test/api.test.js",
     "test:email": "node --test test/email.test.js",
-    "test:admin": "node --test test/admin-api.test.js",
+    "test:admin": "node --test test/admin-api.test.js test/features-api.test.js",
     "admin": "node scripts/admin.js",
     "seed-demo": "node scripts/seed-demo.js",
     "sync-public": "node scripts/sync-public.js",

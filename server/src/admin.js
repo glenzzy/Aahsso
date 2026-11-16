@@ -18,6 +18,7 @@ const QR = require('qrcode');
 const { q, tx, pool } = require('./db');
 const totp = require('./totp');
 const B = require('./billing');
+const KC = require('../public/compute.js');
 const mailer = require('./mailer');
 
 const COOKIE = '__Host-kargo_adm';
@@ -26,15 +27,32 @@ const COOKIE = '__Host-kargo_adm';
 // set ADMIN_REQUIRE_2FA=true to turn it back on (each admin then sets up their authenticator at the next sign-in).
 const TWO_FA = () => process.env.ADMIN_REQUIRE_2FA === 'true';
 const IDLE_MS = 30 * 60e3, MAX_MS = 8 * 3600e3, REAUTH_MS = 5 * 60e3, LOCK_AFTER = 5, LOCK_MIN = 15;
-const ROLES = {
-  super: ['*'], // the one Super Admin: everything, and the only one who manages admins
-  admin: ['*', '!admins.manage'], // everything except adding / changing admins
-  support: ['tenants.view', 'tenants.resetOwner', 'tenants.impersonate', 'support', 'plans.view', 'health.view'],
-  finance: ['tenants.view', 'billing', 'billing.write', 'subs.write', 'plans.view'],
-};
-const can = (a, perm) => { const p = ROLES[a.role] || []; if (p.includes('!' + perm)) return false; return p.includes('*') || p.includes(perm); };
-const DASHBOARD_ROLES = ['admin', 'support', 'finance']; // what the Super Admin can give (never 'super')
-const ROLE_NAME = { super: 'Super Admin', admin: 'Admin', support: 'Support', finance: 'Finance' };
+/* Admin permissions (granular). Roles are rows in admin_roles made of these; the Super Admin — not a role row — has them all
+ * and is the only one who manages admins and roles ('admins.manage' is never part of a role). */
+const ADMIN_PERMS = [
+  ['overview.view', 'See the overview (revenue, sign-ups)', 'Dashboard'],
+  ['tenants.view', 'See businesses and their details', 'Businesses'],
+  ['subs.write', 'Change plans, extend trials and paid periods, cancel', 'Businesses'],
+  ['tenants.features', 'Give a business its own features and limits', 'Businesses'],
+  ['tenants.suspend', 'Suspend and reactivate businesses', 'Businesses'],
+  ['tenants.impersonate', 'View a business as its owner (read-only)', 'Businesses'],
+  ['tenants.resetOwner', 'Reset a business owner\'s password', 'Businesses'],
+  ['billing', 'See invoices and payments', 'Billing'],
+  ['billing.write', 'Create invoices, record and confirm payments', 'Billing'],
+  ['billing.void', 'Void invoices', 'Billing'],
+  ['plans.view', 'See plans and platform settings', 'Plans'],
+  ['plans.write', 'Create and edit plans, prices and features', 'Plans'],
+  ['settings.write', 'Change platform settings (payment details, trial, grace period)', 'Platform'],
+  ['support', 'Read and answer support tickets', 'Platform'],
+  ['health.view', 'See platform health', 'Platform'],
+  ['audit.view', 'See the admin audit log', 'Platform'],
+  ['export', 'Download CSV exports', 'Platform'],
+];
+const PERM_KEYS = ADMIN_PERMS.map((p) => p[0]);
+/** a: the signed-in admin (with role_perms from admin_roles). The Super Admin can do everything. */
+const can = (a, perm) => a.role === 'super' || (Array.isArray(a.role_perms) && a.role_perms.includes(perm));
+const permsOf = (a) => (a.role === 'super' ? PERM_KEYS.concat(['admins.manage']) : (a.role_perms || []).filter((p) => PERM_KEYS.includes(p)));
+const roleRow = async (id) => (await q('SELECT * FROM admin_roles WHERE id=$1', [id])).rows[0];
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const rand = (n = 32) => crypto.randomBytes(n).toString('base64url');
 const ADMIN_HOST = () => String(process.env.ADMIN_HOST || '').toLowerCase().trim();
@@ -103,7 +121,7 @@ async function newSession(req, res, adminId) {
 }
 async function auth(req, res, next) {
   const tok = readCookie(req); if (!tok) return notFound(req, res);
-  const r = (await q(`SELECT s.id AS sid, s.reauth_at, s.last_seen_at, s.expires_at, s.revoked_at, a.* FROM admin_sessions s JOIN platform_admins a ON a.id = s.admin_id WHERE s.id = $1`, [sha(tok)])).rows[0];
+  const r = (await q(`SELECT s.id AS sid, s.reauth_at, s.last_seen_at, s.expires_at, s.revoked_at, a.*, ro.perms AS role_perms, ro.name AS role_name FROM admin_sessions s JOIN platform_admins a ON a.id = s.admin_id LEFT JOIN admin_roles ro ON ro.id = a.role WHERE s.id = $1`, [sha(tok)])).rows[0];
   const now = Date.now();
   if (!r || r.revoked_at || !r.active || new Date(r.expires_at).getTime() < now || now - new Date(r.last_seen_at).getTime() > IDLE_MS) { setCookie(res, '', 0); return notFound(req, res); }
   if (now - new Date(r.last_seen_at).getTime() > 60e3) q('UPDATE admin_sessions SET last_seen_at = now() WHERE id = $1', [r.sid]).catch(() => { });
@@ -141,7 +159,7 @@ async function failed(req, a) {
 const locked = (a) => a.locked_until && new Date(a.locked_until).getTime() > Date.now();
 const DUMMY = '$2a$12$oFqdqXmCfOLI43kJYjgtzeGsHtq.GfACU2GAZTBMnWGMEsCeNtF0S'; // compared when the email is unknown, so timing is the same
 
-module.exports = function mountAdmin(app, { tenantSecret, KC }) {
+module.exports = function mountAdmin(app, { tenantSecret }) {
   app.use(gate);
   const r = express.Router();
   r.use(['/admin', '/api/admin'], headers); // only admin responses get the strict headers
@@ -212,8 +230,8 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
   A.use(wrap(auth));
   A.get('/me', wrap(async (req, res) => {
     const a = req.admin;
-    res.json({ twoFactor: TWO_FA(), admin: { id: a.id, email: a.email, name: a.name, role: a.role, mustChangePassword: a.must_change_pw, recoveryLeft: (a.recovery_codes || []).length, perms: ROLES[a.role] },
-      roleName: ROLE_NAME[a.role], security: a.role === 'super' ? securityChecks() : undefined });
+    res.json({ twoFactor: TWO_FA(), admin: { id: a.id, email: a.email, name: a.name, role: a.role, mustChangePassword: a.must_change_pw, recoveryLeft: (a.recovery_codes || []).length, perms: permsOf(a) },
+      roleName: a.role === 'super' ? 'Super Admin' : a.role_name || a.role, security: a.role === 'super' ? securityChecks() : undefined });
   }));
   A.post('/auth/logout', wrap(async (req, res) => { await q('UPDATE admin_sessions SET revoked_at=now() WHERE id=$1', [req.sid]); setCookie(res, '', 0); await audit(req, 'logout'); res.json({ ok: true }); }));
   A.post('/auth/reauth', authLimiter, wrap(async (req, res) => {
@@ -242,7 +260,7 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
   }));
 
   /* ---------- overview ---------- */
-  A.get('/overview', need('tenants.view'), wrap(async (req, res) => {
+  A.get('/overview', need('overview.view'), wrap(async (req, res) => {
     const one = async (sql, p) => (await q(sql, p || [])).rows[0];
     const statuses = Object.fromEntries((await q('SELECT status, count(*)::int AS n FROM subscriptions GROUP BY status')).rows.map((x) => [x.status, x.n]));
     res.json({
@@ -283,7 +301,7 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
     res.json({
       tenant: t, subscription: await B.getSub(pool, id), settings: st ? { businessName: st.data.businessName, phone: st.data.phone, address: st.data.address, currency: st.data.currency, shopSlug: st.data.shopSlug, shopEnabled: !!st.data.shopEnabled } : {},
       users: (await q('SELECT id, name, login, email, role, active, created_at, last_login_at FROM users WHERE tenant_id=$1 ORDER BY created_at', [id])).rows,
-      usage: await B.usage(pool, id), limits: (await B.limitsFor(pool, id)).limits, counts,
+      usage: await B.usage(pool, id), limits: (await B.limitsFor(pool, id)).limits, features: (await B.limitsFor(pool, id)).features, catalog: KC.FEATURES, counts,
       invoices: showMoney || can(req.admin, 'tenants.view') ? (await q('SELECT i.*, p.name AS plan_name FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE tenant_id=$1 ORDER BY issued_at DESC LIMIT 50', [id])).rows : [],
       payments: (await q('SELECT * FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 50', [id])).rows,
       activity: (await q('SELECT at, user_name, action, collection, doc_id FROM audit_log WHERE tenant_id=$1 ORDER BY at DESC LIMIT 25', [id])).rows,
@@ -327,6 +345,17 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
     await audit(req, 'subscription_' + act, { tenantId: t.id, target: t.name, reason, details: { before: { plan: s.plan_id, status: s.status, end: s.current_period_end, trial: s.trial_ends_at }, after: patch } });
     res.json({ ok: true, subscription: await B.getSub(pool, t.id) });
   }));
+  /* a business's own deal on top of its plan: features switched on/off, other limits */
+  A.post('/tenants/:id/features', need('tenants.features'), reauth, wrap(async (req, res) => {
+    const t = await tenantOr404(req, res); if (!t) return; const b = req.body || {};
+    const ov = { modules: {}, limits: {} }; const M = b.modules || {}, L = b.limits || {};
+    KC.FEATURE_KEYS.forEach((k) => { if (M[k] === true || M[k] === false) ov.modules[k] = M[k]; }); // true = give it even if the plan doesn't; false = take it away
+    Object.keys(B.COUNT_LIMITS).forEach((k) => { if (L[k] !== '' && L[k] !== null && L[k] !== undefined) { const v = Math.round(Number(L[k])); if (v >= 1) ov.limits[k] = v; } });
+    const old = (await B.getSub(pool, t.id)) || {};
+    await q('UPDATE subscriptions SET overrides=$2, updated_at=now() WHERE tenant_id=$1', [t.id, JSON.stringify(ov)]); B.invalidate(t.id);
+    await audit(req, 'tenant_features', { tenantId: t.id, target: t.name, reason: String(b.reason || '').slice(0, 300), details: { before: old.overrides || {}, after: ov } });
+    res.json({ ok: true, features: (await B.limitsFor(pool, t.id)).features });
+  }));
   A.post('/tenants/:id/reset-owner-password', need('tenants.resetOwner'), reauth, wrap(async (req, res) => {
     const t = await tenantOr404(req, res); if (!t) return; const reason = needReason(req, res); if (!reason) return;
     const o = await B.ownerOf(pool, t.id); if (!o) return bad(res, 'This business has no active owner');
@@ -357,7 +386,7 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
     await audit(req, 'invoice_created', { tenantId: t.id, target: inv.number, details: { amount: inv.amount, plan: inv.plan_id, cycle: inv.cycle } });
     res.json({ invoice: inv });
   }));
-  A.post('/invoices/:id/void', need('billing.write'), reauth, wrap(async (req, res) => {
+  A.post('/invoices/:id/void', need('billing.void'), reauth, wrap(async (req, res) => {
     const reason = needReason(req, res); if (!reason) return;
     const inv = (await q("UPDATE invoices SET status='void', void_reason=$2 WHERE id::text=$1 AND status='open' RETURNING *", [req.params.id, reason])).rows[0];
     if (!inv) return bad(res, 'Only an open invoice can be voided');
@@ -402,31 +431,31 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
 
   /* ---------- plans ---------- */
   A.get('/plans', need('plans.view'), wrap(async (req, res) => {
-    res.json({ plans: (await q("SELECT p.*, (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id=p.id AND s.status IN ('active','past_due','cancelled')) AS subscribers FROM plans p ORDER BY sort, name")).rows, limitKeys: { counts: B.COUNT_LIMITS, features: B.FEATURES } });
+    res.json({ plans: (await q("SELECT p.*, (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id=p.id AND s.status IN ('active','past_due','cancelled')) AS subscribers FROM plans p ORDER BY sort, name")).rows, limitKeys: { counts: B.COUNT_LIMITS }, catalog: KC.FEATURES });
   }));
   function cleanPlan(b) {
     const intOrNull = (v) => (v === '' || v === null || v === undefined ? null : Math.round(Number(v)));
-    const p = { name: String(b.name || '').trim().slice(0, 40), description: String(b.description || '').trim().slice(0, 200), price_monthly: intOrNull(b.price_monthly), price_yearly: intOrNull(b.price_yearly), active: b.active !== false, public: !!b.public, sort: Math.round(Number(b.sort) || 0), features: (Array.isArray(b.features) ? b.features : []).map((f) => String(f).trim().slice(0, 80)).filter(Boolean).slice(0, 12), limits: {} };
+    const p = { name: String(b.name || '').trim().slice(0, 40), description: String(b.description || '').trim().slice(0, 200), price_monthly: intOrNull(b.price_monthly), price_yearly: intOrNull(b.price_yearly), active: b.active !== false, public: !!b.public, sort: Math.round(Number(b.sort) || 0), features: (Array.isArray(b.features) ? b.features : []).map((f) => String(f).trim().slice(0, 80)).filter(Boolean).slice(0, 12), limits: {}, modules: {} };
     if (p.name.length < 2) return { error: 'Give the plan a name' };
     if ([p.price_monthly, p.price_yearly].some((v) => v !== null && !(v >= 0))) return { error: 'Prices must be 0 or more' };
     if (p.public && p.active && p.price_monthly === null && p.price_yearly === null) return { error: 'Set a monthly or yearly price before showing the plan to businesses' };
     const L = b.limits || {};
     Object.keys(B.COUNT_LIMITS).forEach((k) => { const v = intOrNull(L[k]); if (v !== null) p.limits[k] = Math.max(1, v); });
-    Object.keys(B.FEATURES).forEach((k) => { if (L[k] === false) p.limits[k] = false; });
+    const M = b.modules || {}; KC.FEATURE_KEYS.forEach((k) => { if (M[k] === false) p.modules[k] = false; }); // only what is OFF is stored
     return { p };
   }
   A.post('/plans', need('plans.write'), reauth, wrap(async (req, res) => {
     const id = String((req.body || {}).id || '').trim().toLowerCase(); if (!/^[a-z0-9][a-z0-9-]{1,29}$/.test(id) || id === 'trial') return bad(res, 'Plan code: 2–30 lowercase letters, numbers or dashes (not "trial")');
     const { p, error } = cleanPlan(req.body || {}); if (error) return bad(res, error);
-    try { await q('INSERT INTO plans (id, name, description, price_monthly, price_yearly, active, public, sort, features, limits) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits)]); }
+    try { await q('INSERT INTO plans (id, name, description, price_monthly, price_yearly, active, public, sort, features, limits, modules) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules)]); }
     catch (e) { if (e.code === '23505') return bad(res, 'A plan with this code already exists', 409); throw e; }
     await audit(req, 'plan_created', { target: id, details: p }); res.json({ ok: true });
   }));
   A.put('/plans/:id', need('plans.write'), reauth, wrap(async (req, res) => {
     const old = (await q('SELECT * FROM plans WHERE id=$1', [req.params.id])).rows[0]; if (!old) return bad(res, 'Plan not found', 404);
     const { p, error } = cleanPlan(req.body || {}); if (error) return bad(res, error);
-    await q('UPDATE plans SET name=$2, description=$3, price_monthly=$4, price_yearly=$5, active=$6, public=$7, sort=$8, features=$9, limits=$10, updated_at=now() WHERE id=$1', [old.id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits)]);
-    await audit(req, 'plan_updated', { target: old.id, details: { before: { price_monthly: old.price_monthly, price_yearly: old.price_yearly, limits: old.limits, active: old.active, public: old.public }, after: p } });
+    await q('UPDATE plans SET name=$2, description=$3, price_monthly=$4, price_yearly=$5, active=$6, public=$7, sort=$8, features=$9, limits=$10, modules=$11, updated_at=now() WHERE id=$1', [old.id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules)]); B.invalidate();
+    await audit(req, 'plan_updated', { target: old.id, details: { before: { price_monthly: old.price_monthly, price_yearly: old.price_yearly, limits: old.limits, modules: old.modules, active: old.active, public: old.public }, after: p } });
     res.json({ ok: true });
   }));
 
@@ -500,23 +529,48 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
     const r2 = await q("UPDATE admin_sessions SET revoked_at=now() WHERE left(id,16)=$1 AND revoked_at IS NULL AND ($2 OR admin_id=$3) RETURNING admin_id", [req.params.id, all, req.admin.id]);
     if (!r2.rowCount) return bad(res, 'Session not found', 404); await audit(req, 'session_revoked', { target: req.params.id }); res.json({ ok: true });
   }));
+  /* admin roles (Super Admin only) */
+  const cleanRole = (b) => ({ name: String(b.name || '').trim().slice(0, 40), description: String(b.description || '').trim().slice(0, 200), perms: (Array.isArray(b.perms) ? b.perms : []).filter((p) => PERM_KEYS.includes(p)) });
+  A.get('/roles', wrap(async (req, res) => {
+    res.json({ catalog: ADMIN_PERMS, roles: (await q('SELECT r.*, (SELECT count(*)::int FROM platform_admins a WHERE a.role = r.id) AS admins FROM admin_roles r ORDER BY builtin DESC, name')).rows });
+  }));
+  A.post('/roles', need('admins.manage'), reauth, wrap(async (req, res) => {
+    const r = cleanRole(req.body || {}); if (r.name.length < 2) return bad(res, 'Give the role a name');
+    if (!r.perms.length) return bad(res, 'Tick at least one permission');
+    const id = r.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'role';
+    if (id === 'super' || await roleRow(id)) return bad(res, 'A role with this name already exists', 409);
+    await q('INSERT INTO admin_roles (id, name, description, perms) VALUES ($1,$2,$3,$4)', [id, r.name, r.description, JSON.stringify(r.perms)]);
+    await audit(req, 'role_created', { target: id, details: r }); res.json({ ok: true, id });
+  }));
+  A.put('/roles/:id', need('admins.manage'), reauth, wrap(async (req, res) => {
+    const old = await roleRow(req.params.id); if (!old) return bad(res, 'Role not found', 404);
+    const r = cleanRole(req.body || {}); if (r.name.length < 2) return bad(res, 'Give the role a name'); if (!r.perms.length) return bad(res, 'Tick at least one permission');
+    await q('UPDATE admin_roles SET name=$2, description=$3, perms=$4, updated_at=now() WHERE id=$1', [old.id, r.name, r.description, JSON.stringify(r.perms)]);
+    await audit(req, 'role_updated', { target: old.id, details: { before: { name: old.name, perms: old.perms }, after: r } }); res.json({ ok: true });
+  }));
+  A.delete('/roles/:id', need('admins.manage'), reauth, wrap(async (req, res) => {
+    const old = await roleRow(req.params.id); if (!old) return bad(res, 'Role not found', 404);
+    if (old.builtin) return bad(res, 'Built-in roles cannot be deleted (you can change what they allow)');
+    const used = (await q('SELECT count(*)::int AS n FROM platform_admins WHERE role=$1', [old.id])).rows[0].n; if (used) return bad(res, 'Move its ' + used + ' admin(s) to another role first');
+    await q('DELETE FROM admin_roles WHERE id=$1', [old.id]); await audit(req, 'role_deleted', { target: old.id }); res.json({ ok: true });
+  }));
   /* the Super Admin adds every other admin (temporary password, shown once and emailed; changed at first sign-in) */
   A.post('/admins', need('admins.manage'), reauth, wrap(async (req, res) => {
     const b = req.body || {}; const email = String(b.email || '').trim().toLowerCase(); const name = String(b.name || '').trim().slice(0, 80); const role = b.role;
     if (!mailer.isEmail(email)) return bad(res, 'Type a valid email address');
     if (name.length < 2) return bad(res, 'Type their full name');
-    if (!DASHBOARD_ROLES.includes(role)) return bad(res, 'Choose a role: Admin, Support or Finance');
+    const roleR = role === 'super' ? null : await roleRow(String(role || '')); if (!roleR) return bad(res, 'Choose a role');
     const temp = Array.from(crypto.randomBytes(18), (x) => 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[x % 55]).join('').replace(/(.{6})(?=.)/g, '$1-');
     let a; try { a = (await q('INSERT INTO platform_admins (email, name, role, password_hash, must_change_pw) VALUES ($1,$2,$3,$4,true) RETURNING id, email, name, role', [email, name, role, await bcrypt.hash(temp, 12)])).rows[0]; }
     catch (e) { if (e.code === '23505') return bad(res, 'An admin with this email already exists', 409); throw e; }
     const url = (ADMIN_HOST() ? 'https://' + ADMIN_HOST() : req.protocol + '://' + req.get('host')) + '/admin';
     let emailed = 'skipped';
-    if (b.sendEmail !== false) emailed = (await mailer.sendEmail(Object.assign({ to: email, kind: 'admin_invite' }, mailer.T.adminInvite({ name, email, role: ROLE_NAME[role], password: temp, url, by: req.admin.name })))).status;
+    if (b.sendEmail !== false) emailed = (await mailer.sendEmail(Object.assign({ to: email, kind: 'admin_invite' }, mailer.T.adminInvite({ name, email, role: roleR.name, password: temp, url, by: req.admin.name })))).status;
     await audit(req, 'admin_created', { target: email, details: { role } });
     res.json({ admin: a, password: temp, emailed, url });
   }));
   A.post('/admins/:id/role', need('admins.manage'), reauth, wrap(async (req, res) => {
-    const role = (req.body || {}).role; if (!DASHBOARD_ROLES.includes(role)) return bad(res, 'Choose a role: Admin, Support or Finance');
+    const role = (req.body || {}).role; if (role === 'super' || !(await roleRow(String(role || '')))) return bad(res, 'Choose a role');
     if (req.params.id === req.admin.id) return bad(res, 'You cannot change your own role');
     const a = (await q('SELECT * FROM platform_admins WHERE id::text=$1', [req.params.id])).rows[0]; if (!a) return bad(res, 'Admin not found', 404);
     if (a.role === 'super') return bad(res, 'The Super Admin cannot be changed here');
@@ -539,7 +593,7 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
     res.json({ entries: (await q("SELECT a.*, t.name AS tenant FROM admin_audit a LEFT JOIN tenants t ON t.id=a.tenant_id WHERE ($1='' OR a.action LIKE $1 || '%') AND ($2='' OR a.tenant_id::text=$2) AND ($3='' OR lower(a.admin_email)=$3) ORDER BY a.at DESC LIMIT 300", [act, tid, who])).rows });
   }));
   A.get('/export/:kind', wrap(async (req, res) => {
-    const kind = req.params.kind; const perm = kind === 'tenants' ? 'tenants.view' : 'billing'; if (!can(req.admin, perm)) return bad(res, 'Your admin role cannot do this', 403);
+    const kind = req.params.kind; const perm = kind === 'tenants' ? 'tenants.view' : 'billing'; if (!can(req.admin, 'export') || !can(req.admin, perm)) return bad(res, 'Your admin role cannot do this', 403);
     const sql = { tenants: "SELECT t.name AS business, o.login AS owner_login, o.email AS owner_email, s.status, s.plan_id AS plan, s.cycle, s.price, s.trial_ends_at, s.current_period_end, t.created_at FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id LEFT JOIN LATERAL (SELECT login, email FROM users WHERE tenant_id=t.id AND role='owner' ORDER BY created_at LIMIT 1) o ON true ORDER BY t.created_at",
       invoices: "SELECT i.number, t.name AS business, i.plan_id AS plan, i.cycle, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.period_start, i.period_end FROM invoices i JOIN tenants t ON t.id=i.tenant_id ORDER BY i.issued_at",
       payments: "SELECT p.paid_on, t.name AS business, i.number AS invoice, p.amount, p.currency, p.method, p.reference, p.status, p.created_at FROM payments p JOIN tenants t ON t.id=p.tenant_id LEFT JOIN invoices i ON i.id=p.invoice_id ORDER BY p.created_at" }[kind];
@@ -556,5 +610,5 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
   r.use((e, req, res, next) => { if (!isAdminPath(String(req.originalUrl || '').split('?')[0])) return next(e); console.error('[admin]', e); res.status(500).json({ error: 'Server error' }); });
   app.use(r);
 };
-module.exports.ROLES = ROLES;
+module.exports.ADMIN_PERMS = ADMIN_PERMS;
 module.exports.enabled = enabled;

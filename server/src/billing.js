@@ -2,11 +2,12 @@
  * The tenants row keeps a copy of the current state (plan, status, trial_ends_at, paid_until, grace_days) so the
  * per-request check (subscriptionOk) stays one cheap query. syncTenant() writes that copy after every change. */
 const { q, pool } = require('./db');
+const KC = require('../public/compute.js');
 const mailer = require('./mailer');
 
 const COUNT_LIMITS = { maxUsers: 'team members', maxLocations: 'branches (including the main one)', maxProducts: 'items' };
-const FEATURES = { onlineShop: 'The online shop', payroll: 'Payroll', autoReminders: 'Automatic payment reminders' };
-const LIMIT_KEYS = Object.keys(COUNT_LIMITS).concat(Object.keys(FEATURES));
+const FEATURES = Object.fromEntries(KC.FEATURES.map(([k, l]) => [k, l])); // every business feature a plan can include
+const LIMIT_KEYS = Object.keys(COUNT_LIMITS);
 const PAY_METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
 const STATUS_LABEL = { trialing: 'Free trial', active: 'Active', past_due: 'Payment overdue', expired: 'Expired', suspended: 'Suspended', cancelled: 'Cancelled' };
 
@@ -31,7 +32,7 @@ const money = (n, cur) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3
 
 /* ---------- subscription state ---------- */
 async function getSub(c, tid) {
-  return (await c.query('SELECT s.*, p.name AS plan_name, p.limits, p.price_monthly, p.price_yearly, p.active AS plan_active FROM subscriptions s LEFT JOIN plans p ON p.id = s.plan_id WHERE s.tenant_id = $1', [tid])).rows[0] || null;
+  return (await c.query('SELECT s.*, p.name AS plan_name, p.limits, p.modules, p.price_monthly, p.price_yearly, p.active AS plan_active FROM subscriptions s LEFT JOIN plans p ON p.id = s.plan_id WHERE s.tenant_id = $1', [tid])).rows[0] || null;
 }
 async function ensureSub(c, tid, trialEndsAt) {
   await c.query("INSERT INTO subscriptions (tenant_id, status, trial_ends_at) VALUES ($1, 'trialing', $2) ON CONFLICT (tenant_id) DO NOTHING", [tid, trialEndsAt]);
@@ -53,15 +54,31 @@ async function syncTenant(c, tid) {
 async function setSub(c, tid, patch) {
   const keys = Object.keys(patch); if (!keys.length) return;
   await c.query('UPDATE subscriptions SET ' + keys.map((k, i) => k + '=$' + (i + 2)).join(', ') + ', updated_at=now() WHERE tenant_id=$1', [tid].concat(keys.map((k) => patch[k])));
-  await syncTenant(c, tid);
+  await syncTenant(c, tid); invalidate(tid);
 }
 
-/* ---------- limits ---------- */
-/** Limits that apply now. During the free trial everything is open. */
+/* ---------- what a business is entitled to: features + limits ---------- */
+// Cached briefly: every request checks it. Plan or subscription changes clear the cache at once.
+const entCache = new Map(); const ENT_TTL = 15e3;
+function invalidate(tid) { if (tid) entCache.delete(tid); else entCache.clear(); }
+/** {features: {key: false, …} (only the ones that are OFF), limits, plan, trial}. During the free trial every feature is on
+ *  and nothing is limited; a business's own overrides (set by the platform admin) apply on top of its plan in every case. */
 async function limitsFor(c, tid) {
-  const s = await getSub(c, tid);
-  if (!s || s.status === 'trialing' || !s.plan_id) return { limits: {}, plan: s && s.plan_name, trial: !s || s.status === 'trialing' };
-  return { limits: s.limits || {}, plan: s.plan_name };
+  const hit = entCache.get(tid); if (hit && Date.now() - hit.at < ENT_TTL) return hit.v;
+  const s = await getSub(c, tid); const ov = (s && s.overrides) || {};
+  const trial = !s || s.status === 'trialing' || !s.plan_id;
+  const modules = Object.assign({}, trial ? {} : (s.modules || {}), ov.modules || {});
+  const features = {}; KC.FEATURE_KEYS.forEach((k) => { if (modules[k] === false) features[k] = false; });
+  const limits = Object.assign({}, trial ? {} : (s.limits || {}), ov.limits || {});
+  Object.keys(limits).forEach((k) => { if (!COUNT_LIMITS[k] || limits[k] === null || limits[k] === '') delete limits[k]; });
+  const v = { features, limits, plan: s && s.plan_name, trial };
+  entCache.set(tid, { at: Date.now(), v }); return v;
+}
+/** null when the feature(s) are on; otherwise a 402 for "not in your plan" (any one of `keys` being on is enough) */
+async function checkFeature(c, tid, keys) {
+  keys = [].concat(keys); const { features, plan } = await limitsFor(c, tid);
+  if (KC.anyOn(features, keys)) return null;
+  return { status: 402, error: limitError(plan, keys[0]), code: 'plan_feature', feature: keys[0] };
 }
 async function usage(c, tid) {
   const r = (await c.query(`SELECT
@@ -75,8 +92,8 @@ const limitError = (plan, key, max) => COUNT_LIMITS[key]
   : FEATURES[key] + ' is not included in your plan' + (plan ? ' (' + plan + ')' : '') + '. Upgrade in Billing & subscription to use it.';
 /** null when allowed; otherwise {status: 402, error, code: 'plan_limit', limit} */
 async function checkLimit(c, tid, key) {
+  if (FEATURES[key]) return checkFeature(c, tid, key);
   const { limits, plan } = await limitsFor(c, tid); const v = limits[key];
-  if (FEATURES[key]) return v === false ? { status: 402, error: limitError(plan, key), code: 'plan_limit', limit: key } : null;
   if (v === null || v === undefined || v === '') return null;
   const used = (await usage(c, tid))[key];
   return used >= Number(v) ? { status: 402, error: limitError(plan, key, Number(v)), code: 'plan_limit', limit: key, max: Number(v), used } : null;
@@ -177,13 +194,13 @@ async function daily(url) {
 function mountTenant(app, { auth, wrap, err, canU, tx }) {
   const may = (u) => ['owner', 'admin'].includes(u.role) || canU(u, 'settings');
   const guard = (req, res, next) => (may(req.user) ? next() : err(res, 403, 'Only the owner or an admin can manage billing'));
-  const plansPublic = async () => (await q('SELECT id, name, description, price_monthly, price_yearly, currency, limits, features FROM plans WHERE active AND public ORDER BY sort, name')).rows;
+  const plansPublic = async () => (await q('SELECT id, name, description, price_monthly, price_yearly, currency, limits, modules, features FROM plans WHERE active AND public ORDER BY sort, name')).rows;
   // (no requireActive: an expired business must still be able to pay)
   app.get('/api/billing', auth, guard, wrap(async (req, res) => {
     const tid = req.user.tenant_id; const s = await getSub(pool, tid); const S = await platformSettings();
     res.json({
       subscription: s && { planId: s.plan_id, planName: s.plan_name, status: s.status, statusLabel: STATUS_LABEL[s.status], cycle: s.cycle, price: s.price, currency: s.currency, trialEndsAt: s.trial_ends_at, periodEnd: s.current_period_end, graceDays: s.grace_days },
-      limits: (await limitsFor(pool, tid)).limits, usage: await usage(pool, tid), plans: await plansPublic(),
+      limits: (await limitsFor(pool, tid)).limits, features: (await limitsFor(pool, tid)).features, catalog: KC.FEATURES, usage: await usage(pool, tid), plans: await plansPublic(),
       invoices: (await q('SELECT i.id, i.number, i.plan_id, p.name AS plan_name, i.cycle, i.period_start, i.period_end, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.created_by FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE i.tenant_id=$1 ORDER BY i.issued_at DESC LIMIT 36', [tid])).rows,
       payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
       instructions: S.paymentInstructions, methods: PAY_METHODS,
@@ -224,4 +241,4 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
   }));
 }
 
-module.exports = { COUNT_LIMITS, FEATURES, LIMIT_KEYS, PAY_METHODS, STATUS_LABEL, DEFAULTS, platformSettings, addPeriod, dayStr, money, getSub, ensureSub, syncTenant, setSub, limitsFor, usage, checkLimit, createInvoice, applyPayment, ownerOf, mailOwner, mailAdmins, invoiceMail, daily, mountTenant };
+module.exports = { COUNT_LIMITS, FEATURES, LIMIT_KEYS, PAY_METHODS, STATUS_LABEL, DEFAULTS, platformSettings, addPeriod, dayStr, money, invalidate, checkFeature, getSub, ensureSub, syncTenant, setSub, limitsFor, usage, checkLimit, createInvoice, applyPayment, ownerOf, mailOwner, mailAdmins, invoiceMail, daily, mountTenant };

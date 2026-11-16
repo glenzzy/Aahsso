@@ -140,7 +140,7 @@ test('sessions: idle timeout and revocation', async () => {
 
 test('plans: risky changes need the code again', async () => {
   await db.query("UPDATE admin_sessions SET reauth_at = now() - interval '10 minutes' WHERE revoked_at IS NULL");
-  const plan = { name: 'Starter', description: 'One shop', price_monthly: 10000, price_yearly: 100000, active: true, public: true, sort: 1, features: ['1 shop', '2 team members'], limits: { maxUsers: 2, maxLocations: 1, onlineShop: false } };
+  const plan = { name: 'Starter', description: 'One shop', price_monthly: 10000, price_yearly: 100000, active: true, public: true, sort: 1, features: ['1 shop', '2 team members'], limits: { maxUsers: 2, maxLocations: 1 }, modules: { onlineShop: false } };
   const r = await S.c.call('PUT', '/api/admin/plans/starter', plan); assert.equal(r.status, 403); assert.equal(r.body.code, 'reauth');
   if (!TWO) assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', { password: 'wrong-' + rnd })).status, 401, 'wrong password');
   assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', reauthBody(3))).status, 200);
@@ -174,7 +174,7 @@ test('business: trial → chooses a plan → reports payment → admin confirms 
   const add = await api('POST', '/api/users', S.biz, { name: 'U3', login: 'u3' + rnd, password: 'pass1234', role: 'sales', sendEmail: false });
   assert.equal(add.status, 402); assert.equal(add.body.code, 'plan_limit'); assert.match(add.body.error, /allows 2 team members/);
   const shop = await api('PUT', '/api/data/settings/main', S.biz, { businessName: 'Biz', shopEnabled: true, shopSlug: 'biz-' + rnd });
-  assert.equal(shop.status, 402); assert.match(shop.body.error, /online shop is not included/i);
+  assert.equal(shop.status, 402); assert.match(shop.body.error, /online shop.* is not included/i);
   assert.equal((await api('PUT', '/api/data/locations/br1', S.biz, { name: 'Branch 1' })).status, 402, 'maxLocations 1 = main only');
   // the business is told by email
   const mails = await (await fetch('http://127.0.0.1:18090/_emails')).json();

@@ -104,9 +104,9 @@ VIEWS.profile = {
         '<button class="btn" data-a="profPw">Change password</button></div></section></div>';
     } else html += '<div class="card pad2 mb muted small">' + (K.info.mode === 'local' ? 'This copy of Kargo works on this device only, so there is no sign-in or password.' : 'Your name and sign-in come from your claude.ai account.') + '</div>';
     html += '<h3 class="mb mt2">My work</h3><div class="prof-links">' +
-      '<a class="card pad prof-link" href="#staff">' + ic('clock') + '<div class="grow"><div class="b">Attendance</div><div class="small muted">' + ({ off: 'Not clocked in', in: 'Working since ' + hm(st.since), break: 'On break', done: 'Clocked out at ' + hm(st.lastOut) })[st.state] + '</div></div>' + ic('chev', 'sm') + '</a>' +
-      '<a class="card pad prof-link" href="#leave">' + ic('clock') + '<div class="grow"><div class="b">Leave</div><div class="small muted">' + bal.left + ' vacation day' + (bal.left === 1 ? '' : 's') + ' left this year</div></div>' + ic('chev', 'sm') + '</a>' +
-      '<a class="card pad prof-link" href="#payroll">' + ic('wallet') + '<div class="grow"><div class="b">' + (can('payroll') ? 'Payroll' : 'My pay') + '</div><div class="small muted">' + (lastPay ? 'Last payslip: ' + esc(MONTHS[Number(lastPay.month.slice(5)) - 1] + ' ' + lastPay.month.slice(0, 4)) : 'Payslips and advances') + '</div></div>' + ic('chev', 'sm') + '</a></div>';
+      (has('attendance') ? '<a class="card pad prof-link" href="#staff">' + ic('clock') + '<div class="grow"><div class="b">Attendance</div><div class="small muted">' + ({ off: 'Not clocked in', in: 'Working since ' + hm(st.since), break: 'On break', done: 'Clocked out at ' + hm(st.lastOut) })[st.state] + '</div></div>' + ic('chev', 'sm') + '</a>' : '') +
+      (has('leave') ? '<a class="card pad prof-link" href="#leave">' + ic('clock') + '<div class="grow"><div class="b">Leave</div><div class="small muted">' + bal.left + ' vacation day' + (bal.left === 1 ? '' : 's') + ' left this year</div></div>' + ic('chev', 'sm') + '</a>' : '') +
+      (has('payroll') ? '<a class="card pad prof-link" href="#payroll">' + ic('wallet') + '<div class="grow"><div class="b">' + (can('payroll') ? 'Payroll' : 'My pay') + '</div><div class="small muted">' + (lastPay ? 'Last payslip: ' + esc(MONTHS[Number(lastPay.month.slice(5)) - 1] + ' ' + lastPay.month.slice(0, 4)) : 'Payslips and advances') + '</div></div>' + ic('chev', 'sm') + '</a>' : '') + '</div>';
     if (saas) html += '<div class="row mt2"><button class="btn" data-a="logoutAsk">' + ic('logout') + 'Log out</button></div>';
     return html;
   },
@@ -185,7 +185,7 @@ VIEWS.billing = {
         '<div class="bill-plans mb2">' + plans.map((p) => {
           const price = p['price_' + cyc]; const cur = p.id === s.planId && s.status !== 'trialing' && !ended; const L = p.limits || {};
           const lims = [L.maxUsers ? L.maxUsers + ' team members' : 'Unlimited team', L.maxLocations ? (L.maxLocations === 1 ? '1 location' : L.maxLocations + ' branches') : 'Unlimited branches', L.maxProducts ? L.maxProducts + ' items' : null].filter(Boolean);
-          const off = Object.entries({ onlineShop: 'Online shop', payroll: 'Payroll', autoReminders: 'Automatic reminders' }).filter(([k]) => L[k] === false).map(([, l]) => l);
+          const off = (b.catalog || []).filter(([k]) => (p.modules || {})[k] === false).map(([, l]) => l);
           return '<div class="card pad2 bill-plan' + (cur ? ' cur' : '') + '"><div class="row between"><h3>' + esc(p.name) + '</h3>' + (cur ? '<span class="badge ok">Your plan</span>' : '') + '</div>' + (p.description ? '<div class="small muted">' + esc(p.description) + '</div>' : '') +
             '<div class="bill-price">' + (price === null ? '<span class="small muted">Not available ' + (cyc === 'yearly' ? 'yearly' : 'monthly') + '</span>' : money0(price, p.currency) + '<span class="small muted"> / ' + (cyc === 'yearly' ? 'year' : 'month') + '</span>') + '</div>' +
             '<ul class="bill-feat">' + (p.features || []).concat(lims).map((f) => '<li>' + ic('check', 'sm') + esc(f) + '</li>').join('') + off.map((f) => '<li class="muted">' + ic('x', 'sm') + esc(f) + ' not included</li>').join('') + '</ul>' +

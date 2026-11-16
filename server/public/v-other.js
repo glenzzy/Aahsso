@@ -17,15 +17,15 @@ const receivables = () => visibleSales().reduce((a, s) => { const x = K.C.saleX[
 function homeTodos() {
   const t = todayStr(); const w = num(S().expiryWarnDays) || 60, low = num(S().lowStock) || 3; const out = [];
   const add = (level, icon, title, detail, attrs) => out.push({ level, icon, title, detail, attrs });
-  if (can('sell') || can('payments')) { const o = newOrders(); if (o.length) add('info', 'sell', o.length + ' online order' + (o.length === 1 ? '' : 's') + ' to confirm', F(o.reduce((a, x) => a + num(x.subtotal), 0)), 'data-a="go" data-r="orders"'); }
+  if ((can('sell') || can('payments')) && has('onlineShop')) { const o = newOrders(); if (o.length) add('info', 'sell', o.length + ' online order' + (o.length === 1 ? '' : 's') + ' to confirm', F(o.reduce((a, x) => a + num(x.subtotal), 0)), 'data-a="go" data-r="orders"'); }
   if (can('containers')) { // bought abroad but in no shipment yet: they can never reach the shop until they are put in one
     const wl = K.raw.lots.filter((l) => (K.C.lotX[l.id] || {}).stage === 'us'); const wu = wl.reduce((a, l) => a + num(l.qty), 0);
     if (wl.length) add('warn', 'ship', fmt(wu) + ' unit' + (wu === 1 ? '' : 's') + ' waiting to ship', 'Put them in a shipment so they can reach the shop', 'data-a="go" data-r="ship"');
   }
-  const toSend = visibleSales().filter((s) => KC.isDelivery(s) && s.delivery.status === 'to_send' && K.C.saleX[s.id].status !== 'cancelled');
+  const toSend = !has('delivery') ? [] : visibleSales().filter((s) => KC.isDelivery(s) && s.delivery.status === 'to_send' && K.C.saleX[s.id].status !== 'cancelled');
   if (toSend.length) add('warn', 'ship', toSend.length + ' deliver' + (toSend.length === 1 ? 'y' : 'ies') + ' to send', toSend.slice(0, 2).map((s) => s.delivery.destination).filter(Boolean).join(', '), 'data-a="goSales" data-f="deliver"');
   if (can('reminders')) { const od = owingCustomers().filter((o) => o.daysLate > 0); if (od.length) add('bad', 'wa', od.length + ' customer' + (od.length === 1 ? '' : 's') + ' overdue', F(od.reduce((a, o) => a + o.balance, 0)) + ' to collect', 'data-a="go" data-r="reminders"'); }
-  const tIn = (K.raw.tills || []).filter((x) => x.toId === K.me.id && x.status === 'pending');
+  const tIn = !has('tills') ? [] : (K.raw.tills || []).filter((x) => x.toId === K.me.id && x.status === 'pending');
   tIn.forEach((x) => add('warn', 'wallet', (x.fromName || 'A colleague') + ' is handing you the till', 'Count it and accept', 'data-a="go" data-r="cash"'));
   if (can('hr')) {
     const lr = (K.raw.leaves || []).filter((l) => l.status === 'requested'); if (lr.length) add('info', 'clock', lr.length + ' leave request' + (lr.length === 1 ? '' : 's') + ' to answer', lr.slice(0, 2).map((l) => l.staffName).join(', '), 'data-a="go" data-r="leave"');
@@ -33,7 +33,7 @@ function homeTodos() {
     if (open.length) add('warn', 'clock', open.length + (open.length === 1 ? ' person' : ' people') + " didn't clock out yesterday", open.map((a) => a.staffName).join(', '), 'data-a="go" data-r="staff"');
     const td = (K.raw.tills || []).filter((x) => x.status === 'disputed'); if (td.length && can('handover')) add('bad', 'wallet', td.length + ' till takeover' + (td.length === 1 ? '' : 's') + ' with a difference', 'Check and close', 'data-a="go" data-r="cash"');
   }
-  if (can('handover')) { const pend = K.raw.handovers.filter((h) => h.status === 'submitted'); if (pend.length) add('info', 'wallet', pend.length + ' cash handover' + (pend.length === 1 ? '' : 's') + ' to confirm', '', 'data-a="go" data-r="cash"'); }
+  if (can('handover') && has('cashHandover')) { const pend = K.raw.handovers.filter((h) => h.status === 'submitted'); if (pend.length) add('info', 'wallet', pend.length + ' cash handover' + (pend.length === 1 ? '' : 's') + ' to confirm', '', 'data-a="go" data-r="cash"'); }
   if (can('payments') && !byId('handovers', hoId(t, K.me.id))) { const mine = KC.collectedBy(K.raw, K.me.id, t).total; if (mine) add('info', 'wallet', 'Close your day', 'You collected ' + F(mine) + ' today', 'data-a="go" data-r="cash"'); }
   const pick = visibleSales().filter((s) => !KC.isDelivery(s) && !s.delivered && K.C.saleX[s.id].status !== 'cancelled');
   if (pick.length) add('info', 'clock', pick.length + ' order' + (pick.length === 1 ? '' : 's') + ' waiting for pickup', '', 'data-a="goSales" data-f="pickup"');
@@ -79,7 +79,7 @@ VIEWS.home = {
     const byMode = Object.entries(d.byMethod).filter(([, v]) => v).map(([k, v]) => k.replace('Orange Money', 'OM').replace('MTN MoMo', 'MoMo') + ' ' + fmt(v)).join(' · ');
     if (empty) return homeWelcome(hello);
     return '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div><div class="row gap6"><button class="btn tour-btn" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>How Kargo works</button>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div></div>' + phaseHead('', true) +
-      (K.info.mode === 'saas' || K.raw.staff.length ? '<div class="mb2">' + clockCard(true) + '</div>' : '') +
+      ((K.info.mode === 'saas' || K.raw.staff.length) && has('attendance') ? '<div class="mb2">' + clockCard(true) + '</div>' : '') +
       '<div class="kpis mb2">' + kpi('Sales today', F(d.revenue), d.n + ' receipt' + (d.n === 1 ? '' : 's') + (seeCost() && d.revenue ? ' · profit ' + fmt(d.profit) : '')) + kpi('Collected today', F(d.collected), byMode || 'Nothing yet') +
         kpi('Owed to you', F(receivables()), owing + ' open sale' + (owing === 1 ? '' : 's')) + kpi('This month', F(mo.revenue), seeCost() ? 'profit ' + fmt(mo.profit) : mo.n + ' receipts') + '</div>' +
       '<div class="home-grid">' +
@@ -258,6 +258,8 @@ A.expEdit = (el) => {
 /* ---------- settings + backup ---------- */
 /* ---------- settings page: section menu + one card per section ---------- */
 const SET_SECTIONS = [['business', 'Business', 'home'], ['currency', 'Currency', 'wallet'], ['pricing', 'Pricing', 'tag'], ['credit', 'Wholesale & credit', 'users'], ['money', 'Mobile money', 'wallet'], ['reminders', 'Reminders', 'wa'], ['catalogue', 'Stores & categories', 'buy'], ['delivery', 'Delivery', 'ship'], ['staff', 'Staff & pay', 'clock'], ['shop', 'Online shop', 'sell'], ['branches', 'Branches', 'home'], ['backup', 'Backup', 'dl'], ['account', 'Account', 'gear']];
+const SET_FEATURE = { reminders: ['reminders'], delivery: ['delivery'], staff: ['attendance', 'leave', 'payroll'], shop: ['onlineShop'], branches: ['branches'], backup: ['excel'] };
+const setSections = () => SET_SECTIONS.filter(([k]) => !SET_FEATURE[k] || hasAny(...SET_FEATURE[k]));
 const setCard = (id, title, desc, body, side) => '<section class="card set-card" id="set-' + id + '"><header class="set-head"><div><h2>' + title + '</h2>' + (desc ? '<p>' + desc + '</p>' : '') + '</div>' + (side || '') + '</header>' + body + '</section>';
 /** label + input + optional hint (one small grey line). */
 const sf = (label, inner, hint, cls) => '<label class="f' + (cls ? ' ' + cls : '') + '"><span class="lbl">' + label + '</span>' + inner + (hint ? '<span class="hint">' + hint + '</span>' : '') + '</label>';
@@ -293,7 +295,7 @@ VIEWS.settings = {
     K.ui.storeDraft = (s.vendors || []).slice(); K.ui.agDraft = (s.shopAgencies || []).slice(); K.ui.catDraft = catDraftFrom(s.categories); K.ui.catOpen = K.ui.catOpen || {}; K.ui.catRen = null;
     if (!can('settings')) return '<div class="card pad2 mb"><h2 class="mb">Downloads</h2><div class="row wrap"><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="backupJson">' + ic('dl') + 'Full backup</button></div></div>';
     const cats = s.categories || KC.CATEGORIES; const subN = Object.values(cats).reduce((a, v) => a + v.length, 0);
-    const secs = SET_SECTIONS.filter(([k]) => k !== 'account' || K.info.mode === 'saas');
+    const secs = setSections().filter(([k]) => k !== 'account' || K.info.mode === 'saas');
     const nav = '<nav class="set-nav" aria-label="Settings sections">' + secs.map(([k, l, i]) => '<button type="button" data-a="setGo" data-v="' + k + '" class="' + (k === 'business' ? 'on' : '') + '">' + ic(i, 'sm') + '<span>' + l + '</span></button>').join('') + '</nav>';
     const form = '<div id="setForm">' +
       setCard('business', 'Business', 'How your business appears on receipts, the shop page and messages to customers.',
@@ -310,25 +312,25 @@ VIEWS.settings = {
       setCard('money', 'Mobile money', 'Numbers customers send money to, and the withdrawal charges suggested at payment.',
         '<h3>Receiving numbers</h3><p class="hint" style="margin-top:2px">Shown on receipts and reminders, and chosen when a customer pays.</p><div id="momoList">' + (s.momoAccounts || []).map(mmRow).join('') + '</div><button type="button" class="btn sm" data-a="mmAdd">' + ic('plus', 'sm') + 'Add a number</button>' +
         '<div class="set-sub"><h3>Withdrawal charges</h3><p class="hint">When a customer pays by MTN MoMo or Orange Money, this grid suggests the charge (kept apart from the sale amount). Staff can still change it on each payment.</p>' + feeEditor() + '</div>') +
-      setCard('reminders', 'Payment reminders', 'The message sent to customers who owe you money.',
+      (!has('reminders') ? '' : setCard('reminders', 'Payment reminders', 'The message sent to customers who owe you money.',
         '<div class="tok-row"><span class="hint">Insert:</span>' + REM_TOKENS.map(([t, l]) => '<button type="button" class="chip" data-a="remTok" data-v="' + t + '" title="' + l + '">' + l + '</button>').join('') + '</div>' +
         '<textarea class="inp" name="reminderTemplate" id="remTpl" rows="3">' + esc(s.reminderTemplate || '') + '</textarea>' +
         '<div class="rem-prev"><div class="hint b">Preview</div><div id="remPrev"></div></div>' +
-        '<div class="set-grid mt">' + sf('Remind the same customer at most every', unitIn('reminderEvery', s.reminderEvery, 'days', 'inputmode="numeric"'), 'Nobody is reminded twice within this time.') + '</div>' + (K.info.mode === 'saas' ? '<p class="hint mt">Customers with an email address on their profile also get the reminder by email.</p>' : '')) +
+        '<div class="set-grid mt">' + sf('Remind the same customer at most every', unitIn('reminderEvery', s.reminderEvery, 'days', 'inputmode="numeric"'), 'Nobody is reminded twice within this time.') + '</div>' + (K.info.mode === 'saas' ? '<p class="hint mt">Customers with an email address on their profile also get the reminder by email.</p>' : ''))) +
       setCard('catalogue', 'Stores & categories', 'Lists that make adding purchases and items faster.',
         '<h3>Stores you buy from</h3><p class="hint" style="margin:2px 0 10px">Suggested when you add a purchase. Type a name and press Enter.</p>' + storeEditor() +
         '<div class="set-sub"><h3>Categories</h3><p class="hint" style="margin:2px 0 12px">Used to group your items in stock, sales reports and the online shop. Open a category to manage its subcategories.</p>' + catEditor() + '</div>' +
         '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>') +
-      setCard('delivery', 'Delivery', 'Agencies you send parcels with, and how customers pay for deliveries.',
+      (!has('delivery') ? '' : setCard('delivery', 'Delivery', 'Agencies you send parcels with, and how customers pay for deliveries.',
         '<h3>Travel agencies</h3><p class="hint" style="margin:2px 0 10px">Suggested at checkout and offered to customers in the online shop. Type a name and press Enter.</p>' + agEditor() +
         '<div class="set-sub"><h3>Who pays, and when</h3><ul class="dl-rules">' +
           '<li><b>Customer sends someone to collect</b><span>Must be paid in full before their delivery person collects.</span></li>' +
           '<li><b>We deliver</b> (local, travel agency, courier)<span>The customer pays before delivery or on delivery — you choose at checkout. Before: it can\'t be sent until paid. On delivery: record the payment before marking it delivered.</span></li>' +
           '<li><b>Delivery fee</b><span>Always paid by the customer — added to the bill, or paid straight to the agency / driver.</span></li></ul></div>' +
-        '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>') +
-      staffRulesCard() +
+        '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>')) +
+      (hasAny('attendance', 'leave', 'payroll') ? staffRulesCard() : '') +
       '</div>';
-    const rest = '<div id="set-shop" class="set-anchor">' + shopCard() + '</div><div id="set-branches" class="set-anchor">' + locationsCard() + '</div>' +
+    const rest = (has('onlineShop') ? '<div id="set-shop" class="set-anchor">' + shopCard() + '</div>' : '') + (has('branches') ? '<div id="set-branches" class="set-anchor">' + locationsCard() + '</div>' : '') +
       setCard('backup', 'Backup & restore', 'Download all your records to keep them safe. You can restore the file here or load it into the full version of the app.',
         '<div class="row wrap"><button class="btn pri" data-a="backupJson">' + ic('dl') + 'Download full backup</button><button class="btn" data-a="backupXlsx">' + ic('dl') + 'All data as Excel</button><button class="btn" data-a="restore">' + ic('up') + 'Restore from backup</button></div><div class="hint mt">Last backup: ' + (s.lastBackup ? fmtDT(s.lastBackup) : '<b>never</b>') + '</div>') +
       (K.info.mode === 'saas' ? setCard('account', 'Account', K.info.tenant ? 'Plan: <b>' + esc(K.info.tenant.plan) + '</b>' + (K.info.tenant.trialEndsAt ? ' · trial ends ' + fmtDate(String(K.info.tenant.trialEndsAt).slice(0, 10)) : '') : '',
@@ -471,6 +473,7 @@ A.restore = async () => {
 
 
 function custCredit(c, owed) {
+  if (!has('credit')) return '';
   const lim = KC.creditLimitOf(S(), c); if (lim === null && !owed) return '';
   const used = lim ? Math.min(100, owed / lim * 100) : 0;
   return '<div class="card pad mb"><div class="row between"><h3>Credit</h3><span class="small">' + (lim === null ? 'No limit set' : 'Limit ' + F(lim) + (c.creditLimit === undefined || c.creditLimit === null || c.creditLimit === '' ? ' (default)' : '')) + '</span></div>' +
@@ -513,8 +516,8 @@ function custTable(list, stats) {
       { k: 'n', label: 'Purchases', core: true, num: true, v: (c) => st(c).n, total: (rows) => fmt(dtSum(rows, (c) => st(c).n)) },
       { k: 'total', label: 'Total bought', core: true, money: true, cls: 'b', v: (c) => st(c).total, total: (rows) => fmt(dtSum(rows, (c) => st(c).total)) },
       { k: 'owed', label: 'Owes', core: true, money: true, v: (c) => st(c).owed || '', html: (c) => st(c).owed > 0 ? '<span style="color:var(--bad);font-weight:700">' + fmt(st(c).owed) + '</span>' : dtNil, total: (rows) => fmt(dtSum(rows, (c) => st(c).owed)) },
-      { k: 'lim', label: 'Credit limit', money: true, v: (c) => { const l = KC.creditLimitOf(S(), c); return l === null ? '' : l; } },
-      { k: 'left', label: 'Credit left', money: true, v: (c) => { const l = KC.creditLimitOf(S(), c); return l === null ? '' : Math.max(0, l - st(c).owed); } },
+      has('credit') && { k: 'lim', label: 'Credit limit', money: true, v: (c) => { const l = KC.creditLimitOf(S(), c); return l === null ? '' : l; } },
+      has('credit') && { k: 'left', label: 'Credit left', money: true, v: (c) => { const l = KC.creditLimitOf(S(), c); return l === null ? '' : Math.max(0, l - st(c).owed); } },
       { k: 'last', label: 'Last purchase', core: true, v: (c) => st(c).last, html: (c) => dtDate(st(c).last) },
       { k: 'since', label: 'Customer since', v: (c) => (c.createdAt || '').slice(0, 10), html: (c) => dtDate((c.createdAt || '').slice(0, 10)) },
     ],

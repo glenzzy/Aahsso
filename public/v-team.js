@@ -1,6 +1,6 @@
 /* Kargo — Team & access: roles, per-person permissions, approvals */
 const ROLES_NOW = () => KC.rolesWith(S().roles);
-const ROLE_OPTS = () => Object.entries(ROLES_NOW()).filter(([k]) => k !== 'owner').map(([k, r]) => [k, r.label]);
+const ROLE_OPTS = () => Object.entries(has('customRoles') ? ROLES_NOW() : KC.ROLES).filter(([k]) => k !== 'owner').map(([k, r]) => [k, r.label]); // custom roles only in plans that include them
 const ROLE_HELP = {
   admin: 'Everything, including settings and team.',
   manager: 'Runs the business day to day: purchases, containers, stock, prices, reports, expenses. No team or settings.',
@@ -43,7 +43,7 @@ function memberSheet(m, title, onSave, onRemove) {
         '<label class="toggle"><input type="checkbox" name="mSend"' + (m.mSend === false ? '' : ' checked') + '>' + (m.id ? 'Email them the new password (if you set one)' : 'Email them their login and password') + '</label>' : '') +
       (allLocs().length > 1 ? field('Works at', sel('mLoc', allLocs().map((l) => [l.id, l.name]), m.locationId || 'main')) : '') +
       field('Role', sel('mRole', ROLE_OPTS(), role, 'id="mRole"')) + '<div class="tiny muted" style="margin-top:-4px">' + esc(ROLE_HELP[role] || '') + '</div>' +
-      '<div class="card pad"><div class="row between mb"><h3>Permissions</h3>' + (Object.keys(over).length ? '<button class="btn sm ghost" id="mReset">Reset to role</button>' : '') + '</div>' +
+      '<div class="card pad member-perms"><div class="row between mb"><h3>Permissions</h3>' + (Object.keys(over).length ? '<button class="btn sm ghost" id="mReset">Reset to role</button>' : '') + '</div>' +
       Object.entries(groups).map(([g, ps]) => '<div class="tiny b faint" style="text-transform:uppercase;letter-spacing:.05em;margin-top:8px">' + g + '</div><div class="perm-grid">' + ps.map(([k, l]) => '<label><input type="checkbox" data-perm="' + k + '"' + (eff[k] ? ' checked' : '') + '>' + esc(l) + (k in over ? ' <span class="badge acc">custom</span>' : '') + '</label>').join('') + '</div>').join('') + '</div>' +
       '<label class="toggle"><input type="checkbox" name="mActive"' + (m.active === false ? '' : ' checked') + '>Active (can use the app)</label></div>');
     $('#mRole', sh).onchange = (e) => { keep(); role = e.target.value; over = {}; draw(); };
@@ -118,7 +118,7 @@ A.roleEdit = (el) => {
     const ps = $$('[data-rp]', sh).filter((c) => c.checked).map((c) => c.dataset.rp);
     const k = key || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || uid('role_');
     if (!key && R[k]) return toast('A role with this name already exists', true);
-    await write(Object.assign({}, S().roles || {}, { [k]: { label: name, perms: ps } }));
+    await write(Object.assign({}, S().roles || {}, { [k]: { label: name, perms: ps, v: 2 } }));
   };
   if ($('#rlReset', sh)) $('#rlReset', sh).onclick = async () => { const o = Object.assign({}, S().roles || {}); delete o[key]; await write(o); };
   if ($('#rlDel', sh)) $('#rlDel', sh).onclick = async () => { if (used) return toast('Move its ' + used + ' person(s) to another role first', true); if (!(await confirmBox('Delete the role "' + r.label + '"?', 'Delete', true))) return; const o = Object.assign({}, S().roles || {}); delete o[key]; await write(o); };

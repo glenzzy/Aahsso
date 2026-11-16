@@ -237,6 +237,65 @@
     return out;
   }
 
+  /* ================= FEATURES (what a subscription plan includes) =================
+   * Every business feature has a key. A plan (or a per-business override) turns each one on or off.
+   * Off = hidden everywhere in the business app AND refused by the server. Data is kept; turning it back on restores it.
+   * Always included (not in this list): Home, stock list & prices, settings, team members, profile, billing, help. */
+  const FEATURES = [
+    ['buy', 'Purchases', 'Import flow', 'Record what you buy, with costs, weight and tax'],
+    ['ship', 'Shipments', 'Import flow', 'Group items into shipments and track them to Cameroon'],
+    ['receive', 'Receiving', 'Import flow', 'Arrival, customs and putting stock in the warehouse'],
+    ['sell', 'Point of sale', 'Sales', 'Sales, receipts, payments, returns'],
+    ['delivery', 'Deliveries', 'Sales', 'Delivery details, travel agencies, delivery status'],
+    ['onlineShop', 'Online shop & orders', 'Sales', 'Public shop page and online orders'],
+    ['promos', 'Promotions', 'Sales', 'Discounts and special prices for a period'],
+    ['emailReceipts', 'Email receipts', 'Sales', 'Send receipts by email'],
+    ['customers', 'Customers', 'Customers', 'Customer list and history'],
+    ['credit', 'Credit sales', 'Customers', 'Sell on credit, credit limits, balances'],
+    ['reminders', 'Payment reminders', 'Customers', 'Remind customers who owe money'],
+    ['autoReminders', 'Automatic reminders', 'Customers', 'Reminders sent automatically every day'],
+    ['stockCount', 'Stock counts', 'Stock', 'Count stock and fix differences'],
+    ['branches', 'Branches', 'Stock', 'More than one shop or warehouse'],
+    ['transfers', 'Branch transfers', 'Stock', 'Move stock between branches'],
+    ['photos', 'Product photos', 'Stock', 'Photos on items and in the online shop'],
+    ['labels', 'Barcode labels', 'Stock', 'Print price and barcode labels'],
+    ['expenses', 'Expenses', 'Money', 'Record expenses by phase of the flow'],
+    ['cashHandover', 'Cash handover', 'Money', 'Close the day and hand cash to a manager'],
+    ['tills', 'Till takeover', 'Money', 'Hand the till to a colleague during the day'],
+    ['suppliers', 'Suppliers & bills', 'Money', 'Suppliers and bills to pay'],
+    ['reports', 'Reports', 'Money', 'Sales, profit and stock reports'],
+    ['assets', 'Assets', 'Money', 'Equipment and vehicles the business owns'],
+    ['attendance', 'Attendance', 'Staff', 'Clock in/out, breaks, lateness'],
+    ['leave', 'Leave', 'Staff', 'Vacation requests and balances'],
+    ['payroll', 'Payroll', 'Staff', 'Payslips, advances and salary payments'],
+    ['customRoles', 'Custom roles', 'Team', 'Your own roles and per-person permissions'],
+    ['activity', 'Activity log', 'Team', 'Who did what, and when'],
+    ['excel', 'Excel & backup', 'Team', 'Download Excel files and full backups'],
+  ];
+  const FEATURE_KEYS = FEATURES.map((f) => f[0]);
+  /** features: {key: false} map from the server ({} or null = everything on, e.g. the free trial or this-device mode) */
+  const featureOn = (features, key) => !features || features[key] !== false;
+  const anyOn = (features, keys) => keys.some((k) => featureOn(features, k));
+  // which feature each permission belongs to (a permission of a feature that is off is never granted)
+  const PERM_FEATURE = { purchases: ['buy'], containers: ['ship', 'receive'], transfers: ['transfers'], audit: ['stockCount'], credit: ['credit'], reminders: ['reminders'],
+    expenses: ['expenses'], handover: ['cashHandover'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'], payroll: ['payroll'], hr: ['attendance', 'leave', 'payroll'],
+    activity: ['activity'], export: ['excel'], allLocations: ['branches'], sell: ['sell'], payments: ['sell'], returns: ['sell'], cancel: ['sell'], discount: ['sell'],
+    customers: ['customers'], orders: ['onlineShop'], promos: ['promos'] };
+  const permFeatureOn = (features, perm) => !PERM_FEATURE[perm] || anyOn(features, PERM_FEATURE[perm]);
+  // which feature each page (route) belongs to
+  const ROUTE_FEATURE = { buy: ['buy'], ship: ['ship'], receive: ['receive'], sales: ['sell'], sell: ['sell'], orders: ['onlineShop'], customers: ['customers'], reminders: ['reminders'],
+    promos: ['promos'], audit: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], cash: ['cashHandover', 'tills'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'],
+    staff: ['attendance'], leave: ['leave'], payroll: ['payroll'], employees: ['attendance', 'leave', 'payroll'], activity: ['activity'] };
+  const routeFeatureOn = (features, route) => !ROUTE_FEATURE[route] || anyOn(features, ROUTE_FEATURE[route]);
+  // which feature each kind of record belongs to (writes are refused when all of them are off)
+  const COLLECTION_FEATURE = { lots: ['buy', 'ship', 'receive'], shipments: ['ship', 'receive'], sales: ['sell'], customers: ['customers'], orders: ['onlineShop'], promos: ['promos'],
+    audits: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], handovers: ['cashHandover'], tills: ['tills'], suppliers: ['suppliers'], bills: ['suppliers'], assets: ['assets'],
+    attendance: ['attendance'], leaves: ['leave'], payroll: ['payroll'], staff: ['attendance', 'leave', 'payroll'], reminders: ['reminders'] };
+  // records hidden entirely when their feature is off (the core ones — items, stock, sales — are still needed to compute stock)
+  const HIDDEN_WHEN_OFF = ['orders', 'promos', 'audits', 'transfers', 'expenses', 'handovers', 'tills', 'suppliers', 'bills', 'assets', 'attendance', 'leaves', 'payroll', 'staff', 'reminders'];
+  /** permissions after the plan: a permission whose feature is off is false */
+  function permsWithFeatures(perms, features) { const out = Object.assign({}, perms); Object.keys(out).forEach((p) => { if (out[p] && !permFeatureOn(features, p)) out[p] = false; }); return out; }
+
   /* ---------- online shop address: /s/<slug>, made from the store name, unique across Kargo ---------- */
   const SHOP_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/;
   const RESERVED_SLUGS = ['admin', 'api', 'app', 'www', 'kargo', 'shop', 'shops', 'store', 'stores', 'login', 'signup', 'register', 'help', 'support', 'settings', 'orders', 'static', 'assets', 'new', 'test', 'demo'];
@@ -488,6 +547,7 @@
     ['sell', 'Make sales', 'Sales'], ['salesAll', 'See everyone\'s sales (off = only their own)', 'Sales'],
     ['payments', 'Record payments & deposits', 'Sales'], ['discount', 'Give discounts / sell below minimum price', 'Sales'],
     ['returns', 'Process returns & refunds', 'Sales'], ['cancel', 'Cancel sales & delete payments', 'Sales'],
+    ['orders', 'Handle online orders', 'Sales'], ['promos', 'Create promotions', 'Sales'],
     ['customers', 'Add & edit customers', 'Sales'], ['credit', 'Sell beyond a customer\'s credit limit', 'Sales'], ['reminders', 'Send payment reminders to customers', 'Sales'],
     ['stockView', 'See stock list', 'Stock'], ['stockEdit', 'Adjust stock, set prices, photos & labels', 'Stock'],
     ['purchases', 'Record purchases', 'Stock'], ['containers', 'Containers & shipping costs', 'Stock'], ['transfers', 'Move stock between branches', 'Stock'], ['audit', 'Do stock counts (inventory audit)', 'Stock'], ['allLocations', 'Work at all locations (off = only their own)', 'Stock'],
@@ -499,14 +559,14 @@
     owner: { label: 'Owner', perms: ALL },
     admin: { label: 'Admin', perms: ALL },
     manager: { label: 'Manager', perms: ALL.filter((p) => !['team', 'settings', 'payroll'].includes(p)) },
-    sales: { label: 'Sales rep', perms: ['sell', 'payments', 'returns', 'customers', 'stockView'] },
+    sales: { label: 'Sales rep', perms: ['sell', 'payments', 'returns', 'customers', 'stockView', 'orders'] },
     viewer: { label: 'Viewer (read only)', perms: ['stockView', 'reports', 'salesAll', 'allLocations'] },
   };
   /** member: {role, perms:{perm: true|false overrides}, active} → {perm: bool} */
   /** Role list with the business's own edits (settings.roles) applied. Owner can never be restricted. */
   function rolesWith(custom) {
     const out = {}; Object.entries(ROLES).forEach(([k, r]) => (out[k] = { label: r.label, perms: r.perms.slice() }));
-    Object.entries(custom || {}).forEach(([k, r]) => { if (k === 'owner' || !r) return; out[k] = { label: r.label || (out[k] || {}).label || k, perms: Array.isArray(r.perms) ? r.perms.filter((p) => ALL.includes(p)) : (out[k] || { perms: [] }).perms, custom: !ROLES[k] }; });
+    Object.entries(custom || {}).forEach(([k, r]) => { if (k === 'owner' || !r) return; out[k] = { label: r.label || (out[k] || {}).label || k, perms: Array.isArray(r.perms) ? r.perms.filter((p) => ALL.includes(p)) : (out[k] || { perms: [] }).perms, custom: !ROLES[k], v: r.v }; });
     return out;
   }
   function permsFor(member, customRoles) {
@@ -516,6 +576,10 @@
     const R = rolesWith(customRoles);
     const r = R[member.role] || R.sales;
     r.perms.forEach((p) => (out[p] = true));
+    if (r.custom !== undefined && !r.v) { // a role saved before 'orders' and 'promos' existed keeps what it could do
+      if (out.sell || out.payments) out.orders = true;
+      if (out.stockEdit) out.promos = true;
+    }
     if (member.role !== 'owner' && member.perms) Object.keys(member.perms).forEach((p) => { if (p in out) out[p] = !!member.perms[p]; });
     return out;
   }
@@ -1006,6 +1070,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

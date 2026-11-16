@@ -46,7 +46,14 @@ const WRITE_PERMS = {
 };
 const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'], promos: ['stockEdit'], staff: ['hr'], attendance: ['hr'], leaves: ['hr'], payroll: ['payroll'] };
 const grp = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
-const perms = (u) => KC.permsFor({ role: u.role, perms: u.perms || {} }, u.customRoles);
+const perms = (u) => {
+  const f = u.features || {};
+  const base = KC.featureOn(f, 'customRoles') ? KC.permsFor({ role: u.role, perms: u.perms || {} }, u.customRoles) : KC.permsFor({ role: u.role }, {}); // no custom roles in the plan → standard roles only
+  return KC.permsWithFeatures(base, f); // a permission whose feature is not in the plan is never granted
+};
+/** 402 when none of the features is in the business's plan */
+const planOff = (res, key) => err(res, 402, (billing.FEATURES[key] || 'This feature') + ' is not included in your plan. Upgrade in Billing & subscription to use it.', { code: 'plan_feature', feature: key });
+const requireFeature = (...keys) => (req, res, next) => (KC.anyOn(req.user.features, keys) ? next() : err(res, 402, (billing.FEATURES[keys[0]] || 'This feature') + ' is not included in your plan. Upgrade in Billing & subscription to use it.', { code: 'plan_feature', feature: keys[0] }));
 // a client may propose a transaction id (offline-created records); otherwise the server makes one
 const TXN_RE = /^[A-Za-z0-9][A-Za-z0-9\-]{3,39}$/;
 async function tenantSettings(c, tid) {
@@ -152,6 +159,7 @@ async function auth(req, res, next) {
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0];
     u.customRoles = (st && st.roles) || {};
     if (p.ro) u.supportView = { by: p.impName || 'Kargo support', until: new Date(p.exp * 1000).toISOString() };
+    u.ent = await billing.limitsFor(pool, u.tenant_id); u.features = u.ent.features; // what the plan includes
     req.user = u; next();
   } catch (e) { console.error('[auth]', e.message); return err(res, 500, 'Server error — please try again'); } // e.g. database down: keep the session
 }
@@ -205,7 +213,7 @@ app.get('/api/me', auth, wrap(async (req, res) => {
   const u = req.user; const sub = await billing.getSub(pool, u.tenant_id); const lim = await billing.limitsFor(pool, u.tenant_id);
   res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
     subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
-    limits: lim.limits, supportView: u.supportView || null });
+    limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null });
 }));
 
 /* ---------- live updates (Server-Sent Events) ---------- */
@@ -287,6 +295,7 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
   if (col === 'handovers' && !P.handover) docs = docs.filter((d) => d.userId === u.id);
   if (col === 'orders' && !P.sell && !P.payments) docs = [];
   if (col === 'assets' && !P.assets) docs = [];
+  if (KC.HIDDEN_WHEN_OFF.includes(col) && !KC.anyOn(u.features, KC.COLLECTION_FEATURE[col])) docs = []; // not in the plan
   const me = KC.staffIdOf(u.id);
   if (col === 'staff') docs = docs.map((d) => {
     if (d.id === me) return d; // your own file, salary included
@@ -306,6 +315,13 @@ async function loadAllSales(c, tid) {
 }
 /** Plan limits on saved records. Returns {status: 402, error, code} or null. */
 async function planGuard(c, u, col, body, old) {
+  const F = u.features || {};
+  const off = (keys) => !KC.anyOn(F, keys) && { status: 402, error: (billing.FEATURES[keys[0]] || 'This feature') + ' is not included in your plan. Upgrade in Billing & subscription to use it.', code: 'plan_feature', feature: keys[0] };
+  if (KC.COLLECTION_FEATURE[col]) { const e = off(KC.COLLECTION_FEATURE[col]); if (e) return e; }
+  if (col === 'locations' && !old) { const e = off(['branches']); if (e) return e; }
+  if (col === 'sales' && body.delivery && body.delivery.mode && body.delivery.mode !== 'pickup' && !(old && old.delivery && old.delivery.mode === body.delivery.mode)) { const e = off(['delivery']); if (e) return e; }
+  if (col === 'products' && body.image && body.image !== (old && old.image)) { const e = off(['photos']); if (e) return e; }
+  if (col === 'settings' && JSON.stringify(body.roles || {}) !== JSON.stringify((old && old.roles) || {})) { const e = off(['customRoles']); if (e) return e; }
   if (col === 'locations' && !old) return billing.checkLimit(c, u.tenant_id, 'maxLocations');
   if (col === 'products' && !old && !body.archived) return billing.checkLimit(c, u.tenant_id, 'maxProducts');
   if (col === 'products' && old && old.archived && !body.archived) return billing.checkLimit(c, u.tenant_id, 'maxProducts');
@@ -400,6 +416,7 @@ async function loadAll(c, tid) {
 
 app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) => {
   const { col, id } = req.params; const u = req.user;
+  if (KC.COLLECTION_FEATURE[col] && !KC.anyOn(u.features, KC.COLLECTION_FEATURE[col])) return planOff(res, KC.COLLECTION_FEATURE[col][0]); // the plan, not a permission
   let receiving = false;
   if (WRITE_PERMS[col] !== null && !anyU(u, WRITE_PERMS[col])) {
     // a branch may receive a transfer addressed to it without the full "move stock" permission
@@ -555,6 +572,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
 
 app.delete('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) => {
   const { col, id } = req.params; const u = req.user;
+  if (KC.COLLECTION_FEATURE[col] && !KC.anyOn(u.features, KC.COLLECTION_FEATURE[col])) return planOff(res, KC.COLLECTION_FEATURE[col][0]);
   if (!anyU(u, DELETE_PERMS[col])) return err(res, 403, 'You do not have permission to delete ' + col);
   if (col === 'sales') return err(res, 400, 'Sales are never deleted — cancel them instead');
   if (col === 'settings') return err(res, 400, 'Settings cannot be deleted');
@@ -574,7 +592,7 @@ app.delete('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, re
 }));
 
 /* ---------- backup / restore (same file format as the hosted app) ---------- */
-app.get('/api/export', auth, requirePerm('export'), wrap(async (req, res) => {
+app.get('/api/export', auth, requireFeature('excel'), requirePerm('export'), wrap(async (req, res) => {
   const r = await q('SELECT collection, id, data FROM documents WHERE tenant_id=$1', [req.user.tenant_id]);
   const data = {}; COLLECTIONS.forEach((c) => (data[c] = []));
   r.rows.forEach((x) => data[x.collection] && data[x.collection].push(Object.assign({}, x.data, { id: x.id })));
@@ -610,8 +628,8 @@ app.get('/api/users', auth, requirePerm('team'), wrap(async (req, res) => {
   res.json({ users: (await q('SELECT id,name,login,email,role,perms,location_id AS "locationId",active,created_at,last_login_at FROM users WHERE tenant_id=$1 ORDER BY created_at', [req.user.tenant_id])).rows });
 }));
 const ROLE_OK_BASE = ['admin', 'manager', 'sales', 'viewer'];
-const roleOk = (u, r) => r !== 'owner' && (ROLE_OK_BASE.includes(r) || !!(u.customRoles && u.customRoles[r]));
-const cleanPerms = (p) => { const o = {}; if (p && typeof p === 'object') KC.PERMS.forEach(([k]) => { if (k in p) o[k] = !!p[k]; }); return o; };
+const roleOk = (u, r) => r !== 'owner' && (ROLE_OK_BASE.includes(r) || (KC.featureOn(u.features, 'customRoles') && !!(u.customRoles && u.customRoles[r])));
+const cleanPerms = (p, u) => { const o = {}; if (u && !KC.featureOn(u.features, 'customRoles')) return o; if (p && typeof p === 'object') KC.PERMS.forEach(([k]) => { if (k in p) o[k] = !!p[k]; }); return o; };
 app.post('/api/users', auth, requireActive, requirePerm('team'), wrap(async (req, res) => {
   const { name, login, password, role, perms: pp, locationId, email, sendEmail } = req.body || {};
   if (!name || !login || !password || !roleOk(req.user, role)) return err(res, 400, 'name, login, password and role (admin|manager|sales|viewer) are required');
@@ -620,7 +638,7 @@ app.post('/api/users', auth, requireActive, requirePerm('team'), wrap(async (req
   if (role === 'admin' && req.user.role !== 'owner' && req.user.role !== 'admin') return err(res, 403, 'Only the owner or an admin can create admins');
   const lim = await billing.checkLimit(pool, req.user.tenant_id, 'maxUsers'); if (lim) return err(res, lim.status, lim.error, { code: lim.code, limit: lim.limit });
   try {
-    const u = (await q('INSERT INTO users(tenant_id,name,login,password_hash,role,perms,location_id,email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,name,login,email,role,perms,location_id', [req.user.tenant_id, name, String(login).trim().toLowerCase(), await bcrypt.hash(String(password), 10), role, JSON.stringify(cleanPerms(pp)), locationId || 'main', cleanEmail(email)])).rows[0];
+    const u = (await q('INSERT INTO users(tenant_id,name,login,password_hash,role,perms,location_id,email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,name,login,email,role,perms,location_id', [req.user.tenant_id, name, String(login).trim().toLowerCase(), await bcrypt.hash(String(password), 10), role, JSON.stringify(cleanPerms(pp, req.user)), locationId || 'main', cleanEmail(email)])).rows[0];
     res.json({ user: u, email: await staffEmail(req, u, String(password), sendEmail, false) });
   } catch (e) { if (e.code === '23505') return err(res, 409, 'Login already in use'); throw e; }
 }));
@@ -636,7 +654,7 @@ app.patch('/api/users/:id', auth, requirePerm('team'), wrap(async (req, res) => 
   if (target.role === 'admin' && !['owner', 'admin'].includes(req.user.role)) return err(res, 403, 'Only the owner or an admin can change an admin');
   if (active === true && !target.active) { const lim = await billing.checkLimit(pool, req.user.tenant_id, 'maxUsers'); if (lim) return err(res, lim.status, lim.error, { code: lim.code, limit: lim.limit }); }
   await q('UPDATE users SET role=COALESCE($1,role), active=COALESCE($2,active), name=COALESCE($3,name), password_hash=COALESCE($4,password_hash), perms=COALESCE($5,perms), location_id=COALESCE($6,location_id) WHERE id=$7',
-    [target.role === 'owner' ? null : role || null, typeof active === 'boolean' && target.role !== 'owner' ? active : null, name || null, password ? await bcrypt.hash(String(password), 10) : null, pp && target.role !== 'owner' ? JSON.stringify(cleanPerms(pp)) : null, locationId || null, target.id]);
+    [target.role === 'owner' ? null : role || null, typeof active === 'boolean' && target.role !== 'owner' ? active : null, name || null, password ? await bcrypt.hash(String(password), 10) : null, pp && target.role !== 'owner' ? JSON.stringify(cleanPerms(pp, req.user)) : null, locationId || null, target.id]);
   if (email !== undefined) await q('UPDATE users SET email=$1 WHERE id=$2', [cleanEmail(email), target.id]);
   const after = (await q('SELECT * FROM users WHERE id=$1', [target.id])).rows[0];
   res.json({ ok: true, email: password ? await staffEmail(req, after, String(password), sendEmail, true) : null });
@@ -650,7 +668,7 @@ async function staffEmail(req, u, password, wanted, reset) {
   return { status: r.status, to, error: r.error || undefined };
 }
 /* plain-language activity history: who did what, where, when, why */
-app.get('/api/activity', auth, wrap(async (req, res) => {
+app.get('/api/activity', auth, requireFeature('activity'), wrap(async (req, res) => {
   const u = req.user; const from = String(req.query.from || new Date().toISOString().slice(0, 10)), to = String(req.query.to || from);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return err(res, 400, 'from/to must be YYYY-MM-DD');
   const all = canU(u, 'activity');
@@ -681,7 +699,7 @@ app.get('/api/audit', auth, requirePerm('team'), wrap(async (req, res) => {
 }));
 
 /* ---------- a sale's receipt by email ---------- */
-app.post('/api/sales/:id/email', auth, wrap(async (req, res) => {
+app.post('/api/sales/:id/email', auth, requireFeature('emailReceipts'), wrap(async (req, res) => {
   if (!anyU(req.user, ['sell', 'payments', 'salesAll'])) return err(res, 403, 'You do not have permission for this');
   const to = cleanEmail((req.body || {}).to); if (!to) return err(res, 400, 'Type a valid email address');
   const row = (await q("SELECT data FROM documents WHERE tenant_id=$1 AND collection='sales' AND id=$2", [req.user.tenant_id, req.params.id])).rows[0];
@@ -694,7 +712,7 @@ app.post('/api/sales/:id/email', auth, wrap(async (req, res) => {
 
 /* ---------- automatic debt reminders ---------- */
 const reminders = require('./reminders');
-app.post('/api/reminders/run', auth, requireActive, requirePerm('reminders'), wrap(async (req, res) => {
+app.post('/api/reminders/run', auth, requireActive, requireFeature('reminders'), requirePerm('reminders'), wrap(async (req, res) => {
   const out = await reminders.runForTenant(req.user.tenant_id, { dryRun: !!(req.body && req.body.dryRun), force: true, by: req.user.name });
   COLLECTIONS.forEach((c) => c === 'reminders' && broadcast(req.user.tenant_id, c));
   res.json(out);
@@ -726,7 +744,7 @@ async function dailyEmails(url) {
 }
 
 /* ---------- product photos ---------- */
-app.post('/api/images', auth, requireActive, express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '4mb' }), wrap(async (req, res) => {
+app.post('/api/images', auth, requireActive, requireFeature('photos'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '4mb' }), wrap(async (req, res) => {
   if (!anyU(req.user, ['stockEdit', 'purchases'])) return err(res, 403, 'You do not have permission to add photos');
   if (!Buffer.isBuffer(req.body) || !req.body.length) return err(res, 400, 'Send a JPEG, PNG or WebP image');
   const r = await q('INSERT INTO images(tenant_id,content_type,data) VALUES ($1,$2,$3) RETURNING id', [req.user.tenant_id, req.headers['content-type'], req.body]);
@@ -764,7 +782,8 @@ const shopOrderLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(proce
 async function shopTenant(key) {
   if (!SHOP_KEY_RE.test(String(key || ''))) return null;
   const r = await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND (lower(d.data->>'shopSlug')=lower($1) OR d.data->>'shopId'=$1) AND (d.data->>'shopEnabled')::boolean IS TRUE AND t.status <> 'suspended' LIMIT 1", [key]);
-  return r.rows[0] ? { tid: r.rows[0].tenant_id, settings: Object.assign({}, KC.DEFAULT_SETTINGS, r.rows[0].data) } : null;
+  if (!r.rows[0] || !KC.featureOn((await billing.limitsFor(pool, r.rows[0].tenant_id)).features, 'onlineShop')) return null; // not in the plan → the shop is closed
+  return { tid: r.rows[0].tenant_id, settings: Object.assign({}, KC.DEFAULT_SETTINGS, r.rows[0].data) };
 }
 app.get('/api/shop/:key', shopReadLimiter, wrap(async (req, res) => {
   const t = await shopTenant(req.params.key); if (!t) return err(res, 404, 'This shop is not available');

@@ -11,8 +11,11 @@
   const fmtDT = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
   const ago = (d) => { if (!d) return 'never'; const s = (Date.now() - new Date(d).getTime()) / 1000; if (s < 90) return 'just now'; if (s < 5400) return Math.round(s / 60) + ' min ago'; if (s < 129600) return Math.round(s / 3600) + ' h ago'; return Math.round(s / 86400) + ' days ago'; };
   const daysLeft = (d) => (d ? Math.ceil((new Date(d).getTime() - Date.now()) / 864e5) : null);
-  const can = (p) => !!S.me && !S.me.admin.perms.includes('!' + p) && (S.me.admin.perms.includes('*') || S.me.admin.perms.includes(p));
-  const ROLE_NAME = { super: 'Super Admin', admin: 'Admin', support: 'Support', finance: 'Finance' };
+  const can = (p) => !!S.me && S.me.admin.perms.includes(p); // the server sends the admin's resolved permissions
+  const roleName = (id) => (id === 'super' ? 'Super Admin' : ((S.roles || []).find((r) => r.id === id) || {}).name || (S.me && S.me.admin.role === id ? S.me.roleName : id));
+  async function loadRoles() { const r = await api('GET', '/roles'); S.roles = r.roles; S.permCatalog = r.catalog; return r; }
+  /** grouped checkboxes for a catalog of [key, label, group] */
+  const checkGroups = (catalog, isOn, prefix) => { const g = {}; catalog.forEach(([k, l, grp, d]) => (g[grp] = g[grp] || []).push([k, l, d])); return '<div class="cgroups">' + Object.entries(g).map(([grp, items]) => '<fieldset class="cgroup"><legend>' + esc(grp) + ' <button type="button" class="link tiny" data-act="cgAll">all</button></legend>' + items.map(([k, l, d]) => '<label class="check" title="' + esc(d || '') + '"><input type="checkbox" name="' + prefix + k + '"' + (isOn(k) ? ' checked' : '') + '> ' + esc(l) + '</label>').join('') + '</fieldset>').join('') + '</div>'; };
   const STATUS = { trialing: ['Free trial', 'info'], active: ['Active', 'ok'], past_due: ['Payment overdue', 'warn'], expired: ['Expired', 'bad'], suspended: ['Suspended', 'bad'], cancelled: ['Cancelled', 'warn'] };
   const stBadge = (s) => { const x = STATUS[s] || [s || '—', '']; return '<span class="badge ' + x[1] + '">' + esc(x[0]) + '</span>'; };
   const INV = { open: 'warn', paid: 'ok', void: '' }; const PAY = { pending: 'warn', confirmed: 'ok', rejected: 'bad' };
@@ -132,7 +135,7 @@
   }
 
   /* ---------- shell & routing ---------- */
-  const NAV = [['overview', 'Overview', 'tenants.view'], ['tenants', 'Businesses', 'tenants.view'], ['plans', 'Plans', 'plans.view'], ['billing', 'Billing', 'billing'], ['support', 'Support', 'support'], ['health', 'Health', 'health.view'], ['security', 'Security', ''], ['settings', 'Settings', 'plans.view']];
+  const NAV = [['overview', 'Overview', 'overview.view'], ['tenants', 'Businesses', 'tenants.view'], ['plans', 'Plans', 'plans.view'], ['billing', 'Billing', 'billing'], ['support', 'Support', 'support'], ['health', 'Health', 'health.view'], ['security', 'Security', ''], ['settings', 'Settings', 'plans.view']];
   async function boot() {
     try { S.me = await api('GET', '/me'); } catch (e) { if (!e.quiet) renderLogin(); return; }
     if (S.me.admin.mustChangePassword) return renderChangePw();
@@ -141,7 +144,7 @@
   function shell() {
     const a = S.me.admin;
     $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side"><div class="brand"><div class="mark">K</div><div>Kargo<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div>' +
-      '<div class="who"><b>' + esc(a.name) + '</b>' + esc(a.email) + ' · ' + esc(ROLE_NAME[a.role] || a.role) + '<div class="mt"><button class="btn sm block" data-act="logout">Sign out</button></div></div></aside>' +
+      '<div class="who"><b>' + esc(a.name) + '</b>' + esc(a.email) + ' · ' + esc(roleName(a.role)) + '<div class="mt"><button class="btn sm block" data-act="logout">Sign out</button></div></div></aside>' +
       '<div class="main"><header class="top"><button class="btn sm menu-btn" data-act="menu" aria-label="Menu">☰</button><h1 id="title"></h1><span class="tiny faint" id="idle"></span></header><main class="view" id="view"></main></div></div>';
     drawNav();
   }
@@ -154,7 +157,7 @@
     if (!S.me) return;
     $('#side') && $('#side').classList.remove('open');
     const parts = location.hash.slice(2).split('/'); let r = parts[0] || 'overview';
-    const n = NAV.find((x) => x[0] === r); if (!n || (n[2] && !can(n[2]))) r = can('tenants.view') ? 'overview' : 'security';
+    const n = NAV.find((x) => x[0] === r); if (!n || (n[2] && !can(n[2]))) r = can('overview.view') ? 'overview' : can('tenants.view') ? 'tenants' : 'security';
     $('#title').textContent = r === 'tenants' && parts[1] ? 'Business' : (NAV.find((x) => x[0] === r) || [0, 'Admin'])[1];
     drawNav(S.counts); const view = $('#view'); view.innerHTML = '<div class="empty">Loading…</div>';
     try { await PAGES[r](view, parts.slice(1)); } catch (e) { if (!e.quiet) view.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; }
@@ -188,7 +191,7 @@
     v.innerHTML = '<div class="row mb"><input class="inp grow" id="tq" placeholder="Search business, owner name, login or email" value="' + esc(f.q) + '" style="max-width:420px">' +
       sel('ts', [['', 'All statuses']].concat(Object.entries(STATUS).map(([k, x]) => [k, x[0]])), f.status, 'id="ts" style="width:auto"') +
       sel('tp', [['', 'All plans']].concat(S.plans.map((p) => [p.id, p.name])), f.plan, 'id="tp" style="width:auto"') +
-      '<span class="grow"></span><a class="btn sm" href="/api/admin/export/tenants">Export CSV</a></div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
+      '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
     let page = 0; let timer;
     const load = async (more) => {
       page = more ? page + 1 : 0;
@@ -224,10 +227,12 @@
         '<dt>Shop</dt><dd>' + (d.settings.shopSlug ? esc('/s/' + d.settings.shopSlug) + (d.settings.shopEnabled ? '' : ' (off)') : '—') + '</dd><dt>Records</dt><dd>' + esc((d.counts.products || 0) + ' items · ' + (d.counts.sales || 0) + ' sales · ' + (d.counts.customers || 0) + ' customers') + '</dd></dl>' +
         '<div class="row mt">' + (s.status === 'suspended' ? A('tReactivate', 'Reactivate', 'pri', 'tenants.suspend') : A('tSuspend', 'Suspend', 'danger', 'tenants.suspend')) + (s.plan_id && !['cancelled', 'expired', 'suspended'].includes(s.status) ? A('tCancel', 'Cancel at period end', '', 'subs.write') : '') + '</div></section>' +
       '<section class="card pad2"><h2 class="mb">Usage</h2>' + Object.entries(LBL).map(([k, l]) => { const used = d.usage[k]; const max = lim[k]; const pct = max ? Math.min(100, used / max * 100) : 0; return '<div class="mb"><div class="row between small"><span>' + l + '</span><b>' + esc(used) + (max ? ' / ' + esc(max) : ' · unlimited') + '</b></div>' + (max ? '<div class="meter' + (used >= max ? ' full' : '') + '"><span style="width:' + pct + '%"></span></div>' : '') + '</div>'; }).join('') +
-        '<div class="small muted">' + ['onlineShop', 'payroll', 'autoReminders'].map((k) => ({ onlineShop: 'Online shop', payroll: 'Payroll', autoReminders: 'Auto reminders' })[k] + ': ' + (lim[k] === false ? '✕' : '✓')).join(' · ') + (s.status === 'trialing' ? ' — everything is open during the trial' : '') + '</div>' +
+        '<div class="row between mt"><h3>Features</h3>' + (can('tenants.features') ? '<button class="btn sm" data-act="tFeatures">Customize for this business</button>' : '') + '</div>' +
+        '<div class="small muted mb">' + (s.status === 'trialing' ? 'Everything is open during the free trial.' : 'From the plan' + (Object.keys((s.overrides || {}).modules || {}).length || Object.keys((s.overrides || {}).limits || {}).length ? ', with this business\'s own changes.' : '.')) + '</div>' +
+        '<div class="fchips">' + d.catalog.map(([k, l]) => { const on = d.features[k] !== false; const ovr = ((s.overrides || {}).modules || {})[k]; return '<span class="fchip ' + (on ? 'on' : 'off') + '" title="' + esc(ovr === undefined ? 'from the plan' : 'changed for this business') + '">' + (on ? '✓ ' : '✕ ') + esc(l) + (ovr !== undefined ? ' *' : '') + '</span>'; }).join('') + '</div>' +
         '<h3 class="mt2 mb">Owner & team</h3>' + table([{ label: 'Name', v: (u) => esc(u.name) + (u.active ? '' : ' <span class="badge">disabled</span>') }, { label: 'Login', v: (u) => esc(u.email || u.login) }, { label: 'Role', v: (u) => esc(u.role) }, { label: 'Last sign-in', v: (u) => esc(ago(u.last_login_at)) }], d.users) + '</section></div>' +
       '<section class="card pad2 mb2"><div class="row between mb"><h2>Invoices</h2><div class="row">' + A('tInvoice', 'New invoice', '', 'billing.write') + A('tPay', 'Record payment', 'pri', 'billing.write') + '</div></div>' +
-        table([{ label: 'Number', v: (i) => '<span class="mono">' + esc(i.number) + '</span>' }, { label: 'Plan', v: (i) => esc((i.plan_name || i.plan_id || '') + ' · ' + i.cycle) }, { label: 'Period', v: (i) => esc(fmtD(i.period_start) + ' → ' + fmtD(i.period_end)) }, { label: 'Amount', num: true, v: (i) => esc(money(i.amount, i.currency)) }, { label: 'Due', v: (i) => esc(fmtD(i.due_date)) }, { label: 'Status', v: (i) => badge(i.status, INV[i.status]) + (i.void_reason ? '<div class="tiny faint">' + esc(i.void_reason) + '</div>' : '') }, { label: '', v: (i) => (i.status === 'open' && can('billing.write') ? '<button class="btn sm" data-act="iVoid" data-id="' + i.id + '">Void</button>' : '') }], d.invoices, { empty: 'No invoices yet.' }) + '</section>' +
+        table([{ label: 'Number', v: (i) => '<span class="mono">' + esc(i.number) + '</span>' }, { label: 'Plan', v: (i) => esc((i.plan_name || i.plan_id || '') + ' · ' + i.cycle) }, { label: 'Period', v: (i) => esc(fmtD(i.period_start) + ' → ' + fmtD(i.period_end)) }, { label: 'Amount', num: true, v: (i) => esc(money(i.amount, i.currency)) }, { label: 'Due', v: (i) => esc(fmtD(i.due_date)) }, { label: 'Status', v: (i) => badge(i.status, INV[i.status]) + (i.void_reason ? '<div class="tiny faint">' + esc(i.void_reason) + '</div>' : '') }, { label: '', v: (i) => (i.status === 'open' && can('billing.void') ? '<button class="btn sm" data-act="iVoid" data-id="' + i.id + '">Void</button>' : '') }], d.invoices, { empty: 'No invoices yet.' }) + '</section>' +
       '<section class="card pad2 mb2"><h2 class="mb">Payments</h2>' + payTable(d.payments, false) + '</section>' +
       '<div class="grid2"><section class="card pad2"><h2 class="mb">Recent activity in the business</h2>' + table([{ label: 'When', v: (a) => esc(fmtDT(a.at)) }, { label: 'Who', v: (a) => esc(a.user_name || '') }, { label: 'What', v: (a) => esc(a.action + (a.collection ? ' ' + a.collection : '')) }], d.activity, { empty: 'No activity yet.' }) + '</section>' +
       '<section class="card pad2"><h2 class="mb">Admin actions on this business</h2>' + table([{ label: 'When', v: (a) => esc(fmtDT(a.at)) }, { label: 'Admin', v: (a) => esc(a.admin_email || '') }, { label: 'Action', v: (a) => esc(a.action.replace(/_/g, ' ')) + (a.reason ? '<div class="tiny faint">' + esc(a.reason) + '</div>' : '') }], d.adminLog, { empty: 'None.' }) +
@@ -244,6 +249,21 @@
   async function subAction(body, okMsg) { await api('POST', '/tenants/' + S.t.tenant.id + '/subscription', body); closeModal(); toast(okMsg); route(); }
   const planOpts = () => S.plans.filter((p) => p.active).map((p) => [p.id, p.name + (p.price_monthly !== null ? ' · ' + money(p.price_monthly) + '/mo' : '') + (p.price_yearly !== null ? ' · ' + money(p.price_yearly) + '/yr' : '')]);
   const ACT = {
+    cgAll: (el) => { const fs = el.closest('fieldset'); const boxes = $$('input[type=checkbox]', fs); const all = boxes.every((b) => b.checked); boxes.forEach((b) => (b.checked = !all)); },
+    tFeatures: () => {
+      const d = S.t; const s = d.subscription; const ov = s.overrides || {}; const om = ov.modules || {}; const ol = ov.limits || {}; const pm = s.status === 'trialing' ? {} : s.modules || {}; const pl = s.status === 'trialing' ? {} : s.limits || {};
+      const g = {}; d.catalog.forEach(([k, l, grp]) => (g[grp] = g[grp] || []).push([k, l]));
+      const box = modal({ title: 'Features for ' + d.tenant.name, wide: true, body: '<p class="small muted" style="margin-top:0">Start from the plan' + (s.plan_name ? ' (' + esc(s.plan_name) + ')' : '') + ', then give or take away single features for this business only.</p>' +
+        '<div class="cgroups">' + Object.entries(g).map(([grp, items]) => '<fieldset class="cgroup"><legend>' + esc(grp) + '</legend>' + items.map(([k, l]) => '<div class="frow"><span class="grow">' + esc(l) + ' <span class="tiny faint">plan: ' + (pm[k] === false ? 'off' : 'on') + '</span></span>' + sel('M_' + k, [['', 'As plan'], ['on', 'On'], ['off', 'Off']], om[k] === true ? 'on' : om[k] === false ? 'off' : '', 'style="width:auto;min-height:34px;padding:4px 8px"') + '</div>').join('') + '</fieldset>').join('') + '</div>' +
+        '<h3 class="mt">Limits</h3><div class="grid3">' + [['maxUsers', 'Team members'], ['maxLocations', 'Branches'], ['maxProducts', 'Items']].map(([k, l]) => field(l + ' (plan: ' + (pl[k] || '∞') + ')', inp('L_' + k, ol[k] || '', 'inputmode="numeric" placeholder="as plan"'))).join('') + '</div>' +
+        reasonField(false), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });
+      $('#go', box).onclick = (e) => busy(e.target, async () => {
+        const v = vals(box); const modules = {}, limits = {};
+        d.catalog.forEach(([k]) => { if (v['M_' + k] === 'on') modules[k] = true; if (v['M_' + k] === 'off') modules[k] = false; });
+        ['maxUsers', 'maxLocations', 'maxProducts'].forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
+        await api('POST', '/tenants/' + d.tenant.id + '/features', { modules, limits, reason: v.reason }); closeModal(); toast('Saved — the business sees the change within seconds'); route();
+      });
+    },
     menu: () => $('#side').classList.toggle('open'),
     logout: async () => { await api('POST', '/auth/logout').catch(() => { }); S.me = null; renderLogin('You are signed out.'); },
     tPlan: () => { const s = S.t.subscription; const box = modal({ title: 'Change plan', body: '<div class="col">' + field('Plan', sel('planId', planOpts(), s.plan_id || '')) + '<div class="grid2">' + field('Billed', sel('cycle', [['monthly', 'Monthly'], ['yearly', 'Yearly']], s.cycle)) + field('Price for this business (FCFA)', inp('price', '', 'inputmode="numeric" placeholder="Plan price"')) + '</div>' + field('Paid until (optional)', inp('periodEnd', '', 'type="date"')) + '<div class="tiny muted">Without a date: the current paid period is kept, or one period starts today.</div>' + reasonField(true) + '</div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Change plan</button>' });
@@ -284,7 +304,8 @@
 
   PAGES.plans = async (v) => {
     const d = await api('GET', '/plans'); S.plans = d.plans; S.limitKeys = d.limitKeys;
-    const lim = (p) => { const L = p.limits || {}; const parts = []; Object.entries(d.limitKeys.counts).forEach(([k, l]) => parts.push((L[k] ? L[k] : '∞') + ' ' + l.split(' (')[0])); Object.entries(d.limitKeys.features).forEach(([k, l]) => { if (L[k] === false) parts.push('no ' + l.toLowerCase()); }); return parts.join(' · '); };
+    S.catalog = d.catalog;
+    const lim = (p) => { const L = p.limits || {}; const off = d.catalog.filter(([k]) => (p.modules || {})[k] === false).length; return Object.entries(d.limitKeys.counts).map(([k, l]) => (L[k] ? L[k] : '∞') + ' ' + l.split(' (')[0]).join(' · ') + ' · ' + (d.catalog.length - off) + '/' + d.catalog.length + ' features'; };
     v.innerHTML = '<div class="row between mb"><p class="muted small" style="margin:0">Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes. During the free trial everything is open.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
       '<div class="card">' + table([
         { label: 'Plan', v: (p) => '<b>' + esc(p.name) + '</b> <span class="tiny faint mono">' + esc(p.id) + '</span><div class="tiny faint">' + esc(p.description) + '</div>' },
@@ -295,20 +316,20 @@
       ], d.plans) + '</div>';
   };
   function planModal(p) {
-    const isNew = !p; p = p || { limits: {}, features: [], active: true, public: false, sort: (S.plans || []).length + 1 }; const L = p.limits || {};
+    const isNew = !p; p = p || { limits: {}, modules: {}, features: [], active: true, public: false, sort: (S.plans || []).length + 1 }; const L = p.limits || {}; const Mo = p.modules || {};
     const box = modal({ title: isNew ? 'New plan' : 'Edit ' + p.name, wide: true, body: '<div class="col">' +
       '<div class="grid2">' + (isNew ? field('Code (cannot change later)', inp('id', '', 'placeholder="e.g. pro" autocapitalize="off"')) : '') + field('Name', inp('name', p.name)) + '</div>' + field('Short description', inp('description', p.description)) +
       '<div class="grid3">' + field('Monthly price (FCFA)', inp('price_monthly', p.price_monthly, 'inputmode="numeric" placeholder="not sold monthly"')) + field('Yearly price (FCFA)', inp('price_yearly', p.price_yearly, 'inputmode="numeric" placeholder="not sold yearly"')) + field('Order', inp('sort', p.sort, 'inputmode="numeric"')) + '</div>' +
       '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.entries(S.limitKeys.counts).map(([k, l]) => field(l[0].toUpperCase() + l.slice(1), inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
-      '<div class="row">' + Object.entries(S.limitKeys.features).map(([k, l]) => '<label class="check"><input type="checkbox" name="F_' + k + '"' + (L[k] === false ? '' : ' checked') + '> ' + esc(l) + '</label>').join('') + '</div>' +
+      '<h3>Features in this plan <span class="tiny faint">(unticked = hidden from the business)</span></h3>' + checkGroups(S.catalog, (k) => Mo[k] !== false, 'F_') +
       field('Lines on the plan card (one per line)', '<textarea class="inp" name="features" rows="4">' + esc((p.features || []).join('\n')) + '</textarea>') +
       '<div class="row"><label class="check"><input type="checkbox" name="active"' + (p.active ? ' checked' : '') + '> Can be chosen</label><label class="check"><input type="checkbox" name="public"' + (p.public ? ' checked' : '') + '> Shown to businesses</label></div></div>',
       foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">' + (isNew ? 'Create plan' : 'Save plan') + '</button>' });
     $('#go', box).onclick = (e) => busy(e.target, async () => {
       const v = vals(box); const limits = {};
       Object.keys(S.limitKeys.counts).forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
-      Object.keys(S.limitKeys.features).forEach((k) => { if (!v['F_' + k]) limits[k] = false; });
-      const body = { id: v.id, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, features: v.features.split('\n') };
+      const modules = {}; S.catalog.forEach(([k]) => { if (!v['F_' + k]) modules[k] = false; });
+      const body = { id: v.id, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };
       if (isNew) await api('POST', '/plans', body); else await api('PUT', '/plans/' + encodeURIComponent(p.id), body);
       closeModal(); toast('Plan saved'); S.plans = null; route();
     });
@@ -324,11 +345,11 @@
       html += '<p class="muted small">Businesses tapped “I have paid”. Check the money arrived on your MoMo / Orange Money / bank account with the reference, then confirm.</p><div class="card">' + payTable(d.payments, true) + '</div>';
     } else if (tab === 'invoices') {
       const f = S.if || (S.if = ''); const d = await api('GET', '/invoices?status=' + f);
-      html += '<div class="row mb">' + sel('if', [['', 'All'], ['open', 'Open'], ['overdue', 'Overdue'], ['paid', 'Paid'], ['void', 'Void']], f, 'id="if" style="width:auto"') + '<span class="grow"></span><a class="btn sm" href="/api/admin/export/invoices">Export CSV</a></div><div class="card">' +
+      html += '<div class="row mb">' + sel('if', [['', 'All'], ['open', 'Open'], ['overdue', 'Overdue'], ['paid', 'Paid'], ['void', 'Void']], f, 'id="if" style="width:auto"') + '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" href="/api/admin/export/invoices">Export CSV</a>' : '') + '</div><div class="card">' +
         table([{ label: 'Number', v: (i) => '<span class="mono">' + esc(i.number) + '</span>' }, { label: 'Business', v: (i) => '<a href="#/tenants/' + esc(i.tenant_id) + '">' + esc(i.tenant) + '</a>' }, { label: 'Plan', v: (i) => esc((i.plan_name || '') + ' · ' + i.cycle) }, { label: 'Amount', num: true, v: (i) => esc(money(i.amount, i.currency)) }, { label: 'Due', v: (i) => esc(fmtD(i.due_date)) + (i.status === 'open' && daysLeft(i.due_date + 'T23:59:59') < 0 ? ' <span class="badge bad">overdue</span>' : '') }, { label: 'Status', v: (i) => badge(i.status, INV[i.status]) }, { label: 'By', v: (i) => '<span class="tiny faint">' + esc(i.created_by) + '</span>' }], d.invoices, { empty: 'No invoices.' }) + '</div>';
     } else {
       const d = await api('GET', '/payments');
-      html += '<div class="row mb"><span class="grow"></span><a class="btn sm" href="/api/admin/export/payments">Export CSV</a></div><div class="card">' + payTable(d.payments, true) + '</div>';
+      html += '<div class="row mb"><span class="grow"></span>' + (can('export') ? '<a class="btn sm" href="/api/admin/export/payments">Export CSV</a>' : '') + '</div><div class="card">' + payTable(d.payments, true) + '</div>';
     }
     v.innerHTML = html;
     if ($('#if')) $('#if').onchange = (e) => { S.if = e.target.value; route(); };
@@ -362,13 +383,18 @@
   };
 
   PAGES.security = async (v) => {
+    if (can('admins.manage')) await loadRoles();
     const a = S.me.admin; const d = await api('GET', '/admins');
-    let html = '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">My account</h2><dl class="kv"><dt>Name</dt><dd>' + esc(a.name) + '</dd><dt>Email</dt><dd>' + esc(a.email) + '</dd><dt>Role</dt><dd>' + esc(ROLE_NAME[a.role] || a.role) + '</dd>' + (S.me.twoFactor ? '<dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd>' : '<dt>Two-step sign-in</dt><dd><span class="badge warn">Off for now</span></dd>') + '</dl>' +
+    let html = '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">My account</h2><dl class="kv"><dt>Name</dt><dd>' + esc(a.name) + '</dd><dt>Email</dt><dd>' + esc(a.email) + '</dd><dt>Role</dt><dd>' + esc(roleName(a.role)) + '</dd>' + (S.me.twoFactor ? '<dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd>' : '<dt>Two-step sign-in</dt><dd><span class="badge warn">Off for now</span></dd>') + '</dl>' +
       '<div class="row mt"><button class="btn" data-act4="myPw">Change password</button>' + (S.me.twoFactor ? '<button class="btn" data-act4="myCodes">New recovery codes</button>' : '') + '</div></section>' +
       '<section class="card pad2"><h2 class="mb">Active sessions</h2>' + table([{ label: 'Admin', v: (s) => esc(s.email) + (s.current ? ' <span class="badge ok">this one</span>' : '') }, { label: 'Device', v: (s) => '<span class="tiny">' + esc((s.user_agent || '').slice(0, 60)) + '</span><div class="tiny faint">' + esc(s.ip) + '</div>' }, { label: 'Seen', v: (s) => esc(ago(s.last_seen_at)) }, { label: '', v: (s) => (s.current ? '' : '<button class="btn sm" data-act4="endSession" data-id="' + esc(s.id) + '">End</button>') }], d.sessions) + '</section></div>';
     if (can('admins.manage')) {
+      html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Roles</h2><button class="btn" data-act4="roleNew">New role</button></div>' +
+        table([{ label: 'Role', v: (r) => '<b>' + esc(r.name) + '</b>' + (r.builtin ? ' <span class="badge">built-in</span>' : '') + '<div class="tiny faint">' + esc(r.description) + '</div>' }, { label: 'Permissions', num: true, v: (r) => esc((r.perms || []).length + ' / ' + S.permCatalog.length) }, { label: 'Admins', num: true, v: (r) => esc(r.admins) },
+          { label: '', v: (r) => '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="roleEdit" data-id="' + esc(r.id) + '">Edit</button>' + (r.builtin ? '' : '<button class="btn sm danger" data-act4="roleDel" data-id="' + esc(r.id) + '">Delete</button>') + '</div>' }], S.roles) +
+        '<p class="tiny muted mt">The Super Admin can do everything and is the only one who manages admins and roles.</p></section>';
       html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Admins</h2><button class="btn pri" data-act4="admAdd">Add admin</button></div>' +
-        table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => (x.role === 'super' ? badge('Super Admin', 'info') : esc(ROLE_NAME[x.role] || x.role)) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
+        table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => (x.role === 'super' ? badge('Super Admin', 'info') : esc(roleName(x.role))) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
           { label: 'Last sign-in', v: (x) => esc(ago(x.last_login_at)) + (x.last_login_ip ? '<div class="tiny faint">' + esc(x.last_login_ip) + '</div>' : '') }, { label: 'Status', v: (x) => (x.active ? (x.locked_until && new Date(x.locked_until) > new Date() ? badge('Locked', 'bad') : badge('Active', 'ok')) : badge('Disabled')) },
           { label: '', v: (x) => (x.id === a.id || x.role === 'super' ? '' : '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="admRole" data-id="' + x.id + '" data-role="' + esc(x.role) + '" data-name="' + esc(x.name) + '">Change role</button>' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
     }
@@ -380,23 +406,38 @@
     v.innerHTML = html;
     let t; ['afA', 'afW'].forEach((id) => { const el = $('#' + id); if (el) el.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.af = { action: $('#afA').value.trim(), admin: $('#afW').value.trim() }; route(); }, 400); }; });
   };
-  const ROLE_HELP = { admin: 'Admin — everything except adding or changing admins', support: 'Support — businesses, view as owner, owner password resets, support inbox', finance: 'Finance — invoices, payments, subscriptions' };
+  const roleOpts = () => (S.roles || []).map((r) => [r.id, r.name + (r.description ? ' — ' + r.description : '')]);
+  function roleModal(r) {
+    const isNew = !r; r = r || { name: '', description: '', perms: [] };
+    const box = modal({ title: isNew ? 'New role' : 'Edit role · ' + r.name, wide: true, body: '<div class="col"><div class="grid2">' + field('Name', inp('name', r.name, 'placeholder="e.g. Sales follow-up"')) + field('What it is for', inp('description', r.description)) + '</div>' +
+      '<h3>Permissions</h3>' + checkGroups(S.permCatalog, (k) => (r.perms || []).includes(k), 'P_') + '<div class="tiny muted">Admins with this role get exactly these permissions. Managing admins and roles stays with the Super Admin.</div></div>',
+      foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">' + (isNew ? 'Create role' : 'Save role') + '</button>' });
+    $('#go', box).onclick = (e) => busy(e.target, async () => {
+      const v = vals(box); const perms = S.permCatalog.map(([k]) => k).filter((k) => v['P_' + k]);
+      if (isNew) await api('POST', '/roles', { name: v.name, description: v.description, perms }); else await api('PUT', '/roles/' + encodeURIComponent(r.id), { name: v.name, description: v.description, perms });
+      closeModal(); toast('Role saved'); route();
+    });
+  }
   const ACT4 = {
+    roleNew: () => roleModal(null),
+    roleEdit: (el) => roleModal(S.roles.find((r) => r.id === el.dataset.id)),
+    roleDel: (el) => { const r = S.roles.find((x) => x.id === el.dataset.id); const box = modal({ title: 'Delete role ' + r.name + '?', body: '<p class="small muted">Only a role nobody has can be deleted.</p>', foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Delete</button>' });
+      $('#go', box).onclick = (e) => busy(e.target, async () => { await api('DELETE', '/roles/' + encodeURIComponent(r.id)); closeModal(); toast('Role deleted'); route(); }); },
     admAdd: () => {
       const box = modal({ title: 'Add an admin', body: '<div class="col">' + field('Full name', inp('name', '', 'autocomplete="off"')) + field('Email', inp('email', '', 'type="email" autocomplete="off"')) +
-        field('Role', sel('role', Object.entries(ROLE_HELP), 'support')) + '<label class="check"><input type="checkbox" name="sendEmail" checked> Email them their sign-in details</label>' +
+        field('Role', sel('role', roleOpts(), (S.roles.find((r) => r.id === 'support') || S.roles[0] || {}).id)) + '<label class="check"><input type="checkbox" name="sendEmail" checked> Email them their sign-in details</label>' +
         '<div class="tiny muted">They get a temporary password and choose their own at the first sign-in. Give only the access they need.</div></div>',
         foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Add admin</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => {
         const r = await api('POST', '/admins', vals(box));
-        modal({ title: 'Admin added', body: '<p class="small"><b>' + esc(r.admin.name) + '</b> · ' + esc(r.admin.email) + ' · ' + esc(r.admin.role) + '</p><p class="small muted">Temporary password (shown only now):</p><div class="secret mb">' + esc(r.password) + '</div>' +
+        modal({ title: 'Admin added', body: '<p class="small"><b>' + esc(r.admin.name) + '</b> · ' + esc(r.admin.email) + ' · ' + esc(roleName(r.admin.role)) + '</p><p class="small muted">Temporary password (shown only now):</p><div class="secret mb">' + esc(r.password) + '</div>' +
           '<p class="small muted">' + (r.emailed === 'sent' ? 'Their sign-in details were emailed to them.' : 'Not emailed' + (r.emailed === 'skipped' ? ' (email is not set up on the server)' : '') + ' — send them the address <b>' + esc(r.url) + '</b> and this password in a private way.') + '</p>',
           foot: '<button class="btn pri" data-close>Done</button>' });
         route();
       });
     },
     admRole: (el) => {
-      const box = modal({ title: 'Change role · ' + el.dataset.name, body: field('Role', sel('role', Object.entries(ROLE_HELP), el.dataset.role)), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });
+      const box = modal({ title: 'Change role · ' + el.dataset.name, body: field('Role', sel('role', roleOpts(), el.dataset.role)), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => { await api('POST', '/admins/' + el.dataset.id + '/role', vals(box)); closeModal(); toast('Role changed'); route(); });
     },
     myPw: () => { const box = modal({ title: 'Change password', body: '<div class="col">' + field('Current password', inp('current', '', 'type="password" autocomplete="current-password"')) + field('New password (12+ characters)', inp('password', '', 'type="password" autocomplete="new-password"')) + field('Type it again', inp('password2', '', 'type="password" autocomplete="new-password"')) + '<div class="tiny muted">Your other sessions are signed out.</div></div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });

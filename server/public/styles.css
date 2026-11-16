@@ -1193,3 +1193,13 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .meter { height: 6px; border-radius: 99px; background: var(--line2); overflow: hidden; margin-top: 4px; }
 .meter span { display: block; height: 100%; background: var(--brand); }
 .meter.full span { background: var(--bad); }
+
+/* features outside the business's plan (body.nf-<feature>) */
+.nf-photos [data-a=pickPhoto], .nf-photos [data-a=quickPhoto], .nf-photos [data-a=puPhoto], .nf-photos #asPhoto,
+.nf-labels [data-a=labels], .nf-labels [data-a=labelOne],
+.nf-emailReceipts [data-a=rcMail],
+.nf-branches #locBtn,
+.nf-customRoles [data-a=roleEdit], .nf-customRoles .member-perms,
+.nf-tills [data-a=tillGive], .nf-tills [data-a=tillAccept], .nf-tills .till-in,
+.nf-autoReminders .auto-rem,
+.nf-credit .credit-only { display: none !important; }
