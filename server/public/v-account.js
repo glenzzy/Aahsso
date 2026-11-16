@@ -25,6 +25,14 @@ function subState() {
   if (d !== null && d < 0) return { label: 'Payment overdue', tone: 'bad', days: d };
   return { label: planName(t.plan) + (d !== null && d <= 14 ? ' · renews in ' + d + ' day' + (d === 1 ? '' : 's') : ''), tone: d !== null && d <= 7 ? 'warn' : 'ok', days: d };
 }
+/** the current plan, one line: "Starter · Free trial · 4 days left" */
+function planLine() {
+  const sb = (K._bill && K._bill.subscription) || K.info.subscription; if (!sb) return '';
+  const st = subState(); const name = sb.planName || (sb.status === 'trialing' ? 'Free trial' : 'No plan');
+  const left = sb.status === 'trialing' && sb.trialEndsAt ? Math.max(0, Math.ceil((new Date(sb.trialEndsAt).getTime() - Date.now()) / 864e5)) : null;
+  const tag = sb.status === 'trialing' ? (sb.planName ? 'Free trial · ' : '') + left + ' day' + (left === 1 ? '' : 's') + ' left' : sb.status === 'active' ? 'Active' : (sb.statusLabel || sb.status);
+  return '<div class="pm-plan" role="note"><span class="pm-plan-l">Current plan</span><span class="pm-plan-v"><b>' + esc(name) + '</b> <span class="badge ' + st.tone + '">' + esc(tag) + '</span></span></div>';
+}
 function drawAvatar() {
   const box = document.getElementById('pmenu'); if (!box) return;
   const name = myName();
@@ -39,9 +47,9 @@ function openPMenu() {
   const item = (href, icon, label, extra) => '<a role="menuitem" tabindex="-1" class="pm-item" href="' + href + '">' + ic(icon) + '<span class="grow">' + label + '</span>' + (extra || '') + '</a>';
   const pop = document.createElement('div');
   pop.id = 'pmPop'; pop.className = 'pm-pop'; pop.setAttribute('role', 'menu'); pop.setAttribute('aria-label', 'Account');
-  pop.innerHTML = '<div class="pm-head">' + avatarHTML(name, 'lg') + '<div class="grow" style="min-width:0"><div class="pm-n">' + esc(name) + '</div><div class="pm-s">' + esc(role) + ' · ' + esc(S().businessName || '') + '</div>' + (u.email || u.login ? '<div class="pm-s ellipsis">' + esc(u.email || u.login) + '</div>' : '') + '</div></div>' +
+  pop.innerHTML = '<div class="pm-head">' + avatarHTML(name, 'lg') + '<div class="grow" style="min-width:0"><div class="pm-n">' + esc(name) + '</div><div class="pm-s">' + esc(role) + ' · ' + esc(S().businessName || '') + '</div>' + (u.email || u.login ? '<div class="pm-s ellipsis">' + esc(u.email || u.login) + '</div>' : '') + '</div></div>' + (saas ? planLine() : '') +
     '<div class="pm-list">' + item('#profile', 'user', 'Profile') +
-      (saas && canBilling() ? item('#billing', 'card', 'Billing & subscription', '<span class="badge ' + sub.tone + '">' + esc(sub.label.replace(/^Trial · /, '')) + '</span>') : '') +
+      (saas && canBilling() ? item('#billing', 'card', 'Billing & subscription') : '') +
       item('#help', 'help', 'Help & support') + '</div>' +
     (saas ? '<div class="pm-list pm-foot"><button type="button" role="menuitem" tabindex="-1" class="pm-item pm-out" data-a="logoutAsk">' + ic('logout') + '<span class="grow">Log out</span></button></div>' : '');
   document.body.appendChild(pop);
@@ -221,17 +229,33 @@ function planTable(b) {
       '<div class="pt-name">' + esc(p.name) + '</div>' + (p.description ? '<div class="pt-desc">' + esc(p.description) + '</div>' : '') + priceHtml + '<div class="pt-cta">' + cta(p) + '</div></th>';
   };
   const tick = (on) => '<td class="pt-cell">' + (on ? '<span class="pt-tick" role="img" aria-label="Included">' + ic('check') + '</span>' : '<span class="sr-only">Not included</span>') + '</td>';
-  const row = (label, cells, desc) => '<tr><th scope="row" class="pt-feat">' + esc(label) + (desc ? '<span class="pt-fdesc">' + esc(desc) + '</span>' : '') + '</th>' + cells + '</tr>';
-  const group = (title) => '<tr class="pt-group"><th scope="rowgroup" colspan="' + (plans.length + 1) + '">' + esc(title) + '</th></tr>';
+  const open = K.ui.ptOpen || (K.ui.ptOpen = { Limits: true }); // which groups are expanded (remembered while the app is open)
+  let curG = '';
+  const row = (label, cells, desc) => '<tr class="pt-row" data-g="' + esc(curG) + '"' + (open[curG] ? '' : ' hidden') + '><th scope="row" class="pt-feat">' + esc(label) + (desc ? '<span class="pt-fdesc">' + esc(desc) + '</span>' : '') + '</th>' + cells + '</tr>';
+  /** a group heading row: click to expand / collapse; when folded, each plan shows how many of the group's features it has */
+  const group = (title, keys) => { curG = title; const isOpen = !!open[title];
+    return '<tr class="pt-group' + (isOpen ? ' open' : '') + '" data-g="' + esc(title) + '"><th scope="rowgroup" class="pt-gth"><button type="button" class="pt-gbtn" data-a="ptGroup" data-g="' + esc(title) + '" aria-expanded="' + isOpen + '">' + ic('down', 'sm') + '<span>' + esc(title) + '</span>' + (keys ? '<span class="pt-gn">' + keys.length + '</span>' : '') + '</button></th>' +
+      plans.map((p) => '<td class="pt-cell pt-gsum">' + (keys ? (() => { const n = keys.filter((k) => (p.modules || {})[k] !== false).length; return '<span class="pt-gcount' + (n === keys.length ? ' all' : n ? '' : ' none') + '">' + n + ' / ' + keys.length + '</span>'; })() : '') + '</td>').join('') + '</tr>'; };
   const lim = (p, k) => { const v = (p.limits || {})[k]; return '<td class="pt-cell pt-val">' + (v ? esc(fmt(v)) : 'Unlimited') + '</td>'; };
   let body = group('Limits') + row('Team members', plans.map((p) => lim(p, 'maxUsers')).join('')) + row('Branches', plans.map((p) => lim(p, 'maxLocations')).join(''), 'Including the main one') + row('Items', plans.map((p) => lim(p, 'maxProducts')).join(''));
   const groups = {}; (b.catalog || []).forEach(([k, l, g, d]) => (groups[g] = groups[g] || []).push([k, l, d]));
-  Object.entries(groups).forEach(([g, items]) => { body += group(g) + items.map(([k, l, d]) => row(l, plans.map((p) => tick((p.modules || {})[k] !== false)).join(''), d)).join(''); });
+  Object.entries(groups).forEach(([g, items]) => { body += group(g, items.map((x) => x[0])) + items.map(([k, l, d]) => row(l, plans.map((p) => tick((p.modules || {})[k] !== false)).join(''), d)).join(''); });
   body += group('Always included') + row('Essentials', plans.map(() => tick(true)).join(''), ALWAYS);
   const toggle = hasM && hasY ? '<div class="bill-cycle pt-toggle" role="group" aria-label="Billing period"><button class="' + (cyc === 'monthly' ? 'on' : '') + '" data-a="billCycle" data-v="monthly" aria-pressed="' + (cyc === 'monthly') + '">Monthly</button><button class="' + (cyc === 'yearly' ? 'on' : '') + '" data-a="billCycle" data-v="yearly" aria-pressed="' + (cyc === 'yearly') + '">Yearly' + (save > 0 ? ' <span class="pt-save">save up to ' + save + '%</span>' : '') + '</button></div>' : '';
-  return toggle + '<div class="pt-wrap" role="region" aria-label="Plans compared" tabindex="0"><table class="ptable"><thead><tr><th class="pt-feat pt-corner"><span class="pt-corner-t">Compare plans</span><span class="pt-fdesc">Limits and features of each plan</span></th>' + plans.map(head).join('') + '</tr></thead><tbody>' + body + '</tbody>' +
+  const allOpen = ['Limits'].concat(Object.keys(groups), ['Always included']).every((g) => open[g]);
+  const tools = '<div class="pt-tools">' + toggle + '<div class="pt-fold"><button type="button" class="btn sm" data-a="ptAll" data-v="1"' + (allOpen ? ' disabled' : '') + '>' + ic('down', 'sm') + 'Expand all</button><button type="button" class="btn sm" data-a="ptAll" data-v="0">' + ic('up', 'sm') + 'Collapse all</button></div></div>';
+  return tools + '<div class="pt-wrap" role="region" aria-label="Plans compared" tabindex="0"><table class="ptable"><thead><tr><th class="pt-feat pt-corner"><span class="pt-corner-t">Compare plans</span><span class="pt-fdesc">Limits and features of each plan</span></th>' + plans.map(head).join('') + '</tr></thead><tbody>' + body + '</tbody>' +
     '<tfoot><tr><th class="pt-feat"></th>' + plans.map((p) => '<td class="pt-cell">' + cta(p) + '</td>').join('') + '</tr></tfoot></table></div>';
 }
+/* fold / unfold groups without redrawing the page (keeps the scroll position) */
+function ptApply() {
+  const open = K.ui.ptOpen || {};
+  $$('.ptable .pt-group').forEach((r) => { const g = r.dataset.g; const o = !!open[g]; r.classList.toggle('open', o); const b = $('.pt-gbtn', r); if (b) b.setAttribute('aria-expanded', o); });
+  $$('.ptable .pt-row').forEach((r) => { r.hidden = !open[r.dataset.g]; });
+  const all = $$('.ptable .pt-group').every((r) => open[r.dataset.g]); const ex = $('[data-a=ptAll][data-v="1"]'); if (ex) ex.disabled = all;
+}
+A.ptGroup = (el) => { const o = K.ui.ptOpen || (K.ui.ptOpen = {}); o[el.dataset.g] = !o[el.dataset.g]; ptApply(); };
+A.ptAll = (el) => { const o = K.ui.ptOpen = {}; if (el.dataset.v === '1') $$('.ptable .pt-group').forEach((r) => (o[r.dataset.g] = true)); ptApply(); if (el.dataset.v === '0') { const w = $('.pt-wrap'); if (w) { w.scrollTop = 0; w.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } } };
 /** after sign-up (and from the Home reminder): choose a plan */
 VIEWS.plans = {
   render() {

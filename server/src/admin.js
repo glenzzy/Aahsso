@@ -482,7 +482,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const b = req.body || {}; const pi = b.paymentInstructions || {}; const cut = (v, n) => String(v || '').trim().slice(0, n);
     const v = {
       paymentInstructions: { momoNumber: cut(pi.momoNumber, 30), momoName: cut(pi.momoName, 60), omNumber: cut(pi.omNumber, 30), omName: cut(pi.omName, 60), bank: cut(pi.bank, 200), note: cut(pi.note, 300) },
-      graceDays: Math.min(60, Math.max(0, Math.round(Number(b.graceDays) || 0))), trialDays: Math.min(365, Math.max(0, Math.round(Number(b.trialDays) || 0))),
+      graceDays: Math.min(60, Math.max(0, Math.round(Number(b.graceDays) || 0))),
       renewalNoticeDays: Math.min(30, Math.max(1, Math.round(Number(b.renewalNoticeDays) || 7))), invoiceDueDays: Math.min(60, Math.max(0, Math.round(Number(b.invoiceDueDays) || 0))),
     };
     for (const [k, val] of Object.entries(v)) await q('INSERT INTO platform_settings (key, value, updated_by) VALUES ($1,$2,$3) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now(), updated_by=EXCLUDED.updated_by', [k, JSON.stringify(val), req.admin.id]);

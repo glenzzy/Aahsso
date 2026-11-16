@@ -92,7 +92,7 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   if (String(password).length < 6) return err(res, 400, 'Password must be at least 6 characters');
   const l = String(login).trim().toLowerCase();
   if ((await q('SELECT 1 FROM users WHERE login=$1', [l])).rowCount) return err(res, 409, 'This login is already registered');
-  const days = Number((await billing.platformSettings()).trialDays) || 0;
+  const days = billing.FREE_TRIAL_DAYS; // 5-day free trial
   const user = await tx(async (c) => {
     const t = (await c.query("INSERT INTO tenants(name, trial_ends_at) VALUES ($1, now() + ($2 || ' days')::interval) RETURNING id, trial_ends_at", [businessName, String(days)])).rows[0];
     await billing.ensureSub(c, t.id, t.trial_ends_at); await billing.syncTenant(c, t.id);

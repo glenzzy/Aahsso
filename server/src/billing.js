@@ -8,13 +8,14 @@ const mailer = require('./mailer');
 const COUNT_LIMITS = { maxUsers: 'team members', maxLocations: 'branches (including the main one)', maxProducts: 'items' };
 const FEATURES = Object.fromEntries(KC.FEATURES.map(([k, l]) => [k, l])); // every business feature a plan can include
 const LIMIT_KEYS = Object.keys(COUNT_LIMITS);
+const FREE_TRIAL_DAYS = 5; // the free trial: after sign-up, and on a Free plan (fixed — not an env or admin setting)
 /** a plan without any price is Free: choosing it starts the free trial (once per business) */
 const isFree = (p) => p && (p.price_monthly === null || p.price_monthly === undefined) && (p.price_yearly === null || p.price_yearly === undefined);
 const PAY_METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
 const STATUS_LABEL = { trialing: 'Free trial', active: 'Active', past_due: 'Payment overdue', expired: 'Expired', suspended: 'Suspended', cancelled: 'Cancelled' };
 
 /* ---------- platform settings ---------- */
-const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, trialDays: Number(process.env.TRIAL_DAYS || 5), renewalNoticeDays: 7, invoiceDueDays: 7 };
+const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, renewalNoticeDays: 7, invoiceDueDays: 7 };
 async function platformSettings(c = pool) {
   const rows = (await c.query('SELECT key, value FROM platform_settings')).rows;
   const o = JSON.parse(JSON.stringify(DEFAULTS)); rows.forEach((r) => { o[r.key] = r.value; });
@@ -206,7 +207,7 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
       limits: (await limitsFor(pool, tid)).limits, features: (await limitsFor(pool, tid)).features, catalog: KC.FEATURES, usage: await usage(pool, tid), plans: await plansPublic(),
       invoices: (await q('SELECT i.id, i.number, i.plan_id, p.name AS plan_name, i.cycle, i.period_start, i.period_end, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.created_by FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE i.tenant_id=$1 ORDER BY i.issued_at DESC LIMIT 36', [tid])).rows,
       payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
-      instructions: S.paymentInstructions, methods: PAY_METHODS, trialDays: Number(S.trialDays) || 5, trialAvailable: !!s && s.status === 'trialing',
+      instructions: S.paymentInstructions, methods: PAY_METHODS, trialDays: FREE_TRIAL_DAYS, trialAvailable: !!s && s.status === 'trialing',
     });
   }));
   // the business picks a plan: an invoice to pay (reuses an open one for the same plan)
@@ -217,7 +218,7 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
     if (isFree(plan)) { // Free = the free trial, with this plan's features
       const s = await getSub(pool, tid); const S0 = await platformSettings();
       if (!s || s.status !== 'trialing') return err(res, 400, s && s.plan_id && s.status === 'active' ? 'You already have a paid plan' : 'Your free trial has ended — choose a paid plan to continue');
-      const ends = s.trial_ends_at && new Date(s.trial_ends_at) > new Date() ? s.trial_ends_at : new Date(Date.now() + (Number(S0.trialDays) || 5) * 864e5);
+      const ends = s.trial_ends_at && new Date(s.trial_ends_at) > new Date() ? s.trial_ends_at : new Date(Date.now() + FREE_TRIAL_DAYS * 864e5);
       await tx((c) => setSub(c, tid, { plan_id: plan.id, status: 'trialing', trial_ends_at: ends, price: 0 }));
       return res.json({ trial: true, plan: plan.name, trialEndsAt: ends });
     }
@@ -251,4 +252,4 @@ function mountTenant(app, { auth, wrap, err, canU, tx }) {
   }));
 }
 
-module.exports = { isFree, COUNT_LIMITS, FEATURES, LIMIT_KEYS, PAY_METHODS, STATUS_LABEL, DEFAULTS, platformSettings, addPeriod, dayStr, money, invalidate, checkFeature, getSub, ensureSub, syncTenant, setSub, limitsFor, usage, checkLimit, createInvoice, applyPayment, ownerOf, mailOwner, mailAdmins, invoiceMail, daily, mountTenant };
+module.exports = { FREE_TRIAL_DAYS, isFree, COUNT_LIMITS, FEATURES, LIMIT_KEYS, PAY_METHODS, STATUS_LABEL, DEFAULTS, platformSettings, addPeriod, dayStr, money, invalidate, checkFeature, getSub, ensureSub, syncTenant, setSub, limitsFor, usage, checkLimit, createInvoice, applyPayment, ownerOf, mailOwner, mailAdmins, invoiceMail, daily, mountTenant };
