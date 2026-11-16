@@ -112,6 +112,9 @@ A.reqAccess = async () => {
 };
 
 (async function boot() {
+  // read-only support view opened from the Kargo admin: the token stays in this tab only
+  const imp = (location.hash.match(/^#imp=([A-Za-z0-9._-]+)/) || [])[1];
+  if (imp) { try { sessionStorage.setItem('kargo-imp', imp); } catch (e) { } history.replaceState(null, '', location.pathname); }
   const { store, info } = await createStore();
   if (info.mode === 'login' || (info.mode === 'saas' && new URLSearchParams(location.search).get('reset'))) return renderLogin();
   if (info.mode === 'signedout') { $('#view').innerHTML = '<div class="card pad2" style="max-width:520px;margin:20px auto"><h2>Please sign in</h2><p class="muted">Sign in to claude.ai, then open this link again.</p></div>'; $('#title').textContent = 'Kargo'; return; }
@@ -120,7 +123,8 @@ A.reqAccess = async () => {
   loadOutbox();
   const cachedAt = info.mode === 'local' ? null : loadCache();
   if (cachedAt) K.sync = 'offline';
-  if (info.mode === 'saas') A.logout = () => { localStorage.removeItem('kargo-token'); location.reload(); };
+  if (info.mode === 'saas') A.logout = () => { if (info.supportView) { sessionStorage.removeItem('kargo-imp'); window.close(); return location.reload(); } localStorage.removeItem('kargo-token'); location.reload(); };
+  if (info.supportView) supportBanner(info.supportView);
   resolveAccess(); if (info.mode === 'cloud' && !cachedAt) K.member = null; // decided once the team list loads (or from the cached copy)
   if (cachedAt) recompute();
   const cols = COLLECTIONS.concat(info.mode === 'cloud' ? TEAM_COLLECTIONS : []);

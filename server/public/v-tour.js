@@ -52,6 +52,6 @@ A.tourTry = (el) => { const v = el.dataset.v; endTour(); A[v](); };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && K.tour && !K.sheets.length) endTour(); });
 /** First visit: start the tour once, for people who set things up (not for sales-only staff). */
 function maybeTour() {
-  if (K.tour || tourDone() || !K.member || !can('purchases') || K.raw.products.length || K.sheets.length || K.sync === 'loading') return;
+  if (K.info.supportView || K.tour || tourDone() || !K.member || !can('purchases') || K.raw.products.length || K.sheets.length || K.sync === 'loading') return;
   setTimeout(() => { if (!K.tour && !tourDone() && K.route === 'home' && !K.sheets.length && !K.raw.products.length) startTour(); }, 500);
 }

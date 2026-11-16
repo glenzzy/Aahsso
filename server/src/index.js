@@ -14,6 +14,8 @@ const { q, tx, pool } = require('./db');
 const KC = require('../public/compute.js'); // same business logic as the browser
 const mailer = require('./mailer');
 const { migrate } = require('./migrate');
+const billing = require('./billing');
+const mountAdmin = require('./admin');
 /* The database schema is brought up to date before the first request is served (also on Vercel, where there is no start
    script). If it fails, requests get a clear 503 instead of odd errors, and the next request tries again. */
 let schemaReady = null;
@@ -67,13 +69,14 @@ if (origins.length) app.use(cors({ origin: origins }));
 app.use('/api/shop', express.json({ limit: '64kb' })); // public, no login: keep requests small
 app.use(express.json({ limit: '25mb' }));
 app.use('/api', (req, res, next) => ensureSchema().then(() => next(), (e) => { console.error('[migrate]', e.message); err(res, 503, 'The server is updating its database. Please try again in a moment.'); }));
+mountAdmin(app, { tenantSecret: SECRET, KC }); // platform admin: its own host, accounts, sessions — see src/admin.js
 
 const err = (res, status, error, extra) => res.status(status).json(Object.assign({ error }, extra || {}));
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const sign = (u) => jwt.sign({ uid: u.id, tid: u.tenant_id, role: u.role }, SECRET, { expiresIn: '30d' });
 
 /* ---------- auth ---------- */
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: Number(process.env.AUTH_RATE) || 50 });
 app.use('/api/', rateLimit({ windowMs: 60 * 1000, max: Number(process.env.API_RATE_PER_MIN || 1200), standardHeaders: true, legacyHeaders: false }));
 
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
@@ -82,9 +85,10 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   if (String(password).length < 6) return err(res, 400, 'Password must be at least 6 characters');
   const l = String(login).trim().toLowerCase();
   if ((await q('SELECT 1 FROM users WHERE login=$1', [l])).rowCount) return err(res, 409, 'This login is already registered');
-  const days = Number(process.env.TRIAL_DAYS || 30);
+  const days = Number((await billing.platformSettings()).trialDays) || 0;
   const user = await tx(async (c) => {
-    const t = (await c.query("INSERT INTO tenants(name, trial_ends_at) VALUES ($1, now() + ($2 || ' days')::interval) RETURNING id", [businessName, String(days)])).rows[0];
+    const t = (await c.query("INSERT INTO tenants(name, trial_ends_at) VALUES ($1, now() + ($2 || ' days')::interval) RETURNING id, trial_ends_at", [businessName, String(days)])).rows[0];
+    await billing.ensureSub(c, t.id, t.trial_ends_at); await billing.syncTenant(c, t.id);
     const u = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,email) VALUES ($1,$2,$3,$4,'owner',$5) RETURNING *", [t.id, name, l, await bcrypt.hash(String(password), 10), cleanEmail(email)])).rows[0];
     await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName })), u.id]);
     await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action) VALUES ($1,$2,$3,'main','register')", [t.id, u.id, name]);
@@ -142,10 +146,12 @@ async function auth(req, res, next) {
   const token = h.startsWith('Bearer ') ? h.slice(7) : req.query.token;
   try {
     let p; try { p = jwt.verify(token, SECRET); } catch (e) { return err(res, 401, 'Please sign in'); } // only a bad/expired token signs you out
-    const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.email,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.plan,t.status,t.trial_ends_at,t.paid_until FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
+    if (p.ro && !['GET', 'HEAD'].includes(req.method)) return err(res, 403, 'Kargo support view is read-only — nothing can be changed', { code: 'read_only' });
+    const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.email,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.plan,t.status,t.trial_ends_at,t.paid_until,t.grace_days FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
     if (!u || !u.active) return err(res, 401, 'Session expired');
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0];
     u.customRoles = (st && st.roles) || {};
+    if (p.ro) u.supportView = { by: p.impName || 'Kargo support', until: new Date(p.exp * 1000).toISOString() };
     req.user = u; next();
   } catch (e) { console.error('[auth]', e.message); return err(res, 500, 'Server error — please try again'); } // e.g. database down: keep the session
 }
@@ -154,10 +160,8 @@ function subscriptionOk(u) {
   if (u.status === 'suspended') return false;
   const now = Date.now();
   if (u.plan === 'trial') return !u.trial_ends_at || new Date(u.trial_ends_at).getTime() > now;
-  return !u.paid_until || new Date(u.paid_until).getTime() > now - 7 * 864e5; // 7-day grace
+  return !u.paid_until || new Date(u.paid_until).getTime() > now - (u.grace_days ?? 7) * 864e5; // grace period after the paid period ends
 }
-/** Plans shown on the Billing page, from PLANS (JSON: [{id, name, price, features:[]}]). Empty = no list, just "contact us". */
-const PLANS = () => { try { const p = JSON.parse(process.env.PLANS || '[]'); return Array.isArray(p) ? p.slice(0, 6).map((x) => ({ id: String(x.id || ''), name: String(x.name || x.id || ''), price: String(x.price || ''), features: (Array.isArray(x.features) ? x.features : []).slice(0, 12).map(String) })) : []; } catch (e) { return []; } };
 const requireActive = (req, res, next) => subscriptionOk(req.user) ? next() : err(res, 402, 'Subscription inactive — renew to keep recording. You can still view and export your data.', { code: 'subscription' });
 const requireRole = (...roles) => (req, res, next) => roles.includes(req.user.role) ? next() : err(res, 403, 'Not allowed for your role');
 const requirePerm = (p) => (req, res, next) => canU(req.user, p) ? next() : err(res, 403, 'You do not have permission for this');
@@ -188,18 +192,21 @@ app.post('/api/support', auth, supportLimiter, wrap(async (req, res) => {
   const { topic, message, page } = req.body || {};
   const msg = String(message || '').trim();
   if (msg.length < 5) return err(res, 400, 'Tell us a bit more (at least a few words)');
-  const to = SUPPORT().email;
-  if (!to || !mailer.enabled()) return err(res, 503, 'Messages to support are not set up on this server yet' + (SUPPORT().whatsapp ? ' — please use WhatsApp.' : '.'));
-  const u = req.user; const reply = mailer.emailOf(u);
+  const to = SUPPORT().email; const u = req.user; const reply = mailer.emailOf(u);
+  const tk = (await q('INSERT INTO support_tickets (tenant_id, user_id, user_name, email, topic, page) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', [u.tenant_id, u.id, u.name, reply, String(topic || 'Question').slice(0, 80), String(page || '').slice(0, 60)])).rows[0];
+  await q("INSERT INTO support_messages (ticket_id, author, author_name, body) VALUES ($1,'user',$2,$3)", [tk.id, u.name, msg.slice(0, 4000)]);
+  if (!to || !mailer.enabled()) return res.json({ ok: true, replyTo: reply || '', ticket: tk.id });
   const r = await mailer.sendEmail(Object.assign({ to, kind: 'support', tenantId: u.tenant_id, replyTo: reply || undefined }, mailer.T.support({ business: u.tenant_name, from: u.name, login: u.login, email: reply || '', role: u.role, plan: u.plan + (u.status !== 'active' ? ' (' + u.status + ')' : ''), topic: String(topic || 'Question').slice(0, 80), message: msg.slice(0, 4000), page: String(page || '').slice(0, 60), tenantId: u.tenant_id })));
-  if (r.status === 'failed') return err(res, 502, 'Your message could not be sent: ' + r.error);
-  res.json({ ok: true, replyTo: reply || '' });
+  res.json({ ok: true, replyTo: reply || '', ticket: tk.id, emailed: r.status }); // the ticket is saved even if the email failed
 }));
+billing.mountTenant(app, { auth, wrap, err, canU, tx });
 app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enabled(), from: mailer.enabled() ? mailer.FROM() : '' }));
-app.get('/api/me', auth, (req, res) => {
-  const u = req.user;
-  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(), plans: PLANS() });
-});
+app.get('/api/me', auth, wrap(async (req, res) => {
+  const u = req.user; const sub = await billing.getSub(pool, u.tenant_id); const lim = await billing.limitsFor(pool, u.tenant_id);
+  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
+    subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
+    limits: lim.limits, supportView: u.supportView || null });
+}));
 
 /* ---------- live updates (Server-Sent Events) ---------- */
 // Two sources, so it works on one long-running server AND on Vercel (many short-lived instances):
@@ -296,6 +303,18 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
 async function loadAllSales(c, tid) {
   const r = await c.query("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('sales','tills')", [tid]);
   const out = { sales: [], tills: [] }; r.rows.forEach((x) => out[x.collection].push(Object.assign({}, x.data, { id: x.id }))); return out;
+}
+/** Plan limits on saved records. Returns {status: 402, error, code} or null. */
+async function planGuard(c, u, col, body, old) {
+  if (col === 'locations' && !old) return billing.checkLimit(c, u.tenant_id, 'maxLocations');
+  if (col === 'products' && !old && !body.archived) return billing.checkLimit(c, u.tenant_id, 'maxProducts');
+  if (col === 'products' && old && old.archived && !body.archived) return billing.checkLimit(c, u.tenant_id, 'maxProducts');
+  if (col === 'settings') {
+    if (body.shopEnabled && !(old && old.shopEnabled)) { const e = await billing.checkLimit(c, u.tenant_id, 'onlineShop'); if (e) return e; }
+    if (body.autoReminders && !(old && old.autoReminders)) { const e = await billing.checkLimit(c, u.tenant_id, 'autoReminders'); if (e) return e; }
+  }
+  if (col === 'payroll') return billing.checkLimit(c, u.tenant_id, 'payroll');
+  return null;
 }
 /** Server rules for staff records. Returns {status, error} to refuse, or null. May correct `body`. */
 async function staffRules(c, u, P, col, id, body, old) {
@@ -407,6 +426,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       body.expectedTotal = KC.collectedBy(await loadAllSales(c, u.tenant_id), body.userId, body.date).total; // never trust the client's own total
     }
     if (col === 'audits' && body.status === 'applied' && !P.stockEdit) return { status: 403, error: 'Only a manager can approve a stock count' };
+    const planErr = await planGuard(c, u, col, body, prev ? prev.data : null); if (planErr) return planErr;
     if (['attendance', 'leaves', 'tills', 'staff'].includes(col)) { const why = await staffRules(c, u, P, col, id, body, prev ? prev.data : null); if (why) return why; }
     if (col === 'settings') {
       const old = prev ? prev.data : {};
@@ -528,7 +548,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
     await c.query('INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,collection,doc_id,before,after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [u.tenant_id, u.id, u.name, body.locationId || body.to || u.location_id || 'main', prev ? 'update' : 'create', col, id, prev ? JSON.stringify(prev.data) : null, JSON.stringify(body)]);
     return { ok: true };
   }); } catch (e) { if (e.code === '23505' && col === 'settings') return err(res, 409, 'This shop address was just taken by another shop. Choose another.'); throw e; }
-  if (result.error) return err(res, result.status, result.error, result.details ? { details: result.details } : undefined);
+  if (result.error) return err(res, result.status, result.error, result.details ? { details: result.details } : result.code ? { code: result.code, limit: result.limit } : undefined);
   broadcast(u.tenant_id, col, id);
   res.json({ ok: true });
 }));
@@ -598,6 +618,7 @@ app.post('/api/users', auth, requireActive, requirePerm('team'), wrap(async (req
   if (email && !mailer.isEmail(email)) return err(res, 400, 'Type a valid email address (or leave it empty)');
   if (String(password).length < 6) return err(res, 400, 'Password must be at least 6 characters');
   if (role === 'admin' && req.user.role !== 'owner' && req.user.role !== 'admin') return err(res, 403, 'Only the owner or an admin can create admins');
+  const lim = await billing.checkLimit(pool, req.user.tenant_id, 'maxUsers'); if (lim) return err(res, lim.status, lim.error, { code: lim.code, limit: lim.limit });
   try {
     const u = (await q('INSERT INTO users(tenant_id,name,login,password_hash,role,perms,location_id,email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,name,login,email,role,perms,location_id', [req.user.tenant_id, name, String(login).trim().toLowerCase(), await bcrypt.hash(String(password), 10), role, JSON.stringify(cleanPerms(pp)), locationId || 'main', cleanEmail(email)])).rows[0];
     res.json({ user: u, email: await staffEmail(req, u, String(password), sendEmail, false) });
@@ -613,6 +634,7 @@ app.patch('/api/users/:id', auth, requirePerm('team'), wrap(async (req, res) => 
   if (target.id === req.user.id && (role || active === false || pp)) return err(res, 400, 'You cannot change your own role, permissions or disable yourself');
   if (role === 'admin' && !['owner', 'admin'].includes(req.user.role)) return err(res, 403, 'Only the owner or an admin can make someone an admin');
   if (target.role === 'admin' && !['owner', 'admin'].includes(req.user.role)) return err(res, 403, 'Only the owner or an admin can change an admin');
+  if (active === true && !target.active) { const lim = await billing.checkLimit(pool, req.user.tenant_id, 'maxUsers'); if (lim) return err(res, lim.status, lim.error, { code: lim.code, limit: lim.limit }); }
   await q('UPDATE users SET role=COALESCE($1,role), active=COALESCE($2,active), name=COALESCE($3,name), password_hash=COALESCE($4,password_hash), perms=COALESCE($5,perms), location_id=COALESCE($6,location_id) WHERE id=$7',
     [target.role === 'owner' ? null : role || null, typeof active === 'boolean' && target.role !== 'owner' ? active : null, name || null, password ? await bcrypt.hash(String(password), 10) : null, pp && target.role !== 'owner' ? JSON.stringify(cleanPerms(pp)) : null, locationId || null, target.id]);
   if (email !== undefined) await q('UPDATE users SET email=$1 WHERE id=$2', [cleanEmail(email), target.id]);
@@ -644,6 +666,8 @@ app.get('/api/activity', auth, wrap(async (req, res) => {
     const base = { at: new Date(r.at).toISOString(), uid: r.user_id, user: r.user_name || '—', role: (roles[r.role] || { label: r.role || '' }).label, loc: r.location_id || 'main', col: r.collection, id: r.doc_id };
     if (r.action === 'login') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Signed in' }));
     if (r.action === 'register') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Created the business account' }));
+    if (r.action === 'support_view') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Kargo support viewed your account (read-only)', reason: (r.after || {}).reason || '' }));
+    if (r.action === 'support_password') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Kargo support reset the owner password', reason: (r.after || {}).reason || '' }));
     if (r.action === 'import') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Restored a backup (' + r.doc_id + ' records)' }));
     if (!r.collection) return;
     let lines = []; try { lines = KC.describeChange(r.collection, r.before, r.action === 'delete' ? null : r.after || r.before, L); } catch (e) { lines = [{ type: KC.ACT_TYPES[r.collection] || r.collection, text: r.action + ' ' + r.collection }]; }
@@ -697,7 +721,8 @@ async function dailyEmails(url) {
       if (r.status === 'sent' || r.status === 'skipped') sent++;
     }
   }
-  return { trialEnding: sent };
+  let bill = {}; try { bill = await billing.daily(url || mailer.appUrl()); } catch (e) { console.error('[billing] daily', e.message); }
+  return { trialEnding: sent, billing: bill };
 }
 
 /* ---------- product photos ---------- */

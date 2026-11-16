@@ -8,9 +8,11 @@
     "dev": "node --watch src/index.js",
     "migrate": "node src/migrate.js",
     "import-backup": "node scripts/import-backup.js",
-    "test": "node scripts/sync-public.js --check && node --test test/compute.test.js test/staff.test.js",
+    "test": "node scripts/sync-public.js --check && node --test test/compute.test.js test/staff.test.js test/platform.test.js",
     "test:api": "node --test test/api.test.js",
     "test:email": "node --test test/email.test.js",
+    "test:admin": "node --test test/admin-api.test.js",
+    "admin": "node scripts/admin.js",
     "seed-demo": "node scripts/seed-demo.js",
     "sync-public": "node scripts/sync-public.js",
     "deploy:vercel": "node scripts/sync-public.js && vercel deploy --prod"
@@ -27,6 +29,7 @@
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.12.0"
+    "pg": "^8.12.0",
+    "qrcode": "^1.5.4"
   }
 }

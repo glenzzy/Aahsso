@@ -72,6 +72,7 @@ function layout({ business, title, intro, rows, button, outro, footnote }) {
   const text = [title, '', strip(intro), '', ...(rows || []).filter((r) => r && r[1]).map(([k, v]) => k + ': ' + v), button ? '\n' + button.label + ': ' + button.url : '', outro ? '\n' + strip(outro) : '', '', strip(footnote || 'Sent by Kargo for ' + (business || 'your business') + '.')].join('\n').replace(/\n{3,}/g, '\n\n');
   return { html, text };
 }
+const payRows = (p) => { p = p || {}; return [['MTN MoMo', p.momoNumber ? p.momoNumber + (p.momoName ? ' (' + p.momoName + ')' : '') : ''], ['Orange Money', p.omNumber ? p.omNumber + (p.omName ? ' (' + p.omName + ')' : '') : ''], ['Bank', p.bank || ''], ['Note', p.note || '']]; };
 const ROLE_NAMES = { owner: 'Owner', admin: 'Admin', manager: 'Manager', sales: 'Sales', viewer: 'Viewer' };
 const T = {
   /** New team member, or a password reset by the owner / an admin: their login and password. */
@@ -95,6 +96,47 @@ const T = {
       intro: 'Hello ' + esc(name) + ',<br>we got a request to reset the password of your Kargo account. The link works once, for ' + minutes + ' minutes.',
       button: { label: 'Choose a new password', url },
       outro: 'If you did not ask for this, ignore this email — your password stays the same.', footnote: 'Kargo account security.' }));
+  },
+  invoiceIssued({ name, business, number, plan, amount, due, period, pay, url }) {
+    return Object.assign({ subject: 'Kargo invoice ' + number + ' — ' + amount }, layout({ business, title: 'Your Kargo invoice ' + number,
+      intro: 'Hello ' + esc(name) + ',<br>here is the invoice for your Kargo subscription.',
+      rows: [['Plan', plan], ['Period', period], ['Amount', amount, true], ['Pay by', due], ...payRows(pay)],
+      button: { label: 'View and pay', url },
+      outro: 'After paying, open Billing & subscription in Kargo and tap <b>I have paid</b> with the transaction reference.' }));
+  },
+  invoiceReminder({ name, business, number, amount, due, days, pay, url }) {
+    const when = days > 0 ? 'is due in ' + days + ' days (' + due + ')' : days === 0 ? 'is due today' : 'was due on ' + due;
+    return Object.assign({ subject: 'Reminder: Kargo invoice ' + number + ' ' + when.split(' (')[0] }, layout({ business, title: 'Invoice ' + number + ' ' + when,
+      intro: 'Hello ' + esc(name) + ',<br>this is a reminder about your Kargo subscription.' + (days < 0 ? ' Recording new sales and stock pauses when the grace period ends; your data stays safe and can always be exported.' : ''),
+      rows: [['Amount', amount, true], ['Due', due], ...payRows(pay)], button: { label: 'Pay now', url } }));
+  },
+  subscriptionEnded({ name, business, trial, url }) {
+    return Object.assign({ subject: trial ? 'Your Kargo free trial has ended' : 'Your Kargo subscription has ended' }, layout({ business, title: trial ? 'Your free trial has ended' : 'Your subscription has ended',
+      intro: 'Hello ' + esc(name) + ',<br>' + esc(business) + ' can still open Kargo and export all its data, but recording new sales and stock is paused.',
+      button: { label: 'Choose a plan', url }, outro: 'Your records are kept safe. Pay any time to continue where you left off.' }));
+  },
+  paymentReceived({ name, business, number, amount, until, url }) {
+    return Object.assign({ subject: 'Payment received — thank you (' + number + ')' }, layout({ business, title: 'Payment received — thank you',
+      intro: 'Hello ' + esc(name) + ',<br>we received your payment for invoice ' + esc(number) + '.',
+      rows: [['Amount', amount, true], ['Subscription active until', until]], button: { label: 'Open Kargo', url } }));
+  },
+  paymentClaim({ business, by, number, amount, method, reference, paidOn }) {
+    return Object.assign({ subject: '[Kargo admin] Payment to check — ' + business + ' · ' + amount }, layout({ business: 'Kargo admin', title: 'A business reported a payment',
+      intro: esc(by) + ' from <b>' + esc(business) + '</b> says they paid. Check your ' + esc(method) + ' account, then confirm or reject it in the admin dashboard.',
+      rows: [['Invoice', number], ['Amount', amount, true], ['Method', method], ['Reference', reference, true], ['Paid on', paidOn]], footnote: 'Kargo platform alert.' }));
+  },
+  adminLogin({ name, when, ip, agent, fresh }) {
+    return Object.assign({ subject: (fresh ? 'New device: ' : '') + 'Sign-in to Kargo admin' }, layout({ business: 'Kargo admin', title: fresh ? 'Sign-in from a new device' : 'New sign-in to Kargo admin',
+      intro: 'Hello ' + esc(name) + ',<br>your admin account was just used to sign in.', rows: [['When', when], ['IP address', ip], ['Device', agent]],
+      outro: 'If this was not you, end all sessions from Security in the admin dashboard and change your password at once — or ask another owner to disable your account.', footnote: 'Kargo admin security.' }));
+  },
+  adminLocked({ name, email, ip, minutes }) {
+    return Object.assign({ subject: '[Kargo admin] Account locked after failed sign-ins' }, layout({ business: 'Kargo admin', title: 'Admin account locked',
+      intro: 'Too many wrong passwords or codes for <b>' + esc(email) + '</b> (' + esc(name) + '). The account is locked for ' + minutes + ' minutes.', rows: [['Last attempt from', ip]], footnote: 'Kargo admin security.' }));
+  },
+  supportReply({ name, topic, body, by }) {
+    return Object.assign({ subject: 'Re: ' + topic + ' — Kargo support' }, layout({ business: 'Kargo support', title: 'Re: ' + topic,
+      intro: 'Hello ' + esc(name) + ',<br><br>' + esc(body).replace(/\n/g, '<br>'), footnote: 'Answered by ' + esc(by) + ' from Kargo support. Reply to this email or use Help & support in the app.' }));
   },
   support({ business, from, login, email, role, plan, topic, message, page, tenantId }) {
     return Object.assign({ subject: '[Kargo support] ' + topic + ' — ' + business }, layout({ business: 'Kargo support', title: topic,

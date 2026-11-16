@@ -9,6 +9,13 @@ const avatarHTML = (name, size) => '<span class="uav uav-c' + avColor(name) + (s
 const planName = (p) => ({ trial: 'Free trial', starter: 'Starter', business: 'Business', enterprise: 'Enterprise' })[p] || (p ? p[0].toUpperCase() + p.slice(1) : '');
 /** Subscription in plain words: {label, days, tone, ended} */
 function subState() {
+  const sb = (K._bill && K._bill.subscription) || K.info.subscription;
+  if (sb) {
+    const d = (x) => (x ? Math.ceil((new Date(x).getTime() - Date.now()) / 864e5) : null);
+    if (sb.status === 'trialing') { const n = d(sb.trialEndsAt); return { label: n === null ? 'Free trial' : 'Trial · ' + n + ' day' + (n === 1 ? '' : 's') + ' left', tone: n !== null && n <= 7 ? 'warn' : 'info', days: n }; }
+    if (sb.status === 'active') { const n = d(sb.periodEnd); return { label: (sb.planName || 'Active') + (n !== null && n <= 14 ? ' · renews in ' + n + ' day' + (n === 1 ? '' : 's') : ''), tone: n !== null && n <= 7 ? 'warn' : 'ok', days: n }; }
+    return { label: sb.statusLabel || sb.status, tone: sb.status === 'cancelled' ? 'warn' : 'bad', ended: ['expired', 'suspended'].includes(sb.status) };
+  }
   const t = K.info.tenant || {}; const now = Date.now();
   const left = (d) => d ? Math.ceil((new Date(d).getTime() - now) / 864e5) : null;
   if (t.status === 'suspended') return { label: 'Suspended', tone: 'bad', ended: true };
@@ -128,36 +135,108 @@ A.profPw = async () => {
 /* ================= BILLING & SUBSCRIPTION ================= */
 function supportLinks(text) {
   const sp = K.info.support || {}; const out = [];
-  if (sp.whatsapp) out.push('<a class="btn pri" target="_blank" rel="noopener" href="https://wa.me/' + esc(sp.whatsapp) + '?text=' + encodeURIComponent(text) + '">' + ic('wa') + 'WhatsApp us</a>');
+  if (sp.whatsapp) out.push('<a class="btn" target="_blank" rel="noopener" href="https://wa.me/' + esc(sp.whatsapp) + '?text=' + encodeURIComponent(text) + '">' + ic('wa') + 'WhatsApp us</a>');
   if (sp.email) out.push('<a class="btn" href="mailto:' + esc(sp.email) + '?subject=' + encodeURIComponent('Kargo — ' + (S().businessName || '')) + '&body=' + encodeURIComponent(text) + '">' + ic('mail') + 'Email us</a>');
   return out.join('');
 }
+const money0 = (n, cur) => (n === null || n === undefined ? '—' : fmt(n) + ' ' + (!cur || cur === 'XAF' ? 'FCFA' : cur));
+async function loadBilling() { try { K._bill = await K.store.req('GET', '/api/billing'); K._billErr = null; } catch (e) { K._billErr = e.message; } if (K.route === 'billing') render(true); }
+const BILL_INV = { open: ['To pay', 'warn'], paid: ['Paid', 'ok'], void: ['Cancelled', ''] };
 VIEWS.billing = {
   render() {
     if (K.info.mode !== 'saas') return '<div class="card pad2 muted">Billing applies to the online version of Kargo.</div>';
     if (!canBilling()) return '<div class="card pad2 muted">Only the business owner or an admin can see billing. Ask them if you have a question about the subscription.</div>';
-    const t = K.info.tenant || {}; const s = subState(); const plans = K.info.plans || [];
-    const ask = (what) => 'Hello Kargo team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ' + what + ' (current plan: ' + planName(t.plan) + ')';
-    let html = '<div class="card pad2 mb bill-cur"><div class="row between wrap"><div><div class="hint">Current plan</div><h2>' + esc(planName(t.plan)) + '</h2></div><span class="badge ' + s.tone + '">' + esc(s.label) + '</span></div>' +
-      '<div class="bill-rows mt">' +
-        (t.plan === 'trial' && t.trialEndsAt ? '<div class="row between cl"><span>Trial ends</span><b>' + esc(fmtDate(String(t.trialEndsAt).slice(0, 10))) + '</b></div>' : '') +
-        (t.plan !== 'trial' && t.paidUntil ? '<div class="row between cl"><span>Paid until</span><b>' + esc(fmtDate(String(t.paidUntil).slice(0, 10))) + '</b></div>' : '') +
-        '<div class="row between cl"><span>Status</span><b>' + (t.active === false ? 'Recording paused' : 'Active') + '</b></div>' +
-      '</div>' +
-      (t.plan === 'trial' && s.days !== null && s.days !== undefined && !s.ended ? '<div class="bill-bar mt" role="img" aria-label="' + s.days + ' days left"><span style="width:' + Math.max(4, Math.min(100, (s.days / 30) * 100)) + '%"></span></div>' : '') +
-      (s.ended || t.active === false ? '<div class="alert bad mt">Your subscription has ended. You can still open and export all your data; recording new sales and stock is paused until you renew.</div>'
-        : t.plan === 'trial' ? '<p class="small muted mt" style="margin-bottom:0">Everything is unlocked during the trial. Choose a plan before it ends to keep recording without a break.</p>' : '') +
-      '<div class="row wrap mt">' + (supportLinks(ask(t.plan === 'trial' || s.ended ? 'I would like to subscribe.' : 'I would like to renew or change my plan.')) || '<span class="small muted">To subscribe or renew, contact the Kargo team (see <a href="#help">Help & support</a>).</span>') + '</div></div>';
+    const b = K._bill; if (!b) { loadBilling(); return K._billErr ? '<div class="alert bad">' + esc(K._billErr) + '</div>' : '<div class="empty">Loading…</div>'; }
+    const s = b.subscription || {}; const st = subState(); const cyc = K.ui.billCycle || (s.cycle === 'yearly' ? 'yearly' : 'monthly');
+    const open = b.invoices.filter((i) => i.status === 'open'); const pendingFor = (i) => b.payments.find((p) => p.invoice_id === i.id && p.status === 'pending'); const rejectedFor = (i) => b.payments.find((p) => p.invoice_id === i.id && p.status === 'rejected');
+    const ended = ['expired', 'suspended'].includes(s.status);
+    const ask = 'Hello Kargo team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ';
+    // current plan + usage
+    const lim = b.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items' };
+    let html = '<div class="card pad2 mb bill-cur"><div class="row between wrap"><div><div class="hint">Current plan</div><h2>' + esc(s.status === 'trialing' || !s.planName ? 'Free trial' : s.planName) + '</h2>' +
+      (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? '<div class="small muted">' + money0(s.price, s.currency) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') + '</div>' : '') + '</div><span class="badge ' + st.tone + '">' + esc(st.label) + '</span></div>' +
+      '<div class="bill-rows mt">' + (s.status === 'trialing' && s.trialEndsAt ? '<div class="row between cl"><span>Trial ends</span><b>' + esc(fmtDate(String(s.trialEndsAt).slice(0, 10))) + '</b></div>' : '') +
+        (s.status !== 'trialing' && s.periodEnd ? '<div class="row between cl"><span>' + (s.status === 'cancelled' ? 'Access until' : 'Paid until') + '</span><b>' + esc(fmtDate(String(s.periodEnd).slice(0, 10))) + '</b></div>' : '') + '</div>' +
+      (ended ? '<div class="alert bad mt">' + (s.status === 'suspended' ? 'Your account is suspended. Contact the Kargo team.' : 'Your subscription has ended.') + ' You can still open and export all your data; recording new sales and stock is paused until you pay.</div>'
+        : s.status === 'past_due' ? '<div class="alert warn mt">Your payment is overdue. Pay within ' + esc(s.graceDays) + ' days of the end date to keep recording.</div>'
+        : s.status === 'trialing' ? '<p class="small muted mt" style="margin-bottom:0">Everything is unlocked during the trial. Choose a plan below before it ends to keep recording without a break.</p>' : '') +
+      '<div class="mt">' + Object.entries(LBL).map(([k, l]) => { const used = (b.usage || {})[k] || 0; const max = lim[k]; return '<div class="mb"><div class="row between small"><span>' + l + '</span><b>' + used + (max ? ' / ' + max : '') + '</b></div>' + (max ? '<div class="meter' + (used >= max ? ' full' : '') + '"><span style="width:' + Math.min(100, used / max * 100) + '%"></span></div>' : '') + '</div>'; }).join('') + '</div></div>';
+    // invoices to pay
+    const pi = b.instructions || {};
+    open.forEach((i) => {
+      const pend = pendingFor(i), rej = rejectedFor(i);
+      html += '<div class="card pad2 mb bill-pay" id="inv-' + i.id + '"><div class="row between wrap mb"><div><div class="hint">Invoice ' + esc(i.number) + '</div><h2>' + money0(i.amount, i.currency) + '</h2><div class="small muted">' + esc((i.plan_name || '') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly') + ' · due ' + fmtDate(String(i.due_date).slice(0, 10))) + '</div></div>' +
+        '<div class="row"><button class="btn sm" data-a="billPdf" data-id="' + i.id + '">' + ic('dl', 'sm') + 'PDF</button>' + (i.created_by === 'owner' && !pend ? '<button class="btn sm" data-a="billCancel" data-id="' + i.id + '">Cancel</button>' : '') + '</div></div>';
+      if (pend) html += '<div class="alert info">We are checking your payment (' + esc(pend.method) + (pend.reference ? ' · ' + esc(pend.reference) : '') + '). Your subscription starts as soon as it is confirmed — usually within a few hours.</div></div>';
+      else {
+        const lines = [['MTN MoMo', pi.momoNumber, pi.momoName], ['Orange Money', pi.omNumber, pi.omName]].filter((x) => x[1]);
+        html += (rej ? '<div class="alert bad mb">Your last payment report was not confirmed' + (rej.note ? ': ' + esc(rej.note) : '') + '. Check the reference and report it again.</div>' : '') +
+          '<h3 class="mb">How to pay</h3>' + (lines.length || pi.bank ? lines.map(([m, n, nm]) => '<div class="pay-line"><div><div class="b">' + esc(m) + '</div><div class="small muted">' + esc(n) + (nm ? ' · ' + esc(nm) : '') + '</div></div><button class="btn sm" data-a="billCopy" data-v="' + esc(n) + '">' + ic('copy', 'sm') + 'Copy</button></div>').join('') + (pi.bank ? '<div class="pay-line"><div><div class="b">Bank</div><div class="small muted">' + esc(pi.bank) + '</div></div></div>' : '') : '<div class="small muted mb">Contact the Kargo team for payment details.</div>') +
+          (pi.note ? '<div class="small muted mt">' + esc(pi.note) + '</div>' : '') +
+          '<h3 class="mb mt2">I have paid</h3><div class="grid2">' + field('How you paid', sel('pm_' + i.id, b.methods || ['MTN MoMo', 'Orange Money'], 'MTN MoMo')) + field('Transaction reference', inp('pr_' + i.id, '', 'placeholder="From your payment SMS" autocomplete="off"')) + '</div>' +
+          '<button class="btn pri mt" data-a="billClaim" data-id="' + i.id + '">' + ic('check') + 'Send payment details</button></div>';
+      }
+    });
+    // plans
+    const plans = b.plans || [];
     if (plans.length) {
-      html += '<h2 class="mb">Plans</h2><div class="bill-plans mb2">' + plans.map((p) => { const cur = p.id === t.plan; return '<div class="card pad2 bill-plan' + (cur ? ' cur' : '') + '"><div class="row between"><h3>' + esc(p.name) + '</h3>' + (cur ? '<span class="badge ok">Your plan</span>' : '') + '</div>' +
-        (p.price ? '<div class="bill-price">' + esc(p.price) + '</div>' : '') + (p.features.length ? '<ul class="bill-feat">' + p.features.map((f) => '<li>' + ic('check', 'sm') + esc(f) + '</li>').join('') + '</ul>' : '') +
-        (!cur && supportLinks('') ? '<a class="btn block mt" target="_blank" rel="noopener" href="' + esc(K.info.support.whatsapp ? 'https://wa.me/' + K.info.support.whatsapp + '?text=' + encodeURIComponent(ask('I would like the ' + p.name + ' plan.')) : 'mailto:' + K.info.support.email + '?subject=' + encodeURIComponent('Kargo plan: ' + p.name) + '&body=' + encodeURIComponent(ask('I would like the ' + p.name + ' plan.'))) + '">Choose ' + esc(p.name) + '</a>' : '') + '</div>'; }).join('') + '</div>';
-    }
-    const people = (K._people || []).filter((p) => p.active !== false).length; loadPeople();
-    html += '<h2 class="mb">Your usage</h2>' + statChips([['Team members', people || '—'], ['Branches', allLocs().length], ['Items', K.raw.products.filter((p) => !p.archived).length], ['Sales this month', K.raw.sales.filter((x) => (x.date || '').slice(0, 7) === monthStr() && x.status !== 'cancelled').length]]);
+      const hasYear = plans.some((p) => p.price_yearly !== null);
+      html += '<div class="row between wrap mb mt2"><h2>Plans</h2>' + (hasYear ? '<div class="bill-cycle" role="group" aria-label="Billing period"><button class="' + (cyc === 'monthly' ? 'on' : '') + '" data-a="billCycle" data-v="monthly">Monthly</button><button class="' + (cyc === 'yearly' ? 'on' : '') + '" data-a="billCycle" data-v="yearly">Yearly</button></div>' : '') + '</div>' +
+        '<div class="bill-plans mb2">' + plans.map((p) => {
+          const price = p['price_' + cyc]; const cur = p.id === s.planId && s.status !== 'trialing' && !ended; const L = p.limits || {};
+          const lims = [L.maxUsers ? L.maxUsers + ' team members' : 'Unlimited team', L.maxLocations ? (L.maxLocations === 1 ? '1 location' : L.maxLocations + ' branches') : 'Unlimited branches', L.maxProducts ? L.maxProducts + ' items' : null].filter(Boolean);
+          const off = Object.entries({ onlineShop: 'Online shop', payroll: 'Payroll', autoReminders: 'Automatic reminders' }).filter(([k]) => L[k] === false).map(([, l]) => l);
+          return '<div class="card pad2 bill-plan' + (cur ? ' cur' : '') + '"><div class="row between"><h3>' + esc(p.name) + '</h3>' + (cur ? '<span class="badge ok">Your plan</span>' : '') + '</div>' + (p.description ? '<div class="small muted">' + esc(p.description) + '</div>' : '') +
+            '<div class="bill-price">' + (price === null ? '<span class="small muted">Not available ' + (cyc === 'yearly' ? 'yearly' : 'monthly') + '</span>' : money0(price, p.currency) + '<span class="small muted"> / ' + (cyc === 'yearly' ? 'year' : 'month') + '</span>') + '</div>' +
+            '<ul class="bill-feat">' + (p.features || []).concat(lims).map((f) => '<li>' + ic('check', 'sm') + esc(f) + '</li>').join('') + off.map((f) => '<li class="muted">' + ic('x', 'sm') + esc(f) + ' not included</li>').join('') + '</ul>' +
+            (price !== null && !(cur && cyc === s.cycle) ? '<button class="btn block mt ' + (s.status === 'trialing' || ended ? 'pri' : '') + '" data-a="billChoose" data-id="' + esc(p.id) + '">' + (cur ? 'Switch to ' + cyc : s.status === 'trialing' || ended || !s.planId ? 'Choose ' + esc(p.name) : 'Change to ' + esc(p.name)) + '</button>' : '') + '</div>';
+        }).join('') + '</div>';
+    } else html += '<div class="card pad2 mb2"><div class="small muted mb">Plans are not published yet. Contact the Kargo team to subscribe.</div><div class="row wrap">' + supportLinks(ask + 'I would like to subscribe.') + '</div></div>';
+    // history
+    const past = b.invoices.filter((i) => i.status !== 'open');
+    if (past.length) html += '<h2 class="mb">Invoices</h2>' + dataTable({ id: 'billInv', rows: past, noun: 'invoice', cols: [
+      { k: 'n', label: 'Number', core: true, v: (i) => i.number }, { k: 'p', label: 'Plan', v: (i) => (i.plan_name || '') + ' · ' + i.cycle },
+      { k: 'per', label: 'Period', v: (i) => i.period_start || '', html: (i) => esc(fmtDate(String(i.period_start).slice(0, 10)) + ' → ' + fmtDate(String(i.period_end).slice(0, 10))) },
+      { k: 'a', label: 'Amount', core: true, money: true, v: (i) => i.amount }, { k: 's', label: 'Status', core: true, v: (i) => i.status, html: (i) => '<span class="badge ' + BILL_INV[i.status][1] + '">' + BILL_INV[i.status][0] + '</span>' },
+      { k: 'pdf', label: '', core: true, v: () => '', html: (i) => '<button class="btn sm" data-a="billPdf" data-id="' + i.id + '">' + ic('dl', 'sm') + 'PDF</button>' }] });
+    html += '<p class="small muted mt2">Questions about billing? ' + (supportLinks(ask) ? '<span class="row wrap mt">' + supportLinks(ask) + '</span>' : 'See <a href="#help">Help & support</a>.') + '</p>';
     return html;
   },
 };
+A.billCycle = (el) => { K.ui.billCycle = el.dataset.v; render(true); };
+A.billCopy = (el) => copyText(el.dataset.v);
+A.billChoose = async (el) => {
+  const p = K._bill.plans.find((x) => x.id === el.dataset.id); const cyc = K.ui.billCycle || 'monthly';
+  if (!(await confirmBox('Choose ' + p.name + ' (' + money0(p['price_' + cyc], p.currency) + ' / ' + (cyc === 'yearly' ? 'year' : 'month') + ')? An invoice is created for you to pay.', 'Choose plan'))) return;
+  try { const r = await K.store.req('POST', '/api/billing/choose', { planId: p.id, cycle: cyc }); toast(r.reused ? 'You already have this invoice — pay it below' : 'Invoice ' + r.invoice.number + ' created'); await loadBilling(); const el2 = document.getElementById('inv-' + r.invoice.id); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  catch (e) { toast(e.message, true); }
+};
+A.billClaim = async (el) => {
+  const id = el.dataset.id; const method = $('[name=pm_' + id + ']').value; const reference = $('[name=pr_' + id + ']').value.trim();
+  if (method !== 'Cash' && reference.length < 4) return toast('Type the transaction reference from your payment SMS', true);
+  try { await K.store.req('POST', '/api/billing/invoices/' + id + '/claim', { method, reference }); toast('Thank you — we are checking your payment'); await loadBilling(); }
+  catch (e) { toast(e.message, true); }
+};
+A.billCancel = async (el) => { if (!(await confirmBox('Cancel this invoice?', 'Cancel invoice', true))) return; try { await K.store.req('POST', '/api/billing/invoices/' + el.dataset.id + '/cancel'); await loadBilling(); } catch (e) { toast(e.message, true); } };
+A.billPdf = (el) => {
+  const i = K._bill.invoices.find((x) => x.id === el.dataset.id); if (!i) return; if (!window.jspdf) return toast('PDF library still loading — try again', true);
+  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a5' }); const W = 148; let y = 16; const pi = K._bill.instructions || {};
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('Kargo', 12, y); doc.setFontSize(11); doc.text('INVOICE', W - 12, y, { align: 'right' }); y += 6;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text(i.number, W - 12, y, { align: 'right' }); y += 10;
+  const kv = (k, v) => { doc.setTextColor(120); doc.text(k, 12, y); doc.setTextColor(20); doc.text(String(v), 48, y); y += 6; };
+  kv('Billed to', S().businessName || ''); kv('Plan', (i.plan_name || '') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly'));
+  kv('Period', fmtDate(String(i.period_start).slice(0, 10)) + ' to ' + fmtDate(String(i.period_end).slice(0, 10))); kv('Issued', fmtDate(String(i.issued_at).slice(0, 10))); kv('Due', fmtDate(String(i.due_date).slice(0, 10)));
+  y += 4; doc.setFillColor(240, 238, 232); doc.rect(12, y - 5, W - 24, 11, 'F'); doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Amount', 15, y + 2); doc.text(money0(i.amount, i.currency), W - 15, y + 2, { align: 'right' }); y += 16;
+  doc.setFontSize(10); doc.text(i.status === 'paid' ? 'PAID on ' + fmtDate(String(i.paid_at).slice(0, 10)) : i.status === 'void' ? 'CANCELLED' : 'To pay', 12, y); y += 8;
+  if (i.status === 'open') { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); [['MTN MoMo', pi.momoNumber, pi.momoName], ['Orange Money', pi.omNumber, pi.omName]].filter((x) => x[1]).forEach(([m, n, nm]) => { doc.text(m + ': ' + n + (nm ? ' (' + nm + ')' : ''), 12, y); y += 5; }); if (pi.bank) { doc.text(doc.splitTextToSize('Bank: ' + pi.bank, W - 24), 12, y); y += 10; } if (pi.note) doc.text(doc.splitTextToSize(pi.note, W - 24), 12, y); }
+  doc.save('Kargo-' + i.number + '.pdf');
+};
+/** read-only banner while the Kargo team looks at the account */
+function supportBanner(sv) {
+  const bar = document.createElement('div'); bar.className = 'support-bar'; bar.setAttribute('role', 'status');
+  bar.innerHTML = '<span>' + ic('alert', 'sm') + ' Kargo support view · read-only · opened by ' + esc(sv.by) + ' · ends at ' + esc(new Date(sv.until).toTimeString().slice(0, 5)) + '</span><button type="button" id="svEnd">End view</button>';
+  document.body.prepend(bar); document.getElementById('svEnd').onclick = () => A.logout();
+}
 
 /* ================= HELP & SUPPORT ================= */
 const FAQ = [

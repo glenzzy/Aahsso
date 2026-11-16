@@ -90,6 +90,7 @@ async function runDue({ anyHour = false } = {}) {
   const done = [];
   const rows = (await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND (d.data->>'autoReminders')::boolean IS TRUE AND t.status <> 'suspended'")).rows;
   for (const r of rows) {
+    if ((await require('./billing').limitsFor(pool, r.tenant_id)).limits.autoReminders === false) continue; // not in this business's plan
     const tz = r.data.timezone || 'Africa/Douala'; const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hour12: false }).format(new Date()));
     if (!anyHour && hour !== Number(r.data.reminderHour ?? 9)) continue;
     const d = today(tz);

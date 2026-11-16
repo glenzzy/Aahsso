@@ -167,7 +167,7 @@ function formVals(root) {
 /* ---------- persistence (with offline outbox) ---------- */
 const OB_KEY = () => 'kargo-outbox-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '');
 function loadOutbox() { try { K.outbox = JSON.parse(localStorage.getItem(OB_KEY()) || '[]'); } catch (e) { K.outbox = []; } }
-function persistOutbox() { try { localStorage.setItem(OB_KEY(), JSON.stringify(K.outbox)); } catch (e) { } shellSync(); }
+function persistOutbox() { if (K.info && K.info.supportView) { shellSync(); return; } try { localStorage.setItem(OB_KEY(), JSON.stringify(K.outbox)); } catch (e) { } shellSync(); }
 const isNetErr = (e) => !e || ['unavailable', 'timeout', 'network'].includes(e.code) || e.name === 'TypeError' || /failed to fetch|network|load failed/i.test(String(e.message || ''));
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej({ code: 'timeout' }), ms))]);
 function enqueue(col, id, data) {
@@ -228,8 +228,8 @@ async function remove(col, id) {
 }
 /* cached copy of the data so the app opens instantly and keeps working when the connection drops */
 const CACHE_KEY = () => 'kargo-cache-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '') + '-' + (K.me.id || '');
-let _ct; function cacheSoon() { clearTimeout(_ct); _ct = setTimeout(() => { try { localStorage.setItem(CACHE_KEY(), JSON.stringify({ at: new Date().toISOString(), raw: K.raw })); } catch (e) { try { const lite = Object.assign({}, K.raw, { products: K.raw.products.map((p) => Object.assign({}, p, { image: String(p.image || '').startsWith('data:') ? '' : p.image })) }); localStorage.setItem(CACHE_KEY(), JSON.stringify({ at: new Date().toISOString(), raw: lite })); } catch (e2) { } } }, 1500); }
-function loadCache() { try { const c = JSON.parse(localStorage.getItem(CACHE_KEY()) || 'null'); if (c && c.raw) { Object.keys(K.raw).forEach((k) => { if (c.raw[k] !== undefined) K.raw[k] = c.raw[k]; }); return c.at; } } catch (e) { } return null; }
+let _ct; function cacheSoon() { if (K.info && K.info.supportView) return; clearTimeout(_ct); _ct = setTimeout(() => { try { localStorage.setItem(CACHE_KEY(), JSON.stringify({ at: new Date().toISOString(), raw: K.raw })); } catch (e) { try { const lite = Object.assign({}, K.raw, { products: K.raw.products.map((p) => Object.assign({}, p, { image: String(p.image || '').startsWith('data:') ? '' : p.image })) }); localStorage.setItem(CACHE_KEY(), JSON.stringify({ at: new Date().toISOString(), raw: lite })); } catch (e2) { } } }, 1500); }
+function loadCache() { if (K.info && K.info.supportView) return null; try { const c = JSON.parse(localStorage.getItem(CACHE_KEY()) || 'null'); if (c && c.raw) { Object.keys(K.raw).forEach((k) => { if (c.raw[k] !== undefined) K.raw[k] = c.raw[k]; }); return c.at; } } catch (e) { } return null; }
 function shellSync() {
   const el = document.getElementById('sync'); if (!el) return;
   const n = K.outbox.length;

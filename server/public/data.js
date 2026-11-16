@@ -55,12 +55,13 @@ class ArtifactStore {
 
 class RestStore {
   constructor(api) { this.api = api.replace(/\/$/, ''); this.subs = {}; }
-  get token() { try { return localStorage.getItem('kargo-token'); } catch (e) { return null; } }
+  get token() { try { return sessionStorage.getItem('kargo-imp') || localStorage.getItem('kargo-token'); } catch (e) { return null; } }
+  get supportView() { try { return !!sessionStorage.getItem('kargo-imp'); } catch (e) { return false; } }
   async req(method, path, body, raw) {
     const headers = { Authorization: 'Bearer ' + this.token };
     if (!raw) headers['Content-Type'] = 'application/json';
     const r = await fetch(this.api + path, { method, headers, body: raw ? body : body ? JSON.stringify(body) : undefined });
-    if (r.status === 401) { localStorage.removeItem('kargo-token'); location.reload(); }
+    if (r.status === 401) { if (this.supportView) { sessionStorage.removeItem('kargo-imp'); alert('The support view has ended.'); window.close(); } else localStorage.removeItem('kargo-token'); location.reload(); }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { code: j.code || 'error', details: j.details });
     return j;
@@ -68,14 +69,14 @@ class RestStore {
   async init() {
     if (!this.token) return { mode: 'login' };
     let me;
-    try { me = await this.req('GET', '/api/me'); try { localStorage.setItem('kargo-me', JSON.stringify(me)); } catch (e) { } }
+    try { me = await this.req('GET', '/api/me'); if (!this.supportView) try { localStorage.setItem('kargo-me', JSON.stringify(me)); } catch (e) { } }
     catch (e) { me = JSON.parse(localStorage.getItem('kargo-me') || 'null'); if (!me) throw e; this.offlineStart = true; } // opened without network: work from the cached copy
     try {
       const es = new EventSource(this.api + '/api/stream?token=' + encodeURIComponent(this.token));
       es.onmessage = (ev) => { try { const m = JSON.parse(ev.data); if (m.col) this._refresh(m.col); else COLLECTIONS.forEach((c) => this._refresh(c)); } catch (e) { } };
     } catch (e) { }
     setInterval(() => COLLECTIONS.forEach((c) => this.subs[c] && this._refresh(c)), 60000);
-    return { mode: 'saas', me: { id: me.user.id, name: me.user.name }, user: me.user, userLabel: me.user.name, tenant: me.tenant, emailOn: me.emailEnabled !== false, support: me.support || {}, plans: me.plans || [] };
+    return { mode: 'saas', me: { id: me.user.id, name: me.user.name }, user: me.user, userLabel: me.user.name, tenant: me.tenant, emailOn: me.emailEnabled !== false, support: me.support || {}, subscription: me.subscription || null, limits: me.limits || {}, supportView: me.supportView || null };
   }
   _refresh(col) {
     if (!this.subs[col]) return;
