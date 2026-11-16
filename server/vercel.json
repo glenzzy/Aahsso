@@ -6,11 +6,42 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 60,
-      "includeFiles": "public/compute.js",
+      "includeFiles": "{public/compute.js,admin/**}",
       "excludeFiles": "{.env,.env.*,.vercel/**,test/**}"
     }
   },
+  "redirects": [
+    {
+      "source": "/((?!admin|api/|healthz|robots\\.txt).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.kargo.bullekam.com"
+        }
+      ],
+      "destination": "/admin",
+      "permanent": false
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/admin",
+      "destination": "/api"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/robots.txt",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.kargo.bullekam.com"
+        }
+      ],
+      "destination": "/api"
+    },
     {
       "source": "/s/:key",
       "destination": "/shop.html"
@@ -26,7 +57,7 @@
   ],
   "headers": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|admin).*)",
       "headers": [
         {
           "key": "Cache-Control",
