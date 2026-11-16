@@ -306,12 +306,12 @@
     const d = await api('GET', '/plans'); S.plans = d.plans; S.limitKeys = d.limitKeys;
     S.catalog = d.catalog;
     const lim = (p) => { const L = p.limits || {}; const off = d.catalog.filter(([k]) => (p.modules || {})[k] === false).length; return Object.entries(d.limitKeys.counts).map(([k, l]) => (L[k] ? L[k] : '∞') + ' ' + l.split(' (')[0]).join(' · ') + ' · ' + (d.catalog.length - off) + '/' + d.catalog.length + ' features'; };
-    v.innerHTML = '<div class="row between mb"><p class="muted small" style="margin:0">Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes. During the free trial everything is open.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
+    v.innerHTML = (d.plans.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No plan is shown to businesses yet.</b> Their Plans and Billing pages stay empty until you click <b>Publish</b> on at least one plan.</div>') + '<div class="row between mb"><p class="muted small" style="margin:0">Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes. During the free trial everything is open.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
       '<div class="card">' + table([
         { label: 'Plan', v: (p) => '<b>' + esc(p.name) + '</b> <span class="tiny faint mono">' + esc(p.id) + '</span><div class="tiny faint">' + esc(p.description) + '</div>' },
         { label: 'Monthly', num: true, v: (p) => (p.price_monthly === null && p.price_yearly === null ? badge('Free · trial', 'info') : esc(p.price_monthly === null ? '—' : money(p.price_monthly, p.currency))) }, { label: 'Yearly', num: true, v: (p) => esc(p.price_yearly === null ? '—' : money(p.price_yearly, p.currency)) },
         { label: 'Limits', v: (p) => '<span class="small">' + esc(lim(p)) + '</span>' }, { label: 'Subscribers', num: true, v: (p) => esc(p.subscribers) },
-        { label: 'Shown', v: (p) => (p.active ? (p.public ? badge('Public', 'ok') : badge('Hidden')) : badge('Retired', 'bad')) },
+        { label: 'On the business Plans page', v: (p) => (!p.active ? badge('Retired', 'bad') : (p.public ? badge('Shown', 'ok') : badge('Hidden', 'warn')) + (can('plans.write') ? ' <button class="btn sm" data-act2="planPublish" data-id="' + esc(p.id) + '">' + (p.public ? 'Hide' : 'Publish') + '</button>' : '')) },
         { label: '', v: (p) => (can('plans.write') ? '<button class="btn sm" data-act2="planEdit" data-id="' + esc(p.id) + '">Edit</button>' : '') },
       ], d.plans) + '</div>';
   };
@@ -323,7 +323,7 @@
       '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.entries(S.limitKeys.counts).map(([k, l]) => field(l[0].toUpperCase() + l.slice(1), inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
       '<h3>Features in this plan <span class="tiny faint">(unticked = hidden from the business)</span></h3>' + checkGroups(S.catalog, (k) => Mo[k] !== false, 'F_') +
       field('Lines on the plan card (one per line)', '<textarea class="inp" name="features" rows="4">' + esc((p.features || []).join('\n')) + '</textarea>') +
-      '<div class="row"><label class="check"><input type="checkbox" name="active"' + (p.active ? ' checked' : '') + '> Can be chosen</label><label class="check"><input type="checkbox" name="public"' + (p.public ? ' checked' : '') + '> Shown to businesses</label></div></div>',
+      '<div class="row"><label class="check"><input type="checkbox" name="active"' + (p.active ? ' checked' : '') + '> Can be chosen</label><label class="check"><input type="checkbox" name="public"' + (p.public ? ' checked' : '') + '> Show on the business Plans page (published)</label></div></div>',
       foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">' + (isNew ? 'Create plan' : 'Save plan') + '</button>' });
     $('#go', box).onclick = (e) => busy(e.target, async () => {
       const v = vals(box); const limits = {};
@@ -334,7 +334,14 @@
       closeModal(); toast('Plan saved'); S.plans = null; route();
     });
   }
-  const ACT2 = { planNew: () => planModal(null), planEdit: (el) => planModal(S.plans.find((p) => p.id === el.dataset.id)) };
+  const ACT2 = {
+    planNew: () => planModal(null), planEdit: (el) => planModal(S.plans.find((p) => p.id === el.dataset.id)),
+    planPublish: (el) => busy(el, async () => { // one click: show / hide a plan on the business side
+      const p = S.plans.find((x) => x.id === el.dataset.id);
+      await api('PUT', '/plans/' + encodeURIComponent(p.id), { name: p.name, description: p.description, price_monthly: p.price_monthly, price_yearly: p.price_yearly, sort: p.sort, active: p.active, public: !p.public, limits: p.limits || {}, modules: p.modules || {}, features: p.features || [] });
+      toast(p.public ? p.name + ' is hidden from businesses' : p.name + ' is now shown to businesses'); S.plans = null; route();
+    }),
+  };
 
   PAGES.billing = async (v, [tab]) => {
     tab = tab || 'check';
