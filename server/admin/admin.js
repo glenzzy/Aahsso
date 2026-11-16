@@ -37,6 +37,17 @@
   const field = (label, html, cls) => '<label class="f' + (cls ? ' ' + cls : '') + '">' + esc(label) + html + '</label>';
   const inp = (name, val, attrs) => '<input class="inp" name="' + name + '" value="' + esc(val === null || val === undefined ? '' : val) + '" ' + (attrs || '') + '>';
   const sel = (name, opts, val, attrs) => '<select class="inp" name="' + name + '" ' + (attrs || '') + '>' + opts.map((o) => { const [v, l] = Array.isArray(o) ? o : [o, o]; return '<option value="' + esc(v) + '"' + (String(v) === String(val === null || val === undefined ? '' : val) ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') + '</select>';
+  /** four single-digit boxes; onDone(pin) when the 4th digit is typed */
+  const pinBoxes = (id) => '<div class="pin" id="' + id + '" role="group" aria-label="4-digit PIN">' + [0, 1, 2, 3].map((i) => '<input class="inp pin-d" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off" aria-label="Digit ' + (i + 1) + '">').join('') + '</div>';
+  function wirePin(box, onDone) {
+    const ds = $$('.pin-d', box); const val = () => ds.map((d) => d.value).join('');
+    ds.forEach((d, i) => {
+      d.addEventListener('input', () => { d.value = d.value.replace(/\D/g, '').slice(-1); if (d.value && ds[i + 1]) ds[i + 1].focus(); if (val().length === 4 && onDone) onDone(val()); });
+      d.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !d.value && ds[i - 1]) { ds[i - 1].value = ''; ds[i - 1].focus(); } });
+      d.addEventListener('paste', (e) => { const t = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 4); if (t.length) { e.preventDefault(); t.split('').forEach((c, k) => { if (ds[k]) ds[k].value = c; }); (ds[t.length] || ds[3]).focus(); if (t.length === 4 && onDone) onDone(t); } });
+    });
+    return { val, clear: () => { ds.forEach((d) => (d.value = '')); ds[0].focus(); }, focus: () => ds[0].focus() };
+  }
   const vals = (root) => { const o = {}; $$('[name]', root).forEach((el) => { o[el.name] = el.type === 'checkbox' ? el.checked : el.value.trim(); }); return o; };
   async function busy(btn, fn) { if (btn) btn.disabled = true; try { return await fn(); } catch (e) { if (!e.quiet) toast(e.message, true); } finally { if (btn) btn.disabled = false; } }
   const table = (cols, rows, opts = {}) => rows.length ? '<div class="tw"><table class="t"><thead><tr>' + cols.map((c) => '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.label) + '</th>').join('') + '</tr></thead><tbody>' +
@@ -49,18 +60,23 @@
     if (r.status === 404 && S.me && !path.startsWith('/auth/')) { S.me = null; closeModal(); renderLogin('Your session ended. Please sign in again.'); throw Object.assign(new Error('signed out'), { quiet: true }); }
     if (r.status === 403 && j.code === 'reauth' && retry) { if (await reauth()) return api(method, path, body, false); throw Object.assign(new Error('cancelled'), { quiet: true }); }
     if (r.status === 403 && j.code === 'change_password') { renderChangePw(); throw Object.assign(new Error(''), { quiet: true }); }
+    if (r.status === 403 && j.code === 'set_pin') { renderSetPin(); throw Object.assign(new Error(''), { quiet: true }); }
     if (!r.ok) throw Object.assign(new Error(j.error || 'Something went wrong (' + r.status + ')'), { status: r.status, code: j.code });
     return j;
   }
   /** risky actions: confirm with the authenticator code, then the action is retried */
   function reauth() {
     return new Promise((resolve) => {
-      if (!S.me.twoFactor) { // TODO(2FA): password confirmation until two-step sign-in is back
-        const box = modal({ title: 'Confirm it is you', body: '<p class="muted small" style="margin-top:0">This is a sensitive action. Type your password to continue.</p>' + field('Password', inp('password', '', 'type="password" autocomplete="current-password"')),
+      if (!S.me.twoFactor) { // TODO(2FA): PIN confirmation until two-step sign-in is back
+        const box = modal({ title: 'Confirm it is you', body: '<p class="muted small center" style="margin-top:0">This is a sensitive action. Enter your 4-digit PIN.</p>' + pinBoxes('raPin') + '<div class="alert bad hide mt" id="raErr" role="alert"></div>',
           foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="raGo">Confirm</button>' });
-        modalDone = resolve;
-        const go = () => busy($('#raGo', box), async () => { await api('POST', '/auth/reauth', { password: vals(box).password }, false); modalDone = null; closeModal(); resolve(true); });
-        $('#raGo', box).onclick = go; box.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+        modalDone = resolve; let sending = false;
+        const pin = wirePin(box, () => go());
+        const go = () => { if (sending || pin.val().length !== 4) return; sending = true; busy($('#raGo', box), async () => {
+          try { await api('POST', '/auth/reauth', { pin: pin.val() }, false); modalDone = null; closeModal(); resolve(true); }
+          catch (e) { const er = $('#raErr', box); if (er) { er.textContent = e.message; er.classList.remove('hide'); } pin.clear(); }
+          finally { sending = false; } }); };
+        $('#raGo', box).onclick = go; setTimeout(pin.focus, 30);
         return;
       }
       const box = modal({ title: 'Confirm it is you', body: '<p class="muted small" style="margin-top:0">This action needs a fresh code from your authenticator app.</p>' +
@@ -134,11 +150,22 @@
     $('[name=current]').focus();
   }
 
+  function renderSetPin() {
+    authShell('<h1>Create your PIN</h1><p class="sub">Choose 4 digits you will remember. You will enter this PIN to confirm sensitive actions, like changing prices or suspending a business.</p>' +
+      '<div class="col"><div><div class="small b mb">New PIN</div>' + pinBoxes('pinA') + '</div><div><div class="small b mb">Type it again</div>' + pinBoxes('pinB') + '</div>' +
+      '<div class="alert bad hide" id="perr" role="alert"></div><button class="btn pri block" id="pgo">Save PIN</button><p class="tiny faint" style="margin:0">Not 0000, 1111, 1234 or similar. Never share it.</p></div>');
+    const a = wirePin($('#pinA'), () => b.focus()); const b = wirePin($('#pinB'), () => $('#pgo').click());
+    $('#pgo').onclick = () => { if (a.val().length !== 4) return showErr('#perr', 'Type 4 digits.'); if (a.val() !== b.val()) { b.clear(); return showErr('#perr', 'The two PINs are not the same.'); }
+      busy($('#pgo'), async () => { try { await pub('/auth/pin', { pin: a.val() }); toast('PIN saved'); boot(); } catch (er) { showErr('#perr', er.message); a.clear(); b.clear(); } }); };
+    a.focus();
+  }
+
   /* ---------- shell & routing ---------- */
   const NAV = [['overview', 'Overview', 'overview.view'], ['tenants', 'Businesses', 'tenants.view'], ['plans', 'Plans', 'plans.view'], ['billing', 'Billing', 'billing'], ['support', 'Support', 'support'], ['health', 'Health', 'health.view'], ['security', 'Security', ''], ['settings', 'Settings', 'plans.view']];
   async function boot() {
     try { S.me = await api('GET', '/me'); } catch (e) { if (!e.quiet) renderLogin(); return; }
     if (S.me.admin.mustChangePassword) return renderChangePw();
+    if (S.me.admin.needsPin) return renderSetPin();
     shell(); route();
   }
   function shell() {
@@ -393,7 +420,7 @@
     if (can('admins.manage')) await loadRoles();
     const a = S.me.admin; const d = await api('GET', '/admins');
     let html = '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">My account</h2><dl class="kv"><dt>Name</dt><dd>' + esc(a.name) + '</dd><dt>Email</dt><dd>' + esc(a.email) + '</dd><dt>Role</dt><dd>' + esc(roleName(a.role)) + '</dd>' + (S.me.twoFactor ? '<dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd>' : '<dt>Two-step sign-in</dt><dd><span class="badge warn">Off for now</span></dd>') + '</dl>' +
-      '<div class="row mt"><button class="btn" data-act4="myPw">Change password</button>' + (S.me.twoFactor ? '<button class="btn" data-act4="myCodes">New recovery codes</button>' : '') + '</div></section>' +
+      '<div class="row mt"><button class="btn" data-act4="myPw">Change password</button><button class="btn" data-act4="myPin">Change PIN</button>' + (S.me.twoFactor ? '<button class="btn" data-act4="myCodes">New recovery codes</button>' : '') + '</div></section>' +
       '<section class="card pad2"><h2 class="mb">Active sessions</h2>' + table([{ label: 'Admin', v: (s) => esc(s.email) + (s.current ? ' <span class="badge ok">this one</span>' : '') }, { label: 'Device', v: (s) => '<span class="tiny">' + esc((s.user_agent || '').slice(0, 60)) + '</span><div class="tiny faint">' + esc(s.ip) + '</div>' }, { label: 'Seen', v: (s) => esc(ago(s.last_seen_at)) }, { label: '', v: (s) => (s.current ? '' : '<button class="btn sm" data-act4="endSession" data-id="' + esc(s.id) + '">End</button>') }], d.sessions) + '</section></div>';
     if (can('admins.manage')) {
       html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Roles</h2><button class="btn" data-act4="roleNew">New role</button></div>' +
@@ -403,7 +430,7 @@
       html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Admins</h2><button class="btn pri" data-act4="admAdd">Add admin</button></div>' +
         table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => (x.role === 'super' ? badge('Super Admin', 'info') : esc(roleName(x.role))) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
           { label: 'Last sign-in', v: (x) => esc(ago(x.last_login_at)) + (x.last_login_ip ? '<div class="tiny faint">' + esc(x.last_login_ip) + '</div>' : '') }, { label: 'Status', v: (x) => (x.active ? (x.locked_until && new Date(x.locked_until) > new Date() ? badge('Locked', 'bad') : badge('Active', 'ok')) : badge('Disabled')) },
-          { label: '', v: (x) => (x.id === a.id || x.role === 'super' ? '' : '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="admRole" data-id="' + x.id + '" data-role="' + esc(x.role) + '" data-name="' + esc(x.name) + '">Change role</button>' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
+          { label: '', v: (x) => (x.id === a.id || x.role === 'super' ? '' : '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="admRole" data-id="' + x.id + '" data-role="' + esc(x.role) + '" data-name="' + esc(x.name) + '">Change role</button>' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '<button class="btn sm" data-act4="adm" data-v="reset-pin" data-id="' + x.id + '"' + (x.has_pin ? '' : ' disabled title="No PIN yet"') + '>Reset PIN</button>') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
     }
     if (can('audit.view')) {
       const f = S.af || (S.af = { action: '', admin: '' }); const au = await api('GET', '/audit?action=' + encodeURIComponent(f.action) + '&admin=' + encodeURIComponent(f.admin));
@@ -426,6 +453,14 @@
     });
   }
   const ACT4 = {
+    myPin: () => {
+      const box = modal({ title: 'Change your PIN', body: '<div class="col">' + field('Your password', inp('password', '', 'type="password" autocomplete="current-password"')) + '<div><div class="small b mb">New PIN</div>' + pinBoxes('cpA') + '</div><div><div class="small b mb">Type it again</div>' + pinBoxes('cpB') + '</div><div class="alert bad hide" id="cpErr" role="alert"></div></div>',
+        foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save PIN</button>' });
+      const a = wirePin($('#cpA', box), () => b.focus()); const b = wirePin($('#cpB', box));
+      $('#go', box).onclick = (e) => { const err = (m) => { const x = $('#cpErr', box); x.textContent = m; x.classList.remove('hide'); };
+        if (a.val().length !== 4) return err('Type 4 digits.'); if (a.val() !== b.val()) { b.clear(); return err('The two PINs are not the same.'); }
+        busy(e.target, async () => { try { await api('POST', '/auth/pin', { pin: a.val(), password: vals(box).password }, false); closeModal(); toast('PIN changed'); } catch (er) { err(er.message); } }); };
+    },
     roleNew: () => roleModal(null),
     roleEdit: (el) => roleModal(S.roles.find((r) => r.id === el.dataset.id)),
     roleDel: (el) => { const r = S.roles.find((x) => x.id === el.dataset.id); const box = modal({ title: 'Delete role ' + r.name + '?', body: '<p class="small muted">Only a role nobody has can be deleted.</p>', foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Delete</button>' });
@@ -452,7 +487,7 @@
     myCodes: (el) => busy(el, async () => { const r = await api('POST', '/auth/recovery-codes'); S.codes = r.recoveryCodes; S.me.admin.recoveryLeft = r.recoveryCodes.length;
       modal({ title: 'New recovery codes', body: '<p class="small muted">Your old codes no longer work. Save these now — they are not shown again.</p><div class="codes mb">' + r.recoveryCodes.map((c) => '<span>' + esc(c) + '</span>').join('') + '</div><div class="row"><button class="btn sm" data-act="copyCodes">Copy</button><button class="btn sm" data-act="dlCodes">Download .txt</button></div>', foot: '<button class="btn pri" data-close>I saved them</button>' }); }),
     endSession: (el) => busy(el, async () => { await api('POST', '/sessions/' + el.dataset.id + '/revoke'); toast('Session ended'); route(); }),
-    adm: (el) => { const labels = { deactivate: 'Disable this admin (signs them out everywhere)?', reactivate: 'Enable this admin again?', 'reset-2fa': 'Reset two-step verification? They set it up again at next sign-in, and are signed out now.', unlock: 'Unlock this admin?' };
+    adm: (el) => { const labels = { deactivate: 'Disable this admin (signs them out everywhere)?', reactivate: 'Enable this admin again?', 'reset-2fa': 'Reset two-step verification? They set it up again at next sign-in, and are signed out now.', unlock: 'Unlock this admin?', 'reset-pin': 'Reset their PIN? They create a new one at their next visit.' };
       const box = modal({ title: 'Please confirm', body: '<p>' + esc(labels[el.dataset.v]) + '</p>', foot: '<button class="btn" data-close>Cancel</button><button class="btn ' + (el.dataset.v === 'deactivate' ? 'danger' : 'pri') + '" id="go">Confirm</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => { await api('POST', '/admins/' + el.dataset.id + '/' + el.dataset.v); closeModal(); toast('Done'); route(); }); },
   };

@@ -6,7 +6,7 @@
  *     every other admin is added by the Super Admin from the Security page.
  *  3. Password (+ authenticator code when ADMIN_REQUIRE_2FA=true — TODO: on by default later), lockout after 5 failures, email alerts.
  *  4. Server-side sessions in an httpOnly, Secure, SameSite=Strict __Host- cookie: 30 min idle, 8 h max, revocable.
- *  5. CSRF: custom header + Origin check on every change. Risky actions need the code again (5 min).
+ *  5. CSRF: custom header + Origin check on every change. Risky actions need the admin's 4-digit PIN again (5 min).
  *  6. Roles (super / admin / support / finance) and an append-only audit log of every action. */
 const path = require('path');
 const crypto = require('crypto');
@@ -127,6 +127,7 @@ async function auth(req, res, next) {
   if (now - new Date(r.last_seen_at).getTime() > 60e3) q('UPDATE admin_sessions SET last_seen_at = now() WHERE id = $1', [r.sid]).catch(() => { });
   req.admin = r; req.sid = r.sid;
   if (r.must_change_pw && !['/me', '/auth/password', '/auth/logout'].includes(req.path)) return res.status(403).json({ error: 'Choose a new password first', code: 'change_password' });
+  if (!r.pin_hash && !TWO_FA() && !['/me', '/auth/password', '/auth/logout', '/auth/pin'].includes(req.path)) return res.status(403).json({ error: 'Create your 4-digit PIN first', code: 'set_pin' });
   next();
 }
 const need = (perm) => (req, res, next) => (can(req.admin, perm) ? next() : res.status(403).json({ error: 'Your admin role cannot do this' }));
@@ -141,6 +142,13 @@ async function audit(req, action, { tenantId, target, details, reason } = {}) {
   const a = req.admin || {};
   await q('INSERT INTO admin_audit (admin_id, admin_email, action, tenant_id, target, details, reason, ip, user_agent) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
     [a.id || null, a.email || (details && details.email) || null, action, tenantId || null, target || null, details ? JSON.stringify(details) : null, reason || null, clientIp(req), String(req.get('user-agent') || '').slice(0, 300)]);
+}
+/** 4 digits, and not an obvious one (0000, 1111, 1234, 4321…) */
+function pinProblem(pin) {
+  const p = String(pin || '');
+  if (!/^\d{4}$/.test(p)) return 'The PIN must be exactly 4 digits';
+  if (/^(\d)\1{3}$/.test(p) || '0123456789'.includes(p) || '9876543210'.includes(p)) return 'Choose a PIN that is harder to guess (not 0000, 1111, 1234…)';
+  return null;
 }
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const bad = (res, msg, status = 400, extra) => res.status(status).json(Object.assign({ error: msg }, extra || {}));
@@ -230,15 +238,16 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   A.use(wrap(auth));
   A.get('/me', wrap(async (req, res) => {
     const a = req.admin;
-    res.json({ twoFactor: TWO_FA(), admin: { id: a.id, email: a.email, name: a.name, role: a.role, mustChangePassword: a.must_change_pw, recoveryLeft: (a.recovery_codes || []).length, perms: permsOf(a) },
+    res.json({ twoFactor: TWO_FA(), admin: { id: a.id, email: a.email, name: a.name, role: a.role, mustChangePassword: a.must_change_pw, needsPin: !a.pin_hash && !TWO_FA(), recoveryLeft: (a.recovery_codes || []).length, perms: permsOf(a) },
       roleName: a.role === 'super' ? 'Super Admin' : a.role_name || a.role, security: a.role === 'super' ? securityChecks() : undefined });
   }));
   A.post('/auth/logout', wrap(async (req, res) => { await q('UPDATE admin_sessions SET revoked_at=now() WHERE id=$1', [req.sid]); setCookie(res, '', 0); await audit(req, 'logout'); res.json({ ok: true }); }));
   A.post('/auth/reauth', authLimiter, wrap(async (req, res) => {
-    const a = (await q('SELECT * FROM platform_admins WHERE id=$1', [req.admin.id])).rows[0]; const { code, recoveryCode, password } = req.body || {};
+    const a = (await q('SELECT * FROM platform_admins WHERE id=$1', [req.admin.id])).rows[0]; const { code, recoveryCode, pin } = req.body || {};
     if (locked(a)) return bad(res, 'Too many attempts. Try again later.', 429);
-    if (!TWO_FA()) { // TODO(2FA): confirm risky actions with the password until two-step is back
-      if (!(await bcrypt.compare(String(password || ''), a.password_hash))) { await failed(req, a); return bad(res, 'That password is not right', 401); }
+    if (!TWO_FA()) { // TODO(2FA): confirm risky actions with the admin's PIN until two-step is back
+      if (!a.pin_hash) return bad(res, 'Create your 4-digit PIN first', 403, { code: 'set_pin' });
+      if (!/^\d{4}$/.test(String(pin || '')) || !(await bcrypt.compare(String(pin), a.pin_hash))) { await failed(req, a); return bad(res, 'That PIN is not right', 401); }
       await q('UPDATE platform_admins SET failed_attempts=0 WHERE id=$1', [a.id]);
     } else if (recoveryCode) { const h = totp.hashCode(recoveryCode); if (!(a.recovery_codes || []).includes(h)) { await failed(req, a); return bad(res, 'That recovery code is not valid', 401); } await q('UPDATE platform_admins SET recovery_codes=$2 WHERE id=$1', [a.id, JSON.stringify(a.recovery_codes.filter((x) => x !== h))]); }
     else { const step = totp.verify(totp.open(a.totp_secret), code, a.totp_last_step); if (step === null) { await failed(req, a); return bad(res, 'That code is not right', 401); } await q('UPDATE platform_admins SET totp_last_step=$2, failed_attempts=0 WHERE id=$1', [a.id, step]); }
@@ -253,6 +262,15 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     await q('UPDATE platform_admins SET password_hash=$2, must_change_pw=false WHERE id=$1', [a.id, await bcrypt.hash(pw, 12)]);
     await q('UPDATE admin_sessions SET revoked_at=now() WHERE admin_id=$1 AND id <> $2 AND revoked_at IS NULL', [a.id, req.sid]);
     await audit(req, 'password_changed'); res.json({ ok: true });
+  }));
+  /* create the PIN (first time) or change it (needs the password) */
+  A.post('/auth/pin', authLimiter, wrap(async (req, res) => {
+    const { pin, password } = req.body || {}; const a = (await q('SELECT * FROM platform_admins WHERE id=$1', [req.admin.id])).rows[0];
+    if (a.pin_hash) { if (!(await bcrypt.compare(String(password || ''), a.password_hash))) { await failed(req, a); return bad(res, 'Your password is not right', 401); } }
+    const why = pinProblem(pin); if (why) return bad(res, why);
+    await q('UPDATE platform_admins SET pin_hash=$2, pin_set_at=now(), failed_attempts=0 WHERE id=$1', [a.id, await bcrypt.hash(String(pin), 12)]);
+    await q('UPDATE admin_sessions SET reauth_at=now() WHERE id=$1', [req.sid]);
+    await audit(req, a.pin_hash ? 'pin_changed' : 'pin_created'); res.json({ ok: true });
   }));
   A.post('/auth/recovery-codes', reauth, wrap(async (req, res) => {
     const rc = totp.recoveryCodes(); await q('UPDATE platform_admins SET recovery_codes=$2 WHERE id=$1', [req.admin.id, JSON.stringify(rc.hashes)]);
@@ -520,7 +538,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   /* ---------- admins, sessions, audit ---------- */
   A.get('/admins', wrap(async (req, res) => {
     const all = can(req.admin, 'admins.manage');
-    res.json({ admins: (await q('SELECT id, email, name, role, active, totp_enabled, last_login_at, last_login_ip, locked_until, created_at, jsonb_array_length(recovery_codes) AS recovery_left FROM platform_admins WHERE $1 OR id=$2 ORDER BY created_at', [all, req.admin.id])).rows,
+    res.json({ admins: (await q('SELECT id, email, name, role, active, totp_enabled, (pin_hash IS NOT NULL) AS has_pin, last_login_at, last_login_ip, locked_until, created_at, jsonb_array_length(recovery_codes) AS recovery_left FROM platform_admins WHERE $1 OR id=$2 ORDER BY created_at', [all, req.admin.id])).rows,
       sessions: (await q('SELECT s.id, s.admin_id, a.email, s.created_at, s.last_seen_at, s.ip, s.user_agent, (s.id = $3) AS current FROM admin_sessions s JOIN platform_admins a ON a.id=s.admin_id WHERE s.revoked_at IS NULL AND s.expires_at > now() AND s.last_seen_at > now() - interval \'30 minutes\' AND ($1 OR s.admin_id=$2) ORDER BY s.last_seen_at DESC', [all, req.admin.id, req.sid])).rows.map((x) => Object.assign(x, { id: x.id.slice(0, 16) })) });
   }));
   A.post('/sessions/:id/revoke', wrap(async (req, res) => {
@@ -577,7 +595,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     await audit(req, 'admin_role_changed', { target: a.email, details: { from: a.role, to: role } }); res.json({ ok: true });
   }));
   A.post('/admins/:id/:act', need('admins.manage'), reauth, wrap(async (req, res) => {
-    const act = req.params.act; if (!['deactivate', 'reactivate', 'reset-2fa', 'unlock'].includes(act)) return bad(res, 'Unknown action', 404);
+    const act = req.params.act; if (!['deactivate', 'reactivate', 'reset-2fa', 'unlock', 'reset-pin'].includes(act)) return bad(res, 'Unknown action', 404);
     if (req.params.id === req.admin.id && act !== 'unlock') return bad(res, 'You cannot do this to your own account');
     const a = (await q('SELECT * FROM platform_admins WHERE id::text=$1', [req.params.id])).rows[0]; if (!a) return bad(res, 'Admin not found', 404);
     if (a.role === 'super') return bad(res, 'The Super Admin cannot be changed here');
@@ -585,6 +603,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     if (act === 'reactivate') await q('UPDATE platform_admins SET active=true WHERE id=$1', [a.id]);
     if (act === 'reset-2fa') { await q("UPDATE platform_admins SET totp_enabled=false, totp_secret=NULL, totp_last_step=NULL, recovery_codes='[]' WHERE id=$1", [a.id]); await q('UPDATE admin_sessions SET revoked_at=now() WHERE admin_id=$1 AND revoked_at IS NULL', [a.id]); }
     if (act === 'unlock') await q('UPDATE platform_admins SET locked_until=NULL, failed_attempts=0 WHERE id=$1', [a.id]);
+    if (act === 'reset-pin') await q('UPDATE platform_admins SET pin_hash=NULL, pin_set_at=NULL WHERE id=$1', [a.id]); // they create a new one at their next visit
     await audit(req, 'admin_' + act.replace('-', '_'), { target: a.email }); res.json({ ok: true });
   }));
   A.get('/audit', need('audit.view'), wrap(async (req, res) => {

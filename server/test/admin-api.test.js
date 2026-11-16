@@ -36,7 +36,8 @@ const tempPw = (out) => out.match(/\(shown once\):\s+(\S+)/)[1];
 async function firstSignIn(email, temp, newPw) {
   const c = adminClient();
   const l = await c.call('POST', '/api/admin/auth/login', { email, password: temp }); assert.equal(l.status, 200, JSON.stringify(l.body));
-  if (!TWO) { assert.equal(l.body.next, 'done'); const pw0 = await c.call('POST', '/api/admin/auth/password', { current: temp, password: newPw }); assert.equal(pw0.status, 200, JSON.stringify(pw0.body)); return { c }; }
+  if (!TWO) { assert.equal(l.body.next, 'done'); const pw0 = await c.call('POST', '/api/admin/auth/password', { current: temp, password: newPw }); assert.equal(pw0.status, 200, JSON.stringify(pw0.body));
+    assert.equal((await c.call('POST', '/api/admin/auth/pin', { pin: '2580' })).status, 200, 'creates the 4-digit PIN'); return { c }; }
   assert.equal(l.body.next, 'setup');
   const secret = l.body.secret.replace(/\s/g, '');
   const v = await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: totp.codeAt(secret, totp.stepNow()) }); assert.equal(v.status, 200, JSON.stringify(v.body));
@@ -51,7 +52,7 @@ async function signIn(c, n) {
   if (TWO) await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, recoveryCode: S.recovery[n] });
 }
 /** confirm a risky action: password (two-step off) or a recovery code */
-const reauthBody = (n) => (TWO ? { recoveryCode: S.recovery[n] } : { password: S.pw });
+const reauthBody = (n) => (TWO ? { recoveryCode: S.recovery[n] } : { pin: S.pin });
 /** the Super Admin adds an admin in the dashboard; returns the temporary password */
 async function addAdmin(email, name, role) {
   await db.query("UPDATE admin_sessions SET reauth_at = now() WHERE revoked_at IS NULL AND admin_id=(SELECT id FROM platform_admins WHERE email=$1)", [S.ownerEmail]);
@@ -103,6 +104,15 @@ test('first sign-in: password' + (TWO ? ', authenticator setup, recovery codes' 
   assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'Correct-Horse-' + rnd }, { origin: 'https://evil.example' })).status, 403, 'wrong origin');
   assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'Correct-Horse-' + rnd })).status, 200);
   S.pw = 'Correct-Horse-' + rnd; S.c = c;
+  if (!TWO) {
+    const g = await c.call('GET', '/api/admin/overview'); assert.equal(g.status, 403); assert.equal(g.body.code, 'set_pin', 'a PIN must be created first');
+    assert.equal((await c.call('GET', '/api/admin/me')).body.admin.needsPin, true);
+    for (const bad of ['123', '12a4', '0000', '1234', '9876']) assert.equal((await c.call('POST', '/api/admin/auth/pin', { pin: bad })).status, 400, 'refused PIN ' + bad);
+    assert.equal((await c.call('POST', '/api/admin/auth/pin', { pin: '2580' })).status, 200); S.pin = '2580';
+    const row = (await db.query('SELECT pin_hash FROM platform_admins WHERE email=$1', [S.ownerEmail])).rows[0]; assert.ok(row.pin_hash.startsWith('$2') && !row.pin_hash.includes('2580'), 'PIN stored hashed');
+    assert.equal((await c.call('POST', '/api/admin/auth/pin', { pin: '7391' })).status, 401, 'changing the PIN needs the password');
+    assert.equal((await c.call('POST', '/api/admin/auth/pin', { pin: '7391', password: S.pw })).status, 200); S.pin = '7391';
+  }
   assert.equal((await c.call('GET', '/api/admin/overview')).status, 200);
   const me = (await c.call('GET', '/api/admin/me')).body; assert.equal(me.admin.role, 'super'); assert.equal(me.roleName, 'Super Admin'); assert.ok(Array.isArray(me.security));
 });
@@ -142,7 +152,7 @@ test('plans: risky changes need the code again', async () => {
   await db.query("UPDATE admin_sessions SET reauth_at = now() - interval '10 minutes' WHERE revoked_at IS NULL");
   const plan = { name: 'Starter', description: 'One shop', price_monthly: 10000, price_yearly: 100000, active: true, public: true, sort: 1, features: ['1 shop', '2 team members'], limits: { maxUsers: 2, maxLocations: 1 }, modules: { onlineShop: false } };
   const r = await S.c.call('PUT', '/api/admin/plans/starter', plan); assert.equal(r.status, 403); assert.equal(r.body.code, 'reauth');
-  if (!TWO) assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', { password: 'wrong-' + rnd })).status, 401, 'wrong password');
+  if (!TWO) { assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', { pin: '0505' })).status, 401, 'wrong PIN'); assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', { password: S.pw })).status, 401, 'the password is not accepted instead of the PIN'); }
   assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', reauthBody(3))).status, 200);
   assert.equal((await S.c.call('PUT', '/api/admin/plans/starter', plan)).status, 200);
   assert.equal((await S.c.call('PUT', '/api/admin/plans/business', { name: 'Business', price_monthly: 25000, price_yearly: null, active: true, public: true, sort: 2, features: ['Branches'], limits: {} })).status, 200);

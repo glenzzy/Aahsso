@@ -6,6 +6,7 @@
  *   node scripts/admin.js transfer --email …         (make another admin the Super Admin; the current one becomes Admin)
  *   node scripts/admin.js reset-password --email …   (new temporary password; must be changed at next sign-in)
  *   node scripts/admin.js reset-2fa --email …        (the authenticator is set up again at next sign-in)
+ *   node scripts/admin.js reset-pin --email …        (forgotten 4-digit PIN: a new one is created at the next visit)
  *   node scripts/admin.js disable --email … | enable --email … | unlock --email …
  * Each command is written to the admin audit log as done "from the server console". */
 const crypto = require('crypto');
@@ -59,6 +60,9 @@ const die = (m) => { console.error('✖ ' + m); process.exit(1); };
     await pool.query("UPDATE platform_admins SET totp_enabled=false, totp_secret=NULL, totp_last_step=NULL, recovery_codes='[]' WHERE id=$1", [a.id]);
     await pool.query('UPDATE admin_sessions SET revoked_at=now() WHERE admin_id=$1 AND revoked_at IS NULL', [a.id]);
     await log('admin_reset_2fa', email); console.log('✔ ' + email + ' will set up the authenticator again at the next sign-in.');
+  } else if (cmd === 'reset-pin') {
+    const a = await find(); await pool.query('UPDATE platform_admins SET pin_hash=NULL, pin_set_at=NULL WHERE id=$1', [a.id]);
+    await log('admin_reset_pin', email); console.log('✔ ' + email + ' will create a new 4-digit PIN at the next visit.');
   } else if (['disable', 'enable', 'unlock'].includes(cmd)) {
     const a = await find();
     if (cmd === 'disable') { await pool.query('UPDATE platform_admins SET active=false WHERE id=$1', [a.id]); await pool.query('UPDATE admin_sessions SET revoked_at=now() WHERE admin_id=$1 AND revoked_at IS NULL', [a.id]); }
@@ -66,7 +70,7 @@ const die = (m) => { console.error('✖ ' + m); process.exit(1); };
     if (cmd === 'unlock') await pool.query('UPDATE platform_admins SET locked_until=NULL, failed_attempts=0 WHERE id=$1', [a.id]);
     await log('admin_' + cmd, email); console.log('✔ Done: ' + cmd + ' ' + email);
   } else {
-    console.log('Usage:\n  node scripts/admin.js create --email you@company.com --name "Your Name"   (the one Super Admin)\n  node scripts/admin.js list\n  node scripts/admin.js transfer --email …\n  node scripts/admin.js reset-password --email …\n  node scripts/admin.js reset-2fa --email …\n  node scripts/admin.js disable|enable|unlock --email …');
+    console.log('Usage:\n  node scripts/admin.js create --email you@company.com --name "Your Name"   (the one Super Admin)\n  node scripts/admin.js list\n  node scripts/admin.js transfer --email …\n  node scripts/admin.js reset-password --email …\n  node scripts/admin.js reset-2fa --email …\n  node scripts/admin.js reset-pin --email …\n  node scripts/admin.js disable|enable|unlock --email …');
   }
   await pool.end();
 })().catch((e) => { console.error(e); process.exit(1); });

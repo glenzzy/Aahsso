@@ -30,6 +30,7 @@ async function signIn(email, temp, pw) {
   const c = adminClient();
   assert.equal((await c('POST', '/api/admin/auth/login', { email, password: temp })).status, 200);
   assert.equal((await c('POST', '/api/admin/auth/password', { current: temp, password: pw })).status, 200);
+  assert.equal((await c('POST', '/api/admin/auth/pin', { pin: '4826' })).status, 200);
   return c;
 }
 const fresh = () => db.query('UPDATE admin_sessions SET reauth_at = now() WHERE revoked_at IS NULL');
@@ -111,6 +112,10 @@ test('admin roles: the Super Admin creates granular roles; admins get exactly th
   await fresh(); assert.equal((await S.sa('PUT', '/api/admin/roles/' + rid, { name: 'Ledger ' + rnd, perms: ['billing', 'overview.view', 'tenants.view'] })).status, 200);
   assert.equal((await lena('GET', '/api/admin/tenants')).status, 200, 'new permission works at once');
   assert.equal((await lena('POST', '/api/admin/roles', { name: 'Hack', perms: ['billing'] })).status, 403, 'only the Super Admin manages roles');
+  await fresh(); assert.equal((await S.sa('POST', '/api/admin/admins/' + add.body.admin.id + '/reset-pin')).status, 200, 'the Super Admin resets a forgotten PIN');
+  assert.equal((await lena('GET', '/api/admin/invoices')).body.code, 'set_pin', 'they create a new PIN at their next visit');
+  assert.equal((await lena('POST', '/api/admin/auth/pin', { pin: '9173' })).status, 200);
+  const out2 = execFileSync('node', [path.join(__dirname, '..', 'scripts', 'admin.js'), 'reset-pin', '--email', 'lena' + rnd + '@kargo.test'], { env: process.env, encoding: 'utf8' }); assert.match(out2, /new 4-digit PIN/);
   assert.equal((await S.sa('DELETE', '/api/admin/roles/' + rid)).status, 400, 'in use');
   assert.equal((await S.sa('DELETE', '/api/admin/roles/support')).status, 400, 'built-in');
   // built-in roles can be adjusted too
