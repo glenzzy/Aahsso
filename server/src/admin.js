@@ -37,6 +37,9 @@ const ADMIN_PERMS = [
   ['tenants.suspend', 'Suspend and reactivate businesses', 'Businesses'],
   ['tenants.impersonate', 'View a business as its owner (read-only)', 'Businesses'],
   ['tenants.resetOwner', 'Reset a business owner\'s password', 'Businesses'],
+  ['users.view', 'See the people who sign in to businesses', 'Users'],
+  ['users.write', 'Add and edit business users, disable them, reset their passwords', 'Users'],
+  ['users.delete', 'Delete business users', 'Users'],
   ['billing', 'See invoices and payments', 'Billing'],
   ['billing.write', 'Create invoices, record and confirm payments', 'Billing'],
   ['billing.void', 'Void invoices', 'Billing'],
@@ -55,6 +58,7 @@ const permsOf = (a) => (a.role === 'super' ? PERM_KEYS.concat(['admins.manage'])
 const roleRow = async (id) => (await q('SELECT * FROM admin_roles WHERE id=$1', [id])).rows[0];
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const rand = (n = 32) => crypto.randomBytes(n).toString('base64url');
+const tempPassword = () => Array.from(crypto.randomBytes(9), (x) => 'abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789'[x % 54]).join('') + '-' + crypto.randomInt(10, 99);
 const ADMIN_HOST = () => String(process.env.ADMIN_HOST || '').toLowerCase().trim();
 const enabled = () => !!process.env.ADMIN_SECRET && process.env.ADMIN_SECRET.length >= 32 && !(process.env.NODE_ENV === 'production' && !ADMIN_HOST());
 const isAdminPath = (p) => p === '/admin' || p.startsWith('/admin/') || p.startsWith('/api/admin/') || p === '/api/admin';
@@ -378,7 +382,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   A.post('/tenants/:id/reset-owner-password', need('tenants.resetOwner'), reauth, wrap(async (req, res) => {
     const t = await tenantOr404(req, res); if (!t) return; const reason = needReason(req, res); if (!reason) return;
     const o = await B.ownerOf(pool, t.id); if (!o) return bad(res, 'This business has no active owner');
-    const temp = Array.from(crypto.randomBytes(9), (x) => 'abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789'[x % 54]).join('') + '-' + crypto.randomInt(10, 99);
+    const temp = tempPassword();
     await q('UPDATE users SET password_hash=$2 WHERE id=$1', [o.id, await bcrypt.hash(temp, 10)]);
     await q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, $2, 'main', 'support_password', $3)", [t.id, 'Kargo support', JSON.stringify({ reason, by: req.admin.name })]);
     const to = mailer.emailOf(o); let emailed = null;
@@ -386,6 +390,89 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     await audit(req, 'owner_password_reset', { tenantId: t.id, target: o.login, reason });
     res.json({ ok: true, password: temp, login: o.login, emailed: emailed, emailTo: to || '' });
   }));
+
+  /* ---------- business users: everyone who signs in to a business (owners and their team) ---------- */
+  const USER_SEL = 'SELECT u.id, u.tenant_id, u.name, u.login, u.email, u.role, u.active, u.location_id, u.created_at, u.last_login_at, t.name AS tenant FROM users u JOIN tenants t ON t.id=u.tenant_id';
+  /** the roles a business can give: the standard ones, plus its own custom roles when its plan includes them */
+  async function rolesOf(tid) {
+    const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [tid])).rows[0];
+    const custom = KC.featureOn((await B.limitsFor(pool, tid)).features, 'customRoles') ? (st && st.roles) || {} : {};
+    return Object.entries(KC.rolesWith(custom)).filter(([k]) => k !== 'owner').map(([k, r]) => ({ id: k, label: r.label, custom: !!r.custom }));
+  }
+  async function userOr404(req, res) { const u = (await q(USER_SEL + ' WHERE u.id::text=$1', [req.params.id])).rows[0]; if (!u) bad(res, 'User not found', 404); return u; }
+  const tenantLog = (tid, action, after) => q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, 'Kargo support', 'main', $2, $3)", [tid, action, JSON.stringify(after)]);
+  async function mailLogin(u, password, reset) {
+    const to = mailer.emailOf(u); if (!to) return { status: 'no_email' };
+    const r = await mailer.sendEmail(Object.assign({ to, kind: reset ? 'staff_password' : 'staff_account', tenantId: u.tenant_id }, mailer.T.staffAccount({ name: u.name, business: u.tenant, login: u.login, password, role: u.role, url: mailer.appUrl(), by: 'Kargo support', reset })));
+    return { status: r.status, to };
+  }
+  A.get('/users', need('users.view'), wrap(async (req, res) => {
+    const page = Math.max(0, Number(req.query.page) || 0); const qs = String(req.query.q || '').slice(0, 80).replace(/[%_]/g, '');
+    const st = String(req.query.status || ''); const role = String(req.query.role || '').slice(0, 40);
+    const rows = (await q(USER_SEL + " WHERE ($1='' OR u.name ILIKE '%'||$1||'%' OR u.login ILIKE '%'||$1||'%' OR coalesce(u.email,'') ILIKE '%'||$1||'%' OR t.name ILIKE '%'||$1||'%')" +
+      " AND ($2='' OR u.tenant_id::text=$2) AND ($3='' OR ($3='active' AND u.active) OR ($3='disabled' AND NOT u.active)) AND ($4='' OR u.role=$4 OR ($4='staff' AND u.role<>'owner'))" +
+      ' ORDER BY u.created_at DESC LIMIT 51 OFFSET $5', [qs, String(req.query.tenant || ''), st, role, page * 50])).rows;
+    const counts = (await q("SELECT count(*)::int AS total, count(*) FILTER (WHERE active)::int AS active, count(*) FILTER (WHERE role='owner')::int AS owners, count(*) FILTER (WHERE last_login_at > now() - interval '30 days')::int AS recent FROM users")).rows[0];
+    res.json({ users: rows.slice(0, 50), more: rows.length > 50, counts });
+  }));
+  A.get('/users/roles', need('users.view'), wrap(async (req, res) => {
+    const t = (await q('SELECT id FROM tenants WHERE id::text=$1', [String(req.query.tenant || '')])).rows[0]; if (!t) return bad(res, 'Business not found', 404);
+    res.json({ roles: await rolesOf(t.id) });
+  }));
+  A.post('/users', need('users.write'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const t = (await q('SELECT id, name FROM tenants WHERE id::text=$1', [String(b.tenantId || '')])).rows[0]; if (!t) return bad(res, 'Choose the business');
+    const name = String(b.name || '').trim().slice(0, 80); const login = String(b.login || '').trim().toLowerCase().slice(0, 120);
+    if (name.length < 2) return bad(res, 'Type their name'); if (login.length < 3 || /\s/.test(login)) return bad(res, 'Login: an email or phone number, no spaces');
+    if (b.email && !mailer.isEmail(b.email)) return bad(res, 'Type a valid email address (or leave it empty)');
+    if (!(await rolesOf(t.id)).some((r) => r.id === b.role)) return bad(res, 'Choose a role this business has');
+    let password = String(b.password || ''); const generated = !password; if (generated) password = tempPassword(); else if (password.length < 6) return bad(res, 'Password must be at least 6 characters');
+    const lim = await B.checkLimit(pool, t.id, 'maxUsers'); if (lim) return bad(res, lim.error, lim.status);
+    let u; try { u = (await q("INSERT INTO users (tenant_id, name, login, password_hash, role, perms, location_id, email) VALUES ($1,$2,$3,$4,$5,'{}',$6,$7) RETURNING id", [t.id, name, login, await bcrypt.hash(password, 10), b.role, String(b.locationId || 'main').slice(0, 40), mailer.isEmail(b.email) ? String(b.email).trim().toLowerCase() : null])).rows[0]; }
+    catch (e) { if (e.code === '23505') return bad(res, 'This login is already used by someone', 409); throw e; }
+    u = (await q(USER_SEL + ' WHERE u.id=$1', [u.id])).rows[0];
+    await tenantLog(t.id, 'support_user_created', { name, login, role: b.role, by: req.admin.name });
+    await audit(req, 'user_created', { tenantId: t.id, target: login, details: { role: b.role } });
+    const emailed = b.sendEmail ? await mailLogin(u, password, false) : null;
+    res.json({ user: u, password: generated ? password : null, emailed });
+  }));
+  A.patch('/users/:id', need('users.write'), wrap(async (req, res) => {
+    const u = await userOr404(req, res); if (!u) return; const b = req.body || {}; const ch = {};
+    if (b.name !== undefined) { const n = String(b.name).trim().slice(0, 80); if (n.length < 2) return bad(res, 'Type their name'); ch.name = n; }
+    if (b.email !== undefined) { if (b.email && !mailer.isEmail(b.email)) return bad(res, 'Type a valid email address (or leave it empty)'); ch.email = b.email ? String(b.email).trim().toLowerCase() : null; }
+    if (b.login !== undefined && String(b.login).trim().toLowerCase() !== u.login) { const l = String(b.login).trim().toLowerCase().slice(0, 120); if (l.length < 3 || /\s/.test(l)) return bad(res, 'Login: an email or phone number, no spaces'); ch.login = l; }
+    if (b.role !== undefined && b.role !== u.role) { if (u.role === 'owner') return bad(res, 'The owner stays the owner'); if (b.role === 'owner' || !(await rolesOf(u.tenant_id)).some((r) => r.id === b.role)) return bad(res, 'Choose a role this business has'); ch.role = b.role; }
+    if (typeof b.active === 'boolean' && b.active !== u.active) {
+      if (u.role === 'owner' && !b.active) return bad(res, 'The owner cannot be disabled — suspend the business instead');
+      if (b.active) { const lim = await B.checkLimit(pool, u.tenant_id, 'maxUsers'); if (lim) return bad(res, lim.error, lim.status); }
+      ch.active = b.active;
+    }
+    const keys = Object.keys(ch); if (!keys.length) return res.json({ ok: true, user: u });
+    try { await q('UPDATE users SET ' + keys.map((k, i) => k + '=$' + (i + 2)).join(', ') + ' WHERE id=$1', [u.id].concat(keys.map((k) => ch[k]))); }
+    catch (e) { if (e.code === '23505') return bad(res, 'This login is already used by someone', 409); throw e; }
+    await tenantLog(u.tenant_id, 'support_user_changed', Object.assign({ login: u.login, by: req.admin.name }, ch));
+    await audit(req, ch.active === false ? 'user_disabled' : ch.active === true ? 'user_enabled' : 'user_changed', { tenantId: u.tenant_id, target: u.login, details: ch });
+    res.json({ ok: true, user: (await q(USER_SEL + ' WHERE u.id=$1', [u.id])).rows[0] });
+  }));
+  A.post('/users/:id/password', need('users.write'), reauth, wrap(async (req, res) => {
+    const u = await userOr404(req, res); if (!u) return;
+    if (u.role === 'owner' && !can(req.admin, 'tenants.resetOwner')) return res.status(403).json({ error: 'Your admin role cannot reset an owner\'s password' });
+    const temp = tempPassword();
+    await q('UPDATE users SET password_hash=$2 WHERE id=$1', [u.id, await bcrypt.hash(temp, 10)]);
+    await tenantLog(u.tenant_id, 'support_password', { login: u.login, by: req.admin.name });
+    await audit(req, 'user_password_reset', { tenantId: u.tenant_id, target: u.login });
+    const emailed = (req.body || {}).sendEmail === false ? null : await mailLogin(u, temp, true);
+    res.json({ ok: true, password: temp, login: u.login, emailed });
+  }));
+  A.post('/users/:id/delete', need('users.delete'), reauth, wrap(async (req, res) => {
+    const u = await userOr404(req, res); if (!u) return; const reason = needReason(req, res); if (!reason) return;
+    if (u.role === 'owner') return bad(res, 'The owner cannot be deleted — they own the business');
+    await q('DELETE FROM users WHERE id=$1', [u.id]); // their past actions stay in the business history (by name)
+    await tenantLog(u.tenant_id, 'support_user_deleted', { name: u.name, login: u.login, reason, by: req.admin.name });
+    await audit(req, 'user_deleted', { tenantId: u.tenant_id, target: u.login, reason, details: { name: u.name, role: u.role } });
+    res.json({ ok: true });
+  }));
+
   A.post('/tenants/:id/view', need('tenants.impersonate'), reauth, wrap(async (req, res) => {
     const t = await tenantOr404(req, res); if (!t) return; const reason = needReason(req, res); if (!reason) return;
     const o = await B.ownerOf(pool, t.id); if (!o) return bad(res, 'This business has no active owner');
@@ -429,6 +516,18 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const b = req.body || {}; const amount = Math.round(Number(b.amount));
     const t = (await q('SELECT id, name FROM tenants WHERE id::text=$1', [b.tenantId])).rows[0]; if (!t) return bad(res, 'Choose the business');
     if (!(amount > 0)) return bad(res, 'Amount must be more than 0'); if (!B.PAY_METHODS.includes(b.method)) return bad(res, 'Choose how they paid');
+    const ref = String(b.reference || '').trim().slice(0, 80) || null; const paidOn = /^\d{4}-\d{2}-\d{2}$/.test(String(b.paidOn)) && b.paidOn <= B.dayStr(new Date()) ? b.paidOn : B.dayStr(new Date());
+    if (b.planId && !b.invoiceId) { // paid for a plan directly (cash, MoMo outside the app…): invoice, payment and subscription in one go
+      let r; try { r = await tx(async (c) => {
+        const inv = await B.createInvoice(c, { tid: t.id, planId: b.planId, cycle: b.cycle, amount, dueDays: 0, createdBy: req.admin.email });
+        const p = (await c.query("INSERT INTO payments (tenant_id, invoice_id, amount, currency, method, reference, paid_on, status, note, recorded_by, decided_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,$9,now()) RETURNING *",
+          [t.id, inv.id, amount, inv.currency, b.method, ref, paidOn, String(b.note || '').slice(0, 300) || null, req.admin.id])).rows[0];
+        return { p, inv: await B.applyPayment(c, p.id) };
+      }); } catch (e) { if (e.code === '23505') return bad(res, 'This transaction reference was already recorded', 409); return fail(res, e); }
+      if (r.inv && r.inv.status === 'paid') await B.mailOwner(pool, t.id, 'payment_received', (o) => mailer.T.paymentReceived({ name: o.name, business: o.tenant_name, number: r.inv.number, amount: B.money(r.inv.amount, r.inv.currency), until: B.dayStr(r.inv.period_end), url: mailer.appUrl() }), 'paid:' + r.inv.id);
+      await audit(req, 'payment_recorded', { tenantId: t.id, target: r.inv.number, details: { amount, method: b.method, reference: ref, plan: b.planId, cycle: r.inv.cycle, manual: true } });
+      return res.json({ payment: r.p, invoice: r.inv });
+    }
     const inv = b.invoiceId ? (await q("SELECT * FROM invoices WHERE id::text=$1 AND tenant_id=$2", [b.invoiceId, t.id])).rows[0] : null;
     if (b.invoiceId && (!inv || inv.status !== 'open')) return bad(res, 'Choose an open invoice of this business');
     let p; try { p = (await q("INSERT INTO payments (tenant_id, invoice_id, amount, currency, method, reference, paid_on, status, note, recorded_by, decided_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,$9,now()) RETURNING *",

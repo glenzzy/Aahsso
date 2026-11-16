@@ -161,12 +161,11 @@
   }
 
   /* ---------- shell & routing ---------- */
-  const NAV = [['overview', 'Overview', 'overview.view', 'home'], ['tenants', 'Businesses', 'tenants.view', 'store'], ['plans', 'Plans', 'plans.view', 'tag'], ['billing', 'Billing', 'billing', 'card'], ['support', 'Support', 'support', 'chat'], ['health', 'Health', 'health.view', 'pulse'], ['security', 'Security', '', 'shield'], ['settings', 'Settings', 'plans.view', 'gear']];
+  const NAV = [['overview', 'Overview', 'overview.view', 'home'], ['tenants', 'Businesses', 'tenants.view', 'store'], ['users', 'Users', 'users.view', 'users'], ['plans', 'Plans', 'plans.view', 'tag'], ['billing', 'Billing', 'billing', 'card'], ['support', 'Support', 'support', 'chat'], ['health', 'Health', 'health.view', 'pulse'], ['security', 'Security', '', 'shield'], ['settings', 'Settings', 'plans.view', 'gear']];
   /* one short line under the title of each page — what it is for */
-  const INTRO = { overview: 'Revenue, sign-ups and what needs your attention today.', tenants: 'Every business on Kargo — search, open one to see its plan, usage and invoices.', plans: 'What each plan costs and which features and limits it includes.', billing: 'Invoices, payments to confirm, and money received.', support: 'Questions and problems sent by businesses from the app.', health: 'Server, database, emails and automatic reminders.', security: 'Your account, sessions, roles, admins and the audit log.', settings: 'How businesses pay you and the subscription rules.' };
-  const IC = { home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', store: 'M3 9l1.5-5h15L21 9M3 9h18M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 12v8h14v-8', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', card: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2zM2 10h20M6 15h4', chat: 'M21 12a8 8 0 01-11.6 7.1L3 21l1.9-6.4A8 8 0 1121 12z', pulse: 'M3 12h4l3-8 4 16 3-8h4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4', gear: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z', menu: 'M4 6h16M4 12h16M4 18h16', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3', out: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9' };
+  const INTRO = { overview: 'Revenue, sign-ups and what needs your attention today.', tenants: 'Every business on Kargo — search, open one to see its plan, usage and invoices.', users: 'Everyone who signs in to a business — owners and their team. Add, edit, disable, reset passwords.', plans: 'What each plan costs and which features and limits it includes.', billing: 'Payments to check, invoices, and money received. Record a payment made outside the app — cash, MoMo, bank.', support: 'Questions and problems sent by businesses from the app.', health: 'Server, database, emails and automatic reminders.', security: 'Your account, sessions, roles, admins and the audit log.', settings: 'How businesses pay you and the subscription rules.' };
+  const IC = { home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', store: 'M3 9l1.5-5h15L21 9M3 9h18M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 12v8h14v-8', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', card: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2zM2 10h20M6 15h4', chat: 'M21 12a8 8 0 01-11.6 7.1L3 21l1.9-6.4A8 8 0 1121 12z', pulse: 'M3 12h4l3-8 4 16 3-8h4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4', gear: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z', menu: 'M4 6h16M4 12h16M4 18h16', users: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8', plus: 'M12 5v14M5 12h14', key: 'M15 7a2 2 0 012 2M21 9a6 6 0 01-7.7 5.7L11 17H9v2H7v2H3v-3.6l6.3-6.3A6 6 0 1121 9z', trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6', money: 'M2 7a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2zM12 15a3 3 0 100-6 3 3 0 000 6zM6 12h.01M18 12h.01', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3', out: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9' };
   const ic = (n, c) => '<svg class="i' + (c ? ' ' + c : '') + '" viewBox="0 0 24 24" aria-hidden="true"><path d="' + IC[n] + '"/></svg>';
-  const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   async function boot() {
     try { S.me = await api('GET', '/me'); } catch (e) { if (!e.quiet) renderLogin(); return; }
     if (S.me.admin.mustChangePassword) return renderChangePw();
@@ -177,8 +176,7 @@
     const a = S.me.admin;
     $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side" aria-label="Main menu"><div class="brand"><div class="mark">K</div><div>Kargo<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div>' +
       '<div class="who"><b>' + esc(a.name) + '</b><span style="overflow-wrap:anywhere">' + esc(a.email) + '</span><span>' + esc(roleName(a.role)) + '</span><button class="btn sm block" data-act="logout">' + ic('out', 'sm') + 'Sign out</button></div></aside><div class="scrim" id="scrim" data-act="menu"></div>' +
-      '<div class="main"><header class="top"><button class="btn sm ghost menu-btn" data-act="menu" aria-label="Open menu" aria-controls="side">' + ic('menu') + '</button><div class="mark tmark" aria-hidden="true">K</div><h1 id="title"></h1><span class="tiny faint" id="idle"></span>' +
-      '<a class="top-me" href="#/security" title="My account"><span class="tm-txt"><span class="tm-n">' + esc(a.name) + '</span><br><span class="tm-r">' + esc(roleName(a.role)) + '</span></span><span class="uav">' + esc(initials(a.name)) + '</span></a></header><main class="view" id="view" tabindex="-1"></main></div></div>';
+      '<div class="main"><header class="top"><button class="btn sm ghost menu-btn" data-act="menu" aria-label="Open menu" aria-controls="side">' + ic('menu') + '</button><div class="mark tmark" aria-hidden="true">K</div><h1 id="title"></h1><span class="tiny faint" id="idle"></span></header><main class="view" id="view" tabindex="-1"></main></div></div>';
     drawNav();
   }
   async function drawNav(counts) {
@@ -252,7 +250,7 @@
     const A = (act, label, cls, perm) => (can(perm) ? '<button class="btn sm ' + (cls || '') + '" data-act="' + act + '">' + label + '</button>' : '');
     const lim = d.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items' };
     v.innerHTML = '<div class="row between mb"><div class="row"><a class="btn sm" href="#/tenants">← Businesses</a>' + stBadge(s.status) + (s.suspended_reason ? '<span class="small muted">' + esc(s.suspended_reason) + '</span>' : '') + '</div>' +
-      '<div class="row">' + A('tViewAs', 'View as owner', '', 'tenants.impersonate') + A('tResetPw', 'Reset owner password', '', 'tenants.resetOwner') + '</div></div>' +
+      '<div class="row">' + A('tViewAs', 'View as owner', '', 'tenants.impersonate') + A('tResetPw', 'Reset owner password', '', 'tenants.resetOwner') + (can('users.view') ? '<button class="btn sm" data-act5="uForTenant">' + ic('users', 'sm') + 'Users</button>' : '') + '</div></div>' +
       '<div class="grid2 mb2"><section class="card pad2"><div class="row between mb"><h2>Subscription</h2><div class="row">' + A('tPlan', 'Change plan', '', 'subs.write') + A('tExtend', 'Extend', '', 'subs.write') + '</div></div>' +
         '<dl class="kv"><dt>Plan</dt><dd>' + esc(s.status === 'trialing' ? 'Free trial' : s.plan_name || '—') + (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? ' · ' + esc(money(s.price, s.currency)) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') : '') + '</dd>' +
         '<dt>' + (s.status === 'trialing' ? 'Trial ends' : 'Paid until') + '</dt><dd>' + esc(fmtD(end)) + (n !== null ? ' <span class="faint small">(' + (n < 0 ? Math.abs(n) + ' days ago' : 'in ' + n + ' days') + ')</span>' : '') + '</dd>' +
@@ -313,7 +311,7 @@
       $('#go', box).onclick = (e) => busy(e.target, () => subAction(Object.assign({ action: 'cancel' }, vals(box)), 'Cancelled at period end')); },
     tInvoice: () => { const s = S.t.subscription; const box = modal({ title: 'New invoice', body: '<div class="col">' + field('Plan', sel('planId', planOpts(), s.plan_id || '')) + '<div class="grid2">' + field('Billed', sel('cycle', [['monthly', 'Monthly'], ['yearly', 'Yearly']], s.cycle)) + field('Amount (leave empty for the price)', inp('amount', '', 'inputmode="numeric"')) + '</div>' + field('Due in (days)', inp('dueDays', '7', 'inputmode="numeric"')) + '<label class="check"><input type="checkbox" name="send" checked> Email it to the owner</label></div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Create invoice</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => { const r = await api('POST', '/tenants/' + S.t.tenant.id + '/invoices', vals(box)); closeModal(); toast('Invoice ' + r.invoice.number + ' created'); route(); }); },
-    tPay: () => payModal(S.t.tenant.id, S.t.invoices.filter((i) => i.status === 'open')),
+    tPay: () => payModal({ id: S.t.tenant.id, name: S.t.tenant.name, invoices: S.t.invoices.filter((i) => i.status === 'open') }),
     iVoid: (el) => { const box = modal({ title: 'Void invoice', body: '<p class="muted small">A void invoice cannot be paid. Pending payment reports on it are rejected.</p>' + reasonField(true), foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Void</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => { await api('POST', '/invoices/' + el.dataset.id + '/void', vals(box)); closeModal(); toast('Invoice voided'); route(); }); },
     pConfirm: (el) => busy(el, async () => { const r = await api('POST', '/payments/' + el.dataset.id + '/confirm'); toast(r.invoice && r.invoice.status === 'paid' ? 'Confirmed — subscription active until ' + fmtD(r.invoice.period_end) : 'Confirmed'); route(); }),
@@ -325,15 +323,146 @@
     tViewAs: () => { const box = modal({ title: 'View as owner (read-only)', body: '<p class="muted small">Opens the business app as its owner for 30 minutes. Nothing can be changed. The business sees “Kargo support viewed your account” with your reason in its activity log.</p>' + reasonField(true), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Open read-only view</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => { const r = await api('POST', '/tenants/' + S.t.tenant.id + '/view', vals(box)); closeModal(); const w = window.open(r.url, '_blank', 'noopener'); if (!w) modal({ title: 'Open the view', body: '<p class="small">Your browser blocked the new tab. <a href="' + esc(r.url) + '" target="_blank" rel="noopener">Open the read-only view</a> (valid 30 minutes).</p>' }); }); },
   };
-  function payModal(tenantId, openInvoices) {
-    const today = new Date().toISOString().slice(0, 10);
-    const box = modal({ title: 'Record a payment', body: '<div class="col">' + field('For invoice', sel('invoiceId', openInvoices.map((i) => [i.id, i.number + ' · ' + money(i.amount, i.currency)]).concat([['', 'No invoice (does not change the subscription)']]), openInvoices[0] ? openInvoices[0].id : '')) +
-      '<div class="grid2">' + field('Amount (FCFA)', inp('amount', openInvoices[0] ? openInvoices[0].amount : '', 'inputmode="numeric"')) + field('Paid on', inp('paidOn', today, 'type="date" max="' + today + '"')) + '</div>' +
-      '<div class="grid2">' + field('Method', sel('method', METHODS, 'MTN MoMo')) + field('Transaction reference', inp('reference', '', 'autocomplete="off"')) + '</div>' + field('Note (optional)', inp('note', '')) +
-      '<div class="tiny muted">Check that the money arrived on your account before recording it. A full payment marks the invoice paid and extends the subscription.</div></div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Record payment</button>' });
-    $('[name=invoiceId]', box).onchange = (e) => { const i = openInvoices.find((x) => x.id === e.target.value); if (i) $('[name=amount]', box).value = i.amount; };
-    $('#go', box).onclick = (e) => busy(e.target, async () => { const r = await api('POST', '/payments', Object.assign({ tenantId }, vals(box))); closeModal(); toast(r.invoice && r.invoice.status === 'paid' ? 'Recorded — active until ' + fmtD(r.invoice.period_end) : 'Payment recorded'); route(); });
+  /* business picker for modals: type to search, pick from the list */
+  const tenantPick = () => field('Business', '<input class="inp" id="tpQ" type="search" placeholder="Type the business name…" autocomplete="off">') + '<select class="inp tp-list" name="tenantId" id="tpSel" size="5" aria-label="Matching businesses"></select>';
+  function wireTenantPick(box, onPick) {
+    let timer; const sel2 = $('#tpSel', box);
+    const load = async () => { const d = await api('GET', '/tenants?q=' + encodeURIComponent($('#tpQ', box).value.trim())); sel2.innerHTML = d.tenants.length ? d.tenants.map((t) => '<option value="' + esc(t.id) + '">' + esc(t.name) + (t.owner_name ? ' — ' + esc(t.owner_name) : '') + '</option>').join('') : '<option value="" disabled>No business matches</option>'; };
+    $('#tpQ', box).oninput = () => { clearTimeout(timer); timer = setTimeout(load, 250); };
+    sel2.onchange = () => sel2.value && onPick(sel2.value, sel2.selectedOptions[0].textContent.split(' — ')[0]);
+    return load();
   }
+  /** Record a payment received outside the app. pre = { id, name, invoices } when opened from a business page. */
+  async function payModal(pre) {
+    await plans(); const today = new Date().toISOString().slice(0, 10);
+    const sellable = S.plans.filter((p) => p.active && (p.price_monthly !== null || p.price_yearly !== null));
+    const box = modal({ title: 'Record a payment', body: '<div class="col">' +
+      (pre ? '<input type="hidden" name="tenantId" value="' + esc(pre.id) + '"><div class="small">Business: <b>' + esc(pre.name) + '</b></div>' : '<div id="pyPick">' + tenantPick() + '</div><div class="small hide" id="pyBiz"></div>') +
+      '<div id="pyFor"></div>' +
+      '<div class="grid2">' + field('Amount received (FCFA)', inp('amount', '', 'inputmode="numeric" autocomplete="off"')) + field('Paid on', inp('paidOn', today, 'type="date" max="' + today + '"')) + '</div>' +
+      '<div class="grid2">' + field('Method', sel('method', METHODS, 'Cash')) + field('Transaction reference (optional)', inp('reference', '', 'autocomplete="off" placeholder="MoMo / bank reference"')) + '</div>' + field('Note (optional)', inp('note', '', 'placeholder="e.g. paid at the office"')) +
+      '<div class="alert" id="pyHint">Check the money really arrived before recording it.</div></div>',
+      foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go"' + (pre ? '' : ' disabled') + '>Record payment</button>' });
+    let invoices = [];
+    const sync = () => {
+      const f = ($('[name=for]', box) || {}).value || ''; const isPlan = f === 'plan';
+      $('#pyPlan', box) && $('#pyPlan', box).classList.toggle('hide', !isPlan);
+      const amt = $('[name=amount]', box); let hint = 'The payment is kept on the business. It does not change the subscription.';
+      if (f.startsWith('inv:')) { const i = invoices.find((x) => 'inv:' + x.id === f); if (i) amt.value = i.amount; hint = 'A full payment marks the invoice paid and starts / extends the subscription.'; }
+      if (isPlan) { const p = S.plans.find((x) => x.id === $('[name=planId]', box).value); const cy = $('[name=cycle]', box).value; const pr = p && p['price_' + cy]; if (pr !== null && pr !== undefined) amt.value = pr; hint = 'Creates a paid invoice and makes the subscription active for ' + (cy === 'yearly' ? 'one year' : 'one month') + ' (after the current paid period if it is the same plan). Change the amount for a discount.'; }
+      $('#pyHint', box).textContent = hint + ' Check the money really arrived before recording it.';
+    };
+    const drawFor = () => {
+      const opts = invoices.map((i) => ['inv:' + i.id, 'Invoice ' + i.number + ' · ' + money(i.amount, i.currency) + ' · ' + (i.plan_name || i.plan_id || '') + ' ' + i.cycle]).concat(sellable.length ? [['plan', 'A plan — start or renew their subscription']] : [], [['other', 'Something else — does not change the subscription']]);
+      $('#pyFor', box).innerHTML = '<div class="col">' + field('What is it for?', sel('for', opts, invoices[0] ? 'inv:' + invoices[0].id : sellable.length ? 'plan' : 'other')) +
+        (sellable.length ? '<div class="grid2" id="pyPlan">' + field('Plan', sel('planId', sellable.map((p) => [p.id, p.name]), sellable[0].id)) + field('Period', sel('cycle', [['monthly', '1 month'], ['yearly', '1 year']], 'monthly')) + '</div>' : '') + '</div>';
+      $$('[name=for],[name=planId],[name=cycle]', box).forEach((x) => (x.onchange = sync)); sync();
+    };
+    const pick = async (id, name) => {
+      const d = await api('GET', '/tenants/' + id); invoices = d.invoices.filter((i) => i.status === 'open');
+      if (!pre) { $('#pyPick', box).classList.add('hide'); $('#pyBiz', box).classList.remove('hide'); $('#pyBiz', box).innerHTML = 'Business: <b>' + esc(name) + '</b> <button type="button" class="link small" id="pyChange">change</button>'; $('#pyChange', box).onclick = () => { $('#pyPick', box).classList.remove('hide'); $('#pyBiz', box).classList.add('hide'); $('#pyFor', box).innerHTML = ''; $('#go', box).disabled = true; $('#tpQ', box).focus(); }; }
+      drawFor(); $('#go', box).disabled = false;
+    };
+    if (pre) { invoices = pre.invoices; drawFor(); } else await wireTenantPick(box, pick);
+    $('#go', box).onclick = (e) => busy(e.target, async () => {
+      const v = vals(box); const f = v.for || 'other'; if (!v.tenantId) throw new Error('Choose the business');
+      const body = { tenantId: v.tenantId, amount: v.amount, paidOn: v.paidOn, method: v.method, reference: v.reference, note: v.note };
+      if (f.startsWith('inv:')) body.invoiceId = f.slice(4); else if (f === 'plan') { body.planId = v.planId; body.cycle = v.cycle; }
+      const r = await api('POST', '/payments', body); closeModal();
+      toast(r.invoice && r.invoice.status === 'paid' ? 'Recorded — ' + (r.invoice.plan_name || 'subscription') + ' active until ' + fmtD(r.invoice.period_end) : r.invoice ? 'Recorded — part payment, the invoice stays open' : 'Payment recorded'); route();
+    });
+  }
+
+  /* ---------- users: people who sign in to businesses ---------- */
+  const ROLE_L = { owner: 'Owner', admin: 'Admin', manager: 'Manager', sales: 'Sales rep', viewer: 'Viewer' };
+  const userRole = (r) => '<span class="badge' + (r === 'owner' ? ' info' : '') + '">' + esc(ROLE_L[r] || r) + '</span>';
+  PAGES.users = async (v) => {
+    const f = S.uf || (S.uf = { q: '', status: '', role: '', tenant: '', tenantName: '' });
+    v.innerHTML = '<div class="page-intro"><p>' + esc(INTRO.users) + '</p><div class="acts">' + (can('users.write') ? '<button class="btn pri" data-act5="uAdd">' + ic('plus', 'sm') + 'Add user</button>' : '') + '</div></div>' +
+      '<div class="kpis mb2" id="ukpi"></div>' +
+      '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search users</span>' + ic('search', 'sm') + '<input class="inp" id="uq" type="search" placeholder="Search name, login, email or business" value="' + esc(f.q) + '"></label>' +
+      sel('us', [['', 'Active and disabled'], ['active', 'Active'], ['disabled', 'Disabled']], f.status, 'id="us" style="width:auto"') +
+      sel('ur', [['', 'All roles'], ['owner', 'Owners'], ['staff', 'Team members']], f.role, 'id="ur" style="width:auto"') +
+      (f.tenant ? '<span class="badge info">' + esc(f.tenantName) + ' <button type="button" class="link tiny" data-act5="uClearT" aria-label="Show all businesses">✕</button></span>' : '') + '</div><div class="card" id="ul"><div class="empty">Loading…</div></div>';
+    let page = 0; let timer;
+    const load = async (more) => {
+      page = more ? page + 1 : 0;
+      const d = await api('GET', '/users?q=' + encodeURIComponent(f.q) + '&status=' + f.status + '&role=' + f.role + '&tenant=' + encodeURIComponent(f.tenant) + '&page=' + page);
+      S.users = more ? (S.users || []).concat(d.users) : d.users; const c = d.counts;
+      $('#ukpi').innerHTML = kpi('Users', esc(c.total)) + kpi('Active', esc(c.active), esc(c.total - c.active) + ' disabled') + kpi('Owners', esc(c.owners), 'one per business') + kpi('Signed in · 30 days', esc(c.recent));
+      const html = table([
+        { label: 'User', v: (u) => '<b>' + esc(u.name) + '</b><div class="tiny faint">' + esc(u.login) + '</div>' },
+        { label: 'Business', v: (u) => (can('tenants.view') ? '<a href="#/tenants/' + esc(u.tenant_id) + '">' + esc(u.tenant) + '</a>' : esc(u.tenant)) },
+        { label: 'Role', v: (u) => userRole(u.role) },
+        { label: 'Email', v: (u) => (u.email ? esc(u.email) : '<span class="faint">—</span>') },
+        { label: 'Status', v: (u) => (u.active ? badge('Active', 'ok') : badge('Disabled', 'bad')) },
+        { label: 'Last sign-in', v: (u) => esc(ago(u.last_login_at)) },
+        { label: '', v: (u) => '<div class="row" style="justify-content:flex-end;flex-wrap:nowrap">' + (can('users.write') ? '<button class="btn sm" data-act5="uEdit" data-id="' + esc(u.id) + '">Manage</button>' : '') + '</div>' },
+      ], d.users, { empty: 'No user matches.' });
+      if (more) $('#ul tbody').insertAdjacentHTML('beforeend', html.split('<tbody>')[1].split('</tbody>')[0]); else $('#ul').innerHTML = html;
+      $('#umore') && $('#umore').parentElement.remove(); if (d.more) $('#ul').insertAdjacentHTML('afterend', '<div class="row mt"><button class="btn" id="umore">Show more</button></div>');
+      if ($('#umore')) $('#umore').onclick = () => load(true);
+    };
+    $('#uq').oninput = (e) => { f.q = e.target.value; clearTimeout(timer); timer = setTimeout(() => load(), 250); };
+    $('#us').onchange = (e) => { f.status = e.target.value; load(); }; $('#ur').onchange = (e) => { f.role = e.target.value; load(); };
+    await load();
+  };
+  const roleSel = (roles, val, dis) => sel('role', roles.map((r) => [r.id, r.label + (r.custom ? ' (custom)' : '')]), val, dis ? 'disabled' : '');
+  async function userAdd(pre) {
+    const box = modal({ title: 'Add a user', body: '<div class="col">' +
+      (pre ? '<input type="hidden" name="tenantId" value="' + esc(pre.id) + '"><div class="small">Business: <b>' + esc(pre.name) + '</b></div>' : '<div id="uaPick">' + tenantPick() + '</div><div class="small hide" id="uaBiz"></div>') +
+      '<div class="grid2">' + field('Full name', inp('name', '', 'autocomplete="off"')) + field('Role', '<span id="uaRole">' + sel('role', [['', 'Choose the business first']], '', 'disabled') + '</span>') + '</div>' +
+      '<div class="grid2">' + field('Login (email or phone)', inp('login', '', 'autocomplete="off" spellcheck="false"')) + field('Email (optional)', inp('email', '', 'type="email" autocomplete="off"')) + '</div>' +
+      field('Password (leave empty to make one)', inp('password', '', 'type="text" autocomplete="new-password" spellcheck="false" placeholder="At least 6 characters"')) +
+      '<label class="check"><input type="checkbox" name="sendEmail" checked> Email them their login and password</label>' +
+      '<div class="tiny muted">Counts towards the business\'s plan limit for team members. The business sees this in its activity log.</div></div>',
+      foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Add user</button>' });
+    const pick = async (id, name) => {
+      const r = await api('GET', '/users/roles?tenant=' + encodeURIComponent(id)); $('#uaRole', box).innerHTML = roleSel(r.roles, 'sales');
+      if (!pre) { $('#uaPick', box).classList.add('hide'); $('#uaBiz', box).classList.remove('hide'); $('#uaBiz', box).innerHTML = 'Business: <b>' + esc(name) + '</b> <button type="button" class="link small" id="uaChange">change</button>'; $('#uaChange', box).onclick = () => { $('#uaPick', box).classList.remove('hide'); $('#uaBiz', box).classList.add('hide'); }; }
+    };
+    if (pre) await pick(pre.id, pre.name); else await wireTenantPick(box, pick);
+    $('#go', box).onclick = (e) => busy(e.target, async () => {
+      const v = vals(box); if (!v.tenantId) throw new Error('Choose the business');
+      const r = await api('POST', '/users', v);
+      const mail = r.emailed ? (r.emailed.status === 'sent' ? 'Emailed to ' + esc(r.emailed.to) + '.' : r.emailed.status === 'no_email' ? 'Not emailed — no email address.' : 'The email could not be sent.') : 'Not emailed.';
+      if (r.password) modal({ title: 'User added', body: '<p class="small">Login: <b>' + esc(r.user.login) + '</b></p><div class="secret mb">' + esc(r.password) + '</div><p class="small muted">' + mail + ' This password is not shown again — they should change it after signing in.</p>', foot: '<button class="btn pri" data-close>Done</button>' });
+      else { closeModal(); toast('User added. ' + mail.replace(/<[^>]+>/g, '')); }
+      route();
+    });
+  }
+  async function userEdit(id) {
+    const u = (S.users || []).find((x) => x.id === id); if (!u) return;
+    const r = await api('GET', '/users/roles?tenant=' + encodeURIComponent(u.tenant_id)); const owner = u.role === 'owner';
+    const roles = owner ? [{ id: 'owner', label: 'Owner' }] : r.roles.some((x) => x.id === u.role) ? r.roles : r.roles.concat([{ id: u.role, label: u.role }]);
+    const box = modal({ title: u.name, body: '<div class="col"><div class="small muted">' + esc(u.tenant) + ' · joined ' + esc(fmtD(u.created_at)) + ' · last sign-in ' + esc(ago(u.last_login_at)) + '</div>' +
+      '<div class="grid2">' + field('Full name', inp('name', u.name)) + field('Role', roleSel(roles, u.role, owner)) + '</div>' +
+      '<div class="grid2">' + field('Login (email or phone)', inp('login', u.login, 'spellcheck="false"')) + field('Email', inp('email', u.email || '', 'type="email"')) + '</div>' +
+      (owner ? '<div class="tiny muted">The owner keeps the Owner role and cannot be disabled or deleted — suspend the business instead.</div>' : '') +
+      '<div class="u-more"><h3>Access</h3><div class="row mt">' +
+      ((owner && !can('tenants.resetOwner')) ? '' : '<button type="button" class="btn sm" id="uPw">' + ic('key', 'sm') + 'Reset password</button>') +
+      (owner ? '' : '<button type="button" class="btn sm" id="uAct">' + (u.active ? 'Disable' : 'Enable') + '</button>') +
+      (owner || !can('users.delete') ? '' : '<button type="button" class="btn sm" id="uDel" style="color:var(--bad)">' + ic('trash', 'sm') + 'Delete</button>') + '</div></div></div>',
+      foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save changes</button>' });
+    $('#go', box).onclick = (e) => busy(e.target, async () => { const v = vals(box); const body = { name: v.name, login: v.login, email: v.email }; if (!owner) body.role = v.role; await api('PATCH', '/users/' + id, body); closeModal(); toast('Saved'); route(); });
+    $('#uAct', box) && ($('#uAct', box).onclick = (e) => busy(e.target, async () => { await api('PATCH', '/users/' + id, { active: !u.active }); closeModal(); toast(u.active ? u.name + ' can no longer sign in' : u.name + ' can sign in again'); route(); }));
+    $('#uPw', box) && ($('#uPw', box).onclick = () => {
+      const b2 = modal({ title: 'Reset ' + u.name + '\'s password', body: '<p class="muted small">A new temporary password is made. The old one stops working right away. The business sees this in its activity log.</p><label class="check"><input type="checkbox" name="sendEmail"' + (u.email ? ' checked' : ' disabled') + '> Email it to ' + esc(u.email || 'them (no email address)') + '</label>', foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Reset password</button>' });
+      $('#go', b2).onclick = (e) => busy(e.target, async () => { const x = await api('POST', '/users/' + id + '/password', vals(b2));
+        modal({ title: 'New temporary password', body: '<p class="small">Login: <b>' + esc(x.login) + '</b></p><div class="secret mb">' + esc(x.password) + '</div><p class="small muted">' + (x.emailed && x.emailed.status === 'sent' ? 'Emailed to ' + esc(x.emailed.to) + '.' : 'Not emailed — give it to them yourself after checking who they are.') + ' It is not shown again.</p>', foot: '<button class="btn pri" data-close>Done</button>' }); });
+    });
+    $('#uDel', box) && ($('#uDel', box).onclick = () => {
+      const b2 = modal({ title: 'Delete ' + u.name + '?', body: '<p class="small">They can no longer sign in to <b>' + esc(u.tenant) + '</b>. What they did stays in the business history. This cannot be undone — <b>Disable</b> keeps the account instead.</p>' + reasonField(true), foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Delete user</button>' });
+      $('#go', b2).onclick = (e) => busy(e.target, async () => { await api('POST', '/users/' + id + '/delete', vals(b2)); closeModal(); toast('User deleted'); route(); });
+    });
+  }
+  const ACT5 = {
+    uAdd: () => userAdd(S.uf && S.uf.tenant ? { id: S.uf.tenant, name: S.uf.tenantName } : null),
+    uEdit: (el) => userEdit(el.dataset.id),
+    uClearT: () => { S.uf.tenant = ''; S.uf.tenantName = ''; route(); },
+    uForTenant: () => { S.uf = { q: '', status: '', role: '', tenant: S.t.tenant.id, tenantName: S.t.tenant.name }; location.hash = '#/users'; },
+    payAny: () => payModal(null),
+  };
 
   PAGES.plans = async (v) => {
     const d = await api('GET', '/plans'); S.plans = d.plans; S.limitKeys = d.limitKeys;
@@ -379,7 +508,7 @@
   PAGES.billing = async (v, [tab]) => {
     tab = tab || 'check';
     const tabs = [['check', 'To check'], ['invoices', 'Invoices'], ['payments', 'Payments']];
-    let html = '<nav class="tabs">' + tabs.map(([k, l]) => '<a href="#/billing/' + k + '" class="' + (k === tab ? 'on' : '') + '">' + l + '</a>').join('') + '</nav>';
+    let html = '<div class="page-intro"><p>' + esc(INTRO.billing) + '</p><div class="acts">' + (can('billing.write') ? '<button class="btn pri" data-act5="payAny">' + ic('money', 'sm') + 'Record payment</button>' : '') + '</div></div><nav class="tabs">' + tabs.map(([k, l]) => '<a href="#/billing/' + k + '" class="' + (k === tab ? 'on' : '') + '">' + l + '</a>').join('') + '</nav>';
     if (tab === 'check') {
       const d = await api('GET', '/payments?status=pending');
       html += '<p class="muted small">Businesses tapped “I have paid”. Check the money arrived on your MoMo / Orange Money / bank account with the reference, then confirm.</p><div class="card">' + payTable(d.payments, true) + '</div>';
@@ -513,9 +642,9 @@
   var ACT_raToggle, ACT_recToggle, ACT_copyCodes, ACT_dlCodes; // assigned above (hoisted names)
   document.addEventListener('click', (e) => {
     const go = e.target.closest('[data-go]'); if (go && !e.target.closest('a,button')) { location.hash = go.dataset.go; return; }
-    const el = e.target.closest('[data-act],[data-act2],[data-act3],[data-act4]'); if (!el) return;
-    const k = el.dataset.act || el.dataset.act2 || el.dataset.act3 || el.dataset.act4;
-    const fn = { raToggle: ACT_raToggle, recToggle: ACT_recToggle, copyCodes: ACT_copyCodes, dlCodes: ACT_dlCodes }[k] || ACT[k] || ACT2[k] || ACT3[k] || ACT4[k];
+    const el = e.target.closest('[data-act],[data-act2],[data-act3],[data-act4],[data-act5]'); if (!el) return;
+    const k = el.dataset.act || el.dataset.act2 || el.dataset.act3 || el.dataset.act4 || el.dataset.act5;
+    const fn = { raToggle: ACT_raToggle, recToggle: ACT_recToggle, copyCodes: ACT_copyCodes, dlCodes: ACT_dlCodes }[k] || ACT[k] || ACT2[k] || ACT3[k] || ACT4[k] || ACT5[k];
     if (fn) { if (el.tagName === 'A') e.preventDefault(); fn(el, e); }
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('tr[data-go]')) location.hash = e.target.dataset.go; });

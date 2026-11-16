@@ -258,6 +258,49 @@ test('support view is read-only and visible to the business; owner password rese
   assert.equal(rp.status, 200); assert.equal((await api('POST', '/api/auth/login', null, { login: 'biz' + rnd, password: rp.body.password })).status, 200);
 });
 
+test('users: admins add, edit, disable, reset and delete business users; owner protected', async () => {
+  const reg = await api('POST', '/api/auth/register', null, { businessName: 'Users Biz ' + rnd, name: 'Uma Owner', login: 'uma' + rnd, password: 'secret1' });
+  const tid = (await db.query('SELECT tenant_id FROM users WHERE login=$1', ['uma' + rnd])).rows[0].tenant_id;
+  const roles = await S.c.call('GET', '/api/admin/users/roles?tenant=' + tid); assert.equal(roles.status, 200);
+  assert.ok(roles.body.roles.some((r) => r.id === 'sales') && !roles.body.roles.some((r) => r.id === 'owner'), 'owner is not a role to give');
+  assert.equal((await S.c.call('POST', '/api/admin/users', { tenantId: tid, name: 'Bad', login: 'bad' + rnd, role: 'owner' })).status, 400, 'cannot make a second owner');
+  const add = await S.c.call('POST', '/api/admin/users', { tenantId: tid, name: 'Kim Clerk', login: 'kim' + rnd, role: 'sales', sendEmail: false });
+  assert.equal(add.status, 200, JSON.stringify(add.body)); assert.ok(add.body.password.length >= 10, 'a temporary password is made');
+  assert.equal((await S.c.call('POST', '/api/admin/users', { tenantId: tid, name: 'Kim Two', login: 'kim' + rnd, role: 'sales' })).status, 409, 'login unique');
+  const uid = add.body.user.id;
+  const login = (pw) => api('POST', '/api/auth/login', null, { login: 'kim' + rnd, password: pw });
+  assert.equal((await login(add.body.password)).status, 200);
+  const list = await S.c.call('GET', '/api/admin/users?tenant=' + tid); assert.equal(list.body.users.length, 2);
+  assert.equal((await S.c.call('GET', '/api/admin/users?q=kim' + rnd + '&role=staff')).body.users.length, 1, 'search + role filter');
+  assert.equal((await S.c.call('PATCH', '/api/admin/users/' + uid, { role: 'manager', email: 'kim' + rnd + '@shop.test' })).status, 200);
+  assert.equal((await S.c.call('PATCH', '/api/admin/users/' + uid, { active: false })).status, 200);
+  assert.equal((await login(add.body.password)).status, 401, 'disabled user cannot sign in');
+  assert.equal((await S.c.call('PATCH', '/api/admin/users/' + uid, { active: true })).status, 200);
+  await db.query("UPDATE admin_sessions SET reauth_at = now() - interval '10 minutes' WHERE revoked_at IS NULL");
+  assert.equal((await S.c.call('POST', '/api/admin/users/' + uid + '/password', { sendEmail: false })).body.code, 'reauth', 'password reset needs the PIN');
+  await S.c.call('POST', '/api/admin/auth/reauth', reauthBody(5));
+  const rs = await S.c.call('POST', '/api/admin/users/' + uid + '/password', { sendEmail: false }); assert.equal(rs.status, 200);
+  assert.equal((await login(add.body.password)).status, 401); assert.equal((await login(rs.body.password)).status, 200);
+  const owner = list.body.users.find((u) => u.role === 'owner');
+  assert.equal((await S.c.call('PATCH', '/api/admin/users/' + owner.id, { active: false })).status, 400, 'owner cannot be disabled');
+  assert.equal((await S.c.call('PATCH', '/api/admin/users/' + owner.id, { role: 'sales' })).status, 400, 'owner keeps the role');
+  assert.equal((await S.c.call('POST', '/api/admin/users/' + owner.id + '/delete', { reason: 'Testing it' })).status, 400, 'owner cannot be deleted');
+  assert.equal((await S.c.call('POST', '/api/admin/users/' + uid + '/delete', {})).status, 400, 'delete needs a reason');
+  assert.equal((await S.c.call('POST', '/api/admin/users/' + uid + '/delete', { reason: 'Left the company' })).status, 200);
+  assert.equal((await login(rs.body.password)).status, 401, 'deleted');
+  const log = (await db.query("SELECT action FROM audit_log WHERE tenant_id=$1 AND action LIKE 'support_%'", [tid])).rows.map((r) => r.action);
+  assert.ok(log.includes('support_user_created') && log.includes('support_user_deleted') && log.includes('support_password'), 'the business sees it all: ' + log);
+  const aud = (await db.query("SELECT action FROM admin_audit WHERE tenant_id=$1", [tid])).rows.map((r) => r.action);
+  assert.ok(['user_created', 'user_changed', 'user_disabled', 'user_enabled', 'user_password_reset', 'user_deleted'].every((x) => aud.includes(x)), 'admin audit: ' + aud);
+  // manual payment for a plan: invoice + payment + active subscription in one go
+  const pay = await S.c.call('POST', '/api/admin/payments', { tenantId: tid, planId: 'business', cycle: 'yearly', amount: 250000, method: 'Cash', note: 'Paid at the office' });
+  assert.equal(pay.status, 200, JSON.stringify(pay.body)); assert.equal(pay.body.invoice.status, 'paid'); assert.equal(pay.body.invoice.amount, 250000, 'discounted price kept');
+  const sub = (await db.query('SELECT status, plan_id, cycle, current_period_end FROM subscriptions WHERE tenant_id=$1', [tid])).rows[0];
+  assert.equal(sub.status, 'active'); assert.equal(sub.plan_id, 'business'); assert.equal(sub.cycle, 'yearly'); assert.ok(new Date(sub.current_period_end) - Date.now() > 360 * 864e5);
+  assert.equal((await S.c.call('POST', '/api/admin/payments', { tenantId: tid, planId: 'nope', amount: 1000, method: 'Cash' })).status, 400, 'unknown plan');
+  assert.equal((await db.query("SELECT count(*)::int n FROM invoices WHERE tenant_id=$1", [tid])).rows[0].n, 1, 'a failed payment leaves no invoice behind');
+});
+
 test('roles: support and finance only do their part; lockout after 5 failures', async () => {
   const sup = await addAdmin('sup' + rnd + '@kargo.test', 'Sam Support', 'support');
   const s = await firstSignIn('sup' + rnd + '@kargo.test', sup.password, 'Support-Pass-' + rnd);
@@ -266,6 +309,9 @@ test('roles: support and finance only do their part; lockout after 5 failures', 
   assert.equal((await s.c.call('PUT', '/api/admin/plans/starter', { name: 'Hack', price_monthly: 1 })).status, 403);
   assert.equal((await s.c.call('POST', '/api/admin/tenants/' + S.tid + '/subscription', { action: 'extend_period', days: 365 })).status, 403);
   assert.equal((await s.c.call('GET', '/api/admin/audit')).status, 403);
+  assert.equal((await s.c.call('GET', '/api/admin/users')).status, 200, 'support: sees business users');
+  const someone = (await s.c.call('GET', '/api/admin/users?role=staff')).body.users[0];
+  if (someone) assert.equal((await s.c.call('POST', '/api/admin/users/' + someone.id + '/delete', { reason: 'Testing it' })).status, 403, 'support: cannot delete users');
   const fin = await addAdmin('fin' + rnd + '@kargo.test', 'Fiona Finance', 'finance');
   const f = await firstSignIn('fin' + rnd + '@kargo.test', fin.password, 'Finance-Pass-' + rnd);
   assert.equal((await f.c.call('GET', '/api/admin/invoices')).status, 200);
