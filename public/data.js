@@ -75,7 +75,7 @@ class RestStore {
       es.onmessage = (ev) => { try { const m = JSON.parse(ev.data); if (m.col) this._refresh(m.col); else COLLECTIONS.forEach((c) => this._refresh(c)); } catch (e) { } };
     } catch (e) { }
     setInterval(() => COLLECTIONS.forEach((c) => this.subs[c] && this._refresh(c)), 60000);
-    return { mode: 'saas', me: { id: me.user.id, name: me.user.name }, user: me.user, userLabel: me.user.name, tenant: me.tenant, emailOn: me.emailEnabled !== false };
+    return { mode: 'saas', me: { id: me.user.id, name: me.user.name }, user: me.user, userLabel: me.user.name, tenant: me.tenant, emailOn: me.emailEnabled !== false, support: me.support || {}, plans: me.plans || [] };
   }
   _refresh(col) {
     if (!this.subs[col]) return;

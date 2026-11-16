@@ -156,6 +156,8 @@ function subscriptionOk(u) {
   if (u.plan === 'trial') return !u.trial_ends_at || new Date(u.trial_ends_at).getTime() > now;
   return !u.paid_until || new Date(u.paid_until).getTime() > now - 7 * 864e5; // 7-day grace
 }
+/** Plans shown on the Billing page, from PLANS (JSON: [{id, name, price, features:[]}]). Empty = no list, just "contact us". */
+const PLANS = () => { try { const p = JSON.parse(process.env.PLANS || '[]'); return Array.isArray(p) ? p.slice(0, 6).map((x) => ({ id: String(x.id || ''), name: String(x.name || x.id || ''), price: String(x.price || ''), features: (Array.isArray(x.features) ? x.features : []).slice(0, 12).map(String) })) : []; } catch (e) { return []; } };
 const requireActive = (req, res, next) => subscriptionOk(req.user) ? next() : err(res, 402, 'Subscription inactive — renew to keep recording. You can still view and export your data.', { code: 'subscription' });
 const requireRole = (...roles) => (req, res, next) => roles.includes(req.user.role) ? next() : err(res, 403, 'Not allowed for your role');
 const requirePerm = (p) => (req, res, next) => canU(req.user, p) ? next() : err(res, 403, 'You do not have permission for this');
@@ -172,15 +174,31 @@ app.post('/api/me/password', auth, authLimiter, wrap(async (req, res) => {
 }));
 /* own email address (notifications, password reset) */
 app.patch('/api/me', auth, wrap(async (req, res) => {
-  const { email } = req.body || {};
+  const { email, name } = req.body || {};
   if (email !== undefined && email !== '' && email !== null && !mailer.isEmail(email)) return err(res, 400, 'Type a valid email address');
-  await q('UPDATE users SET email=$1 WHERE id=$2', [cleanEmail(email), req.user.id]);
-  res.json({ ok: true, email: cleanEmail(email) });
+  if (name !== undefined && (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 80)) return err(res, 400, 'Type your name (2 to 80 letters)');
+  if (email !== undefined) await q('UPDATE users SET email=$1 WHERE id=$2', [cleanEmail(email), req.user.id]);
+  if (name !== undefined) await q('UPDATE users SET name=$1 WHERE id=$2', [name.trim(), req.user.id]);
+  res.json({ ok: true, email: email !== undefined ? cleanEmail(email) : req.user.email || '', name: name !== undefined ? name.trim() : req.user.name });
+}));
+/* Help & Support: a message to the Kargo team (by email, with the sender as reply-to) */
+const SUPPORT = () => ({ email: process.env.SUPPORT_EMAIL || '', whatsapp: String(process.env.SUPPORT_WHATSAPP || '').replace(/[^\d]/g, '') });
+const supportLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10 });
+app.post('/api/support', auth, supportLimiter, wrap(async (req, res) => {
+  const { topic, message, page } = req.body || {};
+  const msg = String(message || '').trim();
+  if (msg.length < 5) return err(res, 400, 'Tell us a bit more (at least a few words)');
+  const to = SUPPORT().email;
+  if (!to || !mailer.enabled()) return err(res, 503, 'Messages to support are not set up on this server yet' + (SUPPORT().whatsapp ? ' — please use WhatsApp.' : '.'));
+  const u = req.user; const reply = mailer.emailOf(u);
+  const r = await mailer.sendEmail(Object.assign({ to, kind: 'support', tenantId: u.tenant_id, replyTo: reply || undefined }, mailer.T.support({ business: u.tenant_name, from: u.name, login: u.login, email: reply || '', role: u.role, plan: u.plan + (u.status !== 'active' ? ' (' + u.status + ')' : ''), topic: String(topic || 'Question').slice(0, 80), message: msg.slice(0, 4000), page: String(page || '').slice(0, 60), tenantId: u.tenant_id })));
+  if (r.status === 'failed') return err(res, 502, 'Your message could not be sent: ' + r.error);
+  res.json({ ok: true, replyTo: reply || '' });
 }));
 app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enabled(), from: mailer.enabled() ? mailer.FROM() : '' }));
 app.get('/api/me', auth, (req, res) => {
   const u = req.user;
-  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled() });
+  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(), plans: PLANS() });
 });
 
 /* ---------- live updates (Server-Sent Events) ---------- */

@@ -96,6 +96,12 @@ const T = {
       button: { label: 'Choose a new password', url },
       outro: 'If you did not ask for this, ignore this email — your password stays the same.', footnote: 'Kargo account security.' }));
   },
+  support({ business, from, login, email, role, plan, topic, message, page, tenantId }) {
+    return Object.assign({ subject: '[Kargo support] ' + topic + ' — ' + business }, layout({ business: 'Kargo support', title: topic,
+      intro: esc(message).replace(/\n/g, '<br>'),
+      rows: [['Business', business], ['From', from], ['Login', login], ['Email', email], ['Role', role], ['Plan', plan], ['Screen', page], ['Business id', tenantId]],
+      footnote: 'Sent from the Help & Support page. Reply to this email to answer ' + esc(from) + '.' }));
+  },
   passwordChanged({ name, business, url, when }) {
     return Object.assign({ subject: 'Your Kargo password was changed' }, layout({ business, title: 'Your password was changed',
       intro: 'Hello ' + esc(name) + ',<br>the password of your Kargo account was changed on ' + esc(when) + '.',
