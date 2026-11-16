@@ -44,10 +44,6 @@ h1 { font-size: 22px; font-weight: 800; } h2 { font-size: 17px; font-weight: 750
 .nav .n { margin-left: auto; background: var(--accent); color: var(--ink); font-size: 11px; font-weight: 800; border-radius: 99px; padding: 1px 7px; }
 .nav-sec { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #6f8090; padding: 14px 12px 4px; }
 .side .sp { flex: 1; }
-.side .who { font-size: 12px; color: #93a2b0; padding: 12px; border-top: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; gap: 2px; }
-.side .who b { color: #fff; font-size: 13.5px; }
-.side .who .btn { margin-top: 10px; background: transparent; border-color: rgba(255,255,255,.18); color: #dfe6ec; }
-.side .who .btn:hover { background: rgba(255,255,255,.06); }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .top { position: sticky; top: 0; z-index: 20; background: rgba(243,242,238,.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); padding: 10px 18px; display: flex; align-items: center; gap: 12px; min-height: 60px; }
 .top h1 { font-size: 19px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -191,3 +187,20 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: #f
 .tp-list option { padding: 7px 8px; border-radius: 6px; }
 .u-more { border-top: 1px solid var(--line2); padding-top: 12px; margin-top: 4px; }
 .u-more h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink3); }
+
+/* top bar: avatar (initials only) with a small menu */
+.uav { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; font-weight: 800; font-size: 13px; background: var(--brand); color: #fff; flex: none; letter-spacing: .02em; }
+.uav.lg { width: 52px; height: 52px; font-size: 18px; }
+.am { position: relative; flex: none; }
+.am-btn { display: grid; place-items: center; padding: 2px; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+.am-btn:hover .uav, .am-btn[aria-expanded="true"] .uav { box-shadow: 0 0 0 3px var(--brandSoft); }
+.am-btn:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.am-pop { position: absolute; right: 0; top: calc(100% + 8px); width: 260px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 32px rgba(20,32,46,.16); padding: 6px; z-index: 30; }
+.am-h { display: flex; gap: 10px; align-items: flex-start; padding: 10px 10px 12px; border-bottom: 1px solid var(--line2); margin-bottom: 6px; }
+.am-h b { display: block; font-size: 14px; } .am-e { overflow-wrap: anywhere; } .mt-s { margin-top: 6px; }
+.am-i { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; background: none; border-radius: 9px; color: var(--ink); text-decoration: none; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; }
+.am-i:hover, .am-i:focus-visible { background: var(--bg); outline: none; }
+.am-i .i { color: var(--ink3); }
+/* my account */
+.acct-h { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
+.acct-h h2 { font-size: 18px; }

@@ -161,10 +161,12 @@
   }
 
   /* ---------- shell & routing ---------- */
-  const NAV = [['overview', 'Overview', 'overview.view', 'home'], ['tenants', 'Businesses', 'tenants.view', 'store'], ['users', 'Users', 'users.view', 'users'], ['plans', 'Plans', 'plans.view', 'tag'], ['billing', 'Billing', 'billing', 'card'], ['support', 'Support', 'support', 'chat'], ['health', 'Health', 'health.view', 'pulse'], ['security', 'Security', '', 'shield'], ['settings', 'Settings', 'plans.view', 'gear']];
+  const NAV = [['overview', 'Overview', 'overview.view', 'home'], ['tenants', 'Businesses', 'tenants.view', 'store'], ['users', 'Users', 'users.view|admins.manage', 'users'], ['plans', 'Plans', 'plans.view', 'tag'], ['billing', 'Billing', 'billing', 'card'], ['support', 'Support', 'support', 'chat'], ['health', 'Health', 'health.view', 'pulse'], ['audit', 'Audit log', 'audit.view', 'list'], ['settings', 'Settings', 'plans.view', 'gear'], ['account', 'My account', '', 'user', true]]; // 5th: not in the menu (avatar menu)
+  const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  const canAny = (p) => !p || p.split('|').some(can);
   /* one short line under the title of each page — what it is for */
-  const INTRO = { overview: 'Revenue, sign-ups and what needs your attention today.', tenants: 'Every business on Kargo — search, open one to see its plan, usage and invoices.', users: 'Everyone who signs in to a business — owners and their team. Add, edit, disable, reset passwords.', plans: 'What each plan costs and which features and limits it includes.', billing: 'Payments to check, invoices, and money received. Record a payment made outside the app — cash, MoMo, bank.', support: 'Questions and problems sent by businesses from the app.', health: 'Server, database, emails and automatic reminders.', security: 'Your account, sessions, roles, admins and the audit log.', settings: 'How businesses pay you and the subscription rules.' };
-  const IC = { home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', store: 'M3 9l1.5-5h15L21 9M3 9h18M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 12v8h14v-8', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', card: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2zM2 10h20M6 15h4', chat: 'M21 12a8 8 0 01-11.6 7.1L3 21l1.9-6.4A8 8 0 1121 12z', pulse: 'M3 12h4l3-8 4 16 3-8h4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4', gear: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z', menu: 'M4 6h16M4 12h16M4 18h16', users: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8', plus: 'M12 5v14M5 12h14', key: 'M15 7a2 2 0 012 2M21 9a6 6 0 01-7.7 5.7L11 17H9v2H7v2H3v-3.6l6.3-6.3A6 6 0 1121 9z', trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6', money: 'M2 7a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2zM12 15a3 3 0 100-6 3 3 0 000 6zM6 12h.01M18 12h.01', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3', out: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9' };
+  const INTRO = { overview: 'Revenue, sign-ups and what needs your attention today.', tenants: 'Every business on Kargo — search, open one to see its plan, usage and invoices.', users: 'Everyone who signs in to a business — owners and their team. Add, edit, disable, reset passwords.', audit: 'Everything admins did: sign-ins, changes to plans, businesses, users and payments.', account: 'Your details, password, PIN and where you are signed in.', plans: 'What each plan costs and which features and limits it includes.', billing: 'Payments to check, invoices, and money received. Record a payment made outside the app — cash, MoMo, bank.', support: 'Questions and problems sent by businesses from the app.', health: 'Server, database, emails and automatic reminders.', settings: 'How businesses pay you and the subscription rules.' };
+  const IC = { home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', store: 'M3 9l1.5-5h15L21 9M3 9h18M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 12v8h14v-8', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', card: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2zM2 10h20M6 15h4', chat: 'M21 12a8 8 0 01-11.6 7.1L3 21l1.9-6.4A8 8 0 1121 12z', pulse: 'M3 12h4l3-8 4 16 3-8h4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4', gear: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z', menu: 'M4 6h16M4 12h16M4 18h16', list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', user: 'M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z', lock: 'M5 11h14v10H5zM8 11V7a4 4 0 018 0v4', users: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8', plus: 'M12 5v14M5 12h14', key: 'M15 7a2 2 0 012 2M21 9a6 6 0 01-7.7 5.7L11 17H9v2H7v2H3v-3.6l6.3-6.3A6 6 0 1121 9z', trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6', money: 'M2 7a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2zM12 15a3 3 0 100-6 3 3 0 000 6zM6 12h.01M18 12h.01', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3', out: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9' };
   const ic = (n, c) => '<svg class="i' + (c ? ' ' + c : '') + '" viewBox="0 0 24 24" aria-hidden="true"><path d="' + IC[n] + '"/></svg>';
   async function boot() {
     try { S.me = await api('GET', '/me'); } catch (e) { if (!e.quiet) renderLogin(); return; }
@@ -174,21 +176,27 @@
   }
   function shell() {
     const a = S.me.admin;
-    $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side" aria-label="Main menu"><div class="brand"><div class="mark">K</div><div>Kargo<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div>' +
-      '<div class="who"><b>' + esc(a.name) + '</b><span style="overflow-wrap:anywhere">' + esc(a.email) + '</span><span>' + esc(roleName(a.role)) + '</span><button class="btn sm block" data-act="logout">' + ic('out', 'sm') + 'Sign out</button></div></aside><div class="scrim" id="scrim" data-act="menu"></div>' +
-      '<div class="main"><header class="top"><button class="btn sm ghost menu-btn" data-act="menu" aria-label="Open menu" aria-controls="side">' + ic('menu') + '</button><div class="mark tmark" aria-hidden="true">K</div><h1 id="title"></h1><span class="tiny faint" id="idle"></span></header><main class="view" id="view" tabindex="-1"></main></div></div>';
+    $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side" aria-label="Main menu"><div class="brand"><div class="mark">K</div><div>Kargo<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div></aside><div class="scrim" id="scrim" data-act="menu"></div>' +
+      '<div class="main"><header class="top"><button class="btn sm ghost menu-btn" data-act="menu" aria-label="Open menu" aria-controls="side">' + ic('menu') + '</button><div class="mark tmark" aria-hidden="true">K</div><h1 id="title"></h1><span class="tiny faint" id="idle"></span>' +
+      '<div class="am"><button type="button" class="am-btn" id="amBtn" data-act="amToggle" aria-haspopup="menu" aria-expanded="false" aria-controls="amPop" aria-label="Account menu"><span class="uav">' + esc(initials(a.name)) + '</span></button>' +
+      '<div class="am-pop hide" id="amPop" role="menu"><div class="am-h"><span class="uav">' + esc(initials(a.name)) + '</span><div class="grow"><b>' + esc(a.name) + '</b><div class="tiny faint am-e">' + esc(a.email) + '</div><span class="badge info mt-s">' + esc(roleName(a.role)) + '</span></div></div>' +
+      '<a role="menuitem" href="#/account" class="am-i">' + ic('user', 'sm') + 'My account</a><button type="button" role="menuitem" class="am-i" data-act="logout">' + ic('out', 'sm') + 'Sign out</button></div></div></header><main class="view" id="view" tabindex="-1"></main></div></div>';
     drawNav();
   }
   async function drawNav(counts) {
     const r = (location.hash.slice(2).split('/')[0]) || 'overview';
-    $('#nav').innerHTML = NAV.filter(([, , p]) => !p || can(p)).map(([k, l, , i]) => '<a class="nav' + (k === r ? ' on' : '') + '" href="#/' + k + '"' + (k === r ? ' aria-current="page"' : '') + '>' + ic(i) + '<span>' + l + '</span>' + (counts && counts[k] ? '<span class="n">' + counts[k] + '</span>' : '') + '</a>').join('');
+    $('#nav').innerHTML = NAV.filter(([, , p, , hidden]) => !hidden && canAny(p)).map(([k, l, , i]) => '<a class="nav' + (k === r ? ' on' : '') + '" href="#/' + k + '"' + (k === r ? ' aria-current="page"' : '') + '>' + ic(i) + '<span>' + l + '</span>' + (counts && counts[k] ? '<span class="n">' + counts[k] + '</span>' : '') + '</a>').join('');
   }
-  window.addEventListener('hashchange', () => { if (S.me) route(); });
+  function amOpen(o) { const p = $('#amPop'), b = $('#amBtn'); if (!p) return; p.classList.toggle('hide', !o); b.setAttribute('aria-expanded', o); if (o) $('.am-i', p).focus(); }
+  document.addEventListener('click', (e) => { if (!e.target.closest('.am')) amOpen(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#amPop') && !$('#amPop').classList.contains('hide')) { amOpen(false); $('#amBtn').focus(); } });
+  window.addEventListener('hashchange', () => { if (S.me) { amOpen(false); route(); } });
   async function route() {
     if (!S.me) return;
     $('#side') && $('#side').classList.remove('open'); $('#scrim') && $('#scrim').classList.remove('on');
     const parts = location.hash.slice(2).split('/'); let r = parts[0] || 'overview';
-    const n = NAV.find((x) => x[0] === r); if (!n || (n[2] && !can(n[2]))) r = can('overview.view') ? 'overview' : can('tenants.view') ? 'tenants' : 'security';
+    if (r === 'security') { r = 'account'; history.replaceState(null, '', '#/account'); } // old link
+    const n = NAV.find((x) => x[0] === r); if (!n || !canAny(n[2])) r = can('overview.view') ? 'overview' : can('tenants.view') ? 'tenants' : 'account';
     $('#title').textContent = r === 'tenants' && parts[1] ? 'Business' : (NAV.find((x) => x[0] === r) || [0, 'Admin'])[1];
     drawNav(S.counts); const view = $('#view'); view.innerHTML = '<div class="empty">Loading…</div>';
     try { await PAGES[r](view, parts.slice(1)); if (INTRO[r] && !(r === 'tenants' && parts[1]) && !$('.page-intro', view)) view.insertAdjacentHTML('afterbegin', '<div class="page-intro"><p>' + esc(INTRO[r]) + '</p></div>'); } catch (e) { if (!e.quiet) view.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; }
@@ -296,6 +304,7 @@
       });
     },
     menu: () => { const o = $('#side').classList.toggle('open'); $('#scrim').classList.toggle('on', o); },
+    amToggle: () => amOpen($('#amPop').classList.contains('hide')),
     logout: async () => { await api('POST', '/auth/logout').catch(() => { }); S.me = null; renderLogin('You are signed out.'); },
     tPlan: () => { const s = S.t.subscription; const box = modal({ title: 'Change plan', body: '<div class="col">' + field('Plan', sel('planId', planOpts(), s.plan_id || '')) + '<div class="grid2">' + field('Billed', sel('cycle', [['monthly', 'Monthly'], ['yearly', 'Yearly']], s.cycle)) + field('Price for this business (FCFA)', inp('price', '', 'inputmode="numeric" placeholder="Plan price"')) + '</div>' + field('Paid until (optional)', inp('periodEnd', '', 'type="date"')) + '<div class="tiny muted">Without a date: the current paid period is kept, or one period starts today.</div>' + reasonField(true) + '</div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Change plan</button>' });
       $('#go', box).onclick = (e) => busy(e.target, () => subAction(Object.assign({ action: 'change_plan' }, vals(box)), 'Plan changed')); },
@@ -324,12 +333,12 @@
       $('#go', box).onclick = (e) => busy(e.target, async () => { const r = await api('POST', '/tenants/' + S.t.tenant.id + '/view', vals(box)); closeModal(); const w = window.open(r.url, '_blank', 'noopener'); if (!w) modal({ title: 'Open the view', body: '<p class="small">Your browser blocked the new tab. <a href="' + esc(r.url) + '" target="_blank" rel="noopener">Open the read-only view</a> (valid 30 minutes).</p>' }); }); },
   };
   /* business picker for modals: type to search, pick from the list */
-  const tenantPick = () => field('Business', '<input class="inp" id="tpQ" type="search" placeholder="Type the business name…" autocomplete="off">') + '<select class="inp tp-list" name="tenantId" id="tpSel" size="5" aria-label="Matching businesses"></select>';
+  const tenantPick = () => field('Business', '<input class="inp" id="tpQ" type="search" placeholder="Type the business name…" autocomplete="off">') + '<select class="inp tp-list" id="tpSel" size="5" aria-label="Matching businesses"></select><input type="hidden" name="tenantId" id="tpId">';
   function wireTenantPick(box, onPick) {
     let timer; const sel2 = $('#tpSel', box);
     const load = async () => { const d = await api('GET', '/tenants?q=' + encodeURIComponent($('#tpQ', box).value.trim())); sel2.innerHTML = d.tenants.length ? d.tenants.map((t) => '<option value="' + esc(t.id) + '">' + esc(t.name) + (t.owner_name ? ' — ' + esc(t.owner_name) : '') + '</option>').join('') : '<option value="" disabled>No business matches</option>'; };
     $('#tpQ', box).oninput = () => { clearTimeout(timer); timer = setTimeout(load, 250); };
-    sel2.onchange = () => sel2.value && onPick(sel2.value, sel2.selectedOptions[0].textContent.split(' — ')[0]);
+    sel2.onchange = () => { if (!sel2.value) return; $('#tpId', box).value = sel2.value; onPick(sel2.value, sel2.selectedOptions[0].textContent.split(' — ')[0]); }; // kept in a hidden field: a late search refresh cannot lose the choice
     return load();
   }
   /** Record a payment received outside the app. pre = { id, name, invoices } when opened from a business page. */
@@ -360,7 +369,7 @@
     };
     const pick = async (id, name) => {
       const d = await api('GET', '/tenants/' + id); invoices = d.invoices.filter((i) => i.status === 'open');
-      if (!pre) { $('#pyPick', box).classList.add('hide'); $('#pyBiz', box).classList.remove('hide'); $('#pyBiz', box).innerHTML = 'Business: <b>' + esc(name) + '</b> <button type="button" class="link small" id="pyChange">change</button>'; $('#pyChange', box).onclick = () => { $('#pyPick', box).classList.remove('hide'); $('#pyBiz', box).classList.add('hide'); $('#pyFor', box).innerHTML = ''; $('#go', box).disabled = true; $('#tpQ', box).focus(); }; }
+      if (!pre) { $('#pyPick', box).classList.add('hide'); $('#pyBiz', box).classList.remove('hide'); $('#pyBiz', box).innerHTML = 'Business: <b>' + esc(name) + '</b> <button type="button" class="link small" id="pyChange">change</button>'; $('#pyChange', box).onclick = () => { $('#tpId', box).value = ''; $('#pyPick', box).classList.remove('hide'); $('#pyBiz', box).classList.add('hide'); $('#pyFor', box).innerHTML = ''; $('#go', box).disabled = true; $('#tpQ', box).focus(); }; }
       drawFor(); $('#go', box).disabled = false;
     };
     if (pre) { invoices = pre.invoices; drawFor(); } else await wireTenantPick(box, pick);
@@ -376,9 +385,12 @@
   /* ---------- users: people who sign in to businesses ---------- */
   const ROLE_L = { owner: 'Owner', admin: 'Admin', manager: 'Manager', sales: 'Sales rep', viewer: 'Viewer' };
   const userRole = (r) => '<span class="badge' + (r === 'owner' ? ' info' : '') + '">' + esc(ROLE_L[r] || r) + '</span>';
-  PAGES.users = async (v) => {
+  PAGES.users = async (v, [tab]) => {
+    if (tab === 'admins' && can('admins.manage')) return adminsTab(v);
+    if (tab === 'roles' && can('admins.manage')) return rolesTab(v);
+    if (!can('users.view')) return adminsTab(v);
     const f = S.uf || (S.uf = { q: '', status: '', role: '', tenant: '', tenantName: '' });
-    v.innerHTML = '<div class="page-intro"><p>' + esc(INTRO.users) + '</p><div class="acts">' + (can('users.write') ? '<button class="btn pri" data-act5="uAdd">' + ic('plus', 'sm') + 'Add user</button>' : '') + '</div></div>' +
+    v.innerHTML = userTabs('') + '<div class="page-intro"><p>' + esc(INTRO.users) + '</p><div class="acts">' + (can('users.write') ? '<button class="btn pri" data-act5="uAdd">' + ic('plus', 'sm') + 'Add user</button>' : '') + '</div></div>' +
       '<div class="kpis mb2" id="ukpi"></div>' +
       '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search users</span>' + ic('search', 'sm') + '<input class="inp" id="uq" type="search" placeholder="Search name, login, email or business" value="' + esc(f.q) + '"></label>' +
       sel('us', [['', 'Active and disabled'], ['active', 'Active'], ['disabled', 'Disabled']], f.status, 'id="us" style="width:auto"') +
@@ -419,7 +431,7 @@
       foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Add user</button>' });
     const pick = async (id, name) => {
       const r = await api('GET', '/users/roles?tenant=' + encodeURIComponent(id)); $('#uaRole', box).innerHTML = roleSel(r.roles, 'sales');
-      if (!pre) { $('#uaPick', box).classList.add('hide'); $('#uaBiz', box).classList.remove('hide'); $('#uaBiz', box).innerHTML = 'Business: <b>' + esc(name) + '</b> <button type="button" class="link small" id="uaChange">change</button>'; $('#uaChange', box).onclick = () => { $('#uaPick', box).classList.remove('hide'); $('#uaBiz', box).classList.add('hide'); }; }
+      if (!pre) { $('#uaPick', box).classList.add('hide'); $('#uaBiz', box).classList.remove('hide'); $('#uaBiz', box).innerHTML = 'Business: <b>' + esc(name) + '</b> <button type="button" class="link small" id="uaChange">change</button>'; $('#uaChange', box).onclick = () => { $('#tpId', box).value = ''; $('#uaPick', box).classList.remove('hide'); $('#uaBiz', box).classList.add('hide'); }; }
     };
     if (pre) await pick(pre.id, pre.name); else await wireTenantPick(box, pick);
     $('#go', box).onclick = (e) => busy(e.target, async () => {
@@ -551,28 +563,37 @@
       '<section class="card pad2"><h2 class="mb">Email failures</h2>' + table([{ label: 'When', v: (r) => esc(fmtDT(r.created_at)) }, { label: 'Kind', v: (r) => esc(r.kind) }, { label: 'To', v: (r) => esc(r.to_addr) }, { label: 'Error', v: (r) => '<span class="small">' + esc(r.error) + '</span>' }], d.emailFailures, { empty: 'No failures. 👍' }) + '</section>';
   };
 
-  PAGES.security = async (v) => {
-    if (can('admins.manage')) await loadRoles();
+  /* ---------- my account (from the avatar menu) ---------- */
+  PAGES.account = async (v) => {
     const a = S.me.admin; const d = await api('GET', '/admins');
-    let html = '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">My account</h2><dl class="kv"><dt>Name</dt><dd>' + esc(a.name) + '</dd><dt>Email</dt><dd>' + esc(a.email) + '</dd><dt>Role</dt><dd>' + esc(roleName(a.role)) + '</dd>' + (S.me.twoFactor ? '<dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd>' : '<dt>Two-step sign-in</dt><dd><span class="badge warn">Off for now</span></dd>') + '</dl>' +
-      '<div class="row mt"><button class="btn" data-act4="myPw">Change password</button><button class="btn" data-act4="myPin">Change PIN</button>' + (S.me.twoFactor ? '<button class="btn" data-act4="myCodes">New recovery codes</button>' : '') + '</div></section>' +
-      '<section class="card pad2"><h2 class="mb">Active sessions</h2>' + table([{ label: 'Admin', v: (s) => esc(s.email) + (s.current ? ' <span class="badge ok">this one</span>' : '') }, { label: 'Device', v: (s) => '<span class="tiny">' + esc((s.user_agent || '').slice(0, 60)) + '</span><div class="tiny faint">' + esc(s.ip) + '</div>' }, { label: 'Seen', v: (s) => esc(ago(s.last_seen_at)) }, { label: '', v: (s) => (s.current ? '' : '<button class="btn sm" data-act4="endSession" data-id="' + esc(s.id) + '">End</button>') }], d.sessions) + '</section></div>';
-    if (can('admins.manage')) {
-      html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Roles</h2><button class="btn" data-act4="roleNew">New role</button></div>' +
-        table([{ label: 'Role', v: (r) => '<b>' + esc(r.name) + '</b>' + (r.builtin ? ' <span class="badge">built-in</span>' : '') + '<div class="tiny faint">' + esc(r.description) + '</div>' }, { label: 'Permissions', num: true, v: (r) => esc((r.perms || []).length + ' / ' + S.permCatalog.length) }, { label: 'Admins', num: true, v: (r) => esc(r.admins) },
-          { label: '', v: (r) => '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="roleEdit" data-id="' + esc(r.id) + '">Edit</button>' + (r.builtin ? '' : '<button class="btn sm danger" data-act4="roleDel" data-id="' + esc(r.id) + '">Delete</button>') + '</div>' }], S.roles) +
-        '<p class="tiny muted mt">The Super Admin can do everything and is the only one who manages admins and roles.</p></section>';
-      html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Admins</h2><button class="btn pri" data-act4="admAdd">Add admin</button></div>' +
+    v.innerHTML = '<div class="page-intro"><p>' + esc(INTRO.account) + '</p></div><div class="grid2 mb2" style="align-items:start"><section class="card pad2 acct"><div class="acct-h"><span class="uav lg">' + esc(initials(a.name)) + '</span><div><h2>' + esc(a.name) + '</h2><div class="small muted">' + esc(a.email) + '</div></div></div><dl class="kv"><dt>Role</dt><dd>' + esc(roleName(a.role)) + '</dd>' + (S.me.twoFactor ? '<dt>Recovery codes left</dt><dd>' + esc(a.recoveryLeft) + (a.recoveryLeft < 3 ? ' <span class="badge warn">make new ones</span>' : '') + '</dd>' : '<dt>Two-step sign-in</dt><dd><span class="badge warn">Off for now</span></dd>') + '</dl>' +
+      '<h3 class="mt2">Sign-in and PIN</h3><p class="tiny muted" style="margin:4px 0 0">Your PIN confirms sensitive actions (deleting, voiding, password resets…).</p><div class="row mt"><button class="btn" data-act4="myPw">' + ic('key', 'sm') + 'Change password</button><button class="btn" data-act4="myPin">' + ic('lock', 'sm') + 'Change PIN</button>' + (S.me.twoFactor ? '<button class="btn" data-act4="myCodes">New recovery codes</button>' : '') + '</div></section>' +
+      '<section class="card pad2"><h2 class="mb">' + (can('admins.manage') ? 'Active sessions · all admins' : 'Your active sessions') + '</h2>' + table([{ label: 'Admin', v: (s) => esc(s.email) + (s.current ? ' <span class="badge ok">this one</span>' : '') }, { label: 'Device', v: (s) => '<span class="tiny">' + esc((s.user_agent || '').slice(0, 60)) + '</span><div class="tiny faint">' + esc(s.ip) + '</div>' }, { label: 'Seen', v: (s) => esc(ago(s.last_seen_at)) }, { label: '', v: (s) => (s.current ? '' : '<button class="btn sm" data-act4="endSession" data-id="' + esc(s.id) + '">End</button>') }], d.sessions) + '</section></div>';
+  };
+  /* users page: business users, admins, roles */
+  const USER_TABS = () => [['', 'Business users', 'users.view'], ['admins', 'Admins', 'admins.manage'], ['roles', 'Roles', 'admins.manage']].filter((t) => can(t[2]));
+  const userTabs = (cur) => { const t = USER_TABS(); return t.length > 1 ? '<nav class="tabs">' + t.map(([k, l]) => '<a href="#/users' + (k ? '/' + k : '') + '" class="' + (k === cur ? 'on' : '') + '">' + l + '</a>').join('') + '</nav>' : ''; };
+  async function adminsTab(v) {
+    await loadRoles(); const a = S.me.admin; const d = await api('GET', '/admins'); let html = userTabs('admins');
+      html += '<div class="page-intro"><p>People who work in this admin. Only you, the Super Admin, add admins and change their roles.</p><div class="acts"><button class="btn pri" data-act4="admAdd">' + ic('plus', 'sm') + 'Add admin</button></div></div><section class="card">' +
         table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => (x.role === 'super' ? badge('Super Admin', 'info') : esc(roleName(x.role))) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
           { label: 'Last sign-in', v: (x) => esc(ago(x.last_login_at)) + (x.last_login_ip ? '<div class="tiny faint">' + esc(x.last_login_ip) + '</div>' : '') }, { label: 'Status', v: (x) => (x.active ? (x.locked_until && new Date(x.locked_until) > new Date() ? badge('Locked', 'bad') : badge('Active', 'ok')) : badge('Disabled')) },
           { label: '', v: (x) => (x.id === a.id || x.role === 'super' ? '' : '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="admRole" data-id="' + x.id + '" data-role="' + esc(x.role) + '" data-name="' + esc(x.name) + '">Change role</button>' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '<button class="btn sm" data-act4="adm" data-v="reset-pin" data-id="' + x.id + '"' + (x.has_pin ? '' : ' disabled title="No PIN yet"') + '>Reset PIN</button>') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
-    }
-    if (can('audit.view')) {
-      const f = S.af || (S.af = { action: '', admin: '' }); const au = await api('GET', '/audit?action=' + encodeURIComponent(f.action) + '&admin=' + encodeURIComponent(f.admin));
-      html += '<section class="card pad2"><div class="row between mb"><h2>Audit log</h2><div class="row">' + inp('afA', f.action, 'placeholder="Action starts with… (e.g. login)" id="afA" style="width:220px"') + inp('afW', f.admin, 'placeholder="Admin email" id="afW" style="width:200px"') + '</div></div>' +
-        table([{ label: 'When', v: (e) => esc(fmtDT(e.at)) }, { label: 'Admin', v: (e) => esc(e.admin_email || '') }, { label: 'Action', v: (e) => '<b>' + esc(e.action.replace(/_/g, ' ')) + '</b>' + (e.reason ? '<div class="tiny faint">“' + esc(e.reason) + '”</div>' : '') }, { label: 'Business / target', v: (e) => esc([e.tenant, e.target].filter(Boolean).join(' · ')) }, { label: 'From', v: (e) => '<span class="tiny">' + esc(e.ip || '') + '</span>' }], au.entries) + '<p class="tiny muted mt">Entries can never be changed or deleted.</p></section>';
-    }
     v.innerHTML = html;
+  }
+  async function rolesTab(v) {
+    await loadRoles(); let html = userTabs('roles');
+      html += '<div class="page-intro"><p>Roles are sets of permissions. Give each admin the role that matches their job.</p><div class="acts"><button class="btn pri" data-act4="roleNew">' + ic('plus', 'sm') + 'New role</button></div></div><section class="card">' +
+        table([{ label: 'Role', v: (r) => '<b>' + esc(r.name) + '</b>' + (r.builtin ? ' <span class="badge">built-in</span>' : '') + '<div class="tiny faint">' + esc(r.description) + '</div>' }, { label: 'Permissions', num: true, v: (r) => esc((r.perms || []).length + ' / ' + S.permCatalog.length) }, { label: 'Admins', num: true, v: (r) => esc(r.admins) },
+          { label: '', v: (r) => '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="roleEdit" data-id="' + esc(r.id) + '">Edit</button>' + (r.builtin ? '' : '<button class="btn sm danger" data-act4="roleDel" data-id="' + esc(r.id) + '">Delete</button>') + '</div>' }], S.roles) +
+        '<p class="tiny muted pad" style="margin:0">The Super Admin can do everything and is the only one who manages admins and roles.</p></section>';
+    v.innerHTML = html;
+  }
+  /* ---------- audit log ---------- */
+  PAGES.audit = async (v) => {
+    const f = S.af || (S.af = { action: '', admin: '' }); const au = await api('GET', '/audit?action=' + encodeURIComponent(f.action) + '&admin=' + encodeURIComponent(f.admin));
+    v.innerHTML = '<div class="page-intro"><p>' + esc(INTRO.audit) + '</p></div><div class="row mb toolbar"><label class="search"><span class="sr-only">Action</span>' + ic('search', 'sm') + inp('afA', f.action, 'placeholder="Action starts with… (e.g. login, user_, payment)" id="afA"') + '</label><label class="search" style="max-width:320px"><span class="sr-only">Admin email</span>' + ic('users', 'sm') + inp('afW', f.admin, 'placeholder="Admin email" id="afW"') + '</label></div><section class="card">' +
+        table([{ label: 'When', v: (e) => '<span style="white-space:nowrap">' + esc(fmtDT(e.at)) + '</span>' }, { label: 'Admin', v: (e) => esc(e.admin_email || '') }, { label: 'Action', v: (e) => '<b>' + esc(e.action.replace(/_/g, ' ')) + '</b>' + (e.reason ? '<div class="tiny faint">“' + esc(e.reason) + '”</div>' : '') }, { label: 'Business / target', v: (e) => esc([e.tenant, e.target].filter(Boolean).join(' · ')) }, { label: 'From', v: (e) => '<span class="tiny">' + esc(e.ip || '') + '</span>' }], au.entries) + '</section><p class="tiny muted mt">Showing the latest 300 entries. Entries can never be changed or deleted.</p>';
     let t; ['afA', 'afW'].forEach((id) => { const el = $('#' + id); if (el) el.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.af = { action: $('#afA').value.trim(), admin: $('#afW').value.trim() }; route(); }, 400); }; });
   };
   const roleOpts = () => (S.roles || []).map((r) => [r.id, r.name + (r.description ? ' — ' + r.description : '')]);
