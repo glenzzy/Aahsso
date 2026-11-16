@@ -130,6 +130,13 @@ const T = {
       intro: 'Hello ' + esc(name) + ',<br>your admin account was just used to sign in.', rows: [['When', when], ['IP address', ip], ['Device', agent]],
       outro: 'If this was not you, end all sessions from Security in the admin dashboard and change your password at once — or ask another owner to disable your account.', footnote: 'Kargo admin security.' }));
   },
+  adminInvite({ name, email, role, password, url, by }) {
+    return Object.assign({ subject: 'Your Kargo admin account' }, layout({ business: 'Kargo admin', title: 'You have a Kargo admin account',
+      intro: 'Hello ' + esc(name) + ',<br>' + esc(by) + ' created a Kargo platform admin account for you.',
+      rows: [['Sign in at', url], ['Email', email], ['Temporary password', password, true], ['Role', role]],
+      button: { label: 'Sign in', url },
+      outro: 'You will choose your own password the first time you sign in. Never share this account.', footnote: 'Kargo admin security.' }));
+  },
   adminLocked({ name, email, ip, minutes }) {
     return Object.assign({ subject: '[Kargo admin] Account locked after failed sign-ins' }, layout({ business: 'Kargo admin', title: 'Admin account locked',
       intro: 'Too many wrong passwords or codes for <b>' + esc(email) + '</b> (' + esc(name) + '). The account is locked for ' + minutes + ' minutes.', rows: [['Last attempt from', ip]], footnote: 'Kargo admin security.' }));

@@ -2,7 +2,8 @@
  *  1. Gate: served only on ADMIN_HOST (e.g. admin.example.com); optional IP allowlist (ADMIN_IP_ALLOWLIST) and
  *     Cloudflare Access check (CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD). Anything else gets a plain 404.
  *     In production (NODE_ENV=production) the admin is OFF unless ADMIN_HOST is set.
- *  2. Separate accounts (platform_admins), created only from the command line: node scripts/admin.js create …
+ *  2. Separate accounts (platform_admins). The first one is created from the command line (node scripts/admin.js create …);
+ *     after that, owner admins add others from the Security page.
  *  3. Password (+ authenticator code when ADMIN_REQUIRE_2FA=true — TODO: on by default later), lockout after 5 failures, email alerts.
  *  4. Server-side sessions in an httpOnly, Secure, SameSite=Strict __Host- cookie: 30 min idle, 8 h max, revocable.
  *  5. CSRF: custom header + Origin check on every change. Risky actions need the code again (5 min).
@@ -495,6 +496,29 @@ module.exports = function mountAdmin(app, { tenantSecret, KC }) {
     const all = can(req.admin, 'admins.manage');
     const r2 = await q("UPDATE admin_sessions SET revoked_at=now() WHERE left(id,16)=$1 AND revoked_at IS NULL AND ($2 OR admin_id=$3) RETURNING admin_id", [req.params.id, all, req.admin.id]);
     if (!r2.rowCount) return bad(res, 'Session not found', 404); await audit(req, 'session_revoked', { target: req.params.id }); res.json({ ok: true });
+  }));
+  /* owners add other admins (temporary password, shown once and emailed; changed at first sign-in) */
+  A.post('/admins', need('admins.manage'), reauth, wrap(async (req, res) => {
+    const b = req.body || {}; const email = String(b.email || '').trim().toLowerCase(); const name = String(b.name || '').trim().slice(0, 80); const role = b.role;
+    if (!mailer.isEmail(email)) return bad(res, 'Type a valid email address');
+    if (name.length < 2) return bad(res, 'Type their full name');
+    if (!ROLES[role]) return bad(res, 'Choose a role: owner, support or finance');
+    const temp = Array.from(crypto.randomBytes(18), (x) => 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[x % 55]).join('').replace(/(.{6})(?=.)/g, '$1-');
+    let a; try { a = (await q('INSERT INTO platform_admins (email, name, role, password_hash, must_change_pw) VALUES ($1,$2,$3,$4,true) RETURNING id, email, name, role', [email, name, role, await bcrypt.hash(temp, 12)])).rows[0]; }
+    catch (e) { if (e.code === '23505') return bad(res, 'An admin with this email already exists', 409); throw e; }
+    const url = (ADMIN_HOST() ? 'https://' + ADMIN_HOST() : req.protocol + '://' + req.get('host')) + '/admin';
+    let emailed = 'skipped';
+    if (b.sendEmail !== false) emailed = (await mailer.sendEmail(Object.assign({ to: email, kind: 'admin_invite' }, mailer.T.adminInvite({ name, email, role, password: temp, url, by: req.admin.name })))).status;
+    await audit(req, 'admin_created', { target: email, details: { role } });
+    res.json({ admin: a, password: temp, emailed, url });
+  }));
+  A.post('/admins/:id/role', need('admins.manage'), reauth, wrap(async (req, res) => {
+    const role = (req.body || {}).role; if (!ROLES[role]) return bad(res, 'Choose a role: owner, support or finance');
+    if (req.params.id === req.admin.id) return bad(res, 'You cannot change your own role');
+    const a = (await q('SELECT * FROM platform_admins WHERE id::text=$1', [req.params.id])).rows[0]; if (!a) return bad(res, 'Admin not found', 404);
+    if (a.role === 'owner' && role !== 'owner' && (await q("SELECT count(*)::int AS n FROM platform_admins WHERE role='owner' AND active")).rows[0].n <= 1) return bad(res, 'Keep at least one active owner');
+    await q('UPDATE platform_admins SET role=$2 WHERE id=$1', [a.id, role]);
+    await audit(req, 'admin_role_changed', { target: a.email, details: { from: a.role, to: role } }); res.json({ ok: true });
   }));
   A.post('/admins/:id/:act', need('admins.manage'), reauth, wrap(async (req, res) => {
     const act = req.params.act; if (!['deactivate', 'reactivate', 'reset-2fa', 'unlock'].includes(act)) return bad(res, 'Unknown action', 404);

@@ -169,8 +169,7 @@
     const conv = d.conversion.total ? Math.round(d.conversion.paid / d.conversion.total * 100) + '%' : '—';
     const max = Math.max(1, ...d.revenue.map((x) => x.v));
     const months = []; for (let i = 5; i >= 0; i--) { const x = new Date(); x.setDate(1); x.setMonth(x.getMonth() - i); months.push(x.toISOString().slice(0, 7)); }
-    const sec = (S.me.security || []).filter((x) => !x.ok);
-    v.innerHTML = (sec.length ? '<div class="alert warn mb2"><b>Security setup:</b> ' + sec.map((x) => esc(x.label)).join(' · ') + ' — not set. See <a href="#/health">Health</a>.</div>' : '') +
+    v.innerHTML =
       '<div class="kpis mb2">' + kpi('Monthly recurring revenue', money(d.mrr), 'active + overdue subscriptions') + kpi('Collected this month', money(d.collectedMonth)) +
       kpi('Paying businesses', (st.active || 0) + (st.past_due || 0), (st.past_due || 0) + ' overdue') + kpi('On free trial', st.trialing || 0, d.signups30 + ' new in 30 days') +
       kpi('Trial → paid', conv, 'last 180 days') + kpi('Lost in 30 days', d.lost30, 'expired or cancelled') +
@@ -367,10 +366,10 @@
       '<div class="row mt"><button class="btn" data-act4="myPw">Change password</button>' + (S.me.twoFactor ? '<button class="btn" data-act4="myCodes">New recovery codes</button>' : '') + '</div></section>' +
       '<section class="card pad2"><h2 class="mb">Active sessions</h2>' + table([{ label: 'Admin', v: (s) => esc(s.email) + (s.current ? ' <span class="badge ok">this one</span>' : '') }, { label: 'Device', v: (s) => '<span class="tiny">' + esc((s.user_agent || '').slice(0, 60)) + '</span><div class="tiny faint">' + esc(s.ip) + '</div>' }, { label: 'Seen', v: (s) => esc(ago(s.last_seen_at)) }, { label: '', v: (s) => (s.current ? '' : '<button class="btn sm" data-act4="endSession" data-id="' + esc(s.id) + '">End</button>') }], d.sessions) + '</section></div>';
     if (can('admins.manage')) {
-      html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Admins</h2><span class="tiny muted">New admins are created on the server: <span class="mono">node scripts/admin.js create --email … --name "…" --role support</span></span></div>' +
+      html += '<section class="card pad2 mb2"><div class="row between mb"><h2>Admins</h2><button class="btn pri" data-act4="admAdd">Add admin</button></div>' +
         table([{ label: 'Admin', v: (x) => '<b>' + esc(x.name) + '</b><div class="tiny faint">' + esc(x.email) + '</div>' }, { label: 'Role', v: (x) => esc(x.role) }, { label: 'Two-step', v: (x) => (!S.me.twoFactor ? badge('Off for now') : x.totp_enabled ? badge('On', 'ok') : badge('Not set up', 'warn')) },
           { label: 'Last sign-in', v: (x) => esc(ago(x.last_login_at)) + (x.last_login_ip ? '<div class="tiny faint">' + esc(x.last_login_ip) + '</div>' : '') }, { label: 'Status', v: (x) => (x.active ? (x.locked_until && new Date(x.locked_until) > new Date() ? badge('Locked', 'bad') : badge('Active', 'ok')) : badge('Disabled')) },
-          { label: '', v: (x) => (x.id === a.id ? '' : '<div class="row" style="flex-wrap:nowrap">' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
+          { label: '', v: (x) => (x.id === a.id ? '' : '<div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act4="admRole" data-id="' + x.id + '" data-role="' + esc(x.role) + '" data-name="' + esc(x.name) + '">Change role</button>' + (x.locked_until && new Date(x.locked_until) > new Date() ? '<button class="btn sm" data-act4="adm" data-v="unlock" data-id="' + x.id + '">Unlock</button>' : '') + (S.me.twoFactor ? '<button class="btn sm" data-act4="adm" data-v="reset-2fa" data-id="' + x.id + '">Reset 2-step</button>' : '') + (x.active ? '<button class="btn sm danger" data-act4="adm" data-v="deactivate" data-id="' + x.id + '">Disable</button>' : '<button class="btn sm" data-act4="adm" data-v="reactivate" data-id="' + x.id + '">Enable</button>') + '</div>') }], d.admins) + '</section>';
     }
     if (can('audit.view')) {
       const f = S.af || (S.af = { action: '', admin: '' }); const au = await api('GET', '/audit?action=' + encodeURIComponent(f.action) + '&admin=' + encodeURIComponent(f.admin));
@@ -380,7 +379,25 @@
     v.innerHTML = html;
     let t; ['afA', 'afW'].forEach((id) => { const el = $('#' + id); if (el) el.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.af = { action: $('#afA').value.trim(), admin: $('#afW').value.trim() }; route(); }, 400); }; });
   };
+  const ROLE_HELP = { owner: 'Owner — everything, including plans, prices, settings and admins', support: 'Support — businesses, view as owner, owner password resets, support inbox', finance: 'Finance — invoices, payments, subscriptions' };
   const ACT4 = {
+    admAdd: () => {
+      const box = modal({ title: 'Add an admin', body: '<div class="col">' + field('Full name', inp('name', '', 'autocomplete="off"')) + field('Email', inp('email', '', 'type="email" autocomplete="off"')) +
+        field('Role', sel('role', Object.entries(ROLE_HELP), 'support')) + '<label class="check"><input type="checkbox" name="sendEmail" checked> Email them their sign-in details</label>' +
+        '<div class="tiny muted">They get a temporary password and choose their own at the first sign-in. Give only the access they need.</div></div>',
+        foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Add admin</button>' });
+      $('#go', box).onclick = (e) => busy(e.target, async () => {
+        const r = await api('POST', '/admins', vals(box));
+        modal({ title: 'Admin added', body: '<p class="small"><b>' + esc(r.admin.name) + '</b> · ' + esc(r.admin.email) + ' · ' + esc(r.admin.role) + '</p><p class="small muted">Temporary password (shown only now):</p><div class="secret mb">' + esc(r.password) + '</div>' +
+          '<p class="small muted">' + (r.emailed === 'sent' ? 'Their sign-in details were emailed to them.' : 'Not emailed' + (r.emailed === 'skipped' ? ' (email is not set up on the server)' : '') + ' — send them the address <b>' + esc(r.url) + '</b> and this password in a private way.') + '</p>',
+          foot: '<button class="btn pri" data-close>Done</button>' });
+        route();
+      });
+    },
+    admRole: (el) => {
+      const box = modal({ title: 'Change role · ' + el.dataset.name, body: field('Role', sel('role', Object.entries(ROLE_HELP), el.dataset.role)), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });
+      $('#go', box).onclick = (e) => busy(e.target, async () => { await api('POST', '/admins/' + el.dataset.id + '/role', vals(box)); closeModal(); toast('Role changed'); route(); });
+    },
     myPw: () => { const box = modal({ title: 'Change password', body: '<div class="col">' + field('Current password', inp('current', '', 'type="password" autocomplete="current-password"')) + field('New password (12+ characters)', inp('password', '', 'type="password" autocomplete="new-password"')) + field('Type it again', inp('password2', '', 'type="password" autocomplete="new-password"')) + '<div class="tiny muted">Your other sessions are signed out.</div></div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => { const v = vals(box); if (v.password !== v.password2) throw new Error('The two passwords are not the same'); await api('POST', '/auth/password', { current: v.current, password: v.password }); closeModal(); toast('Password changed'); route(); }); },
     myCodes: (el) => busy(el, async () => { const r = await api('POST', '/auth/recovery-codes'); S.codes = r.recoveryCodes; S.me.admin.recoveryLeft = r.recoveryCodes.length;

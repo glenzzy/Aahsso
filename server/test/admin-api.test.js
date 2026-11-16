@@ -261,6 +261,31 @@ test('roles: support and finance only do their part; lockout after 5 failures', 
   cli('unlock', '--email', 'fin' + rnd + '@kargo.test');
 });
 
+test('owners add admins from the dashboard and change roles; others cannot', async () => {
+  await db.query("UPDATE admin_sessions SET reauth_at = now() - interval '10 minutes' WHERE revoked_at IS NULL");
+  const body = { name: 'Nadia New', email: 'nadia' + rnd + '@kargo.test', role: 'support' };
+  const r0 = await S.c.call('POST', '/api/admin/admins', body); assert.equal(r0.body.code, 'reauth', 'confirming is required');
+  assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', reauthBody(5))).status, 200);
+  assert.equal((await S.c.call('POST', '/api/admin/admins', Object.assign({}, body, { email: 'bad' }))).status, 400);
+  assert.equal((await S.c.call('POST', '/api/admin/admins', Object.assign({}, body, { role: 'god' }))).status, 400);
+  const r = await S.c.call('POST', '/api/admin/admins', body); assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(r.body.password.length >= 18); assert.equal(r.body.emailed, 'sent');
+  const mails = await (await fetch('http://127.0.0.1:18090/_emails')).json();
+  assert.ok(mails.some((m) => m.to.includes(body.email) && /admin account/i.test(m.subject) && m.html.includes(r.body.password)), 'invite emailed');
+  assert.equal((await S.c.call('POST', '/api/admin/admins', body)).status, 409, 'no duplicates');
+  // the new admin signs in and must choose a password first
+  const n = await firstSignIn(body.email, r.body.password, 'Nadia-Own-Pass-' + rnd);
+  assert.equal((await n.c.call('GET', '/api/admin/me')).body.admin.role, 'support');
+  assert.equal((await n.c.call('POST', '/api/admin/admins', { name: 'Eve Evil', email: 'eve' + rnd + '@x.test', role: 'owner' })).status, 403, 'support cannot add admins');
+  // role change, and the last owner is protected
+  const id = r.body.admin.id;
+  assert.equal((await S.c.call('POST', '/api/admin/admins/' + id + '/role', { role: 'finance' })).status, 200);
+  assert.equal((await n.c.call('GET', '/api/admin/invoices')).status, 200, 'now finance');
+  const me = (await S.c.call('GET', '/api/admin/me')).body.admin;
+  assert.equal((await S.c.call('POST', '/api/admin/admins/' + me.id + '/role', { role: 'support' })).status, 400, 'not your own role');
+  const log = (await S.c.call('GET', '/api/admin/audit?action=admin_')).body.entries.map((e) => e.action);
+  assert.ok(log.includes('admin_created') && log.includes('admin_role_changed'));
+});
 test('audit log is complete and cannot be edited; support inbox; CSV export is formula-safe', async () => {
   const log = (await S.c.call('GET', '/api/admin/audit')).body.entries.map((e) => e.action);
   for (const a of [TWO ? 'login_2fa_setup' : 'login', 'plan_updated', 'payment_confirmed', 'subscription_suspend', 'view_as_owner', 'owner_password_reset', 'login_locked', 'admin_created']) assert.ok(log.includes(a), 'audit has ' + a);
