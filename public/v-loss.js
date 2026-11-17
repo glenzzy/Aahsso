@@ -131,7 +131,8 @@ A.lossNew = (el) => {
     const matches = sh._q.trim().length < 1 ? [] : K.raw.products.filter((p) => !p.archived && !L.lines.some((l) => l.productId === p.id) && (p.name + ' ' + (p.barcode || '') + ' ' + (p.category || '')).toLowerCase().includes(sh._q.trim().toLowerCase()))
       .sort((a, b) => lossAvail(b.id, loc) - lossAvail(a.id, loc)).slice(0, 6);
     setSheetBody(sh,
-      '<div class="pay-lbl">What happened?</div><div class="cause-grid" role="radiogroup" aria-label="Cause">' + KC.LOSS_CAUSES.filter((x) => x.pick).map((x) => '<button type="button" role="radio" aria-checked="' + (L.cause === x.k) + '" class="cause-btn c-' + x.k + (L.cause === x.k ? ' on' : '') + '" data-a="lossCause" data-v="' + x.k + '"><b>' + esc(x.label) + '</b><small>' + esc(x.hint) + '</small></button>').join('') + '</div>' +
+      '<label class="pay-lbl" for="lossCause">What happened?</label>' + sel('lossCause', [['', 'Choose what happened…']].concat(KC.LOSS_CAUSES.filter((x) => x.pick).map((x) => [x.k, x.label])), L.cause, 'id="lossCause" data-c="lossCause"') +
+      (c ? '<div class="tiny muted loss-cause-hint">' + esc(c.hint) + (c.photo ? ' · photo required' : '') + '</div>' : '') +
       '<div class="pay-lbl mt2">Items lost</div>' +
       (L.lines.length ? '<div class="card list mb">' + L.lines.map((l, i) => { const p = byId('products', l.productId) || {}; const av = lossAvail(l.productId, loc); const over = num(l.qty) > av;
         return '<div class="li" style="cursor:default">' + thumb(p, 40, 10) + '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(p.name || '?') + '</div><div class="tiny ' + (over ? '' : 'muted') + '"' + (over ? ' style="color:var(--bad)"' : '') + '>' + av + ' in stock here' + (KC.packsOf(p).length ? ' · 1 ' + esc(KC.packsOf(p)[0].name) + ' = ' + KC.packsOf(p)[0].size : '') + (seeCost() ? ' · ' + F(lossUnit(l.productId)) + ' each' : '') + '</div></div>' +
@@ -166,7 +167,7 @@ A.lossNew = (el) => {
   };
 };
 const lossSheet = (el) => el.closest('.scrim');
-A.lossCause = (el) => { const sh = lossSheet(el); sh._keep(); sh._L.cause = el.dataset.v; sh._draw(); };
+CH.lossCause = (el) => { const sh = lossSheet(el); sh._keep(); sh._L.cause = el.value; sh._draw(); };
 A.lossAdd = (el) => { const sh = lossSheet(el); sh._keep(); sh._L.lines.push({ productId: el.dataset.id, qty: 1 }); sh._q = ''; sh._draw(); const q = $$('[data-lq]', sh).pop(); if (q) { q.focus(); q.select(); } };
 A.lossDrop = (el) => { const sh = lossSheet(el); sh._keep(); sh._L.lines.splice(Number(el.dataset.i), 1); sh._draw(); };
 A.lossPhotoDrop = (el) => { const sh = lossSheet(el); sh._keep(); sh._L.photos.splice(Number(el.dataset.i), 1); sh._draw(); };

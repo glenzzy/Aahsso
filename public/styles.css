@@ -1337,6 +1337,7 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .c-theft { --cc: #b42318; } .c-damaged { --cc: #b54708; } .c-pests { --cc: #6b4f2a; } .c-water { --cc: #1d6fb8; } .c-handling { --cc: #8a5a12; }
 .c-expired { --cc: #7a5af8; } .c-ownuse { --cc: #0d5c63; } .c-other { --cc: #4a5868; } .c-count { --cc: #c2412d; } .c-transfer { --cc: #2f6fb3; } .c-arrival { --cc: #5c6b7a; }
 .cause-chip[class*=" c-"] { color: var(--cc); background: color-mix(in srgb, var(--cc) 12%, #fff); }
+.loss-cause-hint { margin: 6px 2px 0; }
 .cause-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .cause-btn { text-align: left; padding: 10px 12px; border: 2px solid var(--line); border-radius: 12px; background: var(--card); cursor: pointer; color: var(--ink); display: flex; flex-direction: column; gap: 2px; min-height: 64px; transition: border-color .15s, background .15s; }
 .cause-btn b { font-size: 14px; display: flex; align-items: center; gap: 7px; }
