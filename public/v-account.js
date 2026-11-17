@@ -92,6 +92,7 @@ A.logoutAsk = async () => {
 
 /* ================= PROFILE ================= */
 VIEWS.profile = {
+  form: true, // typing here is never wiped by a background refresh
   render() {
     const saas = K.info.mode === 'saas'; const u = K.info.user || {}; const name = myName();
     const sid = KC.staffIdOf(K.me.id); const day = typeof myOpenDay === 'function' ? myOpenDay() : null; const st = KC.dayState(day, new Date().toISOString(), S());
@@ -109,7 +110,11 @@ VIEWS.profile = {
         field('Current password', '<input class="inp" type="password" name="prOld" autocomplete="current-password">') +
         field('New password', '<input class="inp" type="password" name="prNew" autocomplete="new-password" placeholder="At least 6 characters">') +
         field('Type it again', '<input class="inp" type="password" name="prNew2" autocomplete="new-password">') +
-        '<button class="btn" data-a="profPw">Change password</button></div></section></div>';
+        '<button class="btn" data-a="profPw">Change password</button></div></section>' +
+        (can('approve') ? '<section class="card pad2"><h3 class="mb">Approval PIN</h3><p class="small muted" style="margin-top:0">' + (u.approvalPin ? 'Your PIN is set. ' : '') + 'You type it on a cashier\'s phone to approve a cancellation, refund, discount or credit over the limit. Keep it to yourself.</p><div class="col">' +
+          field(u.approvalPin ? 'New PIN (4 to 6 digits)' : 'PIN (4 to 6 digits)', '<input class="inp" type="password" name="prPin" inputmode="numeric" data-nofmt maxlength="6" autocomplete="off">') +
+          field('Your password', '<input class="inp" type="password" name="prPinPw" autocomplete="current-password">') +
+          '<button class="btn' + (u.approvalPin ? '' : ' pri') + '" data-a="profPin">' + ic('key', 'sm') + (u.approvalPin ? 'Change PIN' : 'Set PIN') + '</button></div></section>' : '') + '</div>';
     } else html += '<div class="card pad2 mb muted small">' + (K.info.mode === 'local' ? 'This copy of Aahsso works on this device only, so there is no sign-in or password.' : 'Your name and sign-in come from your claude.ai account.') + '</div>';
     html += '<h3 class="mb mt2">My work</h3><div class="prof-links">' +
       (has('attendance') ? '<a class="card pad prof-link" href="#staff">' + ic('clock') + '<div class="grow"><div class="b">Attendance</div><div class="small muted">' + ({ off: 'Not clocked in', in: 'Working since ' + hm(st.since), break: 'On break', done: 'Clocked out at ' + hm(st.lastOut) })[st.state] + '</div></div>' + ic('chev', 'sm') + '</a>' : '') +
@@ -118,6 +123,13 @@ VIEWS.profile = {
     if (saas) html += '<div class="row mt2"><button class="btn" data-a="logoutAsk">' + ic('logout') + 'Log out</button></div>';
     return html;
   },
+};
+A.profPin = async () => {
+  const v = formVals($('#view'));
+  if (!/^\d{4,6}$/.test(v.prPin || '')) return toast('The PIN is 4 to 6 digits', true);
+  if (!v.prPinPw) return toast('Type your password to confirm', true);
+  try { await K.store.req('POST', '/api/me/approval-pin', { pin: v.prPin, password: v.prPinPw }); K.info.user = Object.assign({}, K.info.user, { approvalPin: true }); toast('Approval PIN saved'); render(true); }
+  catch (e) { toast(e.message, true); }
 };
 A.profSave = async () => {
   const v = formVals($('#view')); const name = (v.prName || '').trim(); const email = (v.prEmail || '').trim();

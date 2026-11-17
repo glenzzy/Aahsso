@@ -33,7 +33,7 @@ const PORT = process.env.PORT || 8080;
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 16) { console.error('Set JWT_SECRET (16+ chars) in .env'); process.exit(1); }
 
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims'];
 // Which permissions allow writing each collection (any one of them). Permission model lives in compute.js.
 const WRITE_PERMS = {
   settings: ['settings'], products: ['stockEdit', 'purchases'], lots: ['purchases', 'containers'], shipments: ['containers'],
@@ -43,6 +43,8 @@ const WRITE_PERMS = {
   orders: ['sell', 'payments'], // online-shop orders: staff confirm / reject them
   promos: ['stockEdit'], // promotions: whoever sets prices
   staff: ['hr', 'payroll'], payroll: ['payroll'], tills: ['payments', 'handover'],
+  losses: ['lossReport', 'stockEdit'], // staff report losses; a manager approves them (checked below)
+  claims: ['suppliers', 'purchases', 'containers', 'stockEdit'], // returns to suppliers and claims: money owed back
   attendance: null, leaves: null, // everyone clocks in and asks for leave for themselves (checked below)
 };
 const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'], promos: ['stockEdit'], staff: ['hr'], attendance: ['hr'], leaves: ['hr'], payroll: ['payroll'] };
@@ -214,7 +216,8 @@ momo.mount(app, { auth, wrap, err, guard: (req, res, next) => (['owner', 'admin'
 app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enabled(), from: mailer.enabled() ? mailer.FROM() : '' }));
 app.get('/api/me', auth, wrap(async (req, res) => {
   const u = req.user; const sub = await billing.getSub(pool, u.tenant_id); const lim = await billing.limitsFor(pool, u.tenant_id);
-  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
+  const pin = (await q('SELECT approval_pin_hash IS NOT NULL AS has FROM users WHERE id=$1', [u.id])).rows[0];
+  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u), approvalPin: !!(pin && pin.has) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
     subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
     limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null });
 }));
@@ -280,7 +283,7 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
   const P = perms(u);
   if (col === 'sales' && !P.salesAll) {
     // Other people's sales are reduced to what stock calculations need: no customers, prices or payments.
-    docs = docs.map((d) => d.createdById === u.id ? d : { id: d.id, _hidden: true, status: d.status, date: d.date, createdById: d.createdById,
+    docs = docs.map((d) => d.createdById === u.id ? d : { id: d.id, _hidden: true, status: d.status, date: d.date, createdById: d.createdById, locationId: d.locationId, // the branch: stock per branch depends on it
       lines: (d.lines || []).map((l) => ({ productId: l.productId, qty: l.qty, unitPrice: 0, alloc: l.alloc, returns: (l.returns || []).map((x) => ({ qty: x.qty, restock: x.restock, alloc: x.alloc })) })), payments: [] });
   }
   if (!P.costs) {
@@ -309,6 +312,8 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
   if (col === 'leaves' && !P.hr) docs = docs.filter((d) => d.staffId === me || d.status === 'approved').map((d) => d.staffId === me ? d : { id: d.id, staffId: d.staffId, staffName: d.staffName, type: d.type === 'sick' ? 'other' : d.type, from: d.from, to: d.to, half: d.half, status: d.status });
   if (col === 'payroll' && !P.payroll) docs = docs.filter((d) => d.staffId === me && (d.type === 'advance' || d.status === 'paid'));
   if (col === 'tills' && !P.handover) docs = docs.filter((d) => d.fromId === u.id || d.toId === u.id);
+  if (col === 'losses' && !P.stockEdit && !P.reports) docs = docs.filter((d) => d.reportedById === u.id);
+  if (col === 'losses' && !P.costs) docs = docs.map((d) => Object.assign({}, d, { lines: (d.lines || []).map((l) => Object.assign({}, l, { unitCost: 0 })) }));
   res.json({ docs });
 }));
 
@@ -317,6 +322,54 @@ async function loadAllSales(c, tid) {
   const out = { sales: [], tills: [] }; r.rows.forEach((x) => out[x.collection].push(Object.assign({}, x.data, { id: x.id }))); return out;
 }
 /** Plan limits on saved records. Returns {status: 402, error, code} or null. */
+/** Stock counts. Counters' entries are merged (two people can count at once: the client sends countsPatch).
+ *  In a handover only the incoming person accepts and only the outgoing person agrees (or disputes); someone without
+ *  the stock-count permission may do nothing else. Approving, cancelling and charging a shortage need a manager. */
+function auditRules(u, P, body, old) {
+  const now = new Date().toISOString(); const counter = P.audit || P.stockEdit;
+  if (!counter) { // a signer only: keep everything as it was except their own signature
+    const h = Object.assign({}, old.handover); const nh = body.handover || {};
+    if (u.id === h.toId && nh.toAcceptedAt && !h.toAcceptedAt) h.toAcceptedAt = now;
+    if (u.id === h.fromId && (nh.fromAgreedAt || nh.fromDisputedAt) && !h.fromAgreedAt && !h.fromDisputedAt) { if (nh.fromDisputedAt) { h.fromDisputedAt = now; h.fromNote = String(nh.fromNote || '').slice(0, 500); } else h.fromAgreedAt = now; }
+    for (const k of Object.keys(body)) delete body[k]; Object.assign(body, old, { handover: h }); return null;
+  }
+  if (old && ['applied', 'cancelled'].includes(old.status)) return { status: 409, error: 'This stock count is closed' };
+  if (['applied', 'cancelled'].includes(body.status) && !P.stockEdit) return { status: 403, error: 'Only a manager can approve or cancel a stock count' };
+  if (body.charge && !P.stockEdit) return { status: 403, error: 'Only a manager can charge a shortage' };
+  if (old && old.status === 'draft' && body.status === 'draft' && body.countsPatch && typeof body.countsPatch === 'object') {
+    const counts = Object.assign({}, old.counts);
+    for (const [pid, n] of Object.entries(body.countsPatch)) { if (n === null) delete counts[pid]; else if (Number.isFinite(Number(n)) && Number(n) >= 0) counts[pid] = Math.floor(Number(n)); }
+    body.counts = counts; body.counters = [...new Set([].concat(old.counters || [], u.name || []))].slice(0, 20);
+  }
+  delete body.countsPatch;
+  if (old && old.handover) { // signatures belong to their owners
+    const h = Object.assign({}, body.handover || old.handover); const o = old.handover;
+    ['toAcceptedAt', 'fromAgreedAt', 'fromDisputedAt', 'fromNote'].forEach((k) => { h[k] = o[k]; });
+    const nh = body.handover || {};
+    if (u.id === o.toId && nh.toAcceptedAt && !o.toAcceptedAt && old.status === 'submitted') h.toAcceptedAt = now;
+    if (u.id === o.fromId && old.status === 'submitted' && !o.fromAgreedAt && !o.fromDisputedAt) { if (nh.fromDisputedAt) { h.fromDisputedAt = now; h.fromNote = String(nh.fromNote || '').slice(0, 500); } else if (nh.fromAgreedAt) h.fromAgreedAt = now; }
+    if (old.status !== 'draft') { h.fromId = o.fromId; h.fromName = o.fromName; h.toId = o.toId; h.toName = o.toName; }
+    body.handover = h;
+  } else if (body.handover) { delete body.handover.toAcceptedAt; delete body.handover.fromAgreedAt; delete body.handover.fromDisputedAt; }
+  if (body.status === 'applied' && (!old || old.status !== 'applied')) Object.assign(body, { appliedAt: now, appliedBy: u.name, appliedById: u.id });
+  return null;
+}
+/** Loss reports: anyone with lossReport may report one (always "pending"); only a manager (stockEdit) approves or
+ *  rejects it, or records one that applies at once. Nothing changes once a loss is decided. */
+function lossRules(u, P, body, old) {
+  const now = new Date().toISOString(); const st = String(body.status || 'pending');
+  if (!['pending', 'approved', 'rejected', 'withdrawn'].includes(st)) return { status: 400, error: 'Unknown status' };
+  if (old && old.status !== 'pending') return { status: 409, error: 'This loss was already ' + old.status + ' — it cannot be changed' };
+  if ((st === 'approved' || st === 'rejected') && !P.stockEdit) return { status: 403, error: 'Only a manager can approve or reject a loss' };
+  if (old && old.reportedById !== u.id && !P.stockEdit) return { status: 403, error: 'You can only change your own loss reports' };
+  if (st !== 'rejected' && st !== 'withdrawn') { const bad = KC.lossCheck(body); if (bad) return { status: 400, error: bad }; }
+  if (st === 'rejected' && String(body.decisionNote || '').trim().length < 3) return { status: 400, error: 'Say why the loss is rejected' };
+  if (!P.costs) { const was = new Map(((old && old.lines) || []).map((l) => [l.productId, l.unitCost])); (body.lines || []).forEach((l) => { l.unitCost = was.get(l.productId) || 0; }); } // costs come from a manager
+  Object.assign(body, old ? { reportedById: old.reportedById, reportedBy: old.reportedBy, reportedAt: old.reportedAt, no: old.no } : { reportedById: u.id, reportedBy: u.name, reportedAt: now });
+  if (!body.no || !TXN_RE.test(String(body.no))) body.no = KC.newTxnId('LS', body.date);
+  if (st === 'approved' || st === 'rejected') Object.assign(body, { decidedById: u.id, decidedBy: u.name, decidedAt: now }); else { delete body.decidedById; delete body.decidedBy; delete body.decidedAt; }
+  body.status = st; return null;
+}
 async function planGuard(c, u, col, body, old) {
   const F = u.features || {};
   const off = (keys) => !KC.anyOn(F, keys) && { status: 402, error: (billing.FEATURES[keys[0]] || 'This feature') + ' is not included in your plan. Upgrade in Billing & subscription to use it.', code: 'plan_feature', feature: keys[0] };
@@ -424,11 +477,13 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
   if (WRITE_PERMS[col] !== null && !anyU(u, WRITE_PERMS[col])) {
     // a branch may receive a transfer addressed to it without the full "move stock" permission
     if (col === 'transfers' && req.body && req.body.status === 'received') { const pr = (await q("SELECT data FROM documents WHERE tenant_id=$1 AND collection='transfers' AND id=$2", [u.tenant_id, id])).rows[0]; receiving = !!(pr && pr.data.status === 'in_transit' && pr.data.to === (u.location_id || 'main')); }
+    // the people in a stock handover sign it on their own phone, even without the stock-count permission (checked below)
+    if (col === 'audits') { const pr = (await q("SELECT data FROM documents WHERE tenant_id=$1 AND collection='audits' AND id=$2", [u.tenant_id, id])).rows[0]; const h = pr && pr.data.handover; receiving = !!(h && pr.data.status === 'submitted' && (h.toId === u.id || h.fromId === u.id)); }
     if (!receiving) return err(res, 403, 'You do not have permission to change ' + col);
   }
   if (!ID_RE.test(id)) return err(res, 400, 'Invalid id');
   const body = req.body; if (!body || typeof body !== 'object' || Array.isArray(body)) return err(res, 400, 'Body must be an object');
-  delete body.id;
+  delete body.id; if (col !== 'sales') delete body.approval;
 
   let result;
   try { result = await tx(async (c) => {
@@ -445,7 +500,17 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       if (!P.handover) { if (body.userId !== u.id) return { status: 403, error: 'You can only submit your own handover' }; if (body.status === 'confirmed' || (prev && prev.data.status === 'confirmed')) return { status: 403, error: 'Only a manager can confirm a handover' }; }
       body.expectedTotal = KC.collectedBy(await loadAllSales(c, u.tenant_id), body.userId, body.date).total; // never trust the client's own total
     }
-    if (col === 'audits' && body.status === 'applied' && !P.stockEdit) return { status: 403, error: 'Only a manager can approve a stock count' };
+    if (col === 'audits') { const why = auditRules(u, P, body, prev ? prev.data : null); if (why) return why; }
+    if (col === 'losses') { const why = lossRules(u, P, body, prev ? prev.data : null); if (why) return why; }
+    if (col === 'claims') {
+      const o = prev ? prev.data : null;
+      if (o && o.status === 'closed') return { status: 409, error: 'This return or claim is closed' };
+      if (!o && body.kind === 'return' && !P.stockEdit) return { status: 403, error: 'Only a manager can send stock back' };
+      if (!(Number(body.amount) > 0)) return { status: 400, error: 'Type the amount you are owed' };
+      Object.assign(body, o ? { by: o.by, byId: o.byId, kind: o.kind, lines: o.lines, no: o.no } : { by: u.name, byId: u.id });
+      const oldR = new Map(((o && o.received) || []).map((r) => [r.id, r])); body.received = (Array.isArray(body.received) ? body.received : []).map((r) => oldR.get(r.id) || Object.assign({}, r, { by: u.name, amount: Math.max(0, Math.round(Number(r.amount) || 0)) })); // received money is never changed once recorded
+      if (body.status === 'closed' && (!o || o.status !== 'closed')) Object.assign(body, { closedAt: new Date().toISOString(), closedBy: u.name });
+    }
     const planErr = await planGuard(c, u, col, body, prev ? prev.data : null); if (planErr) return planErr;
     if (['attendance', 'leaves', 'tills', 'staff'].includes(col)) { const why = await staffRules(c, u, P, col, id, body, prev ? prev.data : null); if (why) return why; }
     if (col === 'settings') {
@@ -515,9 +580,14 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
         body.createdById = old.createdById; body.createdBy = old.createdBy;
         if (!P.salesAll && old.createdById !== u.id) return { status: 403, error: 'You can only change your own sales' };
       }
-      if (old && old.status !== 'cancelled' && body.status === 'cancelled' && !P.cancel) return { status: 403, error: 'You cannot cancel sales' };
+      // risky actions: refused unless allowed — by permission, or by a manager's approval on the spot (see /api/approvals)
+      const RULES = Object.assign({}, KC.DEFAULT_SETTINGS.approvals, ((await tenantSettings(c, u.tenant_id)) || {}).approvals || {});
+      const needs = []; const need = (action, error) => { if (!needs.some((n) => n.action === action)) needs.push({ action, error }); };
+      if (old && old.status !== 'cancelled' && body.status === 'cancelled' && (!P.cancel || (RULES.cancel && !P.approve))) need('cancel', P.cancel ? 'Cancelling a sale needs a manager\'s approval' : 'You cannot cancel sales');
       const oldPays = new Set(((old && old.payments) || []).map((p) => p.id)), newPays = (body.payments || []);
-      if (old && (old.payments || []).some((p) => !newPays.find((n) => n.id === p.id)) && !P.cancel) return { status: 403, error: 'You cannot remove payments' };
+      if (old && (old.payments || []).some((p) => !newPays.find((n) => n.id === p.id)) && (!P.cancel || (RULES.cancel && !P.approve))) need('cancel', P.cancel ? 'Deleting a payment needs a manager\'s approval' : 'You cannot remove payments');
+      const refunded = newPays.filter((p) => !oldPays.has(p.id) && Number(p.amount) < 0).reduce((t, p) => t - Number(p.amount), 0);
+      if (refunded > 0 && Number(RULES.refundAbove) > 0 && refunded > Number(RULES.refundAbove) && !P.approve) need(body.status === 'cancelled' ? 'cancel' : 'returns', 'A refund of ' + grp(refunded) + ' F needs a manager\'s approval');
       if (newPays.some((p) => !oldPays.has(p.id) && Number(p.amount) > 0) && !P.payments) return { status: 403, error: 'You cannot record payments' };
       // who collected the money is decided by the server (cash handover depends on it)
       newPays.forEach((p) => { if (!oldPays.has(p.id)) { p.byId = u.id; p.by = u.name; } else { const o = old.payments.find((x) => x.id === p.id); p.byId = o.byId; p.by = o.by; } });
@@ -539,17 +609,22 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       // every sale has a transaction id; once set it never changes
       body.txnId = old ? KC.saleTxnId(old) : (TXN_RE.test(String(body.txnId || '')) ? String(body.txnId) : KC.newTxnId('TX', body.date));
       const oldRet = JSON.stringify(((old && old.lines) || []).map((l) => l.returns || [])), newRet = JSON.stringify((body.lines || []).map((l) => l.returns || []));
-      if (old && oldRet !== newRet && !P.returns) return { status: 403, error: 'You cannot process returns' };
+      if (old && oldRet !== newRet && !P.returns) need('returns', 'You cannot process returns');
       const linesChanged = !old || JSON.stringify((old.lines || []).map((l) => [l.productId, l.qty, l.unitPrice])) !== JSON.stringify((body.lines || []).map((l) => [l.productId, l.qty, l.unitPrice]));
       if (linesChanged && !P.sell) return { status: 403, error: 'You cannot change sale items' };
-      if (!P.discount) {
-        if (Number(body.discount || 0) > Number((old && old.discount) || 0)) return { status: 403, error: 'You cannot give discounts' };
+      const pct = Number(RULES.discountPct) > 0 && !P.approve ? Number(RULES.discountPct) : 0;
+      if (!P.discount || pct) {
         const C0 = KC.computeAll(raw);
         const cust = body.customerId ? ((await c.query("SELECT data FROM documents WHERE tenant_id=$1 AND collection='customers' AND id=$2", [u.tenant_id, body.customerId])).rows[0] || {}).data : null;
+        const more = Number(body.discount || 0) > Number((old && old.discount) || 0);
+        if (more && !P.discount) need('discount', 'You cannot give discounts');
+        if (more && pct) { const sub = (body.lines || []).reduce((t, l) => t + Number(l.unitPrice) * Number(l.qty), 0); if (sub > 0 && Number(body.discount) / sub * 100 > pct + 0.01) need('discount', 'A discount above ' + pct + '% needs a manager\'s approval'); }
         for (const l of body.lines || []) {
           const before = old && (old.lines || []).find((o) => o.productId === l.productId);
-          if (before && Number(before.unitPrice) === Number(l.unitPrice)) continue;
-          if (C0.prodX[l.productId] && Number(l.unitPrice) < KC.priceFloor(C0, l.productId, l.qty, cust) - 0.5) return { status: 403, error: 'Price for ' + (l.name || 'an item') + ' is below the minimum' };
+          if ((before && Number(before.unitPrice) === Number(l.unitPrice)) || !C0.prodX[l.productId]) continue;
+          if (!P.discount && Number(l.unitPrice) < KC.priceFloor(C0, l.productId, l.qty, cust) - 0.5) need('discount', 'Price for ' + (l.name || 'an item') + ' is below the minimum');
+          const full = Number(C0.prodX[l.productId].priceMax) || 0;
+          if (pct && full > 0 && (full - Number(l.unitPrice)) / full * 100 > pct + 0.01) need('discount', (l.name || 'An item') + ' is more than ' + pct + '% below its price — a manager must approve');
         }
       }
       const problems = KC.validateSale(raw, Object.assign({}, body, { id }));
@@ -559,16 +634,25 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
         const lim = KC.creditLimitOf(C1.S, cust && cust.data);
         const owed = KC.customerBalance(Object.assign({}, raw, { sales: raw.sales.filter((x) => x.id !== id).concat([Object.assign({}, body, { id })]) }), C1, body.customerId);
         const before = KC.customerBalance(raw, KC.computeAll(raw), body.customerId);
-        if (lim !== null && owed > lim + 0.5 && owed > before + 0.5) return { status: 403, error: 'Credit limit exceeded (' + grp(owed) + ' > ' + grp(lim) + ' F). A manager must approve.' };
+        if (lim !== null && owed > lim + 0.5 && owed > before + 0.5) need('credit', 'Credit limit exceeded (' + grp(owed) + ' > ' + grp(lim) + ' F)');
       }
       if (problems.length) return { status: 409, error: 'Not enough stock', details: problems };
+      // each risky action needs its own approval for this sale, from someone allowed to do it
+      const given = [].concat(body.approval || []).map(readApproval).filter((a) => a && a.tid === u.tenant_id && a.for === u.id && a.ref === id); delete body.approval;
+      body.approvals = ((old && old.approvals) || []).slice(0, 50);
+      for (const n of needs) {
+        const ok = given.find((a) => a.action === n.action);
+        if (!ok) return { status: 403, error: n.error + ' — a manager must approve.', code: 'approval_required', details: { action: n.action, ref: id, message: n.error } };
+        body.approvals.push({ action: n.action, byId: ok.by, by: ok.name, at: new Date().toISOString(), forId: u.id, for: u.name });
+      }
+      if (!body.approvals.length) delete body.approvals;
     }
     await c.query(`INSERT INTO documents(tenant_id,collection,id,data,updated_by,updated_at) VALUES ($1,$2,$3,$4,$5,now())
                    ON CONFLICT (tenant_id,collection,id) DO UPDATE SET data=EXCLUDED.data, updated_by=EXCLUDED.updated_by, updated_at=now()`, [u.tenant_id, col, id, JSON.stringify(body), u.id]);
     await c.query('INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,collection,doc_id,before,after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [u.tenant_id, u.id, u.name, body.locationId || body.to || u.location_id || 'main', prev ? 'update' : 'create', col, id, prev ? JSON.stringify(prev.data) : null, JSON.stringify(body)]);
     return { ok: true };
   }); } catch (e) { if (e.code === '23505' && col === 'settings') return err(res, 409, 'This shop address was just taken by another shop. Choose another.'); throw e; }
-  if (result.error) return err(res, result.status, result.error, result.details ? { details: result.details } : result.code ? { code: result.code, limit: result.limit } : undefined);
+  if (result.error) return err(res, result.status, result.error, result.code === 'approval_required' ? { code: result.code, details: result.details } : result.details ? { details: result.details } : result.code ? { code: result.code, limit: result.limit } : undefined);
   broadcast(u.tenant_id, col, id);
   res.json({ ok: true });
 }));
@@ -624,6 +708,58 @@ async function importBackup(tid, uid, b) {
 }
 
 /* ---------- team management ---------- */
+/* ---------- manager approval on the spot ----------
+ * A cashier who may not cancel, refund, discount below the minimum or go over a credit limit (or who passes the limits
+ * set in Settings → Approvals) asks a manager. The manager picks their name and types their PIN on the cashier's phone;
+ * the server gives a short-lived approval for that one action on that one sale, and the sale records who approved. */
+const APPROVAL_ACTIONS = { cancel: 'cancel', returns: 'returns', discount: 'discount', credit: 'credit' }; // action → the permission the approver needs
+const b64u = (b) => Buffer.from(b).toString('base64url');
+function approvalToken(p) { const body = b64u(JSON.stringify(p)); return body + '.' + crypto.createHmac('sha256', SECRET).update('approval:' + body).digest('base64url'); }
+function readApproval(tok) {
+  const [body, sig] = String(tok || '').split('.'); if (!body || !sig) return null;
+  const want = crypto.createHmac('sha256', SECRET).update('approval:' + body).digest('base64url');
+  if (want.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(sig))) return null;
+  try { const p = JSON.parse(Buffer.from(body, 'base64url').toString()); return p.exp > Date.now() ? p : null; } catch (e) { return null; }
+}
+/** the permissions of another person of the same business (the approver) */
+async function permsOf(id, me) {
+  const r = (await q('SELECT id, name, role, perms, active, tenant_id, approval_pin_hash, approval_pin_fails, approval_pin_locked_until FROM users WHERE id::text=$1 AND tenant_id=$2', [String(id), me.tenant_id])).rows[0];
+  if (!r || !r.active) return null;
+  return { row: r, P: perms(Object.assign({}, r, { features: me.features, customRoles: me.customRoles })) };
+}
+app.get('/api/approvers', auth, wrap(async (req, res) => {
+  const rows = (await q('SELECT id, name, role, perms, active, approval_pin_hash IS NOT NULL AS pin FROM users WHERE tenant_id=$1 AND active ORDER BY name', [req.user.tenant_id])).rows;
+  const action = APPROVAL_ACTIONS[req.query.action] ? req.query.action : null;
+  res.json({ approvers: rows.filter((r) => { const P = perms(Object.assign({}, r, { features: req.user.features, customRoles: req.user.customRoles })); return P.approve && (!action || P[APPROVAL_ACTIONS[action]]); }).map((r) => ({ id: r.id, name: r.name, pin: r.pin })) });
+}));
+app.post('/api/me/approval-pin', auth, authLimiter, wrap(async (req, res) => {
+  const { password, pin } = req.body || {};
+  if (!perms(req.user).approve) return err(res, 403, 'Only managers who approve for others need a PIN');
+  if (!/^\d{4,6}$/.test(String(pin || ''))) return err(res, 400, 'The PIN is 4 to 6 digits');
+  if (/^(\d)\1+$/.test(String(pin)) || '0123456789'.includes(String(pin)) || '9876543210'.includes(String(pin))) return err(res, 400, 'Choose a PIN that is harder to guess');
+  const row = (await q('SELECT password_hash FROM users WHERE id=$1', [req.user.id])).rows[0];
+  if (!(await bcrypt.compare(String(password || ''), row.password_hash))) return err(res, 400, 'Your password is wrong', { code: 'bad_password' });
+  await q('UPDATE users SET approval_pin_hash=$1, approval_pin_fails=0, approval_pin_locked_until=NULL WHERE id=$2', [await bcrypt.hash(String(pin), 10), req.user.id]);
+  res.json({ ok: true });
+}));
+app.post('/api/approvals', auth, requireActive, authLimiter, wrap(async (req, res) => {
+  const { approverId, pin, action, ref, why } = req.body || {}; const u = req.user;
+  if (!APPROVAL_ACTIONS[action]) return err(res, 400, 'Unknown action');
+  if (!ID_RE.test(String(ref || ''))) return err(res, 400, 'Missing record');
+  const a = await permsOf(approverId, u); if (!a) return err(res, 404, 'Choose who approves');
+  if (!a.P.approve || !a.P[APPROVAL_ACTIONS[action]]) return err(res, 403, a.row.name + ' cannot approve this');
+  if (!a.row.approval_pin_hash) return err(res, 400, a.row.name + ' has no approval PIN yet — set it in My profile');
+  if (a.row.approval_pin_locked_until && new Date(a.row.approval_pin_locked_until) > new Date()) return err(res, 429, 'Too many wrong PINs for ' + a.row.name + '. Try again after ' + new Date(a.row.approval_pin_locked_until).toTimeString().slice(0, 5) + '.');
+  if (!(await bcrypt.compare(String(pin || ''), a.row.approval_pin_hash))) {
+    const f = (a.row.approval_pin_fails || 0) + 1;
+    await q("UPDATE users SET approval_pin_fails=$1, approval_pin_locked_until=CASE WHEN $3 THEN now() + interval '15 minutes' END WHERE id=$2", [f >= 5 ? 0 : f, a.row.id, f >= 5]);
+    await q("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,$4,'approval_failed',$5)", [u.tenant_id, u.id, u.name, u.location_id || 'main', JSON.stringify({ approver: a.row.name, action, ref })]);
+    return err(res, 400, f >= 5 ? 'Wrong PIN — locked for 15 minutes' : 'Wrong PIN (' + (5 - f) + ' tr' + (5 - f === 1 ? 'y' : 'ies') + ' left)');
+  }
+  await q('UPDATE users SET approval_pin_fails=0, approval_pin_locked_until=NULL WHERE id=$1', [a.row.id]);
+  await q("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,$4,'approval',$5)", [u.tenant_id, a.row.id, a.row.name, u.location_id || 'main', JSON.stringify({ for: u.name, action, ref, why: String(why || '').slice(0, 200) })]);
+  res.json({ approval: approvalToken({ tid: u.tenant_id, for: u.id, by: a.row.id, name: a.row.name, action, ref: String(ref), exp: Date.now() + 5 * 60e3 }), by: a.row.name });
+}));
 app.get('/api/team-names', auth, wrap(async (req, res) => {
   res.json({ people: (await q('SELECT id, name, role, location_id AS "locationId", active FROM users WHERE tenant_id=$1 ORDER BY name', [req.user.tenant_id])).rows });
 }));
@@ -748,8 +884,10 @@ async function dailyEmails(url) {
 }
 
 /* ---------- product photos ---------- */
-app.post('/api/images', auth, requireActive, requireFeature('photos'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '4mb' }), wrap(async (req, res) => {
-  if (!anyU(req.user, ['stockEdit', 'purchases'])) return err(res, 403, 'You do not have permission to add photos');
+// product photos need the Photos feature; a photo proving a loss (?for=evidence) is always allowed to whoever reports losses
+const photosOrEvidence = (req, res, next) => (req.query.for === 'evidence' ? next() : requireFeature('photos')(req, res, next));
+app.post('/api/images', auth, requireActive, photosOrEvidence, express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '4mb' }), wrap(async (req, res) => {
+  if (!anyU(req.user, req.query.for === 'evidence' ? ['lossReport', 'stockEdit'] : ['stockEdit', 'purchases'])) return err(res, 403, 'You do not have permission to add photos');
   if (!Buffer.isBuffer(req.body) || !req.body.length) return err(res, 400, 'Send a JPEG, PNG or WebP image');
   const r = await q('INSERT INTO images(tenant_id,content_type,data) VALUES ($1,$2,$3) RETURNING id', [req.user.tenant_id, req.headers['content-type'], req.body]);
   res.json({ id: r.rows[0].id });

@@ -2,7 +2,7 @@
 const { num } = KC;
 const K = {
   store: null, info: { role: 'admin' }, me: { id: 'local', name: '' }, member: { role: 'owner' }, perms: {}, route: 'home', pending: false, sheets: [],
-  raw: { audits: [], settings: {}, products: [], lots: [], shipments: [], customers: [], sales: [], adjustments: [], expenses: [], members: [], requests: [], locations: [], transfers: [], handovers: [], suppliers: [], bills: [], reminders: [], assets: [], staff: [], attendance: [], leaves: [], payroll: [], tills: [] },
+  raw: { audits: [], settings: {}, products: [], lots: [], shipments: [], customers: [], sales: [], adjustments: [], expenses: [], members: [], requests: [], locations: [], transfers: [], handovers: [], suppliers: [], bills: [], reminders: [], assets: [], staff: [], attendance: [], leaves: [], payroll: [], tills: [], losses: [], claims: [] },
   outbox: [], failed: [], loc: 'main',
   loaded: {}, C: null, sync: 'loading',
   ui: { stockFilter: 'all', stockCat: '', stockQ: '', salesRange: 'today', salesStatus: 'all', salesQ: '', posQ: '', posCat: '', buyQ: '', custQ: '', repTab: 'daily', repDate: '', repMonth: '', expanded: {} },
@@ -217,14 +217,53 @@ async function save(col, obj) {
   if (col !== 'settings') { const arr = K.raw[col]; const i = arr.findIndex((x) => x.id === obj.id); if (i >= 0) arr[i] = obj; else arr.push(obj); recompute(); }
   const copy = JSON.parse(JSON.stringify(obj));
   if (K.outbox.length || navigator.onLine === false) { enqueue(col, obj.id, copy); flushOutbox(); cacheSoon(); logIt(true); return true; }
-  try { await withTimeout(K.store.put(col, obj.id, copy), 12000); cacheSoon(); logIt(); return true; }
+  try { await putWithApprovals(col, obj, copy); cacheSoon(); logIt(); return true; }
   catch (e) {
+    if (e && e.code === 'not_approved') { if (K.store._refresh) K.store._refresh(col); toast('Not saved — no manager approved it', true); return false; }
     if (isNetErr(e)) { enqueue(col, obj.id, copy); toast('Saved on this phone — will sync when the network is back'); cacheSoon(); logIt(true); return true; }
     console.error(e);
     if (K.store._refresh) K.store._refresh(col);
     toast(e && e.code === 'quota_exceeded' ? 'Storage is full — export a backup and archive old records.' : 'Could not save: ' + (e.message || e.code || 'error') + (e.details ? ' — ' + e.details.join('; ') : ''), true);
     return false;
   }
+}
+/* ---------- manager approval on the spot ----------
+ * When the server answers "approval_required" (cancel, refund, discount, credit over the limit…), a manager picks their
+ * name and types their PIN on this phone; the save is then sent again with that approval. One approval per action. */
+async function putWithApprovals(col, obj, copy) {
+  const toks = [];
+  for (let i = 0; ; i++) {
+    try { return await withTimeout(K.store.put(col, obj.id, toks.length ? Object.assign({}, copy, { approval: toks }) : copy), 12000); }
+    catch (e) {
+      if (!(e && e.code === 'approval_required' && e.details) || i >= 4) throw e;
+      const t = await askApproval(e.details); if (!t) throw Object.assign(new Error('Not approved'), { code: 'not_approved' });
+      toks.push(t);
+    }
+  }
+}
+const canOrAsk = (p) => can(p) || (K.info.mode === 'saas' && (can('sell') || can('payments'))); // allowed, or may ask a manager
+const APPROVE_WHAT = { cancel: 'Cancel a sale or delete a payment', returns: 'Return items / refund', discount: 'Discount or price below the minimum', credit: 'Sell over the credit limit' };
+async function askApproval(d) {
+  let list = []; try { list = (await K.store.req('GET', '/api/approvers?action=' + encodeURIComponent(d.action))).approvers || []; } catch (e) { }
+  const ready = list.filter((a) => a.pin);
+  return new Promise((res) => {
+    const sh = openSheet({ title: 'Manager approval', body: '<div class="appr-what"><span class="appr-ic">' + ic('key') + '</span><div><b>' + esc(APPROVE_WHAT[d.action] || 'Approval') + '</b><div class="small">' + esc(d.message || '') + '</div></div></div>' +
+      (ready.length ? '<p class="small muted">Ask a manager to choose their name and type their PIN on this phone.</p>' +
+        field('Manager', sel('apBy', ready.map((a) => [a.id, a.name]), ready[0].id)) + field('PIN', '<input class="inp appr-pin" name="apPin" type="password" inputmode="numeric" data-nofmt autocomplete="off" maxlength="6" placeholder="••••">') +
+        '<div class="appr-err tiny" role="alert"></div>'
+        : '<div class="alert bad">Nobody can approve this yet. ' + (list.length ? esc(list.map((a) => a.name).join(', ')) + ' must first set an approval PIN in <b>My profile</b>.' : 'An owner must give someone the "Approve risky actions" permission and that person sets a PIN in <b>My profile</b>.') + '</div>'),
+      foot: '<button class="btn grow" data-a="sheetClose">Cancel</button>' + (ready.length ? '<button class="btn pri grow" id="apOk">' + ic('check', 'sm') + 'Approve</button>' : ''), onClose: () => res(null) });
+    sh.classList.add('appr-sheet');
+    const pin = $('[name=apPin]', sh); if (pin) { setTimeout(() => pin.focus(), 60); pin.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#apOk', sh).click(); }); }
+    if ($('#apOk', sh)) $('#apOk', sh).onclick = async () => {
+      const v = formVals(sh); const errEl = $('.appr-err', sh); errEl.textContent = '';
+      if (!/^\d{4,6}$/.test(v.apPin || '')) { errEl.textContent = 'Type the 4 to 6 digit PIN'; pin.focus(); return; }
+      try {
+        const r = await K.store.req('POST', '/api/approvals', { approverId: v.apBy, pin: v.apPin, action: d.action, ref: d.ref });
+        sh._onClose = null; closeSheet(); toast('Approved by ' + r.by); res(r.approval);
+      } catch (e) { errEl.textContent = e.message || 'Could not approve'; pin.value = ''; pin.focus(); }
+    };
+  });
 }
 async function remove(col, id) {
   const prev = (K.raw[col] || []).find((x) => x.id === id); if (prev) logActivity(col, JSON.parse(JSON.stringify(prev)), null);
@@ -295,8 +334,10 @@ const NAV = [
   ['customers', 'Customers', 'users', () => can('customers') || can('sell')], ['reports', 'Reports', 'chart', () => can('reports')], ['expenses', 'Expenses', 'wallet', () => can('expenses')],
   ['cash', 'Cash handover', 'wallet', () => can('payments') || can('handover'), () => (K.raw.tills || []).filter((t) => t.toId === K.me.id && t.status === 'pending').length], ['suppliers', 'Suppliers & bills', 'buy', () => can('suppliers')], ['reminders', 'Debt reminders', 'wa', () => can('reminders')],
   ['assets', 'Assets', 'truck', () => can('assets')],
+  ['claims', 'Returns & claims', 'undo', () => can('suppliers') || can('purchases') || can('containers') || can('stockEdit'), () => (K.raw.claims || []).filter((c) => c.status !== 'closed').length],
   ['transfers', 'Branch transfers', 'ship', () => can('transfers') || (allLocs().length > 1 && K.raw.transfers.some((t) => t.status === 'in_transit' && t.to === K.loc))],
   ['audit', 'Stock count', 'check', () => can('audit') || can('stockEdit')],
+  ['losses', 'Losses', 'alert', () => can('lossReport') || can('stockEdit') || can('reports'), () => can('stockEdit') ? (K.raw.losses || []).filter((l) => l.status === 'pending').length : 0],
   ['promos', 'Promotions', 'tag', () => can('stockView') || can('stockEdit')],
   ['activity', 'Activity log', 'clock', () => true],
   ['staff', 'Attendance', 'clock', () => true],
@@ -314,13 +355,13 @@ const SECTIONS = [
   ['ship', 'Ship', 'ship', ['ship']],
   ['receive', 'Receive', 'check', ['receive']],
   ['sell', 'Sell', 'sell', ['sales', 'orders']],
-  ['stock', 'Stock', 'stock', ['stock', 'promos', 'audit', 'transfers']],
+  ['stock', 'Stock', 'stock', ['stock', 'promos', 'audit', 'losses', 'transfers']],
   ['customers', 'Customers', 'users', ['customers', 'reminders']],
-  ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'reports', 'assets']],
+  ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'claims', 'reports', 'assets']],
   ['people', 'Staff', 'clock', ['staff', 'leave', 'payroll', 'employees']],
   ['settings', 'Settings', 'gear', ['settings', 'team', 'activity']],
 ];
-const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
+const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', losses: 'Losses', claims: 'Returns & claims', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
 /** Routes of a section this person can open (transfers only when there is more than one branch). */
 const secRoutes = (sec) => sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
 const secOf = (r) => SECTIONS.find((x) => x[3].includes(r)) || SECTIONS[0];

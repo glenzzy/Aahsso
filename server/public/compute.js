@@ -38,6 +38,7 @@
   };
 
   const DEFAULT_SETTINGS = {
+    approvals: { discountPct: null, refundAbove: null, cancel: false }, // when even staff allowed to do it need a manager's PIN (Settings → Approvals)
     businessName: 'My Business', tagline: '', phone: '', whatsapp: '', address: 'Douala, Cameroon', logo: '',
     fxRate: 600, currency: 'XAF', currencySymbol: 'FCFA', fxRates: { USD: 600, EUR: 655.957 }, defaultMarkup: 100, minMarkup: 50, roundTo: 50, lowStock: 3, expiryWarnDays: 60,
     staffSeeCosts: false, wholesaleMarkup: 60, bulkQty: 0, creditDays: 14,
@@ -188,6 +189,52 @@
     ['CM', 'Demurrage'], ['CM', 'Transport to warehouse'], ['CM', 'Offloading labor'], ['CM', 'Storage & preparation'], ['CM', 'Other receiving cost'],
   ];
   const ADJ_REASONS = ['Missing / theft', 'Unaccounted for', 'Damaged', 'Expired', 'Missing in transfer', 'Stock count difference', 'Count correction', 'Found / extra', 'Own use / gift'];
+  /* ---------------- losses: why stock disappeared ----------------
+   * k: stored cause · photo: a photo is required as proof · pick: offered when someone records a loss
+   * (the others are set by the app: stock counts, transfers, arrival). */
+  const LOSS_CAUSES = [
+    { k: 'theft', label: 'Theft / missing', photo: true, pick: true, hint: 'Stolen, or gone without explanation' },
+    { k: 'damaged', label: 'Damaged in store', photo: true, pick: true, hint: 'Broken, torn, crushed on the shelf' },
+    { k: 'pests', label: 'Rats & pests', photo: true, pick: true, hint: 'Rats, cockroaches, termites, weevils' },
+    { k: 'water', label: 'Water, flood or fire', photo: true, pick: true, hint: 'Leaking roof, flood, fire, heat' },
+    { k: 'handling', label: 'Broken in handling', photo: true, pick: true, hint: 'Dropped while moving or delivering' },
+    { k: 'expired', label: 'Expired / spoiled', photo: false, pick: true, hint: 'Past its date, gone bad' },
+    { k: 'ownuse', label: 'Own use, gift or sample', photo: false, pick: true, hint: 'Taken for the shop, given away' },
+    { k: 'other', label: 'Other', photo: false, pick: true, hint: 'Explain in the note' },
+    { k: 'count', label: 'Missing at stock count', photo: false, pick: false },
+    { k: 'transfer', label: 'Missing in a transfer', photo: false, pick: false },
+    { k: 'arrival', label: 'Missing or damaged on arrival', photo: false, pick: false },
+    { k: 'returned', label: 'Returned, never paid back', photo: false, pick: false },
+  ];
+  const lossCause = (k) => LOSS_CAUSES.find((c) => c.k === k) || LOSS_CAUSES.find((c) => c.k === 'other');
+  /** the cause of a stock correction (older corrections only have a reason text) */
+  function lossCauseOf(a) {
+    if (a.cause && LOSS_CAUSES.some((c) => c.k === a.cause)) return a.cause;
+    const r = String(a.reason || '').toLowerCase();
+    if (/theft|stolen|missing \/|unaccounted/.test(r)) return /unaccounted/.test(r) ? 'count' : 'theft';
+    if (/rat|pest|termite|cockroach/.test(r)) return 'pests';
+    if (/water|flood|fire/.test(r)) return 'water';
+    if (/expired|spoil/.test(r)) return 'expired';
+    if (/own use|gift|sample/.test(r)) return 'ownuse';
+    if (/transfer/.test(r)) return 'transfer';
+    if (/count/.test(r)) return 'count';
+    if (/handling|transport|dropped/.test(r)) return 'handling';
+    if (/damag|broken/.test(r)) return 'damaged';
+    return 'other';
+  }
+  /** a loss report someone wants to save → error text, or '' when it is fine */
+  function lossCheck(L) {
+    const c = LOSS_CAUSES.find((x) => x.k === L.cause && x.pick);
+    if (!c) return 'Choose why the stock was lost';
+    const lines = Array.isArray(L.lines) ? L.lines : [];
+    if (!lines.length) return 'Add at least one item';
+    for (const l of lines) { if (!l || !l.productId) return 'An item is missing'; const q = num(l.qty); if (!(q > 0) || Math.floor(q) !== q) return 'Quantities must be whole numbers above 0'; }
+    if (new Set(lines.map((l) => l.productId)).size !== lines.length) return 'Each item only once';
+    if (c.photo && !(Array.isArray(L.photos) && L.photos.length)) return 'Add a photo — it is required for ' + c.label.toLowerCase();
+    if (c.k === 'other' && String(L.notes || '').trim().length < 3) return 'Explain what happened in the note';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(L.date || ''))) return 'Choose the date';
+    return '';
+  }
   const RETURN_REASONS = ['Damaged / defective', 'Expired', 'Wrong item given', 'Customer changed mind', 'Not as described', 'Other'];
   const TRANSFER_REASONS = ['Restock a branch', 'Customer order at another branch', 'Return to main warehouse', 'Rebalance slow stock', 'Other'];
   const CURRENCIES = [['XAF', 'FCFA', 'Central African CFA franc (Cameroon, Gabon, Congo, Chad, CAR, Eq. Guinea)'], ['XOF', 'CFA', 'West African CFA franc (Senegal, Côte d\'Ivoire, Mali, Burkina, Benin, Togo, Niger)'], ['NGN', '₦', 'Nigerian naira'], ['GHS', 'GH₵', 'Ghanaian cedi'], ['RWF', 'RF', 'Rwandan franc'], ['GNF', 'FG', 'Guinean franc'], ['KES', 'KSh', 'Kenyan shilling'], ['UGX', 'USh', 'Ugandan shilling'], ['TZS', 'TSh', 'Tanzanian shilling'], ['ZAR', 'R', 'South African rand'], ['CDF', 'FC', 'Congolese franc'], ['USD', '$', 'US dollar'], ['EUR', '€', 'Euro'], ['GBP', '£', 'British pound'], ['CAD', 'C$', 'Canadian dollar'], ['CNY', '¥', 'Chinese yuan'], ['AED', 'AED', 'UAE dirham']];
@@ -550,16 +597,16 @@
     ['orders', 'Handle online orders', 'Sales'], ['promos', 'Create promotions', 'Sales'],
     ['customers', 'Add & edit customers', 'Sales'], ['credit', 'Sell beyond a customer\'s credit limit', 'Sales'], ['reminders', 'Send payment reminders to customers', 'Sales'],
     ['stockView', 'See stock list', 'Stock'], ['stockEdit', 'Adjust stock, set prices, photos & labels', 'Stock'],
-    ['purchases', 'Record purchases', 'Stock'], ['containers', 'Containers & shipping costs', 'Stock'], ['transfers', 'Move stock between branches', 'Stock'], ['audit', 'Do stock counts (inventory audit)', 'Stock'], ['allLocations', 'Work at all locations (off = only their own)', 'Stock'],
+    ['purchases', 'Record purchases', 'Stock'], ['containers', 'Containers & shipping costs', 'Stock'], ['transfers', 'Move stock between branches', 'Stock'], ['audit', 'Do stock counts (inventory audit)', 'Stock'], ['lossReport', 'Report losses (theft, damage, pests…)', 'Stock'], ['allLocations', 'Work at all locations (off = only their own)', 'Stock'],
     ['costs', 'See costs, margins & profit', 'Money'], ['reports', 'See reports & analytics', 'Money'], ['expenses', 'Record expenses', 'Money'], ['handover', 'Confirm staff cash handovers', 'Money'], ['payroll', 'Payroll: salaries, advances & payslips', 'Money'], ['suppliers', 'Suppliers & bills to pay', 'Money'], ['assets', 'Business assets (equipment, vehicles…)', 'Money'],
-    ['export', 'Download Excel & backups', 'Admin'], ['activity', 'See the activity log (who did what)', 'Admin'], ['settings', 'Change business settings', 'Admin'], ['team', 'Manage team & permissions', 'Admin'], ['hr', 'Staff: attendance, leave approval & employee files', 'Admin'],
+    ['approve', 'Approve risky actions for others on the spot (with a PIN)', 'Admin'], ['export', 'Download Excel & backups', 'Admin'], ['activity', 'See the activity log (who did what)', 'Admin'], ['settings', 'Change business settings', 'Admin'], ['team', 'Manage team & permissions', 'Admin'], ['hr', 'Staff: attendance, leave approval & employee files', 'Admin'],
   ];
   const ALL = PERMS.map((p) => p[0]);
   const ROLES = {
     owner: { label: 'Owner', perms: ALL },
     admin: { label: 'Admin', perms: ALL },
     manager: { label: 'Manager', perms: ALL.filter((p) => !['team', 'settings', 'payroll'].includes(p)) },
-    sales: { label: 'Sales rep', perms: ['sell', 'payments', 'returns', 'customers', 'stockView', 'orders'] },
+    sales: { label: 'Sales rep', perms: ['sell', 'payments', 'returns', 'customers', 'stockView', 'orders', 'lossReport'] },
     viewer: { label: 'Viewer (read only)', perms: ['stockView', 'reports', 'salesAll', 'allLocations'] },
   };
   /** member: {role, perms:{perm: true|false overrides}, active} → {perm: bool} */
@@ -580,9 +627,26 @@
       if (out.sell || out.payments) out.orders = true;
       if (out.stockEdit) out.promos = true;
     }
+    if (r.custom !== undefined && (r.v || 0) < 3 && (out.sell || out.stockView || out.stockEdit)) out.lossReport = true; // saved before loss reports existed
+    if (r.custom !== undefined && (r.v || 0) < 3 && out.cancel && out.discount && out.returns) out.approve = true; // …and before manager approvals
     if (member.role !== 'owner' && member.perms) Object.keys(member.perms).forEach((p) => { if (p in out) out[p] = !!member.perms[p]; });
     return out;
   }
+
+  /* ---------------- packs: buy and sell by the carton, keep stock in pieces ----------------
+   * product.packs = [{ name: 'carton', size: 24, price: 30000 | null }]. Stock, sales and counts stay in pieces;
+   * a sale line sold by the carton keeps qty in pieces and carries pack: { name, size, price }. */
+  const PACK_NAMES = ['pack', 'box', 'case', 'carton', 'crate', 'bag', 'sack', 'bundle', 'dozen', 'set', 'tray', 'roll'];
+  const packsOf = (p) => ((p && p.packs) || []).filter((k) => k && num(k.size) > 1).map((k) => ({ name: String(k.name || 'pack'), size: Math.floor(num(k.size)), price: num(k.price) > 0 ? num(k.price) : null })).sort((a, b) => b.size - a.size);
+  const plural = (w, n) => n === 1 ? w : /(s|x|ch|sh)$/.test(w) ? w + 'es' : w + 's';
+  /** "5 cartons + 3 pieces" (largest pack), or '' when the item has no pack */
+  function packText(p, n) {
+    const pk = packsOf(p)[0]; n = Math.floor(num(n)); if (!pk || n < pk.size) return '';
+    const full = Math.floor(n / pk.size), rest = n - full * pk.size; const u = (p && p.unit && p.unit !== 'unit') ? p.unit : 'piece';
+    return full + ' ' + plural(pk.name, full) + (rest ? ' + ' + rest + ' ' + plural(u, rest) : '');
+  }
+  /** a sale line, in words: "2 × carton of 24 @ 30,000" or "3 × 1,250" */
+  const lineQtyText = (l, fmtN) => l.pack && num(l.pack.size) > 1 ? (num(l.qty) / num(l.pack.size)) + ' × ' + l.pack.name + ' of ' + l.pack.size + ' @ ' + fmtN(num(l.unitPrice) * num(l.pack.size)) : l.qty + ' × ' + fmtN(l.unitPrice);
 
   /* ---------------- units of measure ---------------- */
   const SELL_UNITS = ['piece', 'pack', 'box', 'case', 'carton', 'bottle', 'can', 'jar', 'bag', 'sachet', 'pair', 'set', 'dozen', 'kg', 'lb', 'litre', 'gallon', 'metre', 'unit'];
@@ -843,6 +907,8 @@
       const sh = (raw.handovers || []).filter((h) => h.userId === staff.userId && h.status === 'confirmed' && String(h.date).slice(0, 7) === month && num(h.diff) <= -1);
       const tot = sh.reduce((a, h) => a - num(h.diff), 0);
       if (tot) D.push({ label: 'Cash shortages (' + sh.length + ' day' + (sh.length === 1 ? '' : 's') + ')', amount: r0(tot), auto: true });
+      (raw.audits || []).filter((a) => a.status === 'applied' && a.charge && a.charge.deduct && a.charge.userId === staff.userId && a.charge.month === month && num(a.charge.amount) > 0)
+        .forEach((a) => D.push({ label: 'Stock shortage (count ' + String(a.appliedAt || a.submittedAt || '').slice(0, 10) + ')', amount: r0(num(a.charge.amount)), auto: true, ref: a.id }));
     }
     ((opts.extra && opts.extra.earnings) || []).forEach((x) => num(x.amount) && E.push({ label: x.label || 'Bonus', amount: r0(num(x.amount)) }));
     ((opts.extra && opts.extra.deductions) || []).forEach((x) => num(x.amount) && D.push({ label: x.label || 'Deduction', amount: r0(num(x.amount)) }));
@@ -872,11 +938,15 @@
 
 
   /* ---------------- activity log: plain-language description of any change ---------------- */
-  const ACT_TYPES = { sales: 'Sales', payments: 'Payments', lots: 'Purchases', products: 'Items & prices', shipments: 'Containers', adjustments: 'Stock & losses', transfers: 'Transfers', audits: 'Stock counts', customers: 'Customers', handovers: 'Cash handover', bills: 'Suppliers & bills', suppliers: 'Suppliers & bills', expenses: 'Expenses', settings: 'Settings & team', members: 'Settings & team', locations: 'Settings & team', reminders: 'Reminders', assets: 'Assets', staff: 'Staff', attendance: 'Attendance', leaves: 'Leave', payroll: 'Payroll', tills: 'Cash handover' };
+  const ACT_TYPES = { sales: 'Sales', payments: 'Payments', lots: 'Purchases', products: 'Items & prices', shipments: 'Containers', adjustments: 'Stock & losses', losses: 'Stock & losses', claims: 'Returns & claims', transfers: 'Transfers', audits: 'Stock counts', customers: 'Customers', handovers: 'Cash handover', bills: 'Suppliers & bills', suppliers: 'Suppliers & bills', expenses: 'Expenses', settings: 'Settings & team', members: 'Settings & team', locations: 'Settings & team', reminders: 'Reminders', assets: 'Assets', staff: 'Staff', attendance: 'Attendance', leaves: 'Leave', payroll: 'Payroll', tills: 'Cash handover' };
   /** L = lookups {product(id), customer(id), loc(id), ship(id), F(amount), money(v,cur)} → [{type, text, reason, amount, ref}] (one change can produce several lines) */
   function describeChange(col, b, a, L) {
     const out = []; const type = ACT_TYPES[col] || col; const push = (text, extra) => out.push(Object.assign({ type, text }, extra || {}));
     const n = (x) => num(x); const F = L.F || ((v) => String(Math.round(v)));
+    if (col === 'sales' && a && ((a.approvals || []).length > ((b && b.approvals) || []).length)) {
+      const WHAT = { cancel: 'a cancellation', returns: 'a return / refund', discount: 'a discount or low price', credit: 'credit over the limit' };
+      (a.approvals || []).slice(((b && b.approvals) || []).length).forEach((x) => push(x.by + ' approved ' + (WHAT[x.action] || x.action) + ' for ' + (x.for || 'staff') + ' on sale ' + (a.no || ''), { ref: a.no }));
+    }
     if (col === 'sales') {
       const doc = a || b; const ref = doc.no || ''; const cust = doc.customerName || 'Walk-in customer';
       const items = (d) => (d.lines || []).map((l) => n(l.qty) + ' × ' + (l.name || L.product(l.productId))).join(', ');
@@ -899,6 +969,19 @@
       return out;
     }
     if (col === 'adjustments') { const d = a || b; const q = n(d.qty); push((b && !a ? 'Deleted stock correction: ' : q < 0 ? 'Removed ' : 'Added ') + Math.abs(q) + ' × ' + L.product(d.productId) + ' at ' + L.loc(d.locationId), { reason: [d.reason, d.notes].filter(Boolean).join(' · ') }); return out; }
+    if (col === 'claims') {
+      const d = a || b; const who = (d.party && d.party.name) || ''; const m = (v) => (L.F ? L.F(v) : v);
+      if (!b) push((d.kind === 'return' ? 'Sent back to ' : 'Claim against ') + who + ': ' + (d.lines || []).map((l) => n(l.qty) + ' × ' + L.product(l.productId)).join(', ') + ' — ' + m(n(d.amount)) + ' owed', { ref: d.no, reason: d.reason || '' });
+      else if (a) { const got = (x) => (x.received || []).reduce((s, r) => s + n(r.amount), 0); if (got(a) > got(b)) push('Received ' + m(got(a) - got(b)) + ' from ' + who, { ref: d.no }); if (a.status === 'closed' && b.status !== 'closed') push((a.outcome === 'writtenOff' ? 'Wrote off ' : 'Settled ') + (d.no || '') + ' with ' + who, { ref: d.no, reason: a.writeOffNote || '' }); }
+      return out;
+    }
+    if (col === 'losses') {
+      const d = a || b; const what = (d.lines || []).map((l) => n(l.qty) + ' × ' + L.product(l.productId)).join(', '); const why = lossCause(d.cause).label;
+      if (!b) push((a.status === 'approved' ? 'Recorded loss ' : 'Reported loss ') + (d.no || '') + ': ' + what + ' at ' + L.loc(d.locationId), { ref: d.no, reason: [why, d.notes].filter(Boolean).join(' · ') });
+      else if (a && b.status !== a.status) push((a.status === 'approved' ? 'Approved' : a.status === 'rejected' ? 'Rejected' : a.status === 'withdrawn' ? 'Withdrew' : 'Updated') + ' loss ' + (d.no || '') + ': ' + what, { ref: d.no, reason: [why, a.decisionNote].filter(Boolean).join(' · ') });
+      else if (a) push('Edited loss ' + (d.no || '') + ': ' + what, { ref: d.no, reason: why });
+      return out;
+    }
     if (col === 'transfers') {
       const d = a || b; const what = (d.lines || []).map((l) => n(l.qty) + ' × ' + L.product(l.productId)).join(', '); const route = L.loc(d.from) + ' → ' + L.loc(d.to);
       if (!b) push('Sent ' + what + ' ' + route + (d.carrier ? ', carried by ' + d.carrier : ''), { ref: d.no, reason: d.reason || '' });
@@ -1070,6 +1153,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

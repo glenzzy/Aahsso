@@ -20,7 +20,8 @@ function creditInfo(cu, extraDue) {
 }
 const cartQty = (pid) => { const l = K.cart.lines.find((x) => x.productId === pid); return l ? num(l.qty) : 0; };
 const cartCust = () => K.cart.customerId && byId('customers', K.cart.customerId);
-function reprice(l) { if (!l.manual) l.unitPrice = KC.autoPrice(K.C, l.productId, l.qty, cartCust()); }
+function reprice(l) { if (l.pack && l.pack.price) { l.unitPrice = l.pack.price / l.pack.size; return; } if (!l.manual) l.unitPrice = KC.autoPrice(K.C, l.productId, l.qty, cartCust()); }
+const lineStep = (l) => (l.pack && num(l.pack.size) > 1 ? num(l.pack.size) : 1); // a carton line moves by whole cartons
 const isWsLine = (l) => { const px = K.C.prodX[l.productId]; return px && num(l.unitPrice) === px.priceWholesale && px.priceWholesale < px.priceMax; };
 const cartTotal = () => K.cart.lines.reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
 const cartCount = () => K.cart.lines.reduce((a, l) => a + num(l.qty), 0);
@@ -41,7 +42,7 @@ function gridHTML() {
     return '<div class="pt' + (q ? ' incart' : '') + (av - q <= 0 ? ' out' : '') + '" data-a="addCart" data-id="' + p.id + '">' + (q ? '<div class="q" style="z-index:2">' + q + '</div>' : '') +
       (src ? '<div class="pimg"><img src="' + esc(src) + '" alt="" loading="lazy"></div>' : '<div class="pimg ph">' + esc(initials(p.name)) + '</div>') +
       '<div class="nm">' + esc(p.name) + '</div>' + (KC.sizeLabel(p) ? '<div class="tiny muted">' + esc(KC.sizeLabel(p)) + '</div>' : '') + '<div class="row gap6 wrap">' + (p.condition && p.condition !== 'New' ? '<span class="badge acc">' + esc(p.condition) + '</span>' : '') + (heldForCart(p.id) ? '<span class="badge info">Client order</span>' : '') + (px.nextExpiry && daysUntil(px.nextExpiry) <= (num(S().expiryWarnDays) || 60) ? expiryBadge(px.nextExpiry) : '') + '</div>' +
-      '<div class="pr money">' + F(px.priceMax) + '</div><div class="st">' + fmt(av - q) + ' in stock</div></div>';
+      '<div class="pr money">' + F(px.priceMax) + '</div><div class="st">' + fmt(av - q) + ' in stock' + (KC.packText(p, av - q) ? '<span class="pk-t">' + esc(KC.packText(p, av - q)) + '</span>' : '') + '</div></div>';
   }).join('');
 }
 function cartHTML(inSheet, noGo) {
@@ -52,9 +53,11 @@ function cartHTML(inSheet, noGo) {
     if (seeCost() && px.avgCost && price < px.avgCost) warn = '<div class="tiny" style="color:var(--bad)">Below cost (' + fmt(px.avgCost) + ')</div>';
     else if (price < KC.priceFloor(K.C, l.productId, l.qty, cartCust())) warn = '<div class="tiny" style="color:' + (can('discount') ? 'var(--warn)' : 'var(--bad)') + '">Below minimum ' + fmt(KC.priceFloor(K.C, l.productId, l.qty, cartCust())) + (can('discount') ? '' : ' — not allowed') + '</div>';
     if (isWsLine(l)) warn += '<div class="tiny" style="color:var(--info)">Wholesale price' + (KC.isWholesale(cartCust()) ? '' : ' (bulk ' + px.bulkQty + '+)') + '</div>';
+    const pks = KC.packsOf(p); const st = lineStep(l);
     return '<div class="cl"><div class="row between">' + thumb(p, 34, 8) + '<div class="grow b ellipsis">' + esc(p.name) + '</div><button class="icon-btn" data-a="cartDel" data-i2="' + i + '">' + ic('trash', 'sm') + '</button></div>' +
-      '<div class="row between mt" style="margin-top:6px"><div class="stepper"><button data-a="cartStep" data-i2="' + i + '" data-d="-1">−</button><input inputmode="numeric" value="' + l.qty + '" data-i="cartQty" data-i2="' + i + '"><button data-a="cartStep" data-i2="' + i + '" data-d="1">+</button></div>' +
-      '<div class="row gap6"><span class="tiny faint">@</span><input class="inp price-in" inputmode="numeric" value="' + l.unitPrice + '" data-i="cartPrice" data-i2="' + i + '"></div></div>' +
+      (pks.length ? '<div class="seg pk-seg" role="group" aria-label="Sell by"><button type="button" class="' + (l.pack ? '' : 'on') + '" data-a="cartUnit" data-i2="' + i + '" data-v="-1">' + esc(p.unit && p.unit !== 'unit' ? p.unit : 'piece') + '</button>' + pks.map((k, j) => '<button type="button" class="' + (l.pack && num(l.pack.size) === k.size ? 'on' : '') + '" data-a="cartUnit" data-i2="' + i + '" data-v="' + j + '">' + esc(k.name) + ' ×' + k.size + '</button>').join('') + '</div>' : '') +
+      '<div class="row between mt" style="margin-top:6px"><div class="stepper"><button data-a="cartStep" data-i2="' + i + '" data-d="-1">−</button><input inputmode="numeric" value="' + (num(l.qty) / st) + '" data-i="cartQty" data-i2="' + i + '"><button data-a="cartStep" data-i2="' + i + '" data-d="1">+</button></div>' +
+      '<div class="row gap6"><span class="tiny faint">@</span><input class="inp price-in" inputmode="numeric" value="' + Math.round(num(l.unitPrice) * st) + '" data-i="cartPrice" data-i2="' + i + '" aria-label="Price per ' + esc(l.pack ? l.pack.name : 'piece') + '"></div></div>' +
       '<div class="row between"><div>' + warn + (px.promo && price === px.promo.price ? '<div class="tiny promo-t">' + esc(px.promo.name) + ' · usual ' + fmt(px.priceMax) + '</div>' : price !== num(px.priceMax) ? '<div class="tiny faint">Usual price ' + fmt(px.priceMax) + '</div>' : '') + '</div><div class="b money" data-lt="' + i + '">' + F(num(l.qty) * price) + '</div></div></div>';
   }).join('');
   return '<div class="' + (inSheet ? '' : 'card pad') + '">' +
@@ -112,13 +115,23 @@ A.newSale = () => {
 function addToCart(pid) {
   const p = byId('products', pid); if (!p) return;
   const l = K.cart.lines.find((x) => x.productId === pid);
-  if (cartQty(pid) + 1 > availFor(pid)) { toast('Only ' + availFor(pid) + ' in stock', true); return; }
-  if (l) { l.qty = num(l.qty) + 1; reprice(l); } else { const nl = { productId: pid, name: p.name, qty: 1, unitPrice: 0 }; reprice(nl); K.cart.lines.push(nl); }
+  const step = l ? lineStep(l) : 1;
+  if (cartQty(pid) + step > availFor(pid)) { toast('Only ' + availFor(pid) + ' in stock', true); return; }
+  if (l) { l.qty = num(l.qty) + step; reprice(l); } else { const nl = { productId: pid, name: p.name, qty: 1, unitPrice: 0 }; reprice(nl); K.cart.lines.push(nl); }
   if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) { }
   refreshPOS();
 }
 A.addCart = (el) => addToCart(el.dataset.id);
-A.cartStep = (el) => { const l = K.cart.lines[+el.dataset.i2]; const n = num(l.qty) + num(el.dataset.d); if (n > availFor(l.productId)) return toast('Only ' + availFor(l.productId) + ' in stock', true); if (n <= 0) K.cart.lines.splice(+el.dataset.i2, 1); else { l.qty = n; reprice(l); } refreshPOS(); };
+A.cartStep = (el) => { const l = K.cart.lines[+el.dataset.i2]; const n = num(l.qty) + num(el.dataset.d) * lineStep(l); if (n > availFor(l.productId)) return toast('Only ' + availFor(l.productId) + ' in stock', true); if (n <= 0) K.cart.lines.splice(+el.dataset.i2, 1); else { l.qty = n; reprice(l); } refreshPOS(); };
+A.cartUnit = (el) => {
+  const l = K.cart.lines[+el.dataset.i2]; const p = byId('products', l.productId); const j = +el.dataset.v; const pk = j >= 0 ? KC.packsOf(p)[j] : null;
+  if (pk) {
+    const n = Math.max(1, Math.round(num(l.qty) / pk.size)); const room = availFor(l.productId) - (cartQty(l.productId) - num(l.qty));
+    if (n * pk.size > room) { if (room < pk.size) return toast('Not a full ' + pk.name + ' in stock (' + room + ' left)', true); }
+    l.qty = Math.min(n, Math.floor(room / pk.size)) * pk.size; l.pack = { name: pk.name, size: pk.size, price: pk.price }; l.manual = false;
+  } else { l.pack = null; l.manual = false; }
+  reprice(l); refreshPOS();
+};
 A.cartDel = (el) => { K.cart.lines.splice(+el.dataset.i2, 1); refreshPOS(); };
 A.cartClear = () => { K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; saveCart(); refreshPOS(); };
 function liveCartTotals(el, i) {
@@ -126,8 +139,8 @@ function liveCartTotals(el, i) {
   const lt = $('[data-lt="' + i + '"]', root); if (lt) lt.textContent = F(num(l.qty) * num(l.unitPrice));
   $$('[data-ct]').forEach((x) => (x.textContent = F(cartTotal()))); saveCart();
 }
-I.cartQty = (el) => { const i = +el.dataset.i2, l = K.cart.lines[i]; let n = Math.max(0, Math.floor(num(el.value))); const av = availFor(l.productId); if (n > av) { n = av; el.value = av; toast('Only ' + av + ' in stock', true); } l.qty = n; const before = l.unitPrice; reprice(l); if (before !== l.unitPrice) { const pi = $('[data-i="cartPrice"][data-i2="' + i + '"]', el.closest('.sheet') || document); if (pi) pi.value = l.unitPrice; } liveCartTotals(el, i); };
-I.cartPrice = (el) => { const i = +el.dataset.i2; K.cart.lines[i].unitPrice = Math.max(0, num(el.value)); K.cart.lines[i].manual = true; liveCartTotals(el, i); };
+I.cartQty = (el) => { const i = +el.dataset.i2, l = K.cart.lines[i]; const st = lineStep(l); let n = Math.max(0, Math.floor(num(el.value))) * st; if (st > 1 && n > availFor(l.productId)) { const mx = Math.floor(availFor(l.productId) / st); el.value = mx; n = mx * st; toast('Only ' + mx + ' ' + l.pack.name + (mx === 1 ? '' : 's') + ' in stock', true); } const av = availFor(l.productId); if (n > av) { n = av; el.value = av; toast('Only ' + av + ' in stock', true); } l.qty = n; const before = l.unitPrice; reprice(l); if (before !== l.unitPrice) { const pi = $('[data-i="cartPrice"][data-i2="' + i + '"]', el.closest('.sheet') || document); if (pi) pi.value = l.unitPrice; } liveCartTotals(el, i); };
+I.cartPrice = (el) => { const i = +el.dataset.i2; const l = K.cart.lines[i]; if (l.pack) l.pack = Object.assign({}, l.pack, { price: null }); K.cart.lines[i].unitPrice = Math.max(0, num(el.value)) / lineStep(l); K.cart.lines[i].manual = true; liveCartTotals(el, i); };
 A.openCart = () => { const s = openSheet({ title: 'Cart', body: cartHTML(true), onClose: () => refreshPOS() }); s._cart = true; };
 
 /* ---------- customers picker ---------- */
@@ -360,7 +373,7 @@ A.checkout = () => {
     setSheetBody(el, '<div class="col">' +
       '<div class="cust-pill" data-a="pickCustomer">' + (cu ? '<div class="av">' + esc(initials(cu.name)) + '</div><div class="grow"><div class="b">' + esc(cu.name) + '</div><div class="tiny muted">' + esc(cu.phone || '') + creditTag(cu) + '</div></div>' : '<div class="av">' + ic('users', 'sm') + '</div><div class="grow b">Walk-in customer — tap to select</div>') + ic('chev', 'sm') + '</div>' +
       '<div class="card pad"><div class="row between"><span class="muted">Subtotal (' + cartCount() + ' items)</span><span class="money b">' + F(sub) + '</span></div>' +
-      (can('discount') ? '<div class="row between mt"><span class="muted">Discount (' + baseSym() + ')</span><input class="inp price-in" inputmode="numeric" id="discIn" value="' + (disc || '') + '" placeholder="0"></div>' : '') +
+      (canOrAsk('discount') ? '<div class="row between mt"><span class="muted">Discount (' + baseSym() + ')' + (can('discount') ? '' : ' <span class="tiny">· manager approves</span>') + '</span><input class="inp price-in" inputmode="numeric" id="discIn" value="' + (disc || '') + '" placeholder="0"></div>' : '') +
       '<hr class="sep"><div class="row between"><span class="b">Total</span><span class="money b" style="font-size:22px" id="totOut">' + F(total) + '</span></div>' +
       '<div id="dlFeeRow" class="row between small mt hide"><span class="muted">Delivery fee</span><span class="money" id="dlFeeOut"></span></div><div id="dueRow" class="row between b mt hide"><span>Total to pay</span><span class="money" id="dueOut"></span></div>' +
       (editing ? '<div class="row between small mt"><span class="muted">Already paid</span><span class="money">' + F(t.paid) + '</span></div>' : '') + '</div>' +
@@ -380,7 +393,7 @@ A.checkout = () => {
 async function completeSale(v) {
   const editing = K.cart.editingId && byId('sales', K.cart.editingId);
   const extra = editingExtra();
-  if (!can('discount')) {
+  if (!canOrAsk('discount')) {
     const bad = K.cart.lines.find((l) => num(l.unitPrice) < KC.priceFloor(K.C, l.productId, l.qty, cartCust()));
     if (bad) { toast('Price for ' + bad.name + ' is below the minimum. Ask a manager.', true); return false; }
     K.cart.discount = 0;
@@ -390,7 +403,7 @@ async function completeSale(v) {
     const alloc = KC.allocate(K.C, K.raw.lots, l.productId, num(l.qty), extra, K.cart.customerId, K.loc);
     if (!alloc) { toast('Not enough stock for ' + l.name + ' (' + availFor(l.productId) + ' left)', true); return false; }
     const pm = (K.C.prodX[l.productId] || {}).promo;
-    lines.push(Object.assign({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), condition: lineCond(l), working: lineWork(l), alloc, returns: [] }, pm && num(l.unitPrice) === pm.price ? { promoId: pm.id, promoName: pm.name } : l.promoId ? { promoId: l.promoId, promoName: l.promoName } : {}));
+    lines.push(Object.assign({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), pack: l.pack && num(l.pack.size) > 1 ? { name: l.pack.name, size: num(l.pack.size) } : undefined, condition: lineCond(l), working: lineWork(l), alloc, returns: [] }, pm && num(l.unitPrice) === pm.price ? { promoId: pm.id, promoName: pm.name } : l.promoId ? { promoId: l.promoId, promoName: l.promoName } : {}));
   }
   const cu = K.cart.customerId && byId('customers', K.cart.customerId);
   const dl = readCartDelivery(); if (dl.error) { toast(dl.error, true); return false; }
@@ -407,8 +420,8 @@ async function completeSale(v) {
     const ci = creditInfo(cu); const prevBal = editing ? Math.max(0, KC.saleTotals(editing).balance) : 0;
     if (ci.lim !== null && ci.owed - prevBal + remaining > ci.lim + 0.5) {
       const msg = cu.name + ' would owe ' + F(ci.owed - prevBal + remaining) + ', above their credit limit of ' + F(ci.lim) + '.';
-      if (!can('credit')) { toast(msg + ' Ask a manager, or take more payment.', true); return false; }
-      if (!(await confirmBox(msg + ' Allow it anyway?', 'Allow credit'))) return false;
+      if (!canOrAsk('credit')) { toast(msg + ' Ask a manager, or take more payment.', true); return false; }
+      if (!(await confirmBox(msg + (can('credit') ? ' Allow it anyway?' : ' A manager must approve it.'), can('credit') ? 'Allow credit' : 'Ask a manager'))) return false;
     }
   }
   { const blk = KC.handOverBlock({ delivery: dl.delivery }, remaining, dl.delivery.status); if (blk) { toast(blk + ' Leave the delivery status on "To send", or take the payment now.', true); return false; } }
@@ -451,7 +464,7 @@ function receiptText(s) {
   const L = ['*' + st.businessName + '*'];
   if (st.phone) L.push('Tel: ' + st.phone);
   L.push('', 'Receipt: ' + s.no, 'Date: ' + fmtDate(saleDate(s)), 'Customer: ' + s.customerName, '');
-  (s.lines || []).forEach((l) => L.push('• ' + l.name + (itemNote(l) ? ' (' + itemNote(l) + ')' : '') + '\n   ' + l.qty + ' × ' + fmt(l.unitPrice) + ' = ' + F(l.qty * l.unitPrice)));
+  (s.lines || []).forEach((l) => L.push('• ' + l.name + (itemNote(l) ? ' (' + itemNote(l) + ')' : '') + '\n   ' + KC.lineQtyText(l, fmt) + ' = ' + F(l.qty * l.unitPrice)));
   L.push('');
   if (t.discount) L.push('Subtotal: ' + F(t.subtotal), 'Discount: −' + F(t.discount));
   if (t.returned) L.push('Returned: −' + F(t.returned));
@@ -472,7 +485,7 @@ function receiptHTML(s) {
   return '<div class="receipt" id="rcpt"><div class="rh"><div class="rlogo">' + (st.logo ? '<img src="' + esc(st.logo) + '">' : esc(initials(st.businessName).slice(0, 2))) + '</div><div class="b" style="font-size:17px">' + esc(st.businessName) + '</div>' +
     (st.tagline ? '<div class="tiny muted">' + esc(st.tagline) + '</div>' : '') + '<div class="tiny muted">' + esc([st.address, st.phone].filter(Boolean).join(' · ')) + '</div></div>' +
     '<div class="row between small"><span class="muted">Receipt</span><b>' + esc(s.no) + '</b></div><div class="row between small"><span class="muted">Date</span><span>' + fmtDate(saleDate(s)) + '</span></div><div class="row between small mb"><span class="muted">Customer</span><span class="b">' + esc(s.customerName) + '</span></div>' +
-    '<table>' + (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td><div class="b">' + esc(l.name) + '</div><div class="tiny muted">' + l.qty + ' × ' + fmt(l.unitPrice) + (l.promoName ? ' · ' + esc(l.promoName) : '') + (itemNote(l) ? ' · ' + esc(itemNote(l)) : '') + (rq ? ' · ' + rq + ' returned' : '') + '</div></td><td class="right money nowrap">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
+    '<table>' + (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td><div class="b">' + esc(l.name) + '</div><div class="tiny muted">' + KC.lineQtyText(l, fmt) + (l.promoName ? ' · ' + esc(l.promoName) : '') + (itemNote(l) ? ' · ' + esc(itemNote(l)) : '') + (rq ? ' · ' + rq + ' returned' : '') + '</div></td><td class="right money nowrap">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
     (t.discount ? '<tr><td class="muted">Discount</td><td class="right money">−' + fmt(t.discount) + '</td></tr>' : '') + (t.returned ? '<tr><td class="muted">Returns</td><td class="right money">−' + fmt(t.returned) + '</td></tr>' : '') +
     '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr>' + (t.deliveryFee > 0 ? '<tr><td class="muted">Delivery fee</td><td class="right money">' + F(t.deliveryFee) + '</td></tr><tr class="tot"><td>TOTAL TO PAY</td><td class="right money">' + F(t.due) + '</td></tr>' : '') + '<tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
     (t.balance > 0 ? '<tr><td class="b" style="color:var(--bad)">Balance due</td><td class="right money b" style="color:var(--bad)">' + F(t.balance) + '</td></tr>' : '') + '</table>' +
@@ -530,7 +543,7 @@ function receiptPDF(s) {
   lines.forEach((l) => {
     doc.setFont('helvetica', 'bold'); doc.text(doc.splitTextToSize(l.name, 50)[0], 5, y);
     doc.text(fmt(l.qty * l.unitPrice), 75, y, { align: 'right' }); y += 4;
-    doc.setFont('helvetica', 'normal'); doc.text(l.qty + ' x ' + fmt(l.unitPrice) + (itemNote(l) ? '  ' + itemNote(l) : ''), 5, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.text(KC.lineQtyText(l, fmt).replace(/×/g, 'x') + (itemNote(l) ? '  ' + itemNote(l) : ''), 5, y); y += 5;
   });
   doc.line(5, y, 75, y); y += 5;
   const row = (a, b, bold) => { doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.text(a, 5, y); doc.text(b, 75, y, { align: 'right' }); y += 5; };
@@ -641,15 +654,16 @@ function openSale(id) {
       '</tbody></table><div class="pad"><div class="row between small"><span class="muted">Subtotal</span><span class="money">' + F(x.subtotal) + '</span></div>' + (x.discount ? '<div class="row between small"><span class="muted">Discount</span><span class="money">−' + F(x.discount) + '</span></div>' : '') + (x.returned ? '<div class="row between small"><span class="muted">Returns</span><span class="money">−' + F(x.returned) + '</span></div>' : '') +
       '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div>' + (x.deliveryFee > 0 ? '<div class="row between small"><span class="muted">Delivery fee</span><span class="money">' + F(x.deliveryFee) + '</span></div><div class="row between b"><span>Total to pay</span><span class="money">' + F(x.due) + '</span></div>' : '') + '<div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
       (seeCost() && !cancelled ? '<div class="row between small mt"><span class="muted">Cost of goods · profit</span><span class="money">' + F(x.cogs) + ' · <b style="color:var(--ok)">' + F(x.profit) + '</b></span></div>' : '') + '</div></div>' +
-      (has('delivery') ? deliveryCard(s) : '') + '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.note ? ' &middot; ' + esc(p.note) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (can('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
+      (has('delivery') ? deliveryCard(s) : '') + '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.note ? ' &middot; ' + esc(p.note) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (canOrAsk('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
       (s.notes ? '<div class="alert info mt">' + esc(s.notes) + '</div>' : '') +
+      ((s.approvals || []).length ? '<div class="appr-list mt">' + s.approvals.map((a) => '<div>' + ic('key', 'sm') + '<span>' + esc(APPROVE_WHAT[a.action] || a.action) + ' — approved by <b>' + esc(a.by) + '</b> for ' + esc(a.for || '') + ', ' + esc(fmtDT(a.at)) + '</span></div>').join('') + '</div>' : '') +
       '<div class="grid2 mt2">' +
       (!cancelled && x.balance > 0 && can('payments') ? '<button class="btn pri" data-a="addPay" data-id="' + s.id + '">' + ic('wallet') + 'Add payment</button>' : '') +
       (!cancelled && KC.isDelivery(s) && has('delivery') ? deliveryButtons(s) : '') + (!cancelled && !KC.isDelivery(s) && !s.delivered ? '<button class="btn" data-a="markPicked" data-id="' + s.id + '">' + ic('check') + 'Mark picked up</button>' : '') +
       '<button class="btn" data-a="openReceipt" data-id="' + s.id + '">' + ic('sales') + 'Receipt</button>' + (can('activity') ? '<button class="btn" data-a="actFor" data-q="' + esc(s.no) + '">' + ic('clock') + 'History</button>' : '') +
       (!cancelled && !hasReturns && can('sell') && (can('salesAll') || s.createdById === K.me.id) ? '<button class="btn" data-a="editSale" data-id="' + s.id + '">' + ic('edit') + 'Edit items</button>' : '') +
-      (!cancelled && can('returns') ? '<button class="btn" data-a="returnSale" data-id="' + s.id + '">' + ic('undo') + 'Return items</button>' : '') +
-      (!cancelled && can('cancel') ? '<button class="btn danger" data-a="cancelSale" data-id="' + s.id + '">' + ic('x') + 'Cancel sale</button>' : '') + '</div>');
+      (!cancelled && canOrAsk('returns') ? '<button class="btn" data-a="returnSale" data-id="' + s.id + '">' + ic('undo') + 'Return items</button>' : '') +
+      (!cancelled && canOrAsk('cancel') ? '<button class="btn danger" data-a="cancelSale" data-id="' + s.id + '">' + ic('x') + 'Cancel sale</button>' : '') + '</div>');
   };
   el._refresh();
 }
@@ -658,7 +672,7 @@ A.markPicked = async (el) => { const s = byId('sales', el.dataset.id); await sav
 A.editSale = (el) => {
   const s = byId('sales', el.dataset.id);
   if (K.cart.lines.length && K.cart.editingId !== s.id) { toast('Finish or clear the current cart first', true); return; }
-  K.cart = { editingId: s.id, customerId: s.customerId, discount: num(s.discount), delivery: s.delivery ? JSON.parse(JSON.stringify(s.delivery)) : null, lines: s.lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, condition: l.condition, working: l.working, manual: true })) };
+  K.cart = { editingId: s.id, customerId: s.customerId, discount: num(s.discount), delivery: s.delivery ? JSON.parse(JSON.stringify(s.delivery)) : null, lines: s.lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, pack: l.pack || null, condition: l.condition, working: l.working, manual: true })) };
   if ((s.locationId || 'main') !== K.loc) { if (!myLocs().find((x) => x.id === (s.locationId || 'main'))) { toast('This sale belongs to another location', true); K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; return; } K.loc = s.locationId || 'main'; fixLoc(); }
   saveCart(); while (K.sheets.length) closeSheet(); A.newSale();
 };

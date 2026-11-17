@@ -11,7 +11,7 @@
   });
   if (window.AAHSSO_CONFIG === undefined && window.KARGO_CONFIG !== undefined) window.AAHSSO_CONFIG = window.KARGO_CONFIG; // an older cached config.js
 })();
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims'];
 const TEAM_COLLECTIONS = ['members', 'requests']; // hosted mode only (SaaS keeps users in its own table)
 
 class LocalStore {
@@ -96,7 +96,7 @@ class RestStore {
   subscribe(col, cb, onErr) { (this.subs[col] = this.subs[col] || []).push(cb); if (onErr) (this.errs = this.errs || []).push(onErr); this._refresh(col); return () => { }; }
   async put(col, id, data) { const body = JSON.parse(JSON.stringify(data)); delete body.id; await this.req('PUT', '/api/data/' + col + '/' + encodeURIComponent(id), body); this._refresh(col); }
   async del(col, id) { await this.req('DELETE', '/api/data/' + col + '/' + encodeURIComponent(id)); this._refresh(col); }
-  async uploadImage(blob) { const r = await this.req('POST', '/api/images', blob, true); return r.id; }
+  async uploadImage(blob, purpose) { const r = await this.req('POST', '/api/images' + (purpose ? '?for=' + encodeURIComponent(purpose) : ''), blob, true); return r.id; }
   imageUrl(ref) { return this.api + '/api/images/' + ref; }
 }
 

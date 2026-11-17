@@ -118,7 +118,7 @@ A.roleEdit = (el) => {
     const ps = $$('[data-rp]', sh).filter((c) => c.checked).map((c) => c.dataset.rp);
     const k = key || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || uid('role_');
     if (!key && R[k]) return toast('A role with this name already exists', true);
-    await write(Object.assign({}, S().roles || {}, { [k]: { label: name, perms: ps, v: 2 } }));
+    await write(Object.assign({}, S().roles || {}, { [k]: { label: name, perms: ps, v: 3 } }));
   };
   if ($('#rlReset', sh)) $('#rlReset', sh).onclick = async () => { const o = Object.assign({}, S().roles || {}); delete o[key]; await write(o); };
   if ($('#rlDel', sh)) $('#rlDel', sh).onclick = async () => { if (used) return toast('Move its ' + used + ' person(s) to another role first', true); if (!(await confirmBox('Delete the role "' + r.label + '"?', 'Delete', true))) return; const o = Object.assign({}, S().roles || {}); delete o[key]; await write(o); };

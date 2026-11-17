@@ -53,7 +53,7 @@ function stockRows(list) {
       { k: 'size', label: 'Size', v: (p) => KC.sizeLabel(p) || '' },
       { k: 'unit', label: 'Unit', v: (p) => p.unit || '', cls: 'mut' },
       { k: 'barcode', label: 'Barcode', v: (p) => p.barcode || '', cls: 'mut' },
-      { k: 'qty', label: multi ? 'In stock here' : 'In stock', core: true, num: true, cls: 'b', v: here, total: (rows) => fmt(dtSum(rows, here)) },
+      { k: 'qty', label: multi ? 'In stock here' : 'In stock', core: true, num: true, cls: 'b', v: here, html: (p) => fmt(here(p)) + (KC.packText(p, here(p)) ? '<div class="tiny muted pk-t">' + esc(KC.packText(p, here(p))) + '</div>' : ''), total: (rows) => fmt(dtSum(rows, here)) },
       multi ? { k: 'all', label: 'All branches', num: true, v: (p) => X(p).available } : null,
       { k: 'inc', label: 'Incoming', core: true, num: true, v: (p) => X(p).transit + X(p).us || '', total: (rows) => fmt(dtSum(rows, (p) => X(p).transit + X(p).us)) },
       { k: 'held', label: 'Held for clients', num: true, v: (p) => X(p).reserved || '' },
@@ -79,7 +79,7 @@ function productExpand(p) {
     (p.barcode ? '<div class="tiny muted mt">Barcode: <b>' + esc(p.barcode) + '</b></div>' : '') +
     '<div class="tw mt"><table class="t"><thead><tr><th>Bought</th><th>Where</th><th>Container</th><th class="r">Qty</th><th class="r">Left</th>' + (seeCost() ? '<th class="r">Paid</th><th class="r">Landed/unit</th>' : '') + '<th>Expiry</th></tr></thead><tbody>' +
     lots.map((l) => { const lx = K.C.lotX[l.id]; return '<tr><td class="nowrap">' + fmtDate(l.purchaseDate) + '</td><td>' + esc(l.vendor || l.sourceType || '') + '</td><td>' + esc(shipName(l.shipmentId)) + '<br>' + lotStageBadge(l) + (l.reservedFor ? '<br><span class="badge acc">For ' + esc(custName(l.reservedFor)) + '</span>' : '') + '</td><td class="r">' + l.qty + (lx.received < num(l.qty) ? '<div class="tiny" style="color:var(--bad)">−' + (num(l.qty) - lx.received) + ' lost</div>' : '') + '</td><td class="r b">' + (l.reservedFor ? lx.clientAvail : lx.stage === 'warehouse' ? lx.available : '—') + '</td>' + (seeCost() ? '<td class="r money">' + money(l.unitCost, l.currency) + '</td><td class="r money">' + fmt(lx.landedUnit) + '</td>' : '') + '<td class="nowrap">' + (l.expiry ? fmtDate(l.expiry) : '—') + '</td></tr>'; }).join('') +
-    '</tbody></table></div><div class="row wrap mt">' + (can('stockEdit') ? '<button class="btn sm" data-a="editProduct" data-id="' + p.id + '">' + ic('edit', 'sm') + 'Edit / price</button><button class="btn sm" data-a="adjustStock" data-id="' + p.id + '">' + ic('alert', 'sm') + 'Loss / count</button>' : '') + '<button class="btn sm" data-a="itemHistory" data-id="' + p.id + '">' + ic('clock', 'sm') + 'History</button><button class="btn sm" data-a="labelOne" data-id="' + p.id + '">' + ic('barcode', 'sm') + 'Label</button>' + (x.available > 0 ? '<button class="btn sm pri" data-a="sellThis" data-id="' + p.id + '">' + ic('sell', 'sm') + 'Sell</button>' : '') + '</div></div>';
+    '</tbody></table></div><div class="row wrap mt">' + (can('stockEdit') ? '<button class="btn sm" data-a="editProduct" data-id="' + p.id + '">' + ic('edit', 'sm') + 'Edit / price</button>' : '') + (can('lossReport') || can('stockEdit') ? '<button class="btn sm" data-a="lossNew" data-id="' + p.id + '">' + ic('alert', 'sm') + 'Record loss</button>' : '') + (can('stockEdit') ? '<button class="btn sm" data-a="adjustStock" data-id="' + p.id + '">' + ic('check', 'sm') + 'Correct count</button>' : '') + '<button class="btn sm" data-a="itemHistory" data-id="' + p.id + '">' + ic('clock', 'sm') + 'History</button><button class="btn sm" data-a="labelOne" data-id="' + p.id + '">' + ic('barcode', 'sm') + 'Label</button>' + (x.available > 0 ? '<button class="btn sm pri" data-a="sellThis" data-id="' + p.id + '">' + ic('sell', 'sm') + 'Sell</button>' : '') + '</div></div>';
 }
 A.stockFilter = (el) => { K.ui.stockFilter = el.dataset.v; render(true); };
 CH.stockCat = (el) => { K.ui.stockCat = el.value; render(true); };
@@ -96,7 +96,7 @@ function editProduct(id) {
   const p = byId('products', id); const x = K.C.prodX[id];
   const sh = openSheet({
     title: 'Edit item',
-    body: '<div class="col"><div class="row"><div class="photo-slot" data-a="pickPhoto">' + (imgSrc(p.image) ? '<img src="' + esc(imgSrc(p.image)) + '">' : ic('cam')) + '</div><div class="grow">' + field('Item name', inp('name', p.name)) + '</div></div>' + unitFields(p) + '<div class="grid2">' + field('Category', sel('category', !p.category || catOpts().includes(p.category) ? catOpts() : [p.category].concat(catOpts()), p.category, 'id="pCat"')) + field('Subcategory', sel('subcategory', subOpts(p.category), p.subcategory, 'id="pSub"')) + '</div>' +
+    body: '<div class="col"><div class="row"><div class="photo-slot" data-a="pickPhoto">' + (imgSrc(p.image) ? '<img src="' + esc(imgSrc(p.image)) + '">' : ic('cam')) + '</div><div class="grow">' + field('Item name', inp('name', p.name)) + '</div></div>' + unitFields(p) + packFields(p) + '<div class="grid2">' + field('Category', sel('category', !p.category || catOpts().includes(p.category) ? catOpts() : [p.category].concat(catOpts()), p.category, 'id="pCat"')) + field('Subcategory', sel('subcategory', subOpts(p.category), p.subcategory, 'id="pSub"')) + '</div>' +
       '<div class="grid2">' + field('Condition', sel('condition', KC.CONDITIONS, p.condition || 'New')) + field('Barcode', '<div class="row gap6">' + inp('barcode', p.barcode, 'id="pBar" placeholder="Scan or generate"') + '<button class="btn sm" type="button" data-a="genBar">Gen</button></div>') + '</div>' +
       '<div class="card pad"><h3>Pricing</h3><div class="tiny muted mb">Average landed cost: <b class="money">' + F(x.avgCost) + '</b>. Leave fixed prices empty to follow the markup.</div><div class="grid2">' +
       field('Markup % (max price)', inp('markup', p.markup ?? '', 'inputmode="decimal" placeholder="Default ' + S().defaultMarkup + '"')) + field('Min markup % (bulk)', inp('minMarkup', p.minMarkup ?? '', 'inputmode="decimal" placeholder="Default ' + S().minMarkup + '"')) +
@@ -112,6 +112,7 @@ function editProduct(id) {
     ['priceMax', 'priceMin', 'priceWholesale', 'bulkQty'].forEach((k) => (v[k] = v[k] === '' ? null : num(v[k])));
     if (v.barcode && K.raw.products.some((o) => o.id !== id && o.barcode === v.barcode)) return toast('Another item already uses this barcode', true);
     v.size = v.size === '' ? null : num(v.size);
+    const packs = readPacks(sh); if (typeof packs === 'string') return toast(packs, true); v.packs = packs; ['pkName0', 'pkSize0', 'pkPrice0', 'pkName1', 'pkSize1', 'pkPrice1', 'pkName2', 'pkSize2', 'pkPrice2'].forEach((k) => delete v[k]);
     if (sh._photo) { try { v.image = await storePhoto(sh._photo); } catch (e) { toast(e.message, true); } }
     if (await save('products', withPriceLog(p, Object.assign({}, p, v), 'Edit item'))) { closeSheet(); scheduleRender(); refreshSheets(); toast('Saved'); }
   };
@@ -127,16 +128,16 @@ A.adjustStock = (el) => {
   const sys = lots.reduce((a, l) => a + Math.max(0, here(l)), 0);
   if (!lots.length) return toast('No stock of this item in the warehouse yet', true);
   const sh = openSheet({
-    title: 'Loss / stock count · ' + p.name,
-    body: '<div class="alert info mb">System stock at ' + esc(locName(K.loc)) + ': <b>' + sys + '</b></div><div class="seg mb" id="adjMode"><button class="on" data-a="adjMode" data-v="loss">Record loss</button><button data-a="adjMode" data-v="count">Physical count</button></div>' +
-      '<div class="col"><div id="mLoss">' + field('Quantity lost', inp('lossQty', '', 'inputmode="numeric"')) + '</div><div id="mCount" class="hide">' + field('Quantity counted on shelf', inp('countQty', '', 'inputmode="numeric"')) + '</div>' +
-      field('Reason', sel('reason', KC.ADJ_REASONS, 'Missing / theft')) + field('Date', inp('date', todayStr(), 'type="date"')) + field('Notes', inp('notes', '')) + '</div>',
+    title: 'Correct stock count · ' + p.name,
+    body: '<div class="alert info mb">System stock at ' + esc(locName(K.loc)) + ': <b>' + sys + '</b>. Count what is on the shelf; the difference is recorded. For something stolen, damaged or eaten by pests, use <b>Record loss</b> instead.</div>' +
+      '<div class="col">' + field('Quantity counted on shelf', inp('countQty', '', 'inputmode="numeric"')) +
+      field('Reason', sel('reason', ['Count correction', 'Stock count difference', 'Found / extra', 'Unaccounted for'], 'Count correction')) + field('Date', inp('date', todayStr(), 'type="date"')) + field('Notes', inp('notes', '')) + '</div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="aSave">Save</button>',
   });
-  sh._mode = 'loss';
+  sh._mode = 'count';
   $('#aSave', sh).onclick = async () => {
-    const v = formVals(sh); let diff = sh._mode === 'loss' ? -Math.abs(num(v.lossQty)) : num(v.countQty) - sys;
-    if (sh._mode === 'count' && v.countQty === '') return toast('Enter the counted quantity', true);
+    const v = formVals(sh); const diff = num(v.countQty) - sys;
+    if (v.countQty === '') return toast('Enter the counted quantity', true);
     if (!diff) { closeSheet(); return toast('No difference — nothing to record'); }
     // spread across lots: losses from lots with most recent purchase first; gains to newest lot
     const ordered = lots.slice().sort((a, b) => (b.purchaseDate || '').localeCompare(a.purchaseDate || ''));
@@ -144,11 +145,10 @@ A.adjustStock = (el) => {
     if (diff > 0) adj.push({ lotId: ordered[0].id, qty: diff });
     else for (const l of ordered) { if (left >= 0) break; const av = Math.max(0, here(l)); const take = Math.min(av, -left); if (take > 0) { adj.push({ lotId: l.id, qty: -take }); left += take; } }
     if (left < 0 && diff < 0 && !adj.length) return toast('Nothing in stock to remove', true);
-    for (const a of adj) await save('adjustments', { id: uid('a_'), date: v.date || todayStr(), productId: p.id, lotId: a.lotId, qty: a.qty, locationId: K.loc, byId: K.me.id || '', reason: v.reason, notes: v.notes, by: K.info.userLabel || '' });
+    for (const a of adj) await save('adjustments', { id: uid('a_'), date: v.date || todayStr(), productId: p.id, lotId: a.lotId, qty: a.qty, locationId: K.loc, byId: K.me.id || '', reason: v.reason, cause: a.qty < 0 ? 'count' : undefined, notes: v.notes, by: K.info.userLabel || '' });
     closeSheet(); scheduleRender(); toast('Stock updated (' + (diff > 0 ? '+' : '') + diff + ')');
   };
 };
-A.adjMode = (el) => { const sh = el.closest('.scrim'); sh._mode = el.dataset.v; $$('#adjMode button', sh).forEach((b) => b.classList.toggle('on', b === el)); $('#mLoss', sh).classList.toggle('hide', sh._mode !== 'loss'); $('#mCount', sh).classList.toggle('hide', sh._mode !== 'count'); };
 
 /* ---------- pricing tool ---------- */
 A.pricing = (el) => {
@@ -329,6 +329,7 @@ async function savePurchaseLines(h, lines) {
   for (const l of lines) {
     const r = findOrCreateProduct(l.name, l.category, l.subcategory, l.condition, l.barcode);
     if (r.isNew) Object.assign(r.p, { unit: l.unit || 'piece', size: l.size || null, sizeUnit: l.sizeUnit || '' });
+    if (num(l.pack) > 1 && !KC.packsOf(r.p).some((k) => k.size === num(l.pack))) { r.p = Object.assign({}, r.p, { packs: ((r.p.packs || []).concat([{ name: 'pack', size: Math.floor(num(l.pack)), price: null }])).slice(0, 3) }); r.changed = true; } // bought by the pack: sell by the pack too
     else if (!r.p.size && l.size) { r.p = Object.assign({}, r.p, { size: l.size, sizeUnit: l.sizeUnit, unit: r.p.unit || l.unit }); r.changed = true; }
     if (l.photo) { try { r.p = Object.assign({}, r.p, { image: await storePhoto(l.photo) }); r.changed = true; } catch (e) { toast('Photo not saved: ' + e.message, true); } }
     if (r.isNew || r.changed) { await save('products', r.p); }
@@ -468,6 +469,30 @@ A.shCost = (el) => {
     const costs = (cur.costs || []).filter((x) => x.id !== c.id).concat([cost]); if (await save('shipments', Object.assign({}, cur, { costs }))) { closeSheet(); refreshSheets(); scheduleRender(); if (unpaid) toast('Cost added and bill created'); } };
   if (c.id) $('#cDel', sh).onclick = async () => { const cur = byId('shipments', s.id); await save('shipments', Object.assign({}, cur, { costs: cur.costs.filter((x) => x.id !== c.id) })); closeSheet(); refreshSheets(); scheduleRender(); };
 };
+
+/* ---------- packs (carton, box…): sold whole, stock kept in pieces ---------- */
+function packFields(p) {
+  const pk = (p.packs || []).slice(0, 3); while (pk.length < 2) pk.push({});
+  const x = K.C.prodX[p.id] || {};
+  return '<div class="card pad mt"><h3>Packs <span class="tiny muted">(optional)</span></h3><div class="tiny muted mb">Sell a whole carton or box at once. Stock stays counted in ' + esc(plural2(p.unit || 'piece')) + '. Leave the price empty to use the bulk price.</div>' +
+    pk.map((k, i) => '<div class="pk-row">' + sel('pkName' + i, [['', '—']].concat(KC.PACK_NAMES.map((n) => [n, n[0].toUpperCase() + n.slice(1)])), k.name || '') +
+      '<label class="pk-of"><span>of</span><input class="inp" name="pkSize' + i + '" inputmode="numeric" data-nofmt value="' + esc(k.size || '') + '" placeholder="24"></label>' +
+      '<input class="inp" name="pkPrice' + i + '" inputmode="numeric" value="' + esc(k.price || '') + '" placeholder="' + (x.priceMax ? 'Auto' : 'Price') + '" aria-label="Pack price"></div>').join('') +
+    (pk.length < 3 ? '<div class="tiny muted">Up to 3 pack sizes.</div>' : '') + '</div>';
+}
+const plural2 = (w) => /(s|x|ch|sh)$/.test(w) ? w + 'es' : w + 's';
+function readPacks(sh) {
+  const v = formVals(sh); const out = [];
+  for (let i = 0; i < 3; i++) {
+    const name = v['pkName' + i]; const size = Math.floor(num(v['pkSize' + i])); const price = v['pkPrice' + i] === '' || v['pkPrice' + i] === undefined ? null : num(v['pkPrice' + i]);
+    if (!name && !size) continue;
+    if (!name) return 'Choose the pack name (carton, box…)';
+    if (!(size > 1)) return 'A ' + name + ' holds at least 2 pieces';
+    if (out.some((o) => o.size === size)) return 'Two packs with the same size';
+    out.push({ name, size, price: price > 0 ? price : null });
+  }
+  return out;
+}
 
 /* ---------- units & photos ---------- */
 function unitFields(p) {

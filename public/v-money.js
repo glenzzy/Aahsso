@@ -16,6 +16,7 @@ VIEWS.cash = {
         (mine.items.length || mine.moves.length ? (mine.moves.length ? '<div class="row between cl"><span>Collected by you</span><span class="money">' + F(mine.collected) + '</span></div>' + mine.moves.map((x) => '<div class="row between cl small"><span>' + (x.dir === 'in' ? 'Till taken over from ' + esc(x.t.fromName || 'colleague') : 'Till handed to ' + esc(x.t.toName || 'colleague')) + ' · ' + hm(x.t.acceptedAt) + (x.t.status === 'disputed' ? ' <span class="badge bad">difference</span>' : '') + '</span><span class="money">' + (x.dir === 'in' ? '+ ' : '− ') + fmt(sumObj(x.t.received)) + '</span></div>').join('') + '<div class="tiny muted mt mb">Now in your hands, by method:</div>' : '') + Object.entries(mine.by).map(([m, v]) => '<div class="row between cl"><span>' + esc(m) + (mine.feesBy[m] ? ' <span class="tiny muted">+ ' + F(mine.feesBy[m]) + ' charges</span>' : '') + '</span><b class="money">' + F(v) + '</b></div>').join('') + '<div class="row between cl b"><span>' + (mine.moves.length ? 'To hand over' : 'Total collected') + '</span><span class="money">' + F(mine.total) + '</span></div>' : '<div class="muted small">You recorded no payments on this day.</div>') +
         (has('tills') ? tillOutgoing(d, mine) : '') +
         (ho ? '<div class="alert ' + (Math.abs(ho.diff) < 1 ? 'info' : 'bad') + ' mt">Handed over ' + F(sumObj(ho.declared) + num(ho.payouts)) + ' · ' + diffText(ho.diff) + (ho.status === 'confirmed' ? ' · confirmed by ' + esc(ho.confirmedBy || '') : ' · waiting for manager') + '</div>' : '') +
+        dayWatchHTML(dayWatch(d, K.me.id), true) +
         (has('cashHandover') && (!ho || ho.status !== 'confirmed') ? '<button class="btn pri block mt" data-a="hoOpen" data-d="' + d + '">' + ic('wallet') + (ho ? 'Update my handover' : 'Close my day & hand over') + '</button>' : '') + '</div>';
     }
     if (can('handover') && has('cashHandover')) {
@@ -23,6 +24,10 @@ VIEWS.cash = {
       K.raw.sales.forEach((s) => (s.payments || []).forEach((p) => { if (p.date === d && p.byId) people[p.byId] = people[p.byId] || p.by || 'Staff'; }));
       K.raw.handovers.filter((h) => h.date === d).forEach((h) => (people[h.userId] = people[h.userId] || h.userName));
       const rows = Object.entries(people).map(([id, name]) => ({ id, name, exp: KC.collectedBy(K.raw, id, d), ho: byId('handovers', hoId(d, id)) }));
+      const all = dayWatch(d, null); const done = rows.filter((r) => r.ho && r.ho.status === 'confirmed').length; const diff = rows.reduce((a, r) => a + (r.ho ? num(r.ho.diff) : 0), 0);
+      html += '<section class="card pad2 mb day-glance"><div class="row between wrap mb"><h2>Day at a glance · ' + esc(fmtDate(d)) + '</h2><button class="btn sm" data-a="dayCopy" data-d="' + d + '">' + ic('copy', 'sm') + 'Copy day report</button></div>' +
+        '<div class="kpis mb">' + kpi('Sales', F(all.revenue), all.receipts + ' receipt' + (all.receipts === 1 ? '' : 's'), true) + kpi('Handovers', done + ' / ' + rows.length, rows.length ? (done === rows.length ? 'all confirmed' : (rows.length - done) + ' still open') : 'nobody collected money') + (rows.some((r) => r.ho) ? kpi('Cash difference', Math.abs(diff) < 1 ? 'None' : F(diff), Math.abs(diff) < 1 ? 'balanced so far' : diff < 0 ? 'short' : 'over') : kpi('Cash difference', '—', 'nobody handed over yet')) + kpi('Losses recorded', String(all.losses), all.lossValue && seeCost() ? F(all.lossValue) : '') + '</div>' +
+        dayWatchHTML(all, false) + '</section>';
       html += '<h2 class="mb">Team handovers · ' + fmtDate(d) + '</h2><div class="mb">' + hoTable(rows, d) + '</div>';
       const tl = (K.raw.tills || []).filter((x) => x.date === d && x.status !== 'cancelled');
       if (tl.length) html += '<h2 class="mb">Till takeovers · ' + fmtDate(d) + '</h2><div class="mb">' + tillTable(tl) + '</div>';
@@ -34,6 +39,37 @@ VIEWS.cash = {
     }
     return html;
   },
+};
+/** What happened during a day, for one person (userId) or the whole shop (null): items sold and the risky moments. */
+function dayWatch(d, userId) {
+  const mineS = (s) => !userId || s.createdById === userId;
+  const live = K.raw.sales.filter((s) => saleDate(s) === d && mineS(s) && (K.C.saleX[s.id] || {}).status !== 'cancelled');
+  const items = new Map(); let revenue = 0, discounts = 0;
+  live.forEach((s) => { revenue += (K.C.saleX[s.id] || {}).net || 0; discounts += num(s.discount); (s.lines || []).forEach((l) => { const back = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); const q = num(l.qty) - back; if (q > 0) items.set(l.productId, (items.get(l.productId) || 0) + q); const full = (K.C.prodX[l.productId] || {}).priceMax; if (full && num(l.unitPrice) < full) discounts += (full - num(l.unitPrice)) * num(l.qty); }); });
+  let refunds = 0; K.raw.sales.forEach((s) => (s.payments || []).forEach((p) => { if (p.date === d && num(p.amount) < 0 && (!userId || p.byId === userId)) refunds += -num(p.amount); }));
+  const cancelled = K.raw.sales.filter((s) => String(s.cancelledAt || '').slice(0, 10) === d && (!userId || s.createdById === userId));
+  const approvals = []; K.raw.sales.forEach((s) => (s.approvals || []).forEach((a) => { if (String(a.at).slice(0, 10) === d && (!userId || a.forId === userId)) approvals.push(Object.assign({ no: s.no }, a)); }));
+  const ls = (K.raw.losses || []).filter((L) => L.date === d && L.status !== 'rejected' && L.status !== 'withdrawn' && (!userId || L.reportedById === userId));
+  return { d, receipts: live.length, revenue, items: [...items].sort((a, b) => b[1] - a[1]), units: [...items.values()].reduce((a, b) => a + b, 0), discounts: Math.round(discounts), refunds, cancelled, approvals, losses: ls.length, lossValue: ls.reduce((a, L) => a + (typeof lossValue === 'function' ? lossValue(L) : 0), 0) };
+}
+function dayWatchHTML(w, mine) {
+  const WHAT = { cancel: 'cancellation', returns: 'refund', discount: 'discount', credit: 'credit over the limit' };
+  const flags = [
+    w.discounts ? ['Discounts & lower prices', F(w.discounts)] : null,
+    w.refunds ? ['Refunds paid', F(w.refunds)] : null,
+    w.cancelled.length ? ['Cancelled sales', w.cancelled.length + ' (' + w.cancelled.map((s) => s.no).slice(0, 3).join(', ') + (w.cancelled.length > 3 ? '…' : '') + ')'] : null,
+    w.approvals.length ? ['Manager approvals', w.approvals.map((a) => a.by + ': ' + (WHAT[a.action] || a.action) + (mine ? '' : ' for ' + a.for)).slice(0, 4).join(' · ')] : null,
+    !mine && w.losses ? ['Losses recorded', String(w.losses)] : null,
+  ].filter(Boolean);
+  return '<details class="day-watch mt"' + (mine ? '' : ' open') + '><summary>' + (mine ? 'What I sold today' : 'Items sold') + ' <span class="hint">— ' + fmt(w.units) + ' unit' + (w.units === 1 ? '' : 's') + ', ' + w.items.length + ' item' + (w.items.length === 1 ? '' : 's') + (flags.length ? ' · ' + flags.length + ' thing' + (flags.length === 1 ? '' : 's') + ' to check' : '') + '</span></summary>' +
+    (flags.length ? '<div class="day-flags">' + flags.map(([k, v]) => '<div class="row between cl"><span>' + esc(k) + '</span><b>' + esc(v) + '</b></div>').join('') + '</div>' : '') +
+    (w.items.length ? '<div class="day-items">' + w.items.map(([pid, q]) => { const p = byId('products', pid) || {}; return '<div class="row between cl small"><span class="ellipsis">' + esc(p.name || '?') + '</span><b>' + q + (KC.packText(p, q) ? ' <span class="tiny muted">(' + esc(KC.packText(p, q)) + ')</span>' : '') + '</b></div>'; }).join('') + '</div>' : '<div class="tiny muted">Nothing sold.</div>') + '</details>';
+}
+A.dayCopy = (el) => {
+  const d = el.dataset.d; const w = dayWatch(d, null); const c = typeof dayClose === 'function' ? dayClose(d) : null;
+  const t = (c ? dayCloseText(c) : '*Day ' + fmtDate(d) + '*') + '\n\n*Items sold (' + fmt(w.units) + ')*\n' + w.items.map(([pid, q]) => '  ' + ((byId('products', pid) || {}).name || '?') + ': ' + q).join('\n') +
+    (w.discounts ? '\nDiscounts & lower prices: ' + F(w.discounts) : '') + (w.refunds ? '\nRefunds: ' + F(w.refunds) : '') + (w.cancelled.length ? '\nCancelled sales: ' + w.cancelled.length : '') + (w.approvals.length ? '\nManager approvals: ' + w.approvals.length : '') + (w.losses ? '\nLosses recorded: ' + w.losses : '');
+  copyText(t);
 };
 CH.cashDate = (el) => { K.ui.cashDate = el.value; render(true); };
 const hoBadge = (h) => h.status === 'confirmed' ? '<span class="badge ok">Confirmed</span>' : '<span class="badge info">Submitted</span>';
@@ -287,80 +323,7 @@ A.remRun = async (el) => {
   } catch (e) { toast(e.message, true); }
 };
 
-/* ================= STOCK COUNT (INVENTORY AUDIT) ================= */
-VIEWS.audit = {
-  render() {
-    const list = K.raw.audits.slice().sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
-    const open = list.find((a) => a.status === 'draft' && a.locationId === K.loc);
-    return '<div class="alert info mb">Count everything on the shelves at <b>' + esc(locName(K.loc)) + '</b>. The app compares your count with what it expects and shows the difference in quantity and money. A manager then approves the differences.</div>' +
-      '<div class="row wrap mb">' + (open ? '<button class="btn pri" data-a="auditGo" data-id="' + open.id + '">' + ic('check') + 'Continue counting (' + Object.keys(open.counts || {}).length + ' counted)</button>' : '<button class="btn pri" data-a="auditNew">' + ic('plus') + 'Start a stock count</button>') + '</div>' +
-      '<h2 class="mb">Counts</h2>' + auditTable(list);
-  },
-};
-function auditSummary(a) {
-  const lines = a.lines || Object.entries(a.counts || {}).map(([pid, c]) => ({ productId: pid, counted: c, system: null }));
-  let diffQty = 0, diffValue = 0, short = 0, over = 0;
-  lines.forEach((l) => { if (l.system === null || l.system === undefined) return; const d = num(l.counted) - num(l.system); diffQty += d; const v = d * num(l.unitCost); diffValue += v; if (d < 0) short += -v; else over += v; });
-  return { counted: lines.length, diffQty, diffValue, short, over, lines };
-}
-const sysAt = (pid, loc) => { const x = K.C.prodX[pid]; return x ? Math.max(0, x.byLoc[loc] || 0) : 0; };
-A.auditNew = () => {
-  const cats = Array.from(new Set(K.raw.products.map((p) => p.category).filter(Boolean))).sort();
-  const sh = openSheet({ title: 'New stock count · ' + locName(K.loc), body: '<div class="col">' + field('What to count', sel('category', [['', 'Everything at this branch']].concat(cats.map((c) => [c, c])), '')) + '<label class="toggle"><input type="checkbox" name="blind" checked>Blind count (hide the expected quantity while counting — recommended)</label></div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="auGo">Start</button>' });
-  $('#auGo', sh).onclick = async () => { const v = formVals(sh); const a = { id: uid('au_'), locationId: K.loc, category: v.category, blind: v.blind, status: 'draft', counts: {}, startedAt: new Date().toISOString(), by: K.me.name || '', byId: K.me.id || '' }; if (await save('audits', a)) { closeSheet(); openAudit(a.id); } };
-};
-A.auditGo = (el) => openAudit(el.dataset.id);
-function openAudit(id) {
-  const sh = openSheet({ title: 'Stock count', wide: true, body: '' });
-  sh._q = '';
-  sh._refresh = () => {
-    const a = byId('audits', id); if (!a) return closeSheet();
-    $('.sh h2', sh).textContent = 'Stock count · ' + locName(a.locationId);
-    if (a.status !== 'draft') return drawAuditResult(sh, a);
-    const prods = K.raw.products.filter((p) => !p.archived && (!a.category || p.category === a.category) && (sysAt(p.id, a.locationId) > 0 || (a.counts || {})[p.id] !== undefined)).sort((x, y) => x.name.localeCompare(y.name));
-    const shown = prods.filter((p) => !sh._q || (p.name + ' ' + (p.barcode || '')).toLowerCase().includes(sh._q.toLowerCase()));
-    const done = Object.keys(a.counts || {}).length;
-    setSheetBody(sh, '<div class="row between mb"><span class="small"><b>' + done + '</b> of ' + prods.length + ' counted' + (a.blind ? ' · blind count' : '') + '</span><div class="bar grow" style="max-width:200px"><i style="width:' + (prods.length ? done / prods.length * 100 : 0) + '%"></i></div></div>' +
-      '<div class="search mb">' + ic('search') + '<input class="inp" id="auQ" placeholder="Search or scan barcode" value="' + esc(sh._q) + '"></div>' +
-      '<div class="card list">' + shown.map((p) => { const c = (a.counts || {})[p.id]; const sys = sysAt(p.id, a.locationId); return '<div class="li" style="cursor:default">' + thumb(p, 40, 10) + '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(p.name) + '</div><div class="tiny muted">' + (a.blind && !can('stockEdit') ? 'Count it' : 'Expected ' + sys) + (c !== undefined && (!a.blind || can('stockEdit')) && num(c) !== sys ? ' · <b style="color:' + (num(c) < sys ? 'var(--bad)' : 'var(--warn)') + '">' + (num(c) - sys > 0 ? '+' : '') + (num(c) - sys) + '</b>' : '') + '</div></div><input class="inp" style="width:84px;' + (c !== undefined ? 'border-color:var(--ok)' : '') + '" inputmode="numeric" data-cnt="' + p.id + '" value="' + (c ?? '') + '" placeholder="—"></div>'; }).join('') + '</div>' +
-      '<div class="tiny muted mt">Items you leave empty are not counted. Your count is saved as you type, so you can stop and continue later.</div>');
-    const q = $('#auQ', sh); q.oninput = () => { clearTimeout(sh._t); sh._t = setTimeout(() => { sh._q = q.value; sh._refresh(); const qq = $('#auQ', sh); qq.focus(); qq.setSelectionRange(qq.value.length, qq.value.length); }, 300); };
-    q.onkeydown = (e) => { if (e.key === 'Enter') { const p = K.raw.products.find((x) => x.barcode && x.barcode === q.value.trim()); if (p) { const cur = JSON.parse(JSON.stringify(byId('audits', id))); cur.counts[p.id] = num(cur.counts[p.id]) + 1; save('audits', cur).then(() => { sh._q = ''; sh._refresh(); toast(p.name + ': ' + cur.counts[p.id]); }); } } };
-    $$('[data-cnt]', sh).forEach((i) => (i.onchange = async () => { const cur = JSON.parse(JSON.stringify(byId('audits', id))); if (i.value === '') delete cur.counts[i.dataset.cnt]; else cur.counts[i.dataset.cnt] = Math.max(0, Math.floor(num(i.value))); await save('audits', cur); i.style.borderColor = i.value === '' ? '' : 'var(--ok)'; }));
-  };
-  sh.querySelector('.sheet').insertAdjacentHTML('beforeend', '<div class="sf"><button class="btn grow" data-a="sheetClose">Save & close</button><button class="btn pri grow" id="auSubmit">' + ic('check') + 'Finish count</button></div>');
-  $('#auSubmit', sh).onclick = async () => {
-    const a = byId('audits', id); if (a.status !== 'draft') return closeSheet();
-    const n = Object.keys(a.counts || {}).length; if (!n) return toast('Count at least one item', true);
-    if (!(await confirmBox('Finish the count of ' + n + ' item(s)? Expected quantities are frozen now.', 'Finish'))) return;
-    const lines = Object.entries(a.counts).map(([pid, c]) => ({ productId: pid, name: (byId('products', pid) || {}).name, counted: num(c), system: sysAt(pid, a.locationId), unitCost: Math.round((K.C.prodX[pid] || {}).avgCost || 0) }));
-    await save('audits', Object.assign({}, a, { status: 'submitted', lines, submittedAt: new Date().toISOString(), submittedBy: K.me.name || '' }));
-    sh._refresh();
-  };
-  sh._refresh();
-}
-function drawAuditResult(sh, a) {
-  const s = auditSummary(a); const diffs = s.lines.filter((l) => num(l.counted) !== num(l.system));
-  const f = $('.sf', sh); if (f) f.innerHTML = a.status === 'submitted' && can('stockEdit') ? '<button class="btn grow" data-a="sheetClose">Close</button><button class="btn pri grow" id="auApply">' + ic('check') + 'Approve & update stock</button>' : '<button class="btn grow" data-a="sheetClose">Close</button>';
-  setSheetBody(sh, '<div class="kpis mb">' + kpi('Items counted', fmt(s.counted), diffs.length + ' with a difference', true) + kpi('Units', (s.diffQty > 0 ? '+' : '') + fmt(s.diffQty), 'counted minus expected') + (seeCost() ? kpi('Missing (value)', F(s.short), 'at cost') + kpi('Extra found', F(s.over)) : '') + '</div>' +
-    (a.status === 'applied' ? '<div class="alert info mb">Approved by ' + esc(a.appliedBy || '') + ' on ' + fmtDT(a.appliedAt) + '. Stock was updated; differences show in Reports → Losses.</div>' : a.status === 'submitted' ? '<div class="alert mb">' + (can('stockEdit') ? 'Check the differences, then approve to correct the stock.' : 'Waiting for a manager to approve.') + '</div>' : '') +
-    '<div class="card tw"><table class="t"><thead><tr><th>Item</th><th class="r">Expected</th><th class="r">Counted</th><th class="r">Difference</th>' + (seeCost() ? '<th class="r">Value</th>' : '') + '</tr></thead><tbody>' +
-    s.lines.slice().sort((x, y) => (num(x.counted) - num(x.system)) - (num(y.counted) - num(y.system))).map((l) => { const d = num(l.counted) - num(l.system); return '<tr><td>' + esc(l.name || (byId('products', l.productId) || {}).name) + '</td><td class="r">' + l.system + '</td><td class="r">' + l.counted + '</td><td class="r b" style="color:' + (d < 0 ? 'var(--bad)' : d > 0 ? 'var(--warn)' : 'var(--ok)') + '">' + (d > 0 ? '+' : '') + d + '</td>' + (seeCost() ? '<td class="r money">' + fmt(d * num(l.unitCost)) + '</td>' : '') + '</tr>'; }).join('') + '</tbody></table></div>' +
-    (a.status === 'submitted' && can('stockEdit') ? field('Reason for missing stock', sel('auReason', ['Stock count difference', 'Missing / theft', 'Unaccounted for', 'Damaged', 'Expired'], 'Stock count difference', 'id="auReason"'), 'mt') : ''));
-  if ($('#auApply', sh)) $('#auApply', sh).onclick = async (e) => {
-    e.target.disabled = true; const reason = $('#auReason', sh).value; let n = 0;
-    for (const l of diffs) {
-      let d = num(l.counted) - num(l.system); const x = K.C.prodX[l.productId]; if (!x) continue;
-      const lots = x.lotIds.map((lid) => byId('lots', lid)).filter((lt) => lt && !lt.reservedFor && K.C.lotX[lt.id].stage === 'warehouse').sort((p1, p2) => (p2.purchaseDate || '').localeCompare(p1.purchaseDate || ''));
-      if (!lots.length) continue;
-      if (d > 0) { await save('adjustments', { id: uid('a_'), date: todayStr(), productId: l.productId, lotId: lots[0].id, qty: d, locationId: a.locationId, reason: 'Found / extra', notes: 'Stock count ' + fmtDate(a.startedAt.slice(0, 10)), byId: K.me.id || '', by: K.me.name || '' }); n++; continue; }
-      for (const lt of lots) { if (d >= 0) break; const av = Math.max(0, K.C.lotX[lt.id].byLoc[a.locationId] || 0); const take = Math.min(av, -d); if (take > 0) { await save('adjustments', { id: uid('a_'), date: todayStr(), productId: l.productId, lotId: lt.id, qty: -take, locationId: a.locationId, reason: d < 0 ? reason : 'Found / extra', notes: 'Stock count ' + fmtDate(a.startedAt.slice(0, 10)), byId: K.me.id || '', by: K.me.name || '' }); d += take; n++; } }
-    }
-    await save('audits', Object.assign({}, byId('audits', a.id), { status: 'applied', appliedAt: new Date().toISOString(), appliedBy: K.me.name || '', adjustments: n }));
-    toast('Stock updated (' + n + ' correction(s))'); sh._refresh(); scheduleRender();
-  };
-}
-
+/* stock counts: see v-count.js */
 /* ---------- tables: cash handover, bills, suppliers, reminders ---------- */
 function hoTable(rows, d) {
   const decl = (r) => r.ho ? sumObj(r.ho.declared) + num(r.ho.payouts) : null;
@@ -448,22 +411,3 @@ function remTable(list) {
   });
 }
 
-function auditTable(list) {
-  const S_ = (a) => auditSummary(a); const cost = seeCost();
-  const ST = { draft: '<span class="badge info">Counting</span>', submitted: '<span class="badge warn">To approve</span>', applied: '<span class="badge ok">Applied</span>' };
-  return dataTable({
-    id: 'auditList', rows: list, noun: 'count', empty: 'No counts yet.',
-    rowAttr: (a) => ' data-a="auditGo" data-id="' + a.id + '"',
-    cols: [
-      { k: 'at', label: 'Started', core: true, v: (a) => a.startedAt || '', html: (a) => esc(fmtDT(a.startedAt)) },
-      { k: 'loc', label: 'Branch', core: true, v: (a) => locName(a.locationId), html: (a) => '<b>' + esc(locName(a.locationId)) + '</b>' },
-      { k: 'cat', label: 'Category', core: true, v: (a) => a.category || 'Everything' },
-      { k: 'n', label: 'Items counted', core: true, num: true, v: (a) => S_(a).counted },
-      { k: 'dq', label: 'Difference (units)', core: true, num: true, v: (a) => S_(a).diffQty || '', html: (a) => S_(a).diffQty ? '<span style="font-weight:700;color:' + (S_(a).diffQty < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + (S_(a).diffQty > 0 ? '+' : '') + fmt(S_(a).diffQty) + '</span>' : dtNil },
-      cost ? { k: 'dv', label: 'Difference (value)', money: true, v: (a) => Math.round(S_(a).diffValue) || '', html: (a) => S_(a).diffValue ? '<span style="font-weight:700;color:' + (S_(a).diffValue < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + fmt(S_(a).diffValue) + '</span>' : dtNil } : null,
-      cost ? { k: 'short', label: 'Missing (value)', money: true, v: (a) => Math.round(S_(a).short) || '' } : null,
-      { k: 'status', label: 'Status', core: true, v: (a) => a.status || '', html: (a) => ST[a.status] || '' },
-      { k: 'by', label: 'Counted by', core: true, v: (a) => a.by || '', cls: 'mut' },
-    ],
-  });
-}
