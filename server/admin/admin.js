@@ -19,7 +19,8 @@
   const STATUS = { trialing: ['Free trial', 'info'], active: ['Active', 'ok'], past_due: ['Payment overdue', 'warn'], expired: ['Expired', 'bad'], suspended: ['Suspended', 'bad'], cancelled: ['Cancelled', 'warn'] };
   const stBadge = (s) => { const x = STATUS[s] || [s || '—', '']; return '<span class="badge ' + x[1] + '">' + esc(x[0]) + '</span>'; };
   const INV = { open: 'warn', paid: 'ok', void: '' }; const PAY = { pending: 'warn', confirmed: 'ok', rejected: 'bad', processing: 'info', failed: 'bad' };
-  const PAY_L = { pending: 'to check', processing: 'waiting for PIN', failed: 'failed' };
+  const PAY_L = { pending: 'to check', processing: 'waiting for the payer', failed: 'failed' };
+  const isAuto = (p) => p.provider && p.provider !== 'manual'; // paid through Fapshi, not reported by hand
   const badge = (t, cls) => '<span class="badge ' + (cls || '') + '">' + esc(t) + '</span>';
   const METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
 
@@ -317,9 +318,9 @@
   }
   const payTable = (rows, withTenant) => table([
     withTenant && { label: 'Business', v: (p) => '<a href="#/tenants/' + esc(p.tenant_id) + '">' + esc(p.tenant) + '</a>' },
-    { label: 'Paid on', v: (p) => esc(fmtD(p.paid_on)) }, { label: 'Amount', num: true, v: (p) => esc(money(p.amount, p.currency)) }, { label: 'Method', v: (p) => esc(p.method) + (p.provider === 'pawapay' ? '<div class="tiny faint">automatic · ' + esc(String(p.phone || '').replace(/^237/, '')) + '</div>' : '') },
-    { label: 'Reference', v: (p) => '<span class="mono">' + esc(p.provider_txn || p.reference || (p.provider === 'pawapay' ? String(p.provider_ref || '').slice(0, 8) : '') || '—') + '</span>' }, withTenant && { label: 'Invoice', v: (p) => '<span class="mono">' + esc(p.invoice_number || '—') + '</span>' },
-    { label: 'Status', v: (p) => badge(PAY_L[p.status] || p.status, PAY[p.status]) + (p.failure ? '<div class="tiny faint">' + esc(p.failure) + '</div>' : '') + (p.claimed_by ? '<div class="tiny faint">' + (p.provider === 'pawapay' ? 'started by ' : 'reported by ') + esc(p.claimed_by) + '</div>' : '') + (p.note ? '<div class="tiny faint">' + esc(p.note) + '</div>' : '') },
+    { label: 'Paid on', v: (p) => esc(fmtD(p.paid_on)) }, { label: 'Amount', num: true, v: (p) => esc(money(p.amount, p.currency)) }, { label: 'Method', v: (p) => esc(p.method) + (isAuto(p) ? '<div class="tiny faint">automatic' + (p.phone ? ' · ' + esc(String(p.phone).replace(/^237/, '')) : '') + '</div>' : '') },
+    { label: 'Reference', v: (p) => '<span class="mono">' + esc(p.provider_txn || p.reference || (isAuto(p) ? String(p.provider_ref || '') : '') || '—') + '</span>' }, withTenant && { label: 'Invoice', v: (p) => '<span class="mono">' + esc(p.invoice_number || '—') + '</span>' },
+    { label: 'Status', v: (p) => badge(PAY_L[p.status] || p.status, PAY[p.status]) + (p.failure ? '<div class="tiny faint">' + esc(p.failure) + '</div>' : '') + (p.claimed_by ? '<div class="tiny faint">' + (isAuto(p) ? 'started by ' : 'reported by ') + esc(p.claimed_by) + '</div>' : '') + (p.note ? '<div class="tiny faint">' + esc(p.note) + '</div>' : '') },
     { label: '', v: (p) => (p.status === 'pending' && can('billing.write') ? '<div class="row" style="flex-wrap:nowrap"><button class="btn sm pri" data-act="pConfirm" data-id="' + p.id + '">Confirm</button><button class="btn sm" data-act="pReject" data-id="' + p.id + '">Reject</button></div>' : '') },
   ].filter(Boolean), rows, { empty: 'No payments.' });
   const reasonField = (req) => field('Reason' + (req ? '' : ' (optional)') + ' — kept in the audit log', '<textarea class="inp" name="reason" rows="2" maxlength="300"></textarea>');

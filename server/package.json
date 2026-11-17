@@ -8,7 +8,7 @@
     "dev": "node --watch src/index.js",
     "migrate": "node src/migrate.js",
     "import-backup": "node scripts/import-backup.js",
-    "test": "node scripts/sync-public.js --check && node --test test/compute.test.js test/staff.test.js test/platform.test.js test/pawapay.test.js",
+    "test": "node scripts/sync-public.js --check && node --test test/compute.test.js test/staff.test.js test/platform.test.js test/fapshi.test.js",
     "test:api": "node --test test/api.test.js",
     "test:email": "node --test test/email.test.js",
     "test:admin": "node --test test/admin-api.test.js test/features-api.test.js",
@@ -16,7 +16,7 @@
     "seed-demo": "node scripts/seed-demo.js",
     "sync-public": "node scripts/sync-public.js",
     "deploy:vercel": "node scripts/sync-public.js && vercel deploy --prod",
-    "test:pawapay": "node --test test/pawapay-api.test.js"
+    "test:fapshi": "node --test test/fapshi-api.test.js"
   },
   "engines": {
     "node": "24.x"

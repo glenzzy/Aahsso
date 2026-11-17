@@ -201,39 +201,53 @@ VIEWS.billing = {
   },
 };
 A.billCycle = (el) => { K.ui.billCycle = el.dataset.v; render(true); };
-/* ---------- mobile money (pawaPay): pay an invoice from the phone, approve with the PIN ---------- */
+/* ---------- mobile money (Fapshi): pay an invoice with MTN MoMo or Orange Money; the plan starts by itself ----------
+ * Two ways, chosen on the server (b.momo.direct): Fapshi's payment page (we send the payer there and they come back
+ * here), or a prompt on the payer's phone that they approve with their PIN, without leaving Kargo. */
 const MOMO_KEY = 'kargo-momo-phone';
 const momoSaved = () => { try { return localStorage.getItem(MOMO_KEY) || ''; } catch (e) { return ''; } };
 /** network from a Cameroon number: MTN 67x / 650-654 / 680-683, Orange 69x / 655-659 / 686-689 */
 function momoGuess(v) {
   let d = String(v || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.startsWith('237')) d = d.slice(3); if (d.length < 3) return null;
   const p2 = +d.slice(0, 2), p3 = +d.slice(0, 3);
-  if (p2 === 67 || (p3 >= 650 && p3 <= 654) || (p3 >= 680 && p3 <= 683)) return 'MTN_MOMO_CMR';
-  if (p2 === 69 || (p3 >= 655 && p3 <= 659) || (p3 >= 686 && p3 <= 689)) return 'ORANGE_CMR';
+  if (p2 === 67 || (p3 >= 650 && p3 <= 654) || (p3 >= 680 && p3 <= 683)) return 'mtn';
+  if (p2 === 69 || (p3 >= 655 && p3 <= 659) || (p3 >= 686 && p3 <= 689)) return 'orange';
   return null;
 }
 const momoDigits = (v) => { let d = String(v || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.length === 12 && d.startsWith('237')) d = d.slice(3); return d; };
+const momoDots = '<span class="momo-dot mtn" aria-hidden="true"></span><span class="momo-dot orange" aria-hidden="true"></span>';
 function momoBox(i, b) {
-  const mm = b.momo; const mine = b.payments.filter((p) => p.invoice_id === i.id && p.provider === 'pawapay');
+  const mm = b.momo; const mine = b.payments.filter((p) => p.invoice_id === i.id && p.provider === 'fapshi');
   const live = mine.find((p) => p.status === 'processing');
   if (live) {
     momoWatch(live.id);
+    if (live.checkout_url) { // Fapshi's payment page
+      return '<div class="momo-wait" role="status" aria-live="polite"><span class="momo-spin" aria-hidden="true"></span><div class="grow"><h3>Waiting for your payment</h3>' +
+        '<p class="small">Finish paying <b>' + money0(live.amount, live.currency) + '</b> on the Fapshi payment page. This page updates by itself as soon as it is paid.</p>' +
+        '<div class="row wrap mt"><a class="btn pri sm" href="' + esc(live.checkout_url) + '" rel="noopener">' + ic('wallet', 'sm') + 'Continue to payment</a><button class="btn sm" data-a="momoCheck" data-id="' + esc(live.id) + '">I paid — check now</button></div></div></div>';
+    }
     const net = mm.networks.find((n) => n.code === live.network) || { label: live.method };
     return '<div class="momo-wait" role="status" aria-live="polite"><span class="momo-spin" aria-hidden="true"></span><div class="grow"><h3>Check your phone</h3>' +
       '<p class="small">Approve <b>' + money0(live.amount, live.currency) + '</b> with your <b>' + esc(net.label) + '</b> PIN. This page updates by itself as soon as it is paid.</p>' +
-      '<ol class="small muted momo-steps"><li>' + (/^[AEIOU]/.test(net.label) ? 'An ' : 'A ') + esc(net.label) + ' message appears on the phone' + (net.code === 'MTN_MOMO_CMR' ? ' (or dial *126# if it does not)' : net.code === 'ORANGE_CMR' ? ' (or dial #150*50# if it does not)' : '') + '</li><li>Enter your PIN to approve</li></ol>' +
+      '<ol class="small muted momo-steps"><li>' + (/^[AEIOU]/.test(net.label) ? 'An ' : 'A ') + esc(net.label) + ' message appears on the phone' + (net.code === 'mtn' ? ' (or dial *126# if it does not)' : net.code === 'orange' ? ' (or dial #150*50# if it does not)' : '') + '</li><li>Enter your PIN to approve</li></ol>' +
       '<button class="btn sm" data-a="momoCheck" data-id="' + esc(live.id) + '">I approved — check now</button></div></div>';
   }
   const last = mine[0]; // newest first
+  const paid = b.payments.filter((p) => p.invoice_id === i.id && p.status === 'confirmed').reduce((a, p) => a + p.amount, 0);
+  const failed = last && last.status === 'failed' ? '<div class="alert bad mb">' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '';
+  const pay = '<button class="btn pri mt momo-pay" data-a="momoPay" data-id="' + esc(i.id) + '">' + ic('wallet') + 'Pay ' + money0(i.amount - paid, i.currency) + '</button>';
+  const test = mm.sandbox ? '<b>Test mode: no real money moves.</b> 670000000 or 690000000 pays; 670000001 or 690000001 fails.' : '';
+  if (!mm.direct) {
+    return failed + '<h3 class="mb row" style="gap:8px">Pay with Mobile Money ' + momoDots + '</h3>' +
+      '<p class="small muted" style="margin:0">Pay with MTN MoMo or Orange Money on Fapshi\'s secure payment page, then come back here. Your plan starts as soon as it is paid — no reference to send.</p>' + pay +
+      (test ? '<p class="hint mt">' + test + '</p>' : '');
+  }
   const phone = K.ui.momoPhone !== undefined ? K.ui.momoPhone : momoSaved();
   const net = K.ui.momoNet || momoGuess(phone) || mm.networks[0].code;
-  const paid = b.payments.filter((p) => p.invoice_id === i.id && p.status === 'confirmed').reduce((a, p) => a + p.amount, 0);
-  return (last && last.status === 'failed' ? '<div class="alert bad mb">' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '') +
-    '<h3 class="mb">Pay with Mobile Money</h3>' +
-    '<div class="momo-nets" role="radiogroup" aria-label="Mobile money network">' + mm.networks.map((n) => '<button type="button" role="radio" aria-checked="' + (n.code === net) + '" class="momo-net' + (n.code === net ? ' on' : '') + '" data-a="momoNet" data-v="' + esc(n.code) + '"><span class="momo-dot ' + (n.code.startsWith('MTN') ? 'mtn' : 'orange') + '" aria-hidden="true"></span>' + esc(n.label) + '</button>').join('') + '</div>' +
-    field('Mobile money number', '<div class="momo-phone"><span aria-hidden="true">+' + esc(mm.prefix) + '</span>' + inp('mp_' + i.id, phone, 'type="tel" inputmode="tel" autocomplete="tel-national" placeholder="6 77 12 34 56" data-momo-phone aria-label="Mobile money number"') + '</div>') +
-    '<button class="btn pri mt momo-pay" data-a="momoPay" data-id="' + esc(i.id) + '">' + ic('wallet') + 'Pay ' + money0(i.amount - paid, i.currency) + '</button>' +
-    '<p class="hint mt">You get a message on this phone to approve with your PIN. Your plan starts as soon as it is paid — no reference to send.' + (mm.sandbox ? ' <b>Test mode: no real money moves.</b>' : '') + '</p>';
+  return failed + '<h3 class="mb">Pay with Mobile Money</h3>' +
+    '<div class="momo-nets" role="radiogroup" aria-label="Mobile money network">' + mm.networks.map((n) => '<button type="button" role="radio" aria-checked="' + (n.code === net) + '" class="momo-net' + (n.code === net ? ' on' : '') + '" data-a="momoNet" data-v="' + esc(n.code) + '"><span class="momo-dot ' + esc(n.code) + '" aria-hidden="true"></span>' + esc(n.label) + '</button>').join('') + '</div>' +
+    field('Mobile money number', '<div class="momo-phone"><span aria-hidden="true">+' + esc(mm.prefix) + '</span>' + inp('mp_' + i.id, phone, 'type="tel" inputmode="tel" autocomplete="tel-national" placeholder="6 77 12 34 56" data-momo-phone aria-label="Mobile money number"') + '</div>') + pay +
+    '<p class="hint mt">You get a message on this phone to approve with your PIN. Your plan starts as soon as it is paid — no reference to send.' + (test ? ' ' + test : '') + '</p>';
 }
 /* pick the network as the number is typed (until the payer picks one themselves) */
 document.addEventListener('input', (e) => {
@@ -244,18 +258,23 @@ document.addEventListener('input', (e) => {
 function momoNetMark() { $$('.momo-net').forEach((b) => { const on = b.dataset.v === K.ui.momoNet; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); }
 A.momoNet = (el) => { K.ui.momoNet = el.dataset.v; K.ui.momoPicked = true; momoNetMark(); };
 A.momoPay = async (el) => {
-  const id = el.dataset.id; const box = $('[name="mp_' + id + '"]'); const phone = box ? box.value.trim() : '';
-  const d = momoDigits(phone);
-  if (!/^6\d{8}$/.test(d)) { toast('Type your mobile money number — 9 digits, e.g. 6 77 12 34 56', true); if (box) box.focus(); return; }
-  const network = K.ui.momoPicked ? K.ui.momoNet : momoGuess(d) || K.ui.momoNet || (K._bill.momo.networks[0] || {}).code;
-  K.ui.momoPhone = phone; try { localStorage.setItem(MOMO_KEY, phone); } catch (e) { }
-  el.disabled = true; el.textContent = 'Sending…';
-  try { const r = await K.store.req('POST', '/api/billing/invoices/' + id + '/momo', { phone: d, network }); toast(r.message || 'Check your phone and approve with your PIN'); }
-  catch (e) { toast(e.message, true); }
+  const id = el.dataset.id; const mm = K._bill.momo || {}; let body = {};
+  if (mm.direct) {
+    const box = $('[name="mp_' + id + '"]'); const phone = box ? box.value.trim() : ''; const d = momoDigits(phone);
+    if (!/^6\d{8}$/.test(d)) { toast('Type your mobile money number — 9 digits, e.g. 6 77 12 34 56', true); if (box) box.focus(); return; }
+    body = { phone: d, network: K.ui.momoPicked ? K.ui.momoNet : momoGuess(d) || K.ui.momoNet || (mm.networks[0] || {}).code };
+    K.ui.momoPhone = phone; try { localStorage.setItem(MOMO_KEY, phone); } catch (e) { }
+  }
+  const label = el.innerHTML; el.disabled = true; el.textContent = mm.direct ? 'Sending…' : 'Opening the payment page…';
+  try {
+    const r = await K.store.req('POST', '/api/billing/invoices/' + id + '/momo', body);
+    if (r.link) { location.href = r.link; return; } // Fapshi's payment page; it sends the payer back to Billing
+    toast(r.message || 'Check your phone and approve with your PIN');
+  } catch (e) { toast(e.message, true); el.disabled = false; el.innerHTML = label; }
   await loadBilling();
 };
 A.momoCheck = (el) => { if (K._mmw) clearTimeout(K._mmw.t); K._mmw = null; el.disabled = true; momoWatch(el.dataset.id, 0); };
-/** ask the server until the payment is settled: every 4 s for 3 minutes, then every 15 s while Billing is open */
+/** ask the server until the payment is settled: every 5 s for 3 minutes, then every 15 s while Billing is open */
 function momoWatch(id, first) {
   if (K._mmw && K._mmw.id === id) return; if (K._mmw) clearTimeout(K._mmw.t);
   const w = K._mmw = { id, start: Date.now() };
@@ -273,7 +292,7 @@ function momoWatch(id, first) {
         await loadBilling(); return;
       }
     } catch (e) { /* network hiccup: keep asking */ }
-    w.t = setTimeout(tick, Date.now() - w.start < 180000 ? 4000 : 15000);
+    w.t = setTimeout(tick, Date.now() - w.start < 180000 ? 5000 : 15000);
   };
   w.t = setTimeout(tick, first === undefined ? 3000 : first);
 }

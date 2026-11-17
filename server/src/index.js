@@ -15,7 +15,7 @@ const KC = require('../public/compute.js'); // same business logic as the browse
 const mailer = require('./mailer');
 const { migrate } = require('./migrate');
 const billing = require('./billing');
-const momo = require('./pawapay'); // mobile money (pawaPay)
+const momo = require('./fapshi'); // mobile money (Fapshi)
 const mountAdmin = require('./admin');
 /* The database schema is brought up to date before the first request is served (also on Vercel, where there is no start
    script). If it fails, requests get a clear 503 instead of odd errors, and the next request tries again. */
@@ -76,7 +76,7 @@ const origins = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim())
 if (origins.length) app.use(cors({ origin: origins }));
 app.use('/api/shop', express.json({ limit: '64kb' })); // public, no login: keep requests small
 const jsonBody = express.json({ limit: '25mb' });
-app.use((req, res, next) => (req.path === '/api/pawapay/callback' ? next() : jsonBody(req, res, next))); // the pawaPay callback reads its raw body (Content-Digest)
+app.use(jsonBody);
 app.use('/api', (req, res, next) => ensureSchema().then(() => next(), (e) => { console.error('[migrate]', e.message); err(res, 503, 'The server is updating its database. Please try again in a moment.'); }));
 mountAdmin(app, { tenantSecret: SECRET, KC }); // platform admin: its own host, accounts, sessions — see src/admin.js
 
@@ -210,7 +210,7 @@ app.post('/api/support', auth, supportLimiter, wrap(async (req, res) => {
   res.json({ ok: true, replyTo: reply || '', ticket: tk.id, emailed: r.status }); // the ticket is saved even if the email failed
 }));
 billing.mountTenant(app, { auth, wrap, err, canU, tx, momo });
-momo.mount(app, { auth, wrap, err, express, guard: (req, res, next) => (['owner', 'admin'].includes(req.user.role) || canU(req.user, 'settings') ? next() : err(res, 403, 'Only the owner or an admin can manage billing')) });
+momo.mount(app, { auth, wrap, err, guard: (req, res, next) => (['owner', 'admin'].includes(req.user.role) || canU(req.user, 'settings') ? next() : err(res, 403, 'Only the owner or an admin can manage billing')) });
 app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enabled(), from: mailer.enabled() ? mailer.FROM() : '' }));
 app.get('/api/me', auth, wrap(async (req, res) => {
   const u = req.user; const sub = await billing.getSub(pool, u.tenant_id); const lim = await billing.limitsFor(pool, u.tenant_id);
@@ -743,7 +743,7 @@ async function dailyEmails(url) {
     }
   }
   let bill = {}; try { bill = await billing.daily(url || mailer.appUrl()); } catch (e) { console.error('[billing] daily', e.message); }
-  let mm = {}; try { mm = await momo.sweep(); } catch (e) { console.error('[pawapay] daily sweep', e.message); }
+  let mm = {}; try { mm = await momo.sweep(); } catch (e) { console.error('[fapshi] daily sweep', e.message); }
   return { trialEnding: sent, billing: bill, momo: mm };
 }
 
