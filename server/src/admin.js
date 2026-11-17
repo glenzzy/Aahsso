@@ -651,7 +651,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       ['Security alerts email (ADMIN_ALERT_EMAIL)', !!process.env.ADMIN_ALERT_EMAIL],
       ['Emails can be sent (RESEND_API_KEY)', mailer.enabled()],
       ['Public app address set (APP_URL)', !!process.env.APP_URL],
-      ['Mobile money payments (FAPSHI_API_USER, FAPSHI_API_KEY)' + (process.env.FAPSHI_API_USER && process.env.FAPSHI_API_KEY ? (process.env.FAPSHI_SANDBOX === 'false' ? ' — live' : ' — sandbox, test money only') + (process.env.FAPSHI_DIRECT_PAY === 'true' ? ', prompt on the phone' : ', Fapshi payment page') : ''), !!(process.env.FAPSHI_API_USER && process.env.FAPSHI_API_KEY)],
+      ['Mobile money payments (FAPSHI_API_USER, FAPSHI_API_KEY)' + (process.env.FAPSHI_API_USER && process.env.FAPSHI_API_KEY ? (process.env.FAPSHI_SANDBOX === 'false' ? ' — live' : ' — sandbox, test money only') : ''), !!(process.env.FAPSHI_API_USER && process.env.FAPSHI_API_KEY)],
       ['Mobile money webhook protected (FAPSHI_WEBHOOK_SECRET)', !!process.env.FAPSHI_WEBHOOK_SECRET],
     ].map(([label, ok]) => ({ label, ok }));
   }

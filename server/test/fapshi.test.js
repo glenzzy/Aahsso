@@ -37,14 +37,13 @@ test('Fapshi errors become plain words; set-up problems never show technical tex
   assert.equal(F.friendly(400, 'Invalid phone number'), 'Invalid phone number');
 });
 
-test('off without both keys; sandbox unless switched off; payment page unless direct pay is on', () => {
+test('off without both keys; sandbox unless switched off', () => {
   const keep = { ...process.env };
   try {
     delete process.env.FAPSHI_API_USER; delete process.env.FAPSHI_API_KEY; assert.equal(F.enabled(), false);
     process.env.FAPSHI_API_USER = 'u'; assert.equal(F.enabled(), false, 'key missing');
-    process.env.FAPSHI_API_KEY = 'k'; delete process.env.FAPSHI_SANDBOX; delete process.env.FAPSHI_BASE_URL; delete process.env.FAPSHI_DIRECT_PAY;
-    assert.equal(F.enabled(), true); assert.equal(F.cfg().baseUrl, 'https://sandbox.fapshi.com'); assert.equal(F.cfg().direct, false);
+    process.env.FAPSHI_API_KEY = 'k'; delete process.env.FAPSHI_SANDBOX; delete process.env.FAPSHI_BASE_URL;
+    assert.equal(F.enabled(), true); assert.equal(F.cfg().baseUrl, 'https://sandbox.fapshi.com');
     process.env.FAPSHI_SANDBOX = 'false'; assert.equal(F.cfg().baseUrl, 'https://live.fapshi.com');
-    process.env.FAPSHI_DIRECT_PAY = 'true'; assert.equal(F.publicInfo().direct, true);
   } finally { process.env = keep; }
 });

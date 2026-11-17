@@ -1266,19 +1266,18 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 @media (max-width: 560px) { .pt-tools { justify-content: center; } .pt-fold { margin-left: 0; width: 100%; justify-content: center; } .pt-wrap { max-height: calc(100vh - 210px); } }
 
 /* billing: mobile money */
-.momo-nets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.momo-net { flex: 1 1 140px; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 12px; background: var(--card); font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; }
-.momo-net:hover { border-color: var(--ink3); }
-.momo-net.on { border-color: var(--brand); background: var(--brandSoft); }
-.momo-net:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .momo-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(0,0,0,.06); }
 .momo-dot.mtn { background: #ffcb05; } .momo-dot.orange { background: #ff7900; }
 .momo-phone { display: flex; align-items: stretch; }
 .momo-phone > span { display: grid; place-items: center; padding: 0 12px; border: 1px solid var(--line); border-right: 0; border-radius: 11px 0 0 11px; background: var(--bg); font-weight: 700; color: var(--ink2); }
-.momo-phone .inp { border-radius: 0 11px 11px 0; font-size: 17px; letter-spacing: .02em; }
-.momo-spin { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(13,92,99,.18); border-top-color: var(--brand); animation: momospin .9s linear infinite; flex: none; }
-.momo-spin.lg { width: 52px; height: 52px; border-width: 4px; }
-@keyframes momospin { to { transform: rotate(360deg); } }
+.momo-phone { position: relative; }
+.momo-phone .inp { border-radius: 0 11px 11px 0; font-size: 17px; letter-spacing: .02em; padding-right: 140px; }
+.momo-tag { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 6px; font-style: normal; font-size: 13px; font-weight: 700; color: var(--ink2); pointer-events: none; }
+.momo-tag .momo-dot { width: 10px; height: 10px; }
+.momo-amt { position: relative; }
+.momo-amt .inp { font-size: 17px; font-weight: 700; background: var(--line2); color: var(--ink); padding-right: 64px; cursor: default; }
+.momo-amt span { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--ink2); }
+@media (max-width: 380px) { .momo-phone .inp { padding-right: 12px; } .momo-tag { display: none; } }
 
 /* Billing: invoice card → Pay modal */
 .pay-cta { padding-top: 14px; border-top: 1px solid var(--line2); align-items: center; gap: 12px; }
@@ -1311,31 +1310,23 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .pay-tab.on .pay-tab-ic { background: #fff; }
 .pay-tab-ic .momo-dot { width: 12px; height: 12px; }
 @media (max-width: 380px) { .pay-tab small { display: none; } }
-.pay-steps { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 10px; text-align: left; }
-.pay-steps li { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; line-height: 1.45; }
-.pay-steps li > span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--brandSoft); color: var(--brand); font-weight: 800; font-size: 12px; flex: none; }
 .pay-lbl { font-size: 13px; font-weight: 700; color: var(--ink2); margin-bottom: 8px; }
 .pay-lines { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 2px 14px; }
 .pay-lines .pay-line { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line2); }
 .pay-lines .pay-line:last-child { border-bottom: 0; }
 .pay-line-ic { display: inline-grid; place-items: center; width: 14px; color: var(--ink2); }
-.pay-test { font-size: 13px; padding: 10px 12px; border-radius: 10px; background: var(--accentSoft); color: #7a5210; margin-bottom: 12px; }
-.pay-trust { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--ink3); margin-top: 4px; }
 .pay-state { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 6px 4px 10px; }
 .pay-state h3 { margin: 14px 0 6px; font-size: 18px; }
 .pay-state p { margin: 0 0 8px; max-width: 360px; }
-.pay-state .pay-steps { margin-top: 8px; width: 100%; max-width: 360px; }
 .pay-ic { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; }
 .pay-ic.info { background: var(--infoSoft); color: var(--info); }
 .pay-ic .i, .pay-phone .i { width: 26px; height: 26px; }
 .pay-phone { position: relative; display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%; background: var(--brandSoft); color: var(--brand); }
 .pay-phone .pay-pulse { position: absolute; top: 6px; right: 6px; }
-.ghost-link { background: none; border-color: transparent; color: var(--brand); font-weight: 700; }
-.ghost-link:hover { background: var(--brandSoft); }
 .pay-done { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 22px 8px 8px; }
 .pay-done h2 { margin: 16px 0 6px; font-size: 22px; }
 .pay-done p { margin: 0 0 6px; max-width: 340px; }
 .pay-tick { display: grid; place-items: center; width: 76px; height: 76px; border-radius: 50%; background: var(--ok); color: #fff; box-shadow: 0 0 0 10px var(--okSoft); animation: paytick .45s cubic-bezier(.2,1.4,.4,1) both; }
 .pay-tick .i { width: 38px; height: 38px; stroke-width: 3; }
 @keyframes paytick { from { transform: scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .momo-spin, .pay-pulse::after, .pay-tick { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .pay-pulse::after, .pay-tick { animation: none; } }
