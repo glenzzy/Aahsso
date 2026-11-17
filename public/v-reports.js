@@ -1,4 +1,4 @@
-/* Kargo — reports & analytics */
+/* Aahsso — reports & analytics */
 const RP = [['today', 'Today'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['year', 'This year'], ['all', 'All time'], ['custom', 'Custom']];
 function repRange() {
   const t = todayStr(), k = K.ui.rp || '30d'; let from, to = t;

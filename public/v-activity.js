@@ -1,4 +1,4 @@
-/* Kargo — Activity log: who did what, where, when and why */
+/* Aahsso — Activity log: who did what, where, when and why */
 const ACT_RANGES = [['today', 'Today'], ['yday', 'Yesterday'], ['7d', '7 days'], ['30d', '30 days'], ['custom', 'Pick dates']];
 function actRange() {
   const t = todayStr(), k = K.ui.actR || 'today';

@@ -6,7 +6,7 @@
  *  - payment link (default): POST /initiate-pay → the payer is sent to Fapshi's checkout page, pays with
  *    MTN MoMo or Orange Money, and comes back to Billing. Works on live without extra activation.
  *  - direct pay (FAPSHI_DIRECT_PAY=true): POST /direct-pay → the payer gets a prompt on their phone and
- *    approves with their PIN, without leaving Kargo. Fapshi must activate Direct Pay on live accounts.
+ *    approves with their PIN, without leaving Aahsso. Fapshi must activate Direct Pay on live accounts.
  *
  * Fapshi has no idempotency key and gives the transaction id (transId) only in its answer, so we save
  * the payment first (our id is sent as externalId, the business as userId), then store the transId.
@@ -137,7 +137,7 @@ async function apply(p, t) {
   if (t.externalId && t.externalId !== p.id) return p; // not this payment
   const net = networkOfMedium(t.medium);
   if (t.status === 'SUCCESSFUL') {
-    if (Number(t.amount) !== Number(p.amount)) { // never activate on a different amount: hand it to the Kargo team
+    if (Number(t.amount) !== Number(p.amount)) { // never activate on a different amount: hand it to the Aahsso team
       const note = 'Mobile money paid ' + t.amount + ' ' + CURRENCY + ' — expected ' + p.amount + ' ' + p.currency + '. Check before confirming.';
       const r = await q("UPDATE payments SET status='pending', note=$2, provider_txn=$3 WHERE id=$1 AND status='processing' RETURNING id", [p.id, note, t.financialTransId || null]);
       if (r.rowCount) { const tn = (await q('SELECT name FROM tenants WHERE id=$1', [p.tenant_id])).rows[0] || {}; await B.mailAdmins(pool, 'payment_claim', mailer.T.paymentClaim({ business: tn.name || '', by: 'Mobile money (automatic)', number: '', amount: t.amount + ' ' + CURRENCY, method: p.method, reference: t.transId || p.provider_ref, paidOn: B.dayStr(new Date()) })).catch(() => {}); }
@@ -254,7 +254,7 @@ function mount(app, { auth, wrap, err, guard }) {
     const method = net ? net.label : 'Mobile Money';
     const p = (await q("INSERT INTO payments (tenant_id, invoice_id, amount, currency, method, reference, paid_on, status, provider, phone, network, claimed_by) VALUES ($1,$2,$3,$4,$5,NULL,$6,'processing','fapshi',$7,$8,$9) RETURNING " + PAY_COLS,
       [tid, inv.id, due, CURRENCY, method, B.dayStr(new Date()), phone, net ? net.code : null, req.user.name])).rows[0];
-    const common = { amount: due, externalId: p.id, userId: tid, message: 'Kargo subscription — invoice ' + inv.number, email };
+    const common = { amount: due, externalId: p.id, userId: tid, message: 'Aahsso subscription — invoice ' + inv.number, email };
     let r;
     try {
       r = c.direct ? await directPay(Object.assign({ phone, medium: net.medium, name: req.user.name }, common))

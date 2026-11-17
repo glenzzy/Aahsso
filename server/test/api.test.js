@@ -1,8 +1,8 @@
 // API integration + concurrency stress tests. Needs a running server and database:
-//   KARGO_URL=http://localhost:8080 node --test test/api.test.js
+//   AAHSSO_URL=http://localhost:8080 node --test test/api.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const B = process.env.KARGO_URL || 'http://localhost:8080';
+const B = process.env.AAHSSO_URL || 'http://localhost:8080';
 const rnd = Math.random().toString(36).slice(2, 8);
 
 async function call(method, path, token, body, raw) {

@@ -1,4 +1,4 @@
-/* Kargo platform admin — dashboard. No inline scripts or handlers (strict CSP); every action goes through data-act. */
+/* Aahsso platform admin — dashboard. No inline scripts or handlers (strict CSP); every action goes through data-act. */
 (() => {
   'use strict';
   const $ = (s, r = document) => r.querySelector(s);
@@ -67,7 +67,7 @@
 
   /* ---------- API ---------- */
   async function api(method, path, body, retry = true) {
-    const r = await fetch('/api/admin' + path, { method, credentials: 'same-origin', headers: Object.assign({ 'x-kargo-admin': '1' }, body ? { 'content-type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined });
+    const r = await fetch('/api/admin' + path, { method, credentials: 'same-origin', headers: Object.assign({ 'x-aahsso-admin': '1' }, body ? { 'content-type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined });
     const j = (r.headers.get('content-type') || '').includes('json') ? await r.json().catch(() => ({})) : {};
     if (r.status === 404 && S.me && !path.startsWith('/auth/')) { S.me = null; closeModal(); renderLogin('Your session ended. Please sign in again.'); throw Object.assign(new Error('signed out'), { quiet: true }); }
     if (r.status === 403 && j.code === 'reauth' && retry) { if (await reauth()) return api(method, path, body, false); throw Object.assign(new Error('cancelled'), { quiet: true }); }
@@ -108,9 +108,9 @@
   ACT_raToggle = () => { $('#raCode').classList.toggle('hide'); $('#raRec').classList.toggle('hide'); const f = $('#raRec').classList.contains('hide') ? $('#raCode input') : $('#raRec input'); f.focus(); };
 
   /* ---------- sign-in ---------- */
-  const authShell = (inner) => { $('#app').className = ''; $('#app').innerHTML = '<main class="auth"><div class="auth-card"><div class="auth-brand"><div class="mark">K</div><div><b>Kargo</b><div class="tiny faint">Platform admin</div></div></div>' + inner + '</div></main>'; };
+  const authShell = (inner) => { $('#app').className = ''; $('#app').innerHTML = '<main class="auth"><div class="auth-card"><div class="auth-brand"><div class="mark">A</div><div><b>Aahsso</b><div class="tiny faint">Platform admin</div></div></div>' + inner + '</div></main>'; };
   async function pub(path, body) {
-    const r = await fetch('/api/admin' + path, { method: 'POST', credentials: 'same-origin', headers: { 'x-kargo-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch('/api/admin' + path, { method: 'POST', credentials: 'same-origin', headers: { 'x-aahsso-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Something went wrong'); return j;
   }
   function renderLogin(msg) {
@@ -129,7 +129,7 @@
   }
   ACT_recToggle = (el) => { const r = $('#rBox').classList.toggle('hide'); $('#cBox').classList.toggle('hide'); el.textContent = r ? 'Lost your phone? Use a recovery code' : 'Use the authenticator code'; $(r ? '#cBox input' : '#rBox input').focus(); };
   function renderCode(ticket) {
-    authShell('<h1>Two-step verification</h1><p class="sub">Open your authenticator app and type the current code for Kargo Admin.</p>' + codeForm('cf', true));
+    authShell('<h1>Two-step verification</h1><p class="sub">Open your authenticator app and type the current code for Aahsso Admin.</p>' + codeForm('cf', true));
     const go = () => { const v = vals($('#cf')); const rec = $('#rBox') && !$('#rBox').classList.contains('hide');
       busy($('#cgo'), async () => { try { after(await pub('/auth/verify', rec ? { ticket, recoveryCode: v.recoveryCode } : { ticket, code: v.code })); } catch (er) { showErr('#cerr', er.message); if (/expired/i.test(er.message)) setTimeout(() => renderLogin(er.message), 1200); } }); };
     $('#cf').onsubmit = (e) => { e.preventDefault(); go(); }; $('[name=code]').focus();
@@ -151,7 +151,7 @@
     S.codes = codes; $('#saved').onchange = (e) => ($('#rgo').disabled = !e.target.checked); $('#rgo').onclick = () => { S.codes = null; next(); };
   }
   ACT_copyCodes = () => navigator.clipboard.writeText(S.codes.join('\n')).then(() => toast('Copied'), () => toast('Copy failed — select and copy them', true));
-  ACT_dlCodes = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['Kargo admin recovery codes — ' + new Date().toISOString().slice(0, 10) + '\nEach code works once.\n\n' + S.codes.join('\n') + '\n'], { type: 'text/plain' })); a.download = 'kargo-admin-recovery-codes.txt'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+  ACT_dlCodes = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['Aahsso admin recovery codes — ' + new Date().toISOString().slice(0, 10) + '\nEach code works once.\n\n' + S.codes.join('\n') + '\n'], { type: 'text/plain' })); a.download = 'aahsso-admin-recovery-codes.txt'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
   function renderChangePw() {
     authShell('<h1>Choose your password</h1><p class="sub">Replace the temporary password. Use at least 12 characters — a few random words work well.</p>' +
       '<form id="pf" class="col" novalidate>' + field('Temporary / current password', inp('current', '', 'type="password" autocomplete="current-password"')) + field('New password', inp('password', '', 'type="password" autocomplete="new-password" minlength="12"')) + field('Type it again', inp('password2', '', 'type="password" autocomplete="new-password"')) +
@@ -177,7 +177,7 @@
   const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   const canAny = (p) => !p || p.split('|').some(can);
   /* one short line under the title of each page — what it is for */
-  const INTRO = { overview: 'Revenue, sign-ups and what needs your attention today.', tenants: 'Every business on Kargo — search, open one to see its plan, usage and invoices.', users: 'Everyone who signs in to a business — owners and their team. Add, edit, disable, reset passwords.', audit: 'Everything admins did: sign-ins, changes to plans, businesses, users and payments.', account: 'Your details, password, PIN and where you are signed in.', plans: 'What each plan costs and which features and limits it includes.', billing: 'Payments to check, invoices, and money received. Record a payment made outside the app — cash, MoMo, bank.', support: 'Questions and problems sent by businesses from the app.', health: 'Server, database, emails and automatic reminders.', settings: 'How businesses pay you and the subscription rules.' };
+  const INTRO = { overview: 'Revenue, sign-ups and what needs your attention today.', tenants: 'Every business on Aahsso — search, open one to see its plan, usage and invoices.', users: 'Everyone who signs in to a business — owners and their team. Add, edit, disable, reset passwords.', audit: 'Everything admins did: sign-ins, changes to plans, businesses, users and payments.', account: 'Your details, password, PIN and where you are signed in.', plans: 'What each plan costs and which features and limits it includes.', billing: 'Payments to check, invoices, and money received. Record a payment made outside the app — cash, MoMo, bank.', support: 'Questions and problems sent by businesses from the app.', health: 'Server, database, emails and automatic reminders.', settings: 'How businesses pay you and the subscription rules.' };
   const IC = { home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', store: 'M3 9l1.5-5h15L21 9M3 9h18M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 12v8h14v-8', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', card: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2zM2 10h20M6 15h4', chat: 'M21 12a8 8 0 01-11.6 7.1L3 21l1.9-6.4A8 8 0 1121 12z', pulse: 'M3 12h4l3-8 4 16 3-8h4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4', gear: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z', menu: 'M4 6h16M4 12h16M4 18h16', list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', user: 'M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z', lock: 'M5 11h14v10H5zM8 11V7a4 4 0 018 0v4', users: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8', plus: 'M12 5v14M5 12h14', key: 'M15 7a2 2 0 012 2M21 9a6 6 0 01-7.7 5.7L11 17H9v2H7v2H3v-3.6l6.3-6.3A6 6 0 1121 9z', trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6', money: 'M2 7a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2zM12 15a3 3 0 100-6 3 3 0 000 6zM6 12h.01M18 12h.01', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3', out: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9' };
   const ic = (n, c) => '<svg class="i' + (c ? ' ' + c : '') + '" viewBox="0 0 24 24" aria-hidden="true"><path d="' + IC[n] + '"/></svg>';
   async function boot() {
@@ -188,7 +188,7 @@
   }
   function shell() {
     const a = S.me.admin;
-    $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side" aria-label="Main menu"><div class="brand"><div class="mark">K</div><div>Kargo<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div></aside><div class="scrim" id="scrim" data-act="menu"></div>' +
+    $('#app').className = ''; $('#app').innerHTML = '<div class="shell"><aside class="side" id="side" aria-label="Main menu"><div class="brand"><div class="mark">A</div><div>Aahsso<small>Platform admin</small></div></div><nav id="nav" class="col" style="gap:2px"></nav><div class="sp"></div></aside><div class="scrim" id="scrim" data-act="menu"></div>' +
       '<div class="main"><header class="top"><button class="btn sm ghost menu-btn" data-act="menu" aria-label="Open menu" aria-controls="side">' + ic('menu') + '</button><div class="mark tmark" aria-hidden="true">K</div><h1 id="title"></h1><span class="tiny faint" id="idle"></span>' +
       '<div class="am"><button type="button" class="am-btn" id="amBtn" data-act="amToggle" aria-haspopup="menu" aria-expanded="false" aria-controls="amPop" aria-label="Account menu"><span class="uav">' + esc(initials(a.name)) + '</span></button>' +
       '<div class="am-pop hide" id="amPop" role="menu"><div class="am-h"><span class="uav">' + esc(initials(a.name)) + '</span><div class="grow"><b>' + esc(a.name) + '</b><div class="tiny faint am-e">' + esc(a.email) + '</div><span class="badge info mt-s">' + esc(roleName(a.role)) + '</span></div></div>' +
@@ -348,7 +348,7 @@
     dl: async (el) => {
       const r = await fetch(el.getAttribute('href'), { credentials: 'same-origin' });
       if (!r.ok) throw new Error(r.status === 404 ? 'Your session ended. Sign in again to export.' : 'The export did not work (' + r.status + ')');
-      const name = (/filename="?([^";]+)/.exec(r.headers.get('content-disposition') || '') || [])[1] || 'kargo-export.csv';
+      const name = (/filename="?([^";]+)/.exec(r.headers.get('content-disposition') || '') || [])[1] || 'aahsso-export.csv';
       const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = name; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     },
@@ -376,7 +376,7 @@
     tResetPw: () => { const box = modal({ title: 'Reset the owner password', body: '<p class="muted small">A temporary password is set and emailed to the owner (if they have an email). The business sees this in its activity log.</p>' + reasonField(true), foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Reset password</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => { const r = await api('POST', '/tenants/' + S.t.tenant.id + '/reset-owner-password', vals(box));
         modal({ title: 'New temporary password', body: '<p class="small">Login: <b>' + esc(r.login) + '</b></p><div class="secret mb">' + esc(r.password) + '</div><p class="small muted">' + (r.emailed === 'sent' ? 'Emailed to ' + esc(r.emailTo) + '.' : 'Not emailed — give it to the owner yourself after checking who they are.') + ' It is not shown again.</p>', foot: '<button class="btn pri" data-close>Done</button>' }); }); },
-    tViewAs: () => { const box = modal({ title: 'View as owner (read-only)', body: '<p class="muted small">Opens the business app as its owner for 30 minutes. Nothing can be changed. The business sees “Kargo support viewed your account” with your reason in its activity log.</p>' + reasonField(true), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Open read-only view</button>' });
+    tViewAs: () => { const box = modal({ title: 'View as owner (read-only)', body: '<p class="muted small">Opens the business app as its owner for 30 minutes. Nothing can be changed. The business sees “Aahsso support viewed your account” with your reason in its activity log.</p>' + reasonField(true), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Open read-only view</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => { const r = await api('POST', '/tenants/' + S.t.tenant.id + '/view', vals(box)); closeModal(); const w = window.open(r.url, '_blank', 'noopener'); if (!w) modal({ title: 'Open the view', body: '<p class="small">Your browser blocked the new tab. <a href="' + esc(r.url) + '" target="_blank" rel="noopener">Open the read-only view</a> (valid 30 minutes).</p>' }); }); },
   };
   /* business picker for modals: type to search, pick from the list */

@@ -1,15 +1,15 @@
-// Mobile money (Fapshi) end to end, against a fake Fapshi started here (port 18091). Needs a Kargo server with:
+// Mobile money (Fapshi) end to end, against a fake Fapshi started here (port 18091). Needs an Aahsso server with:
 //   FAPSHI_API_USER=fu_test FAPSHI_API_KEY=fk_test FAPSHI_BASE_URL=http://127.0.0.1:18091 FAPSHI_WEBHOOK_SECRET=wh-secret FAPSHI_SWEEP_DISABLED=true CRON_SECRET=…
-// and, for the phone-prompt tests, a second one on the same database with FAPSHI_DIRECT_PAY=true (KARGO_URL_DIRECT):
-//   KARGO_URL=http://localhost:8080 KARGO_URL_DIRECT=http://localhost:8081 DATABASE_URL=… CRON_SECRET=… node --test test/fapshi-api.test.js
+// and, for the phone-prompt tests, a second one on the same database with FAPSHI_DIRECT_PAY=true (AAHSSO_URL_DIRECT):
+//   AAHSSO_URL=http://localhost:8080 AAHSSO_URL_DIRECT=http://localhost:8081 DATABASE_URL=… CRON_SECRET=… node --test test/fapshi-api.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 
-const B = process.env.KARGO_URL || 'http://localhost:8080';
-const BD = process.env.KARGO_URL_DIRECT || '';
+const B = process.env.AAHSSO_URL || 'http://localhost:8080';
+const BD = process.env.AAHSSO_URL_DIRECT || '';
 const db = new Pool({ connectionString: process.env.DATABASE_URL });
 const rnd = Math.random().toString(36).slice(2, 7);
 const SECRET = 'wh-secret';
@@ -31,7 +31,7 @@ const fake = http.createServer((req, res) => {
       if (req.url === '/direct-pay' && d.phone === '670000009') return send(400, { message: 'Invalid phone number' });
       if (req.url === '/direct-pay' && !/^6\d{8}$/.test(String(d.phone))) return send(400, { message: 'phone must be 9 digits' });
       const transId = newId(); const direct = req.url === '/direct-pay';
-      txns.set(transId, { transId, status: direct ? 'PENDING' : 'CREATED', medium: direct ? d.medium : undefined, serviceName: 'Kargo', transType: 'Collection', amount: d.amount, revenue: Math.round(d.amount * 0.97), payerName: d.name, email: d.email, redirectUrl: d.redirectUrl, externalId: d.externalId, userId: d.userId, dateInitiated: new Date().toISOString() });
+      txns.set(transId, { transId, status: direct ? 'PENDING' : 'CREATED', medium: direct ? d.medium : undefined, serviceName: 'Aahsso', transType: 'Collection', amount: d.amount, revenue: Math.round(d.amount * 0.97), payerName: d.name, email: d.email, redirectUrl: d.redirectUrl, externalId: d.externalId, userId: d.userId, dateInitiated: new Date().toISOString() });
       if (loseAnswer) return send(502, { message: 'Bad gateway' }); // created at Fapshi, but our server never hears the transId
       return send(200, Object.assign({ message: 'Request successful', transId, dateInitiated: new Date().toISOString() }, direct ? {} : { link: 'https://checkout.fapshi.test/payment/' + transId }));
     }
@@ -138,7 +138,7 @@ test('page expired / failed → plain reason; paying again closes the old page a
   S.p4 = r4.body.payment.id; S.tr4 = (await row(S.p4)).provider_ref;
 });
 
-test('Fapshi reports a different amount → not activated, sent to the Kargo team (lost webhook found by the daily job)', async () => {
+test('Fapshi reports a different amount → not activated, sent to the Aahsso team (lost webhook found by the daily job)', async () => {
   const before = await sub();
   set(S.tr4, { status: 'SUCCESSFUL', amount: 100, medium: 'mobile money' });
   await db.query("UPDATE payments SET created_at = now() - interval '2 minutes', provider_checked_at=NULL WHERE id=$1", [S.p4]); // the sweep only looks at payments older than a minute
@@ -171,7 +171,7 @@ test('other businesses cannot see or pay your invoices', async () => {
 });
 
 /* ---------- prompt on the phone (Direct Pay), on a second server with FAPSHI_DIRECT_PAY=true ---------- */
-test('direct pay: number + network → prompt → approve → plan active; second phone refused while waiting', { skip: !BD && 'KARGO_URL_DIRECT not set' }, async () => {
+test('direct pay: number + network → prompt → approve → plan active; second phone refused while waiting', { skip: !BD && 'AAHSSO_URL_DIRECT not set' }, async () => {
   const D = await business('direct');
   const b = await api('GET', '/api/billing', D.t, undefined, {}, BD); assert.equal(b.body.momo.direct, true);
   const inv = await newInvoice('monthly', D.t);
@@ -188,7 +188,7 @@ test('direct pay: number + network → prompt → approve → plan active; secon
   const p = await row(r.body.payment.id); assert.equal(p.method, 'MTN MoMo'); assert.equal(p.phone, '677123456');
 });
 
-test('direct pay: refused number; answer lost → found again by our id; never received → failed after 30 minutes', { skip: !BD && 'KARGO_URL_DIRECT not set' }, async () => {
+test('direct pay: refused number; answer lost → found again by our id; never received → failed after 30 minutes', { skip: !BD && 'AAHSSO_URL_DIRECT not set' }, async () => {
   const D = await business('direct2'); const inv = await newInvoice('monthly', D.t);
   const rej = await pay(inv, { phone: '670000009', network: 'mtn' }, D.t, BD); assert.equal(rej.status, 400); assert.match(rej.body.error, /Invalid phone/);
   loseAnswer = true; const r = await pay(inv, { phone: '699123456' }, D.t, BD); loseAnswer = false;

@@ -1,8 +1,8 @@
 // API tests: shop address (slug), attendance, leave, employee files, payroll privacy, till takeovers.
-//   KARGO_URL=http://localhost:8080 node --test test/staff-api.test.js
+//   AAHSSO_URL=http://localhost:8080 node --test test/staff-api.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const B = process.env.KARGO_URL || 'http://localhost:8080';
+const B = process.env.AAHSSO_URL || 'http://localhost:8080';
 const rnd = Math.random().toString(36).slice(2, 8);
 const today = new Date(); const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 const T = ymd(today);

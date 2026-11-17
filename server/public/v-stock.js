@@ -1,4 +1,4 @@
-/* Kargo — Stock, products, pricing, labels, purchases, containers */
+/* Aahsso — Stock, products, pricing, labels, purchases, containers */
 
 const catOpts = () => Object.keys(S().categories || KC.CATEGORIES);
 const subOpts = (cat) => ((S().categories || KC.CATEGORIES)[cat] || []);

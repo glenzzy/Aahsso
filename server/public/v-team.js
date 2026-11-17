@@ -1,4 +1,4 @@
-/* Kargo — Team & access: roles, per-person permissions, approvals */
+/* Aahsso — Team & access: roles, per-person permissions, approvals */
 const ROLES_NOW = () => KC.rolesWith(S().roles);
 const ROLE_OPTS = () => Object.entries(has('customRoles') ? ROLES_NOW() : KC.ROLES).filter(([k]) => k !== 'owner').map(([k, r]) => [k, r.label]); // custom roles only in plans that include them
 const ROLE_HELP = {

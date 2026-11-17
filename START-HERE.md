@@ -1,7 +1,7 @@
-# Kargo — developer handover (start here)
+# Aahsso — developer handover (start here)
 
 **Client:** Bullekam SARL, Douala, Cameroon · contact@bullekam.com · www.bullekam.com  
-**Product:** Kargo, a multi-tenant SaaS for import/resale businesses. It covers buying in the US (Costco, Walmart, Sam's Club, B-Stock auctions), US storage, containers Houston → Douala, landed cost, branches and warehouses, POS in FCFA (cash / MTN MoMo / Orange Money), credit and debt reminders, suppliers, cash handover, stock counts, business assets, reports and the activity log.
+**Product:** Aahsso, a multi-tenant SaaS for import/resale businesses. It covers buying in the US (Costco, Walmart, Sam's Club, B-Stock auctions), US storage, containers Houston → Douala, landed cost, branches and warehouses, POS in FCFA (cash / MTN MoMo / Orange Money), credit and debt reminders, suppliers, cash handover, stock counts, business assets, reports and the activity log.
 
 **You do not need any Claude account.** The client built and tested a working prototype on their own Claude account; it is not part of what you deploy. **Everything you need is in this folder:** the complete frontend, backend, database, documentation, demo data and tests. The app runs on any Node.js + PostgreSQL host.
 
@@ -31,9 +31,9 @@ npm run migrate && npm run seed-demo && npm start
 
 | Demo login | Password | Role | What they see |
 |---|---|---|---|
-| **demo@kargo.app** | demo1234 | Owner | Everything |
-| **manager@kargo.app** | demo1234 | Manager | Everything except team & settings |
-| **jenny@kargo.app** | demo1234 | Sales rep (Akwa shop) | Sell, payments, returns, customers, stock. Only her own sales; no costs, profit or assets. |
+| **demo@aahsso.app** | demo1234 | Owner | Everything |
+| **manager@aahsso.app** | demo1234 | Manager | Everything except team & settings |
+| **jenny@aahsso.app** | demo1234 | Sales rep (Akwa shop) | Sell, payments, returns, customers, stock. Only her own sales; no costs, profit or assets. |
 
 To use different demo credentials, set `DEMO_LOGIN` / `DEMO_PASS` before running the seed.
 **Create business** on the login screen creates a brand-new, empty tenant. Its creator is the owner, and the trial length is set by `TRIAL_DAYS`.
@@ -50,7 +50,7 @@ Open http://localhost:8765. In this mode data is kept only in that browser: ther
 
 1. **Server:** any Node host. Render, Railway, Fly.io or a VPS can all build the `server/Dockerfile`. On start it runs the migrations, then the API, and serves the app.
 2. **Database:** managed PostgreSQL 14+ (Neon, Supabase, Render, AWS RDS…). Set `DATABASE_URL`, plus `PGSSL=true` if SSL is required.
-3. **Domain + HTTPS:** for example **https://kargo.bullekam.com**. HTTPS is required for the camera (photos, barcodes), for "Add to Home Screen" and for offline use.
+3. **Domain + HTTPS:** for example **https://aahsso.bullekam.com**. HTTPS is required for the camera (photos, barcodes), for "Add to Home Screen" and for offline use.
 4. **Environment variables:** listed in full in `docs/07-DEPLOYMENT.md`. The minimum is `DATABASE_URL` and `JWT_SECRET`.
 5. **First real account:** open the site → **Create business** → "Bullekam Imports" (or the client's chosen name), signed up with the client's email. That person is the owner. The owner then adds staff under **Team & access**: name, login (email or phone), password, role and branch.
 6. **Backups:** nightly `pg_dump` (managed Postgres usually includes this). Owners can also download a full JSON backup in Settings at any time.
@@ -74,7 +74,7 @@ The client has already entered data in the prototype. To bring it over:
 1. **Client:** in the current app, go to **Settings → Download full backup**. This gives a `.json` file with every record and photo, which the client sends to you.
 2. **You:**
    - After step 5 above (the owner account exists), log in as the owner → **Settings → Restore from backup** → choose the file.
-   - Or, on the server: `npm run import-backup -- kargo-backup.json owner@email.com`
+   - Or, on the server: `npm run import-backup -- aahsso-backup.json owner@email.com`
 3. Re-create staff logins under **Team & access**. Prototype users were Claude accounts, so they don't carry over.
 
 The import never deletes anything; a record with the same id is overwritten, so it is safe to run it again with a newer backup just before go-live.
@@ -100,7 +100,7 @@ The import never deletes anything; a record with the same id is overwritten, so 
 ## 5. Check it works (acceptance)
 ```bash
 cd server && npm test                                     # 21 unit tests (business rules)
-KARGO_URL=http://localhost:8080 npm run test:api          # 19 API tests (use a throw-away database)
+AAHSSO_URL=http://localhost:8080 npm run test:api          # 19 API tests (use a throw-away database)
 cd ../tests-e2e && see README.md                          # browser tests
 ```
 Results at handover: **unit 21/21 · API 19/19 · browser audit 83/83 · assets 49/49 · SaaS flows pass**, with no JavaScript errors on any screen.

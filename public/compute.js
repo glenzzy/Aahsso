@@ -1,4 +1,4 @@
-/* Kargo — shared business logic (runs in the browser AND on the Node server).
+/* Aahsso — shared business logic (runs in the browser AND on the Node server).
  * Landed-cost allocation, FIFO stock, pricing, sale & report metrics.
  * Pure functions only: no DOM, no network. */
 (function (root, factory) {
@@ -296,9 +296,9 @@
   /** permissions after the plan: a permission whose feature is off is false */
   function permsWithFeatures(perms, features) { const out = Object.assign({}, perms); Object.keys(out).forEach((p) => { if (out[p] && !permFeatureOn(features, p)) out[p] = false; }); return out; }
 
-  /* ---------- online shop address: /s/<slug>, made from the store name, unique across Kargo ---------- */
+  /* ---------- online shop address: /s/<slug>, made from the store name, unique across Aahsso ---------- */
   const SHOP_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/;
-  const RESERVED_SLUGS = ['admin', 'api', 'app', 'www', 'kargo', 'shop', 'shops', 'store', 'stores', 'login', 'signup', 'register', 'help', 'support', 'settings', 'orders', 'static', 'assets', 'new', 'test', 'demo'];
+  const RESERVED_SLUGS = ['admin', 'api', 'app', 'www', 'aahsso', 'kargo', 'shop', 'shops', 'store', 'stores', 'login', 'signup', 'register', 'help', 'support', 'settings', 'orders', 'static', 'assets', 'new', 'test', 'demo'];
   /** "Mama's Beauté & Co" → "mamas-beaute-and-co" */
   function shopSlugify(s) {
     return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/['’]/g, '').replace(/&/g, ' and ')

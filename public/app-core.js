@@ -1,4 +1,4 @@
-/* Kargo — app core: state, helpers, UI primitives, navigation */
+/* Aahsso — app core: state, helpers, UI primitives, navigation */
 const { num } = KC;
 const K = {
   store: null, info: { role: 'admin' }, me: { id: 'local', name: '' }, member: { role: 'owner' }, perms: {}, route: 'home', pending: false, sheets: [],
@@ -8,8 +8,8 @@ const K = {
   ui: { stockFilter: 'all', stockCat: '', stockQ: '', salesRange: 'today', salesStatus: 'all', salesQ: '', posQ: '', posCat: '', buyQ: '', custQ: '', repTab: 'daily', repDate: '', repMonth: '', expanded: {} },
   cart: { lines: [], customerId: null, editingId: null, discount: 0 },
 };
-try { const c = JSON.parse(localStorage.getItem('kargo-cart') || 'null'); if (c && c.lines) K.cart = c; } catch (e) { }
-const saveCart = () => { try { localStorage.setItem('kargo-cart', JSON.stringify(K.cart)); } catch (e) { } };
+try { const c = JSON.parse(localStorage.getItem('aahsso-cart') || 'null'); if (c && c.lines) K.cart = c; } catch (e) { }
+const saveCart = () => { try { localStorage.setItem('aahsso-cart', JSON.stringify(K.cart)); } catch (e) { } };
 
 /* ---------- helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -96,8 +96,8 @@ function resolveAccess() { resolveAccessInner(); if (K.member && K.info.mode ===
 const allLocs = () => [{ id: 'main', name: S().mainLocationName || 'Main warehouse' }].concat(K.raw.locations.filter((l) => !l.archived).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
 const locName = (id) => (allLocs().find((l) => l.id === (id || 'main')) || { name: 'Main warehouse' }).name;
 const myLocs = () => can('allLocations') ? allLocs() : allLocs().filter((l) => l.id === ((K.member && K.member.locationId) || 'main'));
-function fixLoc() { const ok = myLocs(); if (!ok.find((l) => l.id === K.loc)) K.loc = (ok[0] || { id: 'main' }).id; try { localStorage.setItem('kargo-loc', K.loc); } catch (e) { } }
-try { K.loc = localStorage.getItem('kargo-loc') || 'main'; } catch (e) { }
+function fixLoc() { const ok = myLocs(); if (!ok.find((l) => l.id === K.loc)) K.loc = (ok[0] || { id: 'main' }).id; try { localStorage.setItem('aahsso-loc', K.loc); } catch (e) { } }
+try { K.loc = localStorage.getItem('aahsso-loc') || 'main'; } catch (e) { }
 const imgSrc = (ref) => !ref ? '' : String(ref).startsWith('data:') ? ref : (K.store && K.store.imageUrl ? K.store.imageUrl(ref) : '');
 const CAT_COLORS = ['#0d5c63', '#b7791f', '#2f6fb3', '#7a4bb3', '#c2412d', '#1f8a4c', '#8a5a12', '#4a5868'];
 const catColor = (c) => { let h = 0; String(c || '').split('').forEach((ch) => (h = (h * 31 + ch.charCodeAt(0)) >>> 0)); return CAT_COLORS[h % CAT_COLORS.length]; };
@@ -172,7 +172,7 @@ function formVals(root) {
 }
 
 /* ---------- persistence (with offline outbox) ---------- */
-const OB_KEY = () => 'kargo-outbox-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '');
+const OB_KEY = () => 'aahsso-outbox-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '');
 function loadOutbox() { try { K.outbox = JSON.parse(localStorage.getItem(OB_KEY()) || '[]'); } catch (e) { K.outbox = []; } }
 function persistOutbox() { if (K.info && K.info.supportView) { shellSync(); return; } try { localStorage.setItem(OB_KEY(), JSON.stringify(K.outbox)); } catch (e) { } shellSync(); }
 const isNetErr = (e) => !e || ['unavailable', 'timeout', 'network'].includes(e.code) || e.name === 'TypeError' || /failed to fetch|network|load failed/i.test(String(e.message || ''));
@@ -234,7 +234,7 @@ async function remove(col, id) {
   catch (e) { if (isNetErr(e)) { enqueue(col, id, null); return true; } toast('Could not delete: ' + (e.message || e.code), true); return false; }
 }
 /* cached copy of the data so the app opens instantly and keeps working when the connection drops */
-const CACHE_KEY = () => 'kargo-cache-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '') + '-' + (K.me.id || '');
+const CACHE_KEY = () => 'aahsso-cache-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '') + '-' + (K.me.id || '');
 let _ct; function cacheSoon() { if (K.info && K.info.supportView) return; clearTimeout(_ct); _ct = setTimeout(() => { try { localStorage.setItem(CACHE_KEY(), JSON.stringify({ at: new Date().toISOString(), raw: K.raw })); } catch (e) { try { const lite = Object.assign({}, K.raw, { products: K.raw.products.map((p) => Object.assign({}, p, { image: String(p.image || '').startsWith('data:') ? '' : p.image })) }); localStorage.setItem(CACHE_KEY(), JSON.stringify({ at: new Date().toISOString(), raw: lite })); } catch (e2) { } } }, 1500); }
 function loadCache() { if (K.info && K.info.supportView) return null; try { const c = JSON.parse(localStorage.getItem(CACHE_KEY()) || 'null'); if (c && c.raw) { Object.keys(K.raw).forEach((k) => { if (c.raw[k] !== undefined) K.raw[k] = c.raw[k]; }); return c.at; } } catch (e) { } return null; }
 function shellSync() {
@@ -248,7 +248,7 @@ async function saveMany(col, list) { let ok = 0; for (const o of list) { if (awa
 
 /* ---------- files (download / upload) ---------- */
 async function saveFile(filename, blob) {
-  if (window.claude && window.claude.use && !(window.KARGO_CONFIG && window.KARGO_CONFIG.api !== undefined)) {
+  if (window.claude && window.claude.use && !(window.AAHSSO_CONFIG && window.AAHSSO_CONFIG.api !== undefined)) {
     try {
       const d = await window.claude.use('downloads');
       if (d) { await d.save({ filename, data: blob }); return; }
@@ -491,7 +491,7 @@ A.pickLoc = () => {
 A.setLoc = (el) => { K.loc = el.dataset.id; fixLoc(); closeSheet(); render(true); toast('Now working at ' + locName(K.loc)); };
 
 /* ---------- activity log (hosted & this-device modes; the SaaS server keeps its own tamper-proof log) ---------- */
-const DEVICE = (() => { try { let d = localStorage.getItem('kargo-device'); if (!d) { d = 'd' + Math.random().toString(36).slice(2, 8); localStorage.setItem('kargo-device', d); } return d; } catch (e) { return 'd0'; } })();
+const DEVICE = (() => { try { let d = localStorage.getItem('aahsso-device'); if (!d) { d = 'd' + Math.random().toString(36).slice(2, 8); localStorage.setItem('aahsso-device', d); } return d; } catch (e) { return 'd0'; } })();
 const actLookups = () => ({ product: (id) => (byId('products', id) || {}).name || 'item', customer: (id) => (byId('customers', id) || {}).name || 'customer', loc: (id) => locName(id), ship: (id) => (byId('shipments', id) || {}).name || 'container', supplier: (id) => (byId('suppliers', id) || {}).name || 'supplier', asset: (id) => (byId('assets', id) || {}).name || 'asset', role: (k) => (KC.rolesWith(S().roles)[k] || {}).label, F, money });
 const logPath = (uidv) => 'log/' + String(uidv || 'anon').replace(/[^A-Za-z0-9_\-.:@+~]/g, '_') + '/d';
 let _logT;
@@ -499,7 +499,7 @@ function logActivity(col, before, after, offline) {
   if (K.info.mode === 'saas' || !K.store || String(col).startsWith('log/') || col === 'requests') return;
   let lines; try { lines = KC.describeChange(col, before, after, actLookups()); } catch (e) { console.warn('describe', e); return; }
   if (!lines.length) return;
-  const now = new Date(); const date = todayStr(now); const docId = date + '_' + DEVICE; const key = 'kargo-log-' + docId + '-' + (K.me.id || '');
+  const now = new Date(); const date = todayStr(now); const docId = date + '_' + DEVICE; const key = 'aahsso-log-' + docId + '-' + (K.me.id || '');
   let doc; try { doc = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { }
   if (!doc) doc = K._logDoc && K._logDoc.id === docId ? K._logDoc : { id: docId, date, uid: K.me.id || '', user: K.me.name || '', device: DEVICE, entries: [] };
   lines.forEach((l) => doc.entries.push(Object.assign({ at: now.toISOString(), uid: K.me.id || '', user: K.me.name || 'Owner', role: roleLabel(), loc: K.loc, col, id: (after || before || {}).id || '', device: DEVICE, offline: !!offline || navigator.onLine === false }, l)));
@@ -533,7 +533,7 @@ async function askReason(title, options, okLabel) {
  *   expand: { key: (r) => 'k', html: (r) => '' },  optional detail row (toggled with data-a="toggleX")
  *   empty: 'html when there are no rows', limit: 300, footLabel: 'Total' })
  */
-const DT_STORE = 'kargo-tables';
+const DT_STORE = 'aahsso-tables';
 function dtPrefs() { if (!K.ui.dt) { try { K.ui.dt = JSON.parse(localStorage.getItem(DT_STORE) || '{}') || {}; } catch (e) { K.ui.dt = {}; } } return K.ui.dt; }
 function dtSet(id, patch) { const p = dtPrefs(); p[id] = Object.assign({}, p[id], patch); try { localStorage.setItem(DT_STORE, JSON.stringify(p)); } catch (e) { } }
 const dtMode = (id) => (dtPrefs()[id] || {}).mode || 'compact';

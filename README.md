@@ -1,4 +1,4 @@
-# Kargo: Import, Stock & Sales Manager (SaaS)
+# Aahsso: Import, Stock & Sales Manager (SaaS)
 
 > **Developers: read [START-HERE.md](START-HERE.md) first.** It covers local links, demo logins, deployment, moving the client's data and acceptance checks. No Claude account is needed.
 
@@ -16,15 +16,15 @@
 ```bash
 cd server && cp .env.example .env && JWT_SECRET=$(openssl rand -hex 32) docker compose up --build -d
 docker compose exec app node scripts/seed-demo.js
-# open http://localhost:8080 → demo@kargo.app / demo1234   (sales rep: jenny@kargo.app / demo1234)
+# open http://localhost:8080 → demo@aahsso.app / demo1234   (sales rep: jenny@aahsso.app / demo1234)
 ```
 
 **Test status at handover:** unit 21/21 · API 19/19 · browser audit 83/83 · assets e2e 49/49 + SaaS 8/8 · SaaS e2e pass.
 
-Kargo is software for businesses that buy goods abroad (from stores like Costco, Walmart and Sam's Club, and from B-Stock and other auctions), ship them by container, clear them through customs and sell them locally. It covers purchases, containers, landed cost, stock, the sales counter (POS), deposits and reserved orders, returns, receipts, expenses and profit reports.
+Aahsso is software for businesses that buy goods abroad (from stores like Costco, Walmart and Sam's Club, and from B-Stock and other auctions), ship them by container, clear them through customs and sell them locally. It covers purchases, containers, landed cost, stock, the sales counter (POS), deposits and reserved orders, returns, receipts, expenses and profit reports.
 
 ```
-kargo/
+aahsso/
 ├── public/      Frontend (plain HTML/CSS/JS, no build step). The same code runs in two modes:
 │                 • prototype (client's claude.ai account, not deployed) → config.js = null
 │                 • no-server preview in any browser → config.js = null (data stays in that browser)
@@ -127,7 +127,7 @@ These are enforced by the **server**, not just the screen:
 ```bash
 cd server
 npm test                                            # 21 unit tests (compute.js), incl. a 20 000-sale volume test
-KARGO_URL=http://localhost:8080 npm run test:api    # 19 API tests: permissions, concurrency races, credit, branches, wholesale,
+AAHSSO_URL=http://localhost:8080 npm run test:api    # 19 API tests: permissions, concurrency races, credit, branches, wholesale,
                                                     # handover, bills, reminders, custom roles, transfers, activity, security
 cd ../tests-e2e && see README.md                    # 83-check audit, 49-check assets test + SaaS flows
 ```

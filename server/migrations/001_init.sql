@@ -1,4 +1,4 @@
--- Kargo SaaS schema (PostgreSQL 13+)
+-- Aahsso SaaS schema (PostgreSQL 13+)
 -- Business records are stored as JSON documents per tenant (same shape the frontend uses),
 -- with relational tables for tenants, users and audit. Reporting views below flatten the JSON.
 

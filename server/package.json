@@ -1,7 +1,7 @@
 {
-  "name": "kargo-server",
+  "name": "aahsso-server",
   "version": "1.0.0",
-  "description": "Kargo \u2014 multi-tenant SaaS for importers/resellers: purchases, containers, landed cost, stock, POS, receivables, reports",
+  "description": "Aahsso \u2014 multi-tenant SaaS for importers/resellers: purchases, containers, landed cost, stock, POS, receivables, reports",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

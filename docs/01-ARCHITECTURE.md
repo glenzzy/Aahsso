@@ -1,6 +1,6 @@
 # 1. Architecture
 
-Kargo is a multi-tenant SaaS for importers and resellers. It covers buying abroad (US/Europe), shipping by container, clearing customs, and selling from one or more branches in local currency.
+Aahsso is a multi-tenant SaaS for importers and resellers. It covers buying abroad (US/Europe), shipping by container, clearing customs, and selling from one or more branches in local currency.
 
 ## 1.1 One codebase, two ways to run it
 
@@ -21,7 +21,7 @@ Kargo is a multi-tenant SaaS for importers and resellers. It covers buying abroa
 - **`compute.js`** is a UMD module that both the browser and Node can load. The server never trusts numbers sent by the browser. It recomputes stock, credit and price floors with the same code before accepting a sale, transfer or handover.
 - **The frontend** is a single-page app without a framework. Screens are plain functions that return HTML strings, and events are delegated through `data-a` (click), `data-i` (input) and `data-c` (change) attributes. `render()` redraws the current screen when data changes, except while the user is typing in a form or has a sheet open.
 - **The data layer (`data.js`)** has three adapters with the same interface: `subscribe`, `put`, `del`, `query`, `uploadImage` and `imageUrl`.
-  - `RestStore` is used when `window.KARGO_CONFIG.api` is set (the SaaS build).
+  - `RestStore` is used when `window.AAHSSO_CONFIG.api` is set (the SaaS build).
   - `ArtifactStore` is used only inside the client's claude.ai prototype. It is not needed for production and can be removed.
   - `LocalStore` keeps data on one device only. It runs when `public/` is opened from any static web server: a preview with no backend and no logins.
 

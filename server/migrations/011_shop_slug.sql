@@ -1,4 +1,4 @@
--- Online shop address made from the store name: /s/mama-beauty. Unique across every business on Kargo.
+-- Online shop address made from the store name: /s/mama-beauty. Unique across every business on Aahsso.
 -- The old random key (shopId) keeps working and redirects to the new address.
 
 -- Shops that already exist get an address from their business name (with -2, -3… when the name is taken).
@@ -14,7 +14,7 @@ BEGIN
     base := replace(base, '&', ' and ');
     base := trim(both '-' from regexp_replace(base, '[^a-z0-9]+', '-', 'g'));
     base := trim(both '-' from left(base, 36));
-    IF length(base) < 3 OR base IN ('admin','api','app','www','kargo','shop','shops','store','stores','login','signup','register','help','support','settings','orders','static','assets','new','test','demo') THEN
+    IF length(base) < 3 OR base IN ('admin','api','app','www','aahsso','shop','shops','store','stores','login','signup','register','help','support','settings','orders','static','assets','new','test','demo') THEN
       base := 'shop-' || lower(r.data->>'shopId');
     END IF;
     cand := base; n := 1;

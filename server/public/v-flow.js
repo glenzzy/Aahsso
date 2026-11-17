@@ -1,4 +1,4 @@
-/* Kargo — the 4-phase flow: Buy → Ship → Receive → Sell.
+/* Aahsso — the 4-phase flow: Buy → Ship → Receive → Sell.
  * Every purchase starts in Buy, waits there until it is put in a shipment (Ship), is received in Cameroon
  * (customs, unloading, preparing — Receive) and then sold (Sell). Goods bought in Cameroon go straight to stock. */
 

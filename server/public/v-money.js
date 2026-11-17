@@ -1,4 +1,4 @@
-/* Kargo — cash handover, suppliers & bills, debt reminders, locations */
+/* Aahsso — cash handover, suppliers & bills, debt reminders, locations */
 
 /* ================= CASH HANDOVER ================= */
 const hoId = (date, uid_) => 'h_' + date + '_' + String(uid_).replace(/[^A-Za-z0-9_\-]/g, '');

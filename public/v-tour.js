@@ -1,9 +1,9 @@
-/* Kargo — first-time tour: Buy → Ship → Receive → Sell.
+/* Aahsso — first-time tour: Buy → Ship → Receive → Sell.
  * Shown once per device to someone who can record purchases and has no stock yet; "Take the tour" on Home
  * replays it. Each step opens the real page behind the card, highlights it in the menu and offers one action. */
-const TOUR_KEY = 'kargo-tour-done';
+const TOUR_KEY = 'aahsso-tour-done';
 const TOUR = [
-  { r: null, title: 'Welcome to Kargo', lead: 'Your goods move in four steps. Kargo follows each one, so you always know where your stock and your money are.', intro: true },
+  { r: null, title: 'Welcome to Aahsso', lead: 'Your goods move in four steps. Aahsso follows each one, so you always know where your stock and your money are.', intro: true },
   { r: 'buy', title: 'Buy', lead: 'Record what you bought, as soon as you buy it.', points: ['Who you bought from: a shop, the black market, a person…', 'Each item, how many and the price', 'Tax in % or as an amount — shared over the items for you', 'Paid, part paid or still owed'], tip: 'Bought in Cameroon? It goes straight to stock — no Ship or Receive.', act: ['newPurchase', 'Record a purchase', 'purchases'] },
   { r: 'ship', title: 'Ship', lead: 'Group what you bought abroad into a shipment.', points: ['Your purchases wait here until they are shipped', 'Add the container number and loading date', 'Add shipping costs: freight, BESC, tests…'], act: ['newShip', 'Start a shipment', 'containers'] },
   { r: 'receive', title: 'Receive', lead: 'When the shipment reaches Cameroon, tick off four steps.', points: ['Mark it arrived', 'Add customs and clearing costs', 'Unload and count — the goods are now in stock', 'Check prices and print labels'], tip: 'Every cost is spread over the items, so you see the real cost of each one.' },

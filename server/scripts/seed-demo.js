@@ -1,11 +1,11 @@
 // Creates a demo business with realistic data so a developer can explore every screen.
-// Usage: node scripts/seed-demo.js   → owner demo@kargo.app · manager manager@kargo.app · sales rep jenny@kargo.app (password demo1234 for all)
+// Usage: node scripts/seed-demo.js   → owner demo@aahsso.app · manager manager@aahsso.app · sales rep jenny@aahsso.app (password demo1234 for all)
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const { tx, pool } = require('../src/db');
 const KC = require('../public/compute.js');
 
-const LOGIN = process.env.DEMO_LOGIN || 'demo@kargo.app', PASS = process.env.DEMO_PASS || 'demo1234';
+const LOGIN = process.env.DEMO_LOGIN || 'demo@aahsso.app', PASS = process.env.DEMO_PASS || 'demo1234';
 const d = (n) => { const t = new Date(); t.setDate(t.getDate() + n); return t.toISOString().slice(0, 10); };
 const id = (p) => p + Math.random().toString(36).slice(2, 10);
 
@@ -15,9 +15,9 @@ const id = (p) => p + Math.random().toString(36).slice(2, 10);
     if (old) await c.query('DELETE FROM tenants WHERE id=$1', [old.tenant_id]);
     const t = (await c.query("INSERT INTO tenants(name, trial_ends_at) VALUES ('Demo Imports SARL', now() + interval '30 days') RETURNING id")).rows[0].id;
     const owner = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role) VALUES ($1,'Demo Owner',$2,$3,'owner') RETURNING id", [t, LOGIN, await bcrypt.hash(PASS, 10)])).rows[0].id;
-    await c.query("DELETE FROM users WHERE login IN ('jenny@kargo.app','manager@kargo.app')");
-    await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,location_id) VALUES ($1,'Jenny (sales)','jenny@kargo.app',$2,'sales','akwa')", [t, await bcrypt.hash(PASS, 10)]);
-    await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role) VALUES ($1,'Mike (manager)','manager@kargo.app',$2,'manager')", [t, await bcrypt.hash(PASS, 10)]);
+    await c.query("DELETE FROM users WHERE login IN ('jenny@aahsso.app','manager@aahsso.app')");
+    await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,location_id) VALUES ($1,'Jenny (sales)','jenny@aahsso.app',$2,'sales','akwa')", [t, await bcrypt.hash(PASS, 10)]);
+    await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role) VALUES ($1,'Mike (manager)','manager@aahsso.app',$2,'manager')", [t, await bcrypt.hash(PASS, 10)]);
     const put = (col, doc) => c.query('INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,$2,$3,$4,$5)', [t, col, doc.id, JSON.stringify(Object.assign({}, doc, { id: undefined, createdAt: new Date().toISOString() })), owner]);
     const raw = { settings: Object.assign({}, KC.DEFAULT_SETTINGS, { id: 'main', businessName: 'Demo Imports SARL', phone: '+237 677 00 00 00', momoAccounts: [{ method: 'MTN MoMo', number: '677000111', label: 'Shop MoMo' }], defaultCreditLimit: 300000 }), products: [], lots: [], shipments: [], sales: [], adjustments: [], transfers: [] };
     await put('settings', raw.settings);
@@ -76,6 +76,6 @@ const id = (p) => p + Math.random().toString(36).slice(2, 10);
     await put('expenses', { id: 'e_fuel', date: d(-4), category: 'Fuel', amount: 60000, method: 'Cash', description: 'Diesel 80 L', locationId: 'akwa', assetId: 'as_demo2' });
     await put('bills', { id: 'b_demo', supplierId: 'su_demo', description: 'Trucking for container #2', amount: 450, currency: 'USD', date: d(-10), dueDate: d(4), shipmentId: ship2.id, payments: [] });
   });
-  console.log('Demo business ready → owner: ' + LOGIN + ' / ' + PASS + '   manager: manager@kargo.app / ' + PASS + '   sales rep: jenny@kargo.app / ' + PASS);
+  console.log('Demo business ready → owner: ' + LOGIN + ' / ' + PASS + '   manager: manager@aahsso.app / ' + PASS + '   sales rep: jenny@aahsso.app / ' + PASS);
   await pool.end();
 })().catch((e) => { console.error(e); process.exit(1); });

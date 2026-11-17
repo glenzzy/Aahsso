@@ -1,4 +1,4 @@
-/* Kargo platform admin (super admin). Security layers, outside in:
+/* Aahsso platform admin (super admin). Security layers, outside in:
  *  1. Gate: served only on ADMIN_HOST (e.g. admin.example.com); optional IP allowlist (ADMIN_IP_ALLOWLIST) and
  *     Cloudflare Access check (CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD). Anything else gets a plain 404.
  *     In production (NODE_ENV=production) the admin is OFF unless ADMIN_HOST is set.
@@ -22,7 +22,7 @@ const B = require('./billing');
 const KC = require('../public/compute.js');
 const mailer = require('./mailer');
 
-const COOKIE = '__Host-kargo_adm';
+const COOKIE = '__Host-aahsso_adm';
 // TODO(2FA): two-step sign-in (authenticator app + recovery codes) is switched OFF for now — admins sign in with
 // email + password only, and risky actions ask for the password again. All the 2FA code below is kept;
 // set ADMIN_REQUIRE_2FA=true to turn it back on (each admin then sets up their authenticator at the next sign-in).
@@ -139,7 +139,7 @@ const need = (perm) => (req, res, next) => (can(req.admin, perm) ? next() : res.
 const reauth = (req, res, next) => (req.admin.reauth_at && Date.now() - new Date(req.admin.reauth_at).getTime() < REAUTH_MS ? next() : res.status(403).json({ error: 'Confirm it is you', code: 'reauth' }));
 function csrf(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  if (req.get('x-kargo-admin') !== '1') return res.status(403).json({ error: 'Blocked (missing request header)' });
+  if (req.get('x-aahsso-admin') !== '1') return res.status(403).json({ error: 'Blocked (missing request header)' });
   const origin = req.get('origin'); if (origin) { try { if (new URL(origin).host !== req.get('host')) return res.status(403).json({ error: 'Blocked (wrong origin)' }); } catch (e) { return res.status(403).json({ error: 'Blocked' }); } }
   next();
 }
@@ -407,9 +407,9 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const o = await B.ownerOf(pool, t.id); if (!o) return bad(res, 'This business has no active owner');
     const temp = tempPassword();
     await q('UPDATE users SET password_hash=$2 WHERE id=$1', [o.id, await bcrypt.hash(temp, 10)]);
-    await q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, $2, 'main', 'support_password', $3)", [t.id, 'Kargo support', JSON.stringify({ reason, by: req.admin.name })]);
+    await q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, $2, 'main', 'support_password', $3)", [t.id, 'Aahsso support', JSON.stringify({ reason, by: req.admin.name })]);
     const to = mailer.emailOf(o); let emailed = null;
-    if (to) emailed = (await mailer.sendEmail(Object.assign({ to, kind: 'staff_password', tenantId: t.id }, mailer.T.staffAccount({ name: o.name, business: t.name, login: o.login, password: temp, role: 'owner', url: mailer.appUrl(), by: 'Kargo support', reset: true })))).status;
+    if (to) emailed = (await mailer.sendEmail(Object.assign({ to, kind: 'staff_password', tenantId: t.id }, mailer.T.staffAccount({ name: o.name, business: t.name, login: o.login, password: temp, role: 'owner', url: mailer.appUrl(), by: 'Aahsso support', reset: true })))).status;
     await audit(req, 'owner_password_reset', { tenantId: t.id, target: o.login, reason });
     res.json({ ok: true, password: temp, login: o.login, emailed: emailed, emailTo: to || '' });
   }));
@@ -423,10 +423,10 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     return Object.entries(KC.rolesWith(custom)).filter(([k]) => k !== 'owner').map(([k, r]) => ({ id: k, label: r.label, custom: !!r.custom }));
   }
   async function userOr404(req, res) { const u = (await q(USER_SEL + ' WHERE u.id::text=$1', [req.params.id])).rows[0]; if (!u) bad(res, 'User not found', 404); return u; }
-  const tenantLog = (tid, action, after) => q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, 'Kargo support', 'main', $2, $3)", [tid, action, JSON.stringify(after)]);
+  const tenantLog = (tid, action, after) => q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, 'Aahsso support', 'main', $2, $3)", [tid, action, JSON.stringify(after)]);
   async function mailLogin(u, password, reset) {
     const to = mailer.emailOf(u); if (!to) return { status: 'no_email' };
-    const r = await mailer.sendEmail(Object.assign({ to, kind: reset ? 'staff_password' : 'staff_account', tenantId: u.tenant_id }, mailer.T.staffAccount({ name: u.name, business: u.tenant, login: u.login, password, role: u.role, url: mailer.appUrl(), by: 'Kargo support', reset })));
+    const r = await mailer.sendEmail(Object.assign({ to, kind: reset ? 'staff_password' : 'staff_account', tenantId: u.tenant_id }, mailer.T.staffAccount({ name: u.name, business: u.tenant, login: u.login, password, role: u.role, url: mailer.appUrl(), by: 'Aahsso support', reset })));
     return { status: r.status, to };
   }
   A.get('/users', need('users.view'), wrap(async (req, res) => {
@@ -501,7 +501,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const t = await tenantOr404(req, res); if (!t) return; const reason = needReason(req, res); if (!reason) return;
     const o = await B.ownerOf(pool, t.id); if (!o) return bad(res, 'This business has no active owner');
     const token = jwt.sign({ uid: o.id, imp: req.admin.id, impName: req.admin.name, ro: true }, tenantSecret, { expiresIn: '30m' });
-    await q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, $2, 'main', 'support_view', $3)", [t.id, 'Kargo support', JSON.stringify({ reason, by: req.admin.name })]);
+    await q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, $2, 'main', 'support_view', $3)", [t.id, 'Aahsso support', JSON.stringify({ reason, by: req.admin.name })]);
     await audit(req, 'view_as_owner', { tenantId: t.id, target: t.name, reason });
     const base = (process.env.APP_URL || '').replace(/\/$/, '') || (req.protocol + '://' + req.get('host').replace(/^admin\./, ''));
     res.json({ url: base + '/#imp=' + token, expiresInMin: 30 });
@@ -749,7 +749,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const rows = (await q(sql)).rows; const cols = rows.length ? Object.keys(rows[0]) : [];
     const cell = (v) => { let s = v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }; // no spreadsheet formulas
     await audit(req, 'export_' + kind);
-    res.type('text/csv').set('Content-Disposition', 'attachment; filename="kargo-' + kind + '-' + B.dayStr(new Date()) + '.csv"').send([cols.join(',')].concat(rows.map((r0) => cols.map((c) => cell(r0[c])).join(','))).join('\n'));
+    res.type('text/csv').set('Content-Disposition', 'attachment; filename="aahsso-' + kind + '-' + B.dayStr(new Date()) + '.csv"').send([cols.join(',')].concat(rows.map((r0) => cols.map((c) => cell(r0[c])).join(','))).join('\n'));
   }));
 
   r.use('/api/admin', A);

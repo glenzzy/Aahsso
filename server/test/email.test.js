@@ -1,10 +1,10 @@
 // Email (Resend) integration tests. Needs a running server pointed at a mock Resend API that records emails:
 //   RESEND_API_KEY=re_test RESEND_API_URL=http://127.0.0.1:18090 APP_URL=http://app.test node src/index.js
-//   KARGO_URL=http://localhost:8080 MOCK_RESEND=http://127.0.0.1:18090 node --test test/email.test.js
+//   AAHSSO_URL=http://localhost:8080 MOCK_RESEND=http://127.0.0.1:18090 node --test test/email.test.js
 // The mock answers POST /emails, lists what it got at GET /_emails, and POST /_fail toggles failures.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const B = process.env.KARGO_URL || 'http://localhost:8080';
+const B = process.env.AAHSSO_URL || 'http://localhost:8080';
 const M = process.env.MOCK_RESEND || 'http://127.0.0.1:18090';
 const rnd = Math.random().toString(36).slice(2, 8);
 

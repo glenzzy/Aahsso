@@ -1,7 +1,7 @@
--- Kargo database schema: all migrations in order (generated). In practice run: cd server && npm run migrate
+-- Aahsso database schema: all migrations in order (generated). In practice run: cd server && npm run migrate
 
 -- ===== server/migrations/001_init.sql =====
--- Kargo SaaS schema (PostgreSQL 13+)
+-- Aahsso SaaS schema (PostgreSQL 13+)
 -- Business records are stored as JSON documents per tenant (same shape the frontend uses),
 -- with relational tables for tenants, users and audit. Reporting views below flatten the JSON.
 

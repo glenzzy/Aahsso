@@ -7,7 +7,7 @@ cp .env.example .env          # set JWT_SECRET to a long random string
 docker compose up -d          # Postgres + API; runs migrations on start
 # open http://localhost:8080 → "Create business"
 # optional demo data:
-docker compose exec app node scripts/seed-demo.js   # demo@kargo.app / demo1234 (rep: jenny@kargo.app / demo1234)
+docker compose exec app node scripts/seed-demo.js   # demo@aahsso.app / demo1234 (rep: jenny@aahsso.app / demo1234)
 ```
 
 ## 7.2 Without Docker
@@ -50,5 +50,5 @@ npm run migrate && npm start
 ## 7.6 Moving data from the hosted build
 In the hosted app, go to Settings → Backup → download. Then either import it in the SaaS app (Settings → Restore) or run:
 ```bash
-npm run import-backup -- kargo-backup.json owner@email.com
+npm run import-backup -- aahsso-backup.json owner@email.com
 ```

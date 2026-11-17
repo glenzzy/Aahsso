@@ -36,7 +36,7 @@ Collections include `assets` (permission `assets`; users without it receive an e
 |---|---|---|
 | POST | /api/images | Raw image body (`Content-Type: image/jpeg|png|webp`, ≤ 5 MB; `stockEdit` or `purchases`) → `{id}` |
 | GET | /api/images/:id | The image (tenant-checked) |
-| GET | /api/export | Full JSON backup `{app:"kargo", version, exportedAt, data: {collection: [docs]}}` (`export` permission) |
+| GET | /api/export | Full JSON backup `{app:"aahsso", version, exportedAt, data: {collection: [docs]}}` (`export` permission) |
 | POST | /api/import | Restore a backup (`settings` permission). Upserts every document in the file, in one transaction. |
 | GET / POST / PATCH | /api/users, /api/users/:id | List, create, update staff (`team`). Escalation is blocked: you can't change your own permissions, a non-owner can't create admins or owners, and nobody can grant permissions they don't hold themselves. |
 | GET | /api/activity?from&to&user&location&type&q | Readable activity log (`activity`) |

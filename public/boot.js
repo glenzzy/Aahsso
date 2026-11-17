@@ -1,12 +1,12 @@
-/* Kargo — startup, access gate, login (SaaS mode) */
+/* Aahsso — startup, access gate, login (SaaS mode) */
 function renderLogin() {
   const resetToken = new URLSearchParams(location.search).get('reset');
   if (resetToken) return renderAuthAlt('reset', resetToken);
-  document.title = 'Sign in · Kargo';
+  document.title = 'Sign in · Aahsso';
   document.body.className = 'auth-body';
   const pw = (name, ac) => '<div class="auth-pw"><input class="inp" name="' + name + '" type="password" autocomplete="' + ac + '"><button type="button" class="auth-eye" id="pwEye" aria-label="Show password">Show</button></div>';
   document.body.innerHTML = '<main class="auth"><div class="auth-in">' +
-    '<div class="auth-brand"><div class="auth-mark" aria-hidden="true">K</div><div class="auth-name">Kargo</div><div class="auth-tag">Import, stock &amp; sales</div></div>' +
+    '<div class="auth-brand"><div class="auth-mark" aria-hidden="true">A</div><div class="auth-name">Aahsso</div><div class="auth-tag">Import, stock &amp; sales</div></div>' +
     '<form class="auth-card" id="aForm" novalidate>' +
       '<h1 id="aTitle">Welcome back</h1><p class="auth-sub" id="aSub">Sign in to your business account.</p>' +
       '<div id="fReg" class="auth-fields hide">' + field('Business name', inp('businessName', '', 'autocomplete="organization"')) + field('Your name', inp('name', '', 'autocomplete="name"')) + '</div>' +
@@ -16,9 +16,9 @@ function renderLogin() {
       '<div class="auth-err hide" id="err" role="alert"></div>' +
       '<button type="submit" class="btn pri lg block auth-go" id="go">Sign in</button>' +
     '</form>' +
-    '<div class="auth-switch"><span id="swLogin">New to Kargo? <button type="button" class="auth-link" id="tReg">Create a business</button></span>' +
+    '<div class="auth-switch"><span id="swLogin">New to Aahsso? <button type="button" class="auth-link" id="tReg">Create a business</button></span>' +
       '<span id="swReg" class="hide">Already have an account? <button type="button" class="auth-link" id="tLogin">Sign in</button></span></div>' +
-  '</div><footer class="auth-foot">© ' + new Date().getFullYear() + ' Kargo</footer></main>';
+  '</div><footer class="auth-foot">© ' + new Date().getFullYear() + ' Aahsso</footer></main>';
   let reg = false;
   const err = (m) => { const e = $('#err'); e.textContent = m || ''; e.classList.toggle('hide', !m); };
   const sw = (r) => {
@@ -28,7 +28,7 @@ function renderLogin() {
     $('#aSub').textContent = r ? 'Takes a minute. You will be the owner.' : 'Sign in to your business account.';
     $('#go').textContent = r ? 'Create account' : 'Sign in';
     $('[name=password]').setAttribute('autocomplete', r ? 'new-password' : 'current-password');
-    document.title = (r ? 'Create account' : 'Sign in') + ' · Kargo';
+    document.title = (r ? 'Create account' : 'Sign in') + ' · Aahsso';
     (r ? $('[name=businessName]') : $('[name=login]')).focus();
   };
   $('#tLogin').onclick = () => sw(false); $('#tReg').onclick = () => sw(true);
@@ -37,16 +37,16 @@ function renderLogin() {
   $('#aForm').onsubmit = (e) => { e.preventDefault(); $('#go').click(); }; // Enter key: same path as clicking (loading state included)
   $('#go').onclick = async (e) => {
     e.preventDefault(); err('');
-    const v = formVals(document.body); const api = (window.KARGO_CONFIG.api || location.origin).replace(/\/$/, '');
+    const v = formVals(document.body); const api = (window.AAHSSO_CONFIG.api || location.origin).replace(/\/$/, '');
     const need = (reg ? [['businessName', 'your business name'], ['name', 'your name']] : []).concat([['login', 'your email or phone'], ['password', 'your password']]);
     const miss = need.find(([k]) => !String(v[k] || '').trim());
     if (miss) { err('Please enter ' + miss[1] + '.'); $('[name=' + miss[0] + ']').focus(); return; }
     try {
       if (!reg) delete v.email;
-      if (reg) { try { localStorage.setItem('kargo-choose-plan', '1'); } catch (e) { } } // a new business goes straight to Choose your plan
+      if (reg) { try { localStorage.setItem('aahsso-choose-plan', '1'); } catch (e) { } } // a new business goes straight to Choose your plan
       const r = await fetch(api + (reg ? '/api/auth/register' : '/api/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.');
-      localStorage.setItem('kargo-token', j.token); location.reload();
+      localStorage.setItem('aahsso-token', j.token); location.reload();
       return new Promise(() => { }); // keep the button loading until the page reloads into the app
     } catch (e2) { err(e2 instanceof TypeError ? 'Cannot reach the server. Check your connection.' : e2.message); }
   };
@@ -55,10 +55,10 @@ function renderLogin() {
 /** "Forgot password" (ask for a link by email) and "Choose a new password" (open from that link). */
 function renderAuthAlt(mode, token, login) {
   const forgot = mode === 'forgot';
-  document.title = (forgot ? 'Reset password' : 'New password') + ' · Kargo';
+  document.title = (forgot ? 'Reset password' : 'New password') + ' · Aahsso';
   document.body.className = 'auth-body';
   document.body.innerHTML = '<main class="auth"><div class="auth-in">' +
-    '<div class="auth-brand"><div class="auth-mark" aria-hidden="true">K</div><div class="auth-name">Kargo</div></div>' +
+    '<div class="auth-brand"><div class="auth-mark" aria-hidden="true">A</div><div class="auth-name">Aahsso</div></div>' +
     '<form class="auth-card" id="aForm" novalidate>' +
       '<h1>' + (forgot ? 'Forgot your password?' : 'Choose a new password') + '</h1>' +
       '<p class="auth-sub">' + (forgot ? 'Type the email or phone you sign in with. If your account has an email address, we will send you a link to choose a new password.' : 'At least 6 characters. You will be signed in right after.') + '</p>' +
@@ -68,13 +68,13 @@ function renderAuthAlt(mode, token, login) {
       '<button type="submit" class="btn pri lg block auth-go" id="go">' + (forgot ? 'Send me a link' : 'Save and sign in') + '</button>' +
     '</form>' +
     '<div class="auth-switch"><button type="button" class="auth-link" id="tBack">Back to sign in</button></div>' +
-  '</div><footer class="auth-foot">© ' + new Date().getFullYear() + ' Kargo</footer></main>';
+  '</div><footer class="auth-foot">© ' + new Date().getFullYear() + ' Aahsso</footer></main>';
   const err = (m) => { const e = $('#err'); e.textContent = m || ''; e.classList.toggle('hide', !m); };
   $('#tBack').onclick = () => { if (!forgot) history.replaceState(null, '', location.pathname); renderLogin(); };
   $('#aForm').onsubmit = (e) => { e.preventDefault(); $('#go').click(); };
   $('#go').onclick = async (e) => {
     e.preventDefault(); err('');
-    const v = formVals(document.body); const api = (window.KARGO_CONFIG.api || location.origin).replace(/\/$/, '');
+    const v = formVals(document.body); const api = (window.AAHSSO_CONFIG.api || location.origin).replace(/\/$/, '');
     if (forgot && !String(v.login || '').trim()) { err('Please enter your email or phone.'); return $('[name=login]').focus(); }
     if (!forgot && String(v.password || '').length < 6) { err('Use at least 6 characters.'); return $('[name=password]').focus(); }
     if (!forgot && v.password !== v.password2) { err('The two passwords are not the same.'); return $('[name=password2]').focus(); }
@@ -87,7 +87,7 @@ function renderAuthAlt(mode, token, login) {
         const ok = $('#ok'); ok.textContent = 'Check your inbox (and spam folder). If this account has an email address, a link is on its way — it works for 1 hour. No email? Ask the business owner to set a new password for you.'; ok.classList.remove('hide');
         return;
       }
-      localStorage.setItem('kargo-token', j.token); location.replace(location.pathname);
+      localStorage.setItem('aahsso-token', j.token); location.replace(location.pathname);
       return new Promise(() => { });
     } catch (e2) { err(e2 instanceof TypeError ? 'Cannot reach the server. Check your connection.' : e2.message); }
     $('#go').disabled = false;
@@ -113,20 +113,20 @@ A.reqAccess = async () => {
 };
 
 (async function boot() {
-  // read-only support view opened from the Kargo admin: the token stays in this tab only
+  // read-only support view opened from the Aahsso admin: the token stays in this tab only
   const imp = (location.hash.match(/^#imp=([A-Za-z0-9._-]+)/) || [])[1];
-  if (imp) { try { sessionStorage.setItem('kargo-imp', imp); } catch (e) { } history.replaceState(null, '', location.pathname); }
+  if (imp) { try { sessionStorage.setItem('aahsso-imp', imp); } catch (e) { } history.replaceState(null, '', location.pathname); }
   const { store, info } = await createStore();
   if (info.mode === 'login' || (info.mode === 'saas' && new URLSearchParams(location.search).get('reset'))) return renderLogin();
-  if (info.mode === 'signedout') { $('#view').innerHTML = '<div class="card pad2" style="max-width:520px;margin:20px auto"><h2>Please sign in</h2><p class="muted">Sign in to claude.ai, then open this link again.</p></div>'; $('#title').textContent = 'Kargo'; return; }
+  if (info.mode === 'signedout') { $('#view').innerHTML = '<div class="card pad2" style="max-width:520px;margin:20px auto"><h2>Please sign in</h2><p class="muted">Sign in to claude.ai, then open this link again.</p></div>'; $('#title').textContent = 'Aahsso'; return; }
   K.store = store; K.info = info; K.me = info.me || { id: null, name: '' };
   K.sync = info.mode === 'local' ? 'local' : 'loading';
   loadOutbox();
   const cachedAt = info.mode === 'local' ? null : loadCache();
   if (cachedAt) K.sync = 'offline';
-  if (info.mode === 'saas') A.logout = () => { if (info.supportView) { sessionStorage.removeItem('kargo-imp'); window.close(); return location.reload(); } localStorage.removeItem('kargo-token'); location.reload(); };
+  if (info.mode === 'saas') A.logout = () => { if (info.supportView) { sessionStorage.removeItem('aahsso-imp'); window.close(); return location.reload(); } localStorage.removeItem('aahsso-token'); location.reload(); };
   if (info.supportView) supportBanner(info.supportView);
-  try { if (info.mode === 'saas' && localStorage.getItem('kargo-choose-plan')) { localStorage.removeItem('kargo-choose-plan'); history.replaceState(null, '', '#plans'); } } catch (e) { }
+  try { if (info.mode === 'saas' && localStorage.getItem('aahsso-choose-plan')) { localStorage.removeItem('aahsso-choose-plan'); history.replaceState(null, '', '#plans'); } } catch (e) { }
   resolveAccess(); if (info.mode === 'cloud' && !cachedAt) K.member = null; // decided once the team list loads (or from the cached copy)
   if (cachedAt) recompute();
   const cols = COLLECTIONS.concat(info.mode === 'cloud' ? TEAM_COLLECTIONS : []);

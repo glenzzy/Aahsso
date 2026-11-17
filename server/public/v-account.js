@@ -1,4 +1,4 @@
-/* Kargo — your account: avatar menu (top right), Profile, Billing & subscription, Help & support */
+/* Aahsso — your account: avatar menu (top right), Profile, Billing & subscription, Help & support */
 
 /* ================= avatar + dropdown ================= */
 const canBilling = () => ['owner', 'admin'].includes((K.info.user || {}).role) || (K.info.mode === 'saas' && can('settings'));
@@ -85,8 +85,8 @@ window.addEventListener('hashchange', () => closePMenu());
 A.logoutAsk = async () => {
   closePMenu();
   const pend = K.outbox.length;
-  if (!(await confirmBox(pend ? 'You have ' + pend + ' change' + (pend === 1 ? '' : 's') + ' not uploaded yet. If you log out now, they are lost. Log out anyway?' : 'Log out of Kargo on this device?', 'Log out', !!pend))) return;
-  try { localStorage.removeItem('kargo-me'); } catch (e) { }
+  if (!(await confirmBox(pend ? 'You have ' + pend + ' change' + (pend === 1 ? '' : 's') + ' not uploaded yet. If you log out now, they are lost. Log out anyway?' : 'Log out of Aahsso on this device?', 'Log out', !!pend))) return;
+  try { localStorage.removeItem('aahsso-me'); } catch (e) { }
   A.logout();
 };
 
@@ -110,7 +110,7 @@ VIEWS.profile = {
         field('New password', '<input class="inp" type="password" name="prNew" autocomplete="new-password" placeholder="At least 6 characters">') +
         field('Type it again', '<input class="inp" type="password" name="prNew2" autocomplete="new-password">') +
         '<button class="btn" data-a="profPw">Change password</button></div></section></div>';
-    } else html += '<div class="card pad2 mb muted small">' + (K.info.mode === 'local' ? 'This copy of Kargo works on this device only, so there is no sign-in or password.' : 'Your name and sign-in come from your claude.ai account.') + '</div>';
+    } else html += '<div class="card pad2 mb muted small">' + (K.info.mode === 'local' ? 'This copy of Aahsso works on this device only, so there is no sign-in or password.' : 'Your name and sign-in come from your claude.ai account.') + '</div>';
     html += '<h3 class="mb mt2">My work</h3><div class="prof-links">' +
       (has('attendance') ? '<a class="card pad prof-link" href="#staff">' + ic('clock') + '<div class="grow"><div class="b">Attendance</div><div class="small muted">' + ({ off: 'Not clocked in', in: 'Working since ' + hm(st.since), break: 'On break', done: 'Clocked out at ' + hm(st.lastOut) })[st.state] + '</div></div>' + ic('chev', 'sm') + '</a>' : '') +
       (has('leave') ? '<a class="card pad prof-link" href="#leave">' + ic('clock') + '<div class="grow"><div class="b">Leave</div><div class="small muted">' + bal.left + ' vacation day' + (bal.left === 1 ? '' : 's') + ' left this year</div></div>' + ic('chev', 'sm') + '</a>' : '') +
@@ -126,7 +126,7 @@ A.profSave = async () => {
   try {
     const r = await K.store.req('PATCH', '/api/me', { name, email });
     K.me.name = r.name; K.info.userLabel = r.name; K.info.user = Object.assign({}, K.info.user, { name: r.name, email: r.email || '' });
-    try { const c = JSON.parse(localStorage.getItem('kargo-me') || 'null'); if (c && c.user) { c.user.name = r.name; c.user.email = r.email || ''; localStorage.setItem('kargo-me', JSON.stringify(c)); } } catch (e) { }
+    try { const c = JSON.parse(localStorage.getItem('aahsso-me') || 'null'); if (c && c.user) { c.user.name = r.name; c.user.email = r.email || ''; localStorage.setItem('aahsso-me', JSON.stringify(c)); } } catch (e) { }
     K._people = null; K._peopleP = null;
     toast('Details saved'); render(true);
   } catch (e) { toast(e.message, true); }
@@ -144,7 +144,7 @@ A.profPw = async () => {
 function supportLinks(text) {
   const sp = K.info.support || {}; const out = [];
   if (sp.whatsapp) out.push('<a class="btn" target="_blank" rel="noopener" href="https://wa.me/' + esc(sp.whatsapp) + '?text=' + encodeURIComponent(text) + '">' + ic('wa') + 'WhatsApp us</a>');
-  if (sp.email) out.push('<a class="btn" href="mailto:' + esc(sp.email) + '?subject=' + encodeURIComponent('Kargo — ' + (S().businessName || '')) + '&body=' + encodeURIComponent(text) + '">' + ic('mail') + 'Email us</a>');
+  if (sp.email) out.push('<a class="btn" href="mailto:' + esc(sp.email) + '?subject=' + encodeURIComponent('Aahsso — ' + (S().businessName || '')) + '&body=' + encodeURIComponent(text) + '">' + ic('mail') + 'Email us</a>');
   return out.join('');
 }
 const money0 = (n, cur) => (n === null || n === undefined ? '—' : fmt(n) + ' ' + (!cur || cur === 'XAF' ? 'FCFA' : cur));
@@ -152,20 +152,20 @@ async function loadBilling() { try { K._bill = await K.store.req('GET', '/api/bi
 const BILL_INV = { open: ['To pay', 'warn'], paid: ['Paid', 'ok'], void: ['Cancelled', ''] };
 VIEWS.billing = {
   render() {
-    if (K.info.mode !== 'saas') return '<div class="card pad2 muted">Billing applies to the online version of Kargo.</div>';
+    if (K.info.mode !== 'saas') return '<div class="card pad2 muted">Billing applies to the online version of Aahsso.</div>';
     if (!canBilling()) return '<div class="card pad2 muted">Only the business owner or an admin can see billing. Ask them if you have a question about the subscription.</div>';
     const b = K._bill; if (!b) { loadBilling(); return K._billErr ? '<div class="alert bad">' + esc(K._billErr) + '</div>' : '<div class="empty">Loading…</div>'; }
     const s = b.subscription || {}; const st = subState(); const cyc = K.ui.billCycle || (s.cycle === 'yearly' ? 'yearly' : 'monthly');
     const open = b.invoices.filter((i) => i.status === 'open'); const pendingFor = (i) => b.payments.find((p) => p.invoice_id === i.id && p.status === 'pending'); const rejectedFor = (i) => b.payments.find((p) => p.invoice_id === i.id && p.status === 'rejected');
     const ended = ['expired', 'suspended'].includes(s.status);
-    const ask = 'Hello Kargo team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ';
+    const ask = 'Hello Aahsso team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ';
     // current plan + usage
     const lim = b.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items' };
     let html = '<div class="card pad2 mb bill-cur"><div class="row between wrap"><div><div class="hint">Current plan</div><h2>' + esc(!s.planName ? 'Free trial' : s.planName + (s.status === 'trialing' ? ' · free trial' : '')) + '</h2>' +
       (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? '<div class="small muted">' + money0(s.price, s.currency) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') + '</div>' : '') + '</div><span class="badge ' + st.tone + '">' + esc(st.label) + '</span></div>' +
       '<div class="bill-rows mt">' + (s.status === 'trialing' && s.trialEndsAt ? '<div class="row between cl"><span>Trial ends</span><b>' + esc(fmtDate(String(s.trialEndsAt).slice(0, 10))) + '</b></div>' : '') +
         (s.status !== 'trialing' && s.periodEnd ? '<div class="row between cl"><span>' + (s.status === 'cancelled' ? 'Access until' : 'Paid until') + '</span><b>' + esc(fmtDate(String(s.periodEnd).slice(0, 10))) + '</b></div>' : '') + '</div>' +
-      (ended ? '<div class="alert bad mt">' + (s.status === 'suspended' ? 'Your account is suspended. Contact the Kargo team.' : 'Your subscription has ended.') + ' You can still open and export all your data; recording new sales and stock is paused until you pay.</div>'
+      (ended ? '<div class="alert bad mt">' + (s.status === 'suspended' ? 'Your account is suspended. Contact the Aahsso team.' : 'Your subscription has ended.') + ' You can still open and export all your data; recording new sales and stock is paused until you pay.</div>'
         : s.status === 'past_due' ? '<div class="alert warn mt">Your payment is overdue. Pay within ' + esc(s.graceDays) + ' days of the end date to keep recording.</div>'
         : s.status === 'trialing' ? '<p class="small muted mt" style="margin-bottom:0">' + (s.planName ? 'You have the features of ' + esc(s.planName) + ' during your free trial. Choose a paid plan below before it ends to keep recording without a break.' : 'Everything is unlocked during the trial. Choose a plan below before it ends to keep recording without a break.') + '</p>' : '') +
       '<div class="mt">' + Object.entries(LBL).map(([k, l]) => { const used = (b.usage || {})[k] || 0; const max = lim[k]; return '<div class="mb"><div class="row between small"><span>' + l + '</span><b>' + used + (max ? ' / ' + max : '') + '</b></div>' + (max ? '<div class="meter' + (used >= max ? ' full' : '') + '"><span style="width:' + Math.min(100, used / max * 100) + '%"></span></div>' : '') + '</div>'; }).join('') + '</div></div>';
@@ -211,7 +211,7 @@ A.billCycle = (el) => { K.ui.billCycle = el.dataset.v; render(true); };
 if (!IP.lock) IP.lock = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
 if (!IP.phone) IP.phone = '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>';
 if (!IP.bank) IP.bank = '<path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/>';
-const MOMO_KEY = 'kargo-momo-phone';
+const MOMO_KEY = 'aahsso-momo-phone';
 const momoSaved = () => { try { return localStorage.getItem(MOMO_KEY) || ''; } catch (e) { return ''; } };
 /** network from a Cameroon number: MTN 67x / 650-654 / 680-683, Orange 69x / 655-659 / 686-689 */
 function momoGuess(v) {
@@ -240,7 +240,7 @@ const payKey = (s) => s.k + '|' + (s.p ? s.p.id + s.p.status : '') + '|' + (s.ta
 
 function paySummary(i) {
   const b = K._bill; const paid = b.payments.filter((p) => p.invoice_id === i.id && p.status === 'confirmed').reduce((a, p) => a + p.amount, 0);
-  return '<div class="pay-sum"><div class="pay-sum-top"><span>' + esc((i.plan_name || 'Kargo') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly')) + '</span><span>' + esc(i.number) + '</span></div>' +
+  return '<div class="pay-sum"><div class="pay-sum-top"><span>' + esc((i.plan_name || 'Aahsso') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly')) + '</span><span>' + esc(i.number) + '</span></div>' +
     '<div class="pay-amt">' + fmt(i.amount - paid) + ' <small>' + esc(!i.currency || i.currency === 'XAF' ? 'FCFA' : i.currency) + '</small></div>' +
     '<div class="pay-sum-bot">Due ' + esc(fmtDate(String(i.due_date).slice(0, 10))) + (i.period_start ? ' · covers ' + esc(fmtDate(String(i.period_start).slice(0, 10))) + ' → ' + esc(fmtDate(String(i.period_end).slice(0, 10))) : '') + '</div></div>';
 }
@@ -255,7 +255,7 @@ function payView(s) {
       foot: '<button class="btn pri grow" data-a="sheetClose">Done</button>' };
   }
   if (s.k === 'pending') {
-    return { body: paySummary(i) + '<div class="pay-state"><div class="pay-ic info">' + ic('clock') + '</div><h3>We are checking your payment</h3><p class="small muted">' + esc(s.p.method) + (s.p.reference ? ' · reference <b>' + esc(s.p.reference) + '</b>' : '') + '</p><p class="small">Your plan starts as soon as the Kargo team confirms it — usually within a few hours. You don\'t need to keep this open.</p></div>', foot: close };
+    return { body: paySummary(i) + '<div class="pay-state"><div class="pay-ic info">' + ic('clock') + '</div><h3>We are checking your payment</h3><p class="small muted">' + esc(s.p.method) + (s.p.reference ? ' · reference <b>' + esc(s.p.reference) + '</b>' : '') + '</p><p class="small">Your plan starts as soon as the Aahsso team confirms it — usually within a few hours. You don\'t need to keep this open.</p></div>', foot: close };
   }
   if (s.k === 'wait') {
     const p = s.p; const amt = '<b>' + money0(p.amount, p.currency) + '</b>';
@@ -294,13 +294,13 @@ function payView(s) {
   const pi = b.instructions || {}; const rej = b.payments.find((p) => p.invoice_id === i.id && p.status === 'rejected');
   const lines = [['MTN MoMo', pi.momoNumber, pi.momoName, 'mtn'], ['Orange Money', pi.omNumber, pi.omName, 'orange']].filter((x) => x[1]);
   return { body: paySummary(i) + tabs + (rej ? '<div class="alert bad mb">Your last payment report was not confirmed' + (rej.note ? ': ' + esc(rej.note) : '') + '. Check the reference and send it again.</div>' : '') +
-    '<div class="pay-lbl">1. Pay ' + money0(payLeft(i), i.currency) + ' to</div><div class="pay-lines">' + (lines.length || pi.bank ? lines.map(([m, n, nm, c]) => '<div class="pay-line"><span class="momo-dot ' + c + '" aria-hidden="true"></span><div class="grow"><div class="b">' + esc(m) + '</div><div class="small muted">' + esc(n) + (nm ? ' · ' + esc(nm) : '') + '</div></div><button class="btn sm" data-a="billCopy" data-v="' + esc(n) + '">' + ic('copy', 'sm') + 'Copy</button></div>').join('') + (pi.bank ? '<div class="pay-line"><span class="pay-line-ic">' + ic('bank', 'sm') + '</span><div class="grow"><div class="b">Bank</div><div class="small muted">' + esc(pi.bank) + '</div></div></div>' : '') : '<div class="small muted pay-line">Contact the Kargo team for payment details.</div>') + '</div>' +
+    '<div class="pay-lbl">1. Pay ' + money0(payLeft(i), i.currency) + ' to</div><div class="pay-lines">' + (lines.length || pi.bank ? lines.map(([m, n, nm, c]) => '<div class="pay-line"><span class="momo-dot ' + c + '" aria-hidden="true"></span><div class="grow"><div class="b">' + esc(m) + '</div><div class="small muted">' + esc(n) + (nm ? ' · ' + esc(nm) : '') + '</div></div><button class="btn sm" data-a="billCopy" data-v="' + esc(n) + '">' + ic('copy', 'sm') + 'Copy</button></div>').join('') + (pi.bank ? '<div class="pay-line"><span class="pay-line-ic">' + ic('bank', 'sm') + '</span><div class="grow"><div class="b">Bank</div><div class="small muted">' + esc(pi.bank) + '</div></div></div>' : '') : '<div class="small muted pay-line">Contact the Aahsso team for payment details.</div>') + '</div>' +
     (pi.note ? '<div class="small muted mt">' + esc(pi.note) + '</div>' : '') +
     '<div class="pay-lbl mt2">2. Tell us you paid</div><div class="grid2">' + field('How you paid', sel('pm_' + i.id, b.methods || ['MTN MoMo', 'Orange Money'], 'MTN MoMo')) + field('Transaction reference', inp('pr_' + i.id, K.ui.payRef || '', 'placeholder="From your payment SMS" autocomplete="off"')) + '</div>' +
-    '<p class="hint" style="margin-top:0">Your plan starts once the Kargo team confirms it — usually within a few hours.</p>',
+    '<p class="hint" style="margin-top:0">Your plan starts once the Aahsso team confirms it — usually within a few hours.</p>',
     foot: '<button class="btn" data-a="sheetClose">Cancel</button><button class="btn pri grow" data-a="billClaim" data-id="' + esc(i.id) + '">' + ic('check', 'sm') + 'Send payment details</button>' };
 }
-const payTrust = () => '<div class="pay-trust">' + ic('lock', 'sm') + 'Secure payment by Fapshi · Kargo never sees your PIN</div>';
+const payTrust = () => '<div class="pay-trust">' + ic('lock', 'sm') + 'Secure payment by Fapshi · Aahsso never sees your PIN</div>';
 
 /** open the Pay modal for an invoice; it redraws itself when the payment moves on */
 function openPay(id, fromReturn) {
@@ -360,7 +360,7 @@ function momoWatch(id, first) {
         K._mmw = null; const shown = K.sheets.some((x) => x._pay === p.invoiceId); // the modal shows the outcome itself
         if (p.status === 'confirmed') { if (!shown) toast('Payment received — thank you! Your plan is active.'); await refreshEntitlements(); }
         else if (p.status === 'failed') { if (!shown) toast(p.failure || 'The payment did not go through', true); }
-        else if (!shown) toast('Payment received — the Kargo team is checking it');
+        else if (!shown) toast('Payment received — the Aahsso team is checking it');
         await loadBilling(); return;
       }
     } catch (e) { /* network hiccup: keep asking */ }
@@ -373,7 +373,7 @@ const ALWAYS = 'Home, stock & prices, settings, team members, profile, billing a
 /** Plans side by side: limits and every feature, ticked when included. Used on Choose your plan and on Billing. */
 function planTable(b) {
   const plans = b.plans || []; const s = b.subscription || {}; const ended = ['expired', 'suspended'].includes(s.status);
-  if (!plans.length) return '<div class="card pad2"><div class="small muted mb">Plans are not published yet. Contact the Kargo team to subscribe.</div><div class="row wrap">' + supportLinks('Hello Kargo team, I am ' + myName() + ' from ' + (S().businessName || '') + '. I would like to subscribe.') + '</div></div>';
+  if (!plans.length) return '<div class="card pad2"><div class="small muted mb">Plans are not published yet. Contact the Aahsso team to subscribe.</div><div class="row wrap">' + supportLinks('Hello Aahsso team, I am ' + myName() + ' from ' + (S().businessName || '') + '. I would like to subscribe.') + '</div></div>';
   const hasM = plans.some((p) => p.price_monthly !== null), hasY = plans.some((p) => p.price_yearly !== null);
   let cyc = K.ui.billCycle || (s.cycle === 'yearly' ? 'yearly' : 'monthly'); if (cyc === 'yearly' && !hasY) cyc = 'monthly'; if (cyc === 'monthly' && !hasM && hasY) cyc = 'yearly';
   const save = Math.max(0, ...plans.filter((p) => p.price_monthly > 0 && p.price_yearly !== null).map((p) => Math.round((1 - p.price_yearly / (p.price_monthly * 12)) * 100)));
@@ -428,11 +428,11 @@ A.ptAll = (el) => { const o = K.ui.ptOpen = {}; if (el.dataset.v === '1') $$('.p
 /** after sign-up (and from the Home reminder): choose a plan */
 VIEWS.plans = {
   render() {
-    if (K.info.mode !== 'saas') return '<div class="card pad2 muted">Plans apply to the online version of Kargo.</div>';
+    if (K.info.mode !== 'saas') return '<div class="card pad2 muted">Plans apply to the online version of Aahsso.</div>';
     if (!canBilling()) return '<div class="card pad2 muted">Only the business owner or an admin can choose the plan.</div>';
     const b = K._bill; if (!b) { loadBilling(); return K._billErr ? '<div class="alert bad">' + esc(K._billErr) + '</div>' : '<div class="empty">Loading plans…</div>'; }
     const s = b.subscription || {}; const left = s.trialEndsAt ? Math.ceil((new Date(s.trialEndsAt).getTime() - Date.now()) / 864e5) : null;
-    const line = s.status === 'trialing' ? (s.planId ? 'You are on a free trial of ' + esc(s.planName) + (left !== null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '') + '. Choose a paid plan any time.' : 'Welcome to Kargo! Pick the plan that fits your business. Free plans start a ' + (b.trialDays || 5) + '-day free trial — no payment needed.')
+    const line = s.status === 'trialing' ? (s.planId ? 'You are on a free trial of ' + esc(s.planName) + (left !== null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '') + '. Choose a paid plan any time.' : 'Welcome to Aahsso! Pick the plan that fits your business. Free plans start a ' + (b.trialDays || 5) + '-day free trial — no payment needed.')
       : s.status === 'active' ? 'You are on ' + esc(s.planName || 'a paid plan') + '. Compare plans or switch below.' : 'Your subscription has ended. Choose a plan to keep recording — your data is safe.';
     return '<div class="plans-head"><h1>Choose your plan</h1><p>' + line + '</p></div>' + planTable(b) +
       '<p class="hint plans-foot">Prices in ' + esc((b.plans[0] || {}).currency === 'XAF' || !(b.plans[0] || {}).currency ? 'FCFA' : b.plans[0].currency) + '. You can change plan later in <a href="#billing">Billing & subscription</a>. ' + (s.status === 'trialing' && !s.planId ? '<a href="#home">Decide later</a>' : '') + '</p>';
@@ -468,7 +468,7 @@ A.billCancel = async (el) => { if (!(await confirmBox('Cancel this invoice?', 'C
 A.billPdf = (el) => {
   const i = K._bill.invoices.find((x) => x.id === el.dataset.id); if (!i) return; if (!window.jspdf) return toast('PDF library still loading — try again', true);
   const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a5' }); const W = 148; let y = 16; const pi = K._bill.instructions || {};
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('Kargo', 12, y); doc.setFontSize(11); doc.text('INVOICE', W - 12, y, { align: 'right' }); y += 6;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('Aahsso', 12, y); doc.setFontSize(11); doc.text('INVOICE', W - 12, y, { align: 'right' }); y += 6;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text(i.number, W - 12, y, { align: 'right' }); y += 10;
   const kv = (k, v) => { doc.setTextColor(120); doc.text(k, 12, y); doc.setTextColor(20); doc.text(String(v), 48, y); y += 6; };
   kv('Billed to', S().businessName || ''); kv('Plan', (i.plan_name || '') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly'));
@@ -476,21 +476,21 @@ A.billPdf = (el) => {
   y += 4; doc.setFillColor(240, 238, 232); doc.rect(12, y - 5, W - 24, 11, 'F'); doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Amount', 15, y + 2); doc.text(money0(i.amount, i.currency), W - 15, y + 2, { align: 'right' }); y += 16;
   doc.setFontSize(10); doc.text(i.status === 'paid' ? 'PAID on ' + fmtDate(String(i.paid_at).slice(0, 10)) : i.status === 'void' ? 'CANCELLED' : 'To pay', 12, y); y += 8;
   if (i.status === 'open') { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); [['MTN MoMo', pi.momoNumber, pi.momoName], ['Orange Money', pi.omNumber, pi.omName]].filter((x) => x[1]).forEach(([m, n, nm]) => { doc.text(m + ': ' + n + (nm ? ' (' + nm + ')' : ''), 12, y); y += 5; }); if (pi.bank) { doc.text(doc.splitTextToSize('Bank: ' + pi.bank, W - 24), 12, y); y += 10; } if (pi.note) doc.text(doc.splitTextToSize(pi.note, W - 24), 12, y); }
-  doc.save('Kargo-' + i.number + '.pdf');
+  doc.save('Aahsso-' + i.number + '.pdf');
 };
-/** read-only banner while the Kargo team looks at the account */
+/** read-only banner while the Aahsso team looks at the account */
 function supportBanner(sv) {
   const bar = document.createElement('div'); bar.className = 'support-bar'; bar.setAttribute('role', 'status');
-  bar.innerHTML = '<span>' + ic('alert', 'sm') + ' Kargo support view · read-only · opened by ' + esc(sv.by) + ' · ends at ' + esc(new Date(sv.until).toTimeString().slice(0, 5)) + '</span><button type="button" id="svEnd">End view</button>';
+  bar.innerHTML = '<span>' + ic('alert', 'sm') + ' Aahsso support view · read-only · opened by ' + esc(sv.by) + ' · ends at ' + esc(new Date(sv.until).toTimeString().slice(0, 5)) + '</span><button type="button" id="svEnd">End view</button>';
   document.body.prepend(bar); document.getElementById('svEnd').onclick = () => A.logout();
 }
 
 /* ================= HELP & SUPPORT ================= */
 const FAQ = [
   ['Getting started', [
-    ['How does Kargo work, step by step?', 'Kargo follows your goods: <b>Buy</b> (record what you bought abroad or locally) → <b>Ship</b> (put items in a shipment and move it through Consolidating, Loading, On the way) → <b>Receive</b> (Arrived in Cameroon, Customs cleared, In warehouse) → <b>Sell</b>. Tap “How Kargo works” below for a guided tour.'],
+    ['How does Aahsso work, step by step?', 'Aahsso follows your goods: <b>Buy</b> (record what you bought abroad or locally) → <b>Ship</b> (put items in a shipment and move it through Consolidating, Loading, On the way) → <b>Receive</b> (Arrived in Cameroon, Customs cleared, In warehouse) → <b>Sell</b>. Tap “How Aahsso works” below for a guided tour.'],
     ['How do I add a team member?', 'Settings → Team → <b>Add team member</b>. Choose their role (manager, sales…). If they have an email address, they receive their login and password by email.'],
-    ['Does Kargo work without internet?', 'Yes. What you record is saved on the phone and uploads by itself when the network is back — the top bar shows “to sync” until then. Avoid logging out while changes are waiting.'],
+    ['Does Aahsso work without internet?', 'Yes. What you record is saved on the phone and uploads by itself when the network is back — the top bar shows “to sync” until then. Avoid logging out while changes are waiting.'],
   ]],
   ['Buying & stock', [
     ['How do I record a purchase?', 'Buy → <b>New purchase</b>: add each item with quantity, weight and cost (with or without tax, in dollars or francs), choose how you paid, then review and save. The items then wait to be shipped.'],
@@ -521,18 +521,18 @@ VIEWS.help = {
   render() {
     const q = (K.ui.helpQ || '').toLowerCase().trim(); const sp = K.info.support || {}; const saas = K.info.mode === 'saas';
     const groups = FAQ.map(([g, items]) => [g, items.filter(([qq, a]) => !q || (qq + ' ' + a.replace(/<[^>]+>/g, '')).toLowerCase().includes(q))]).filter(([, it]) => it.length);
-    let html = '<div class="help-top card pad2 mb"><div class="grow"><h2>How can we help?</h2><p class="small muted" style="margin:4px 0 0">Answers to common questions, a guided tour, and how to reach us.</p></div><button class="btn tour-btn" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>How Kargo works</button></div>' +
+    let html = '<div class="help-top card pad2 mb"><div class="grow"><h2>How can we help?</h2><p class="small muted" style="margin:4px 0 0">Answers to common questions, a guided tour, and how to reach us.</p></div><button class="btn tour-btn" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>How Aahsso works</button></div>' +
       '<div class="help-search mb"><span class="help-ic">' + ic('search') + '</span><input class="inp" type="search" id="helpQ" placeholder="Search help, e.g. close my day, leave, shop" value="' + esc(K.ui.helpQ || '') + '" aria-label="Search help"></div>' +
       '<div id="helpFaq">' + (groups.length ? groups.map(([g, items]) => '<h3 class="help-g">' + esc(g) + '</h3><div class="card help-list">' + items.map(([qq, a]) => '<details class="help-q"' + (q ? ' open' : '') + '><summary>' + esc(qq) + ic('down', 'sm') + '</summary><div class="help-a">' + a + '</div></details>').join('') + '</div>').join('')
         : '<div class="card pad2 muted small">Nothing found for “' + esc(K.ui.helpQ) + '”. Send us your question below.</div>') + '</div>';
     html += '<h2 class="mb mt2">Contact us</h2><div class="card pad2">';
-    const links = supportLinks('Hello Kargo team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ');
+    const links = supportLinks('Hello Aahsso team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ');
     html += links ? '<div class="row wrap mb">' + links + '</div>' : '';
     if (saas && sp.email && K.info.emailOn !== false) {
       html += '<div class="col"><div class="grid2">' + field('Topic', sel('hTopic', ['Question', 'Something is not working', 'Billing & subscription', 'Idea / request'], 'Question')) + field('Your email for the answer', inp('hReply', (K.info.user || {}).email || (/@/.test((K.info.user || {}).login || '') ? K.info.user.login : ''), 'disabled placeholder="Add an email in Profile"')) + '</div>' +
         field('Message', '<textarea class="inp" name="hMsg" rows="4" maxlength="4000" placeholder="What happened, on which screen, and what you expected"></textarea>') +
         '<div class="row between wrap"><span class="tiny muted">We see your business name, your name and the screen you were on — never your passwords.</span><button class="btn pri" data-a="helpSend">' + ic('mail') + 'Send message</button></div></div>';
-    } else if (!links) html += '<div class="muted small">Support contacts are not set up on this server yet. ' + (can('team') ? 'Ask the person who installed Kargo for you.' : 'Ask your business owner.') + '</div>';
+    } else if (!links) html += '<div class="muted small">Support contacts are not set up on this server yet. ' + (can('team') ? 'Ask the person who installed Aahsso for you.' : 'Ask your business owner.') + '</div>';
     html += '</div>';
     return html;
   },

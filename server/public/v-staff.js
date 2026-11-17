@@ -1,4 +1,4 @@
-/* Kargo — staff: clock in/out & breaks, attendance, leave, payroll, employee files */
+/* Aahsso — staff: clock in/out & breaks, attendance, leave, payroll, employee files */
 
 Object.defineProperty(TAB_LABEL, 'payroll', { get: () => (can('payroll') ? 'Payroll' : 'My pay'), configurable: true });
 

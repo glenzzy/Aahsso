@@ -1,12 +1,12 @@
 // Plan features (granular, hidden + refused when off) and admin roles (custom, granular). Needs a running server
 // (ADMIN_SECRET set) and its database:
-//   KARGO_URL=… DATABASE_URL=… ADMIN_SECRET=… node --test test/features-api.test.js
+//   AAHSSO_URL=… DATABASE_URL=… ADMIN_SECRET=… node --test test/features-api.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { Pool } = require('pg');
-const B = process.env.KARGO_URL || 'http://localhost:8080';
+const B = process.env.AAHSSO_URL || 'http://localhost:8080';
 const db = new Pool({ connectionString: process.env.DATABASE_URL });
 const rnd = Math.random().toString(36).slice(2, 8);
 test.after(() => db.end());
@@ -14,9 +14,9 @@ test.after(() => db.end());
 function adminClient() {
   let cookie = '';
   return async (method, p, body) => {
-    const headers = { 'x-kargo-admin': '1' }; if (cookie) headers.cookie = cookie; if (body) headers['content-type'] = 'application/json';
+    const headers = { 'x-aahsso-admin': '1' }; if (cookie) headers.cookie = cookie; if (body) headers['content-type'] = 'application/json';
     const r = await fetch(B + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    const sc = r.headers.get('set-cookie'); if (sc) { const m = sc.match(/(__Host-kargo_adm=[^;]*)/); if (m) cookie = m[1]; }
+    const sc = r.headers.get('set-cookie'); if (sc) { const m = sc.match(/(__Host-aahsso_adm=[^;]*)/); if (m) cookie = m[1]; }
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
 }
@@ -37,8 +37,8 @@ const fresh = () => db.query('UPDATE admin_sessions SET reauth_at = now() WHERE 
 
 test('setup: a Super Admin, a business on a paid plan', async () => {
   await db.query("UPDATE platform_admins SET role='admin' WHERE role='super'"); // test database only
-  const out = execFileSync('node', [path.join(__dirname, '..', 'scripts', 'admin.js'), 'create', '--email', 'sa' + rnd + '@kargo.test', '--name', 'Sam Super'], { env: process.env, encoding: 'utf8' });
-  S.sa = await signIn('sa' + rnd + '@kargo.test', out.match(/\(shown once\):\s+(\S+)/)[1], 'Super-Pass-' + rnd);
+  const out = execFileSync('node', [path.join(__dirname, '..', 'scripts', 'admin.js'), 'create', '--email', 'sa' + rnd + '@aahsso.test', '--name', 'Sam Super'], { env: process.env, encoding: 'utf8' });
+  S.sa = await signIn('sa' + rnd + '@aahsso.test', out.match(/\(shown once\):\s+(\S+)/)[1], 'Super-Pass-' + rnd);
   const r = await api('POST', '/api/auth/register', null, { businessName: 'Feat ' + rnd, name: 'Fola', login: 'fola' + rnd, password: 'secret1' }); S.biz = r.body.token;
   S.tid = (await db.query('SELECT tenant_id FROM users WHERE login=$1', ['fola' + rnd])).rows[0].tenant_id;
   const trial = (await api('GET', '/api/me', S.biz)).body; assert.deepEqual(trial.features, {}, 'free trial: everything on');
@@ -100,8 +100,8 @@ test('admin roles: the Super Admin creates granular roles; admins get exactly th
   const cr = await S.sa('POST', '/api/admin/roles', { name: 'Ledger ' + rnd, description: 'Reads invoices', perms: ['billing', 'overview.view', 'not.a.perm', 'admins.manage'] });
   assert.equal(cr.status, 200, JSON.stringify(cr.body)); const rid = cr.body.id;
   const role = (await S.sa('GET', '/api/admin/roles')).body.roles.find((r) => r.id === rid); assert.deepEqual(role.perms.sort(), ['billing', 'overview.view'], 'unknown and Super-Admin-only permissions are dropped');
-  const add = await S.sa('POST', '/api/admin/admins', { name: 'Lena Ledger', email: 'lena' + rnd + '@kargo.test', role: rid, sendEmail: false }); assert.equal(add.status, 200, JSON.stringify(add.body));
-  const lena = await signIn('lena' + rnd + '@kargo.test', add.body.password, 'Lena-Pass-' + rnd);
+  const add = await S.sa('POST', '/api/admin/admins', { name: 'Lena Ledger', email: 'lena' + rnd + '@aahsso.test', role: rid, sendEmail: false }); assert.equal(add.status, 200, JSON.stringify(add.body));
+  const lena = await signIn('lena' + rnd + '@aahsso.test', add.body.password, 'Lena-Pass-' + rnd);
   const me = (await lena('GET', '/api/admin/me')).body; assert.equal(me.roleName, 'Ledger ' + rnd); assert.deepEqual(me.admin.perms.sort(), ['billing', 'overview.view']);
   assert.equal((await lena('GET', '/api/admin/invoices')).status, 200);
   assert.equal((await lena('GET', '/api/admin/overview')).status, 200);
@@ -115,7 +115,7 @@ test('admin roles: the Super Admin creates granular roles; admins get exactly th
   await fresh(); assert.equal((await S.sa('POST', '/api/admin/admins/' + add.body.admin.id + '/reset-pin')).status, 200, 'the Super Admin resets a forgotten PIN');
   assert.equal((await lena('GET', '/api/admin/invoices')).body.code, 'set_pin', 'they create a new PIN at their next visit');
   assert.equal((await lena('POST', '/api/admin/auth/pin', { pin: '9173' })).status, 200);
-  const out2 = execFileSync('node', [path.join(__dirname, '..', 'scripts', 'admin.js'), 'reset-pin', '--email', 'lena' + rnd + '@kargo.test'], { env: process.env, encoding: 'utf8' }); assert.match(out2, /new 4-digit PIN/);
+  const out2 = execFileSync('node', [path.join(__dirname, '..', 'scripts', 'admin.js'), 'reset-pin', '--email', 'lena' + rnd + '@aahsso.test'], { env: process.env, encoding: 'utf8' }); assert.match(out2, /new 4-digit PIN/);
   assert.equal((await S.sa('DELETE', '/api/admin/roles/' + rid)).status, 400, 'in use');
   assert.equal((await S.sa('DELETE', '/api/admin/roles/support')).status, 400, 'built-in');
   // built-in roles can be adjusted too

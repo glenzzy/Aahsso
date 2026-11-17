@@ -1,14 +1,21 @@
-/* Kargo — data layer. Same interface for 3 backends:
- *  - RestStore: the SaaS backend (server/), used when window.KARGO_CONFIG.api is set
+/* Aahsso — data layer. Same interface for 3 backends:
+ *  - RestStore: the SaaS backend (server/), used when window.AAHSSO_CONFIG.api is set
  *  - ArtifactStore: the hosted claude.ai app's shared database
  *  - LocalStore: this-device-only fallback (preview / offline demo)
  * Interface: init() -> info; subscribe(col, cb(docs), onErr); put(col, id, data); del(col, id);
  *            uploadImage(blob) -> ref|null; imageUrl(ref) -> url; requestAccess(name) */
+/* Renamed from Kargo: keep sign-in, unsynced changes and preferences saved under the old name (runs once per browser). */
+(function () {
+  [typeof localStorage !== 'undefined' && localStorage, typeof sessionStorage !== 'undefined' && sessionStorage].forEach((st) => {
+    try { if (!st) return; for (let i = st.length - 1; i >= 0; i--) { const k = st.key(i); if (k && k.startsWith('kargo-')) { const n = 'aahsso-' + k.slice(6); if (st.getItem(n) === null) st.setItem(n, st.getItem(k)); st.removeItem(k); } } } catch (e) { }
+  });
+  if (window.AAHSSO_CONFIG === undefined && window.KARGO_CONFIG !== undefined) window.AAHSSO_CONFIG = window.KARGO_CONFIG; // an older cached config.js
+})();
 const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills'];
 const TEAM_COLLECTIONS = ['members', 'requests']; // hosted mode only (SaaS keeps users in its own table)
 
 class LocalStore {
-  constructor() { this.key = 'kargo-local-v1'; this.subs = {}; try { this.data = JSON.parse(localStorage.getItem(this.key) || '{}'); } catch (e) { this.data = {}; } }
+  constructor() { this.key = 'aahsso-local-v1'; this.subs = {}; try { this.data = JSON.parse(localStorage.getItem(this.key) || '{}'); } catch (e) { this.data = {}; } }
   async init() { return { mode: 'local', me: { id: 'local', name: 'Owner' }, userLabel: 'This device' }; }
   _save() { try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) { console.warn('local storage full'); } }
   _emit(col) { const docs = Object.entries(this.data[col] || {}).map(([id, d]) => Object.assign({ id }, d)); (this.subs[col] || []).forEach((cb) => cb(docs)); }
@@ -55,13 +62,13 @@ class ArtifactStore {
 
 class RestStore {
   constructor(api) { this.api = api.replace(/\/$/, ''); this.subs = {}; }
-  get token() { try { return sessionStorage.getItem('kargo-imp') || localStorage.getItem('kargo-token'); } catch (e) { return null; } }
-  get supportView() { try { return !!sessionStorage.getItem('kargo-imp'); } catch (e) { return false; } }
+  get token() { try { return sessionStorage.getItem('aahsso-imp') || localStorage.getItem('aahsso-token'); } catch (e) { return null; } }
+  get supportView() { try { return !!sessionStorage.getItem('aahsso-imp'); } catch (e) { return false; } }
   async req(method, path, body, raw) {
     const headers = { Authorization: 'Bearer ' + this.token };
     if (!raw) headers['Content-Type'] = 'application/json';
     const r = await fetch(this.api + path, { method, headers, body: raw ? body : body ? JSON.stringify(body) : undefined });
-    if (r.status === 401) { if (this.supportView) { sessionStorage.removeItem('kargo-imp'); alert('The support view has ended.'); window.close(); } else localStorage.removeItem('kargo-token'); location.reload(); }
+    if (r.status === 401) { if (this.supportView) { sessionStorage.removeItem('aahsso-imp'); alert('The support view has ended.'); window.close(); } else localStorage.removeItem('aahsso-token'); location.reload(); }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { code: j.code || 'error', details: j.details });
     return j;
@@ -69,8 +76,8 @@ class RestStore {
   async init() {
     if (!this.token) return { mode: 'login' };
     let me;
-    try { me = await this.req('GET', '/api/me'); if (!this.supportView) try { localStorage.setItem('kargo-me', JSON.stringify(me)); } catch (e) { } }
-    catch (e) { me = JSON.parse(localStorage.getItem('kargo-me') || 'null'); if (!me) throw e; this.offlineStart = true; } // opened without network: work from the cached copy
+    try { me = await this.req('GET', '/api/me'); if (!this.supportView) try { localStorage.setItem('aahsso-me', JSON.stringify(me)); } catch (e) { } }
+    catch (e) { me = JSON.parse(localStorage.getItem('aahsso-me') || 'null'); if (!me) throw e; this.offlineStart = true; } // opened without network: work from the cached copy
     try {
       const es = new EventSource(this.api + '/api/stream?token=' + encodeURIComponent(this.token));
       es.onmessage = (ev) => { try { const m = JSON.parse(ev.data); if (m.col) this._refresh(m.col); else COLLECTIONS.forEach((c) => this._refresh(c)); } catch (e) { } };
@@ -94,7 +101,7 @@ class RestStore {
 }
 
 async function createStore() {
-  const cfg = window.KARGO_CONFIG || {};
+  const cfg = window.AAHSSO_CONFIG || {};
   if (cfg.api !== undefined && cfg.api !== null) { const s = new RestStore(cfg.api || location.origin); return { store: s, info: await s.init() }; }
   if (window.claude && window.claude.use) {
     // Inside claude.ai: never fall back to this-device storage, or data would split between phones.

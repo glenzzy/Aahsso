@@ -114,7 +114,7 @@ async function createInvoice(c, { tid, planId, cycle, amount, createdBy, dueDays
   const live = s && ['active', 'past_due'].includes(s.status) && s.current_period_end && new Date(s.current_period_end) > new Date() && s.plan_id === planId;
   const start = periodStart ? new Date(periodStart) : live ? new Date(s.current_period_end) : new Date();
   const seq = (await c.query("SELECT nextval('invoice_seq') AS n")).rows[0].n;
-  const number = 'KRG-' + new Date().getFullYear() + '-' + seq;
+  const number = 'AHS-' + new Date().getFullYear() + '-' + seq;
   const due = new Date(Date.now() + (Number(dueDays ?? S.invoiceDueDays) || 0) * 864e5);
   return (await c.query('INSERT INTO invoices (number, tenant_id, plan_id, cycle, period_start, period_end, amount, currency, due_date, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
     [number, tid, planId, cycle, start, addPeriod(start, cycle), price, plan.currency || 'XAF', dayStr(due), createdBy || 'system'])).rows[0];
@@ -230,7 +230,7 @@ function mountTenant(app, { auth, wrap, err, canU, tx, momo }) {
     await mailOwner(pool, tid, 'invoice', invoiceMail(inv, plan, S, mailer.appUrl(req)), 'invoice:' + inv.id);
     res.json({ invoice: inv });
   }));
-  // "I have paid": recorded as pending until the Kargo team checks it
+  // "I have paid": recorded as pending until the Aahsso team checks it
   app.post('/api/billing/invoices/:id/claim', auth, guard, wrap(async (req, res) => {
     const { method, reference, paidOn } = req.body || {}; const tid = req.user.tenant_id;
     const inv = (await q('SELECT * FROM invoices WHERE id=$1 AND tenant_id=$2', [req.params.id, tid])).rows[0];

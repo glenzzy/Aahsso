@@ -1,4 +1,4 @@
-/* Kargo — Point of sale, sales list, receipts, payments, returns */
+/* Aahsso — Point of sale, sales list, receipts, payments, returns */
 
 /* ---------- POS ---------- */
 function editingExtra() {

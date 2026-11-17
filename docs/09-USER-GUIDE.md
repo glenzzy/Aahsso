@@ -36,7 +36,7 @@ Open **Cash handover** in the menu. The app shows what you collected per method.
 ## Assets (manager / owner)
 Things the business owns and uses but doesn't sell: a stacker or forklift, truck, motorbike, tanks, generator, freezers, shelves, computers, land.
 1. **Assets → Register an asset:** add the name, type, photo and serial/plate, then the date, seller, price (USD, EUR or F) and extra costs (shipping, customs, installation). Then say how it was paid; **Not paid yet** creates a bill under Suppliers. Finally, choose the branch and who keeps it.
-2. Kargo shows its **value today** and how much it loses each month. That monthly amount is counted in Profit & loss.
+2. Aahsso shows its **value today** and how much it loses each month. That monthly amount is counted in Profit & loss.
 3. Open an asset to **Add cost** (repairs, fuel, insurance; this also goes into Expenses), **Move / give to** another branch or person, or **Sell / write off** (sold, broken, stolen, given away). A reason is always required.
 4. Service, insurance and papers dates warn you on Home 30 days before. Download the register with **Excel**.
 

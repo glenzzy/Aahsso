@@ -1,4 +1,4 @@
-/* Kargo — promotions: % off, amount off or a promo price, on all items, one category or chosen items, for a period.
+/* Aahsso — promotions: % off, amount off or a promo price, on all items, one category or chosen items, for a period.
  * The running promotion is applied automatically when selling (New sale, online shop) and saved on each sale line. */
 const promoDesc = (pr) => pr.type === 'pct' ? num(pr.value) + '% off' : pr.type === 'amount' ? F(pr.value) + ' off' : 'Promo price ' + F(pr.value);
 const promoDates = (pr) => (pr.start ? fmtDate(pr.start) : 'Now') + ' → ' + (pr.end ? fmtDate(pr.end) : 'until ended');

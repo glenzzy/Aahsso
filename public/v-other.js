@@ -1,4 +1,4 @@
-/* Kargo — dashboard, customers, reports, expenses, settings, backup */
+/* Aahsso — dashboard, customers, reports, expenses, settings, backup */
 
 /* ---------- metrics helpers ---------- */
 function periodStats(pred) {
@@ -65,7 +65,7 @@ function homeWelcome(hello) {
   ].filter((x) => x[4]);
   const next = steps.find((x) => !x[3]);
   return '<div class="welcome"><div class="hint">' + fmtDate(todayStr()) + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1>' +
-    '<p class="muted">Kargo follows your goods from the shop where you buy them to the customer who buys them from you.</p><button class="btn tour-btn mb2" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>Take the 1-minute tour</button>' +
+    '<p class="muted">Aahsso follows your goods from the shop where you buy them to the customer who buys them from you.</p><button class="btn tour-btn mb2" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>Take the 1-minute tour</button>' +
     '<ol class="wsteps card">' + steps.map(([r, t, d, done], i) => '<li class="' + (done ? 'done' : x_(next, r) ? 'now' : '') + '" data-a="go" data-r="' + r + '" role="button" tabindex="0"><span class="ws-n">' + (done ? ic('check', 'sm') : i + 1) + '</span><div class="grow"><div class="ws-t">' + t + '</div><div class="hint">' + d + '</div></div>' + (x_(next, r) ? '<span class="btn sm pri">Start</span>' : ic('chev', 'sm')) + '</li>').join('') + '</ol></div>';
 }
 const x_ = (next, r) => !!next && next[0] === r;
@@ -81,7 +81,7 @@ VIEWS.home = {
     const empty = !K.raw.products.length && can('purchases');
     const byMode = Object.entries(d.byMethod).filter(([, v]) => v).map(([k, v]) => k.replace('Orange Money', 'OM').replace('MTN MoMo', 'MoMo') + ' ' + fmt(v)).join(' · ');
     if (empty) return homeWelcome(hello);
-    return '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div><div class="row gap6"><button class="btn tour-btn" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>How Kargo works</button>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div></div>' + phaseHead('', true) +
+    return '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div><div class="row gap6"><button class="btn tour-btn" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>How Aahsso works</button>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div></div>' + phaseHead('', true) +
       ((K.info.mode === 'saas' || K.raw.staff.length) && has('attendance') ? '<div class="mb2">' + clockCard(true) + '</div>' : '') +
       '<div class="kpis mb2">' + kpi('Sales today', F(d.revenue), d.n + ' receipt' + (d.n === 1 ? '' : 's') + (seeCost() && d.revenue ? ' · profit ' + fmt(d.profit) : '')) + kpi('Collected today', F(d.collected), byMode || 'Nothing yet') +
         kpi('Owed to you', F(receivables()), owing + ' open sale' + (owing === 1 ? '' : 's')) + kpi('This month', F(mo.revenue), seeCost() ? 'profit ' + fmt(mo.profit) : mo.n + ' receipts') + '</div>' +
@@ -427,7 +427,7 @@ A.logoUp = async () => {
 };
 A.logoDel = async () => { await saveSettings({ logo: '' }); refreshLogo(); };
 function refreshLogo() { const row = $('#setLogo'); const s = S(); if (row) row.innerHTML = logoHTML('logo" style="width:64px;height:64px;font-size:22px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : ''); shell(); }
-function fullBackup() { const o = { app: 'kargo', version: 1, exportedAt: new Date().toISOString(), business: S().businessName, data: {} }; COLLECTIONS.forEach((c) => (o.data[c] = c === 'settings' ? [Object.assign({ id: 'main' }, K.raw.settings)] : K.raw[c])); if (K.raw.members.length) o.data.members = K.raw.members; return o; }
+function fullBackup() { const o = { app: 'aahsso', version: 1, exportedAt: new Date().toISOString(), business: S().businessName, data: {} }; COLLECTIONS.forEach((c) => (o.data[c] = c === 'settings' ? [Object.assign({ id: 'main' }, K.raw.settings)] : K.raw[c])); if (K.raw.members.length) o.data.members = K.raw.members; return o; }
 async function embedPhotos(b) {
   // Photos stored as files are copied into the backup so it restores anywhere.
   const prods = b.data.products.filter((p) => p.image && !String(p.image).startsWith('data:'));
@@ -459,7 +459,7 @@ A.backupXlsx = () => {
 A.restore = async () => {
   const f = await pickFile('.json,application/json'); if (!f) return;
   let b; try { b = JSON.parse(await f.text()); } catch (e) { return toast('That file is not a valid backup', true); }
-  if (!b || !b.data) return toast('That file is not a Kargo backup', true);
+  if (!b || !b.data) return toast('That file is not an Aahsso backup', true);
   const counts = COLLECTIONS.map((c) => (b.data[c] || []).length);
   const total = counts.reduce((a, n) => a + n, 0);
   if (!(await confirmBox('Restore ' + total + ' records from ' + (b.business || 'backup') + ' (' + fmtDT(b.exportedAt) + ')? Records with the same ID are overwritten; nothing is deleted.', 'Restore'))) return;
@@ -550,7 +550,7 @@ const newShopKey = () => { const a = new Uint8Array(10); crypto.getRandomValues(
 function shopCard() {
   const s = S(); const on = !!s.shopEnabled && !!(s.shopSlug || s.shopId);
   const slug = s.shopSlug || KC.shopSlugify(s.businessName) || '';
-  if (K.info.mode !== 'saas') return '<div class="card pad2 mb"><h2 class="mb">Online shop</h2><p class="muted small" style="margin:0">Clients can browse your stock and send orders with their delivery details from a public link. This needs the online (server) version of Kargo.</p></div>';
+  if (K.info.mode !== 'saas') return '<div class="card pad2 mb"><h2 class="mb">Online shop</h2><p class="muted small" style="margin:0">Clients can browse your stock and send orders with their delivery details from a public link. This needs the online (server) version of Aahsso.</p></div>';
   return '<div class="card pad2 mb" id="shopCard"><div class="row between wrap mb"><h2>Online shop</h2>' + (on ? '<span class="badge ok">On</span>' : '<span class="badge">Off</span>') + '</div>' +
     '<p class="muted small" style="margin-top:0">A public page where clients see items in stock with prices and photos, choose quantities and type their own details: name, phone, delivery (pickup, local, travel agency, courier), town, agency, recipient name and number. Orders arrive under <a href="#orders">Online orders</a> for you to confirm. Costs and exact stock are never shown.</p>' +
     (on ? '<div class="shop-link"><div class="lbl">Your shop link</div><div class="shop-url">' + esc(shopLink()) + '</div><div class="shop-acts"><button class="btn sm" data-a="shopCopy">' + ic('copy', 'sm') + 'Copy link</button><a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent('Order from ' + s.businessName + ' here: ' + shopLink()) + '">' + ic('wa', 'sm') + 'Share on WhatsApp</a><a class="btn sm" target="_blank" rel="noopener" href="' + esc(shopLink()) + '">Open shop</a></div></div>' : '') +

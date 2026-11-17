@@ -1,4 +1,4 @@
-/* Kargo SaaS API + static frontend.
+/* Aahsso SaaS API + static frontend.
  * Multi-tenant: every row is scoped by tenant_id taken from the signed JWT, never from the request body. */
 require('dotenv').config();
 const path = require('path');
@@ -155,12 +155,12 @@ async function auth(req, res, next) {
   const token = h.startsWith('Bearer ') ? h.slice(7) : req.query.token;
   try {
     let p; try { p = jwt.verify(token, SECRET); } catch (e) { return err(res, 401, 'Please sign in'); } // only a bad/expired token signs you out
-    if (p.ro && !['GET', 'HEAD'].includes(req.method)) return err(res, 403, 'Kargo support view is read-only — nothing can be changed', { code: 'read_only' });
+    if (p.ro && !['GET', 'HEAD'].includes(req.method)) return err(res, 403, 'Aahsso support view is read-only — nothing can be changed', { code: 'read_only' });
     const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.email,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.plan,t.status,t.trial_ends_at,t.paid_until,t.grace_days FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
     if (!u || !u.active) return err(res, 401, 'Session expired');
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0];
     u.customRoles = (st && st.roles) || {};
-    if (p.ro) u.supportView = { by: p.impName || 'Kargo support', until: new Date(p.exp * 1000).toISOString() };
+    if (p.ro) u.supportView = { by: p.impName || 'Aahsso support', until: new Date(p.exp * 1000).toISOString() };
     u.ent = await billing.limitsFor(pool, u.tenant_id); u.features = u.ent.features; // what the plan includes
     req.user = u; next();
   } catch (e) { console.error('[auth]', e.message); return err(res, 500, 'Server error — please try again'); } // e.g. database down: keep the session
@@ -195,7 +195,7 @@ app.patch('/api/me', auth, wrap(async (req, res) => {
   if (name !== undefined) await q('UPDATE users SET name=$1 WHERE id=$2', [name.trim(), req.user.id]);
   res.json({ ok: true, email: email !== undefined ? cleanEmail(email) : req.user.email || '', name: name !== undefined ? name.trim() : req.user.name });
 }));
-/* Help & Support: a message to the Kargo team (by email, with the sender as reply-to) */
+/* Help & Support: a message to the Aahsso team (by email, with the sender as reply-to) */
 const SUPPORT = () => ({ email: process.env.SUPPORT_EMAIL || '', whatsapp: String(process.env.SUPPORT_WHATSAPP || '').replace(/[^\d]/g, '') });
 const supportLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10 });
 app.post('/api/support', auth, supportLimiter, wrap(async (req, res) => {
@@ -599,11 +599,11 @@ app.get('/api/export', auth, requireFeature('excel'), requirePerm('export'), wra
   const r = await q('SELECT collection, id, data FROM documents WHERE tenant_id=$1', [req.user.tenant_id]);
   const data = {}; COLLECTIONS.forEach((c) => (data[c] = []));
   r.rows.forEach((x) => data[x.collection] && data[x.collection].push(Object.assign({}, x.data, { id: x.id })));
-  res.setHeader('Content-Disposition', 'attachment; filename="kargo-backup.json"');
-  res.json({ app: 'kargo', version: 1, exportedAt: new Date().toISOString(), business: req.user.tenant_name, data });
+  res.setHeader('Content-Disposition', 'attachment; filename="aahsso-backup.json"');
+  res.json({ app: 'aahsso', version: 1, exportedAt: new Date().toISOString(), business: req.user.tenant_name, data });
 }));
 app.post('/api/import', auth, requireActive, requirePerm('settings'), wrap(async (req, res) => {
-  const b = req.body; if (!b || b.app !== 'kargo' || !b.data) return err(res, 400, 'Not a Kargo backup file');
+  const b = req.body; if (!b || !['aahsso', 'kargo'].includes(b.app) || !b.data) return err(res, 400, 'Not an Aahsso backup file');
   const n = await importBackup(req.user.tenant_id, req.user.id, b);
   COLLECTIONS.forEach((c) => broadcast(req.user.tenant_id, c));
   res.json({ ok: true, imported: n });
@@ -687,8 +687,8 @@ app.get('/api/activity', auth, requireFeature('activity'), wrap(async (req, res)
     const base = { at: new Date(r.at).toISOString(), uid: r.user_id, user: r.user_name || '—', role: (roles[r.role] || { label: r.role || '' }).label, loc: r.location_id || 'main', col: r.collection, id: r.doc_id };
     if (r.action === 'login') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Signed in' }));
     if (r.action === 'register') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Created the business account' }));
-    if (r.action === 'support_view') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Kargo support viewed your account (read-only)', reason: (r.after || {}).reason || '' }));
-    if (r.action === 'support_password') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Kargo support reset the owner password', reason: (r.after || {}).reason || '' }));
+    if (r.action === 'support_view') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Aahsso support viewed your account (read-only)', reason: (r.after || {}).reason || '' }));
+    if (r.action === 'support_password') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Aahsso support reset the owner password', reason: (r.after || {}).reason || '' }));
     if (r.action === 'import') return entries.push(Object.assign(base, { type: 'Settings & team', text: 'Restored a backup (' + r.doc_id + ' records)' }));
     if (!r.collection) return;
     let lines = []; try { lines = KC.describeChange(r.collection, r.before, r.action === 'delete' ? null : r.after || r.before, L); } catch (e) { lines = [{ type: KC.ACT_TYPES[r.collection] || r.collection, text: r.action + ' ' + r.collection }]; }
@@ -845,7 +845,7 @@ app.use((e, req, res, next) => {
   console.error(e); err(res, 500, 'Server error');
 });
 if (require.main === module) ensureSchema().catch((e) => console.error('[migrate] at startup:', e.message));
-if (require.main === module) { app.listen(PORT, () => console.log('Kargo running on http://localhost:' + PORT)); reminders.startScheduler(); startEmailScheduler(); momo.startSweeper(); }
+if (require.main === module) { app.listen(PORT, () => console.log('Aahsso running on http://localhost:' + PORT)); reminders.startScheduler(); startEmailScheduler(); momo.startSweeper(); }
 /** Daily emails (trial ending) without an external cron: checked every hour, each email goes out once (dedupe). */
 function startEmailScheduler() {
   if (process.env.EMAILS_SCHEDULER_DISABLED === 'true') return;

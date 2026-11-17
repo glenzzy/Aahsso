@@ -1,5 +1,5 @@
 // Super admin + subscriptions API tests. Needs a server started with ADMIN_SECRET (and CRON_SECRET) and the same DATABASE_URL:
-//   KARGO_URL=http://localhost:8080 DATABASE_URL=… CRON_SECRET=… node --test test/admin-api.test.js
+//   AAHSSO_URL=http://localhost:8080 DATABASE_URL=… CRON_SECRET=… node --test test/admin-api.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
@@ -7,7 +7,7 @@ const path = require('node:path');
 const http = require('node:http');
 const totp = require('../src/totp');
 const { Pool } = require('pg');
-const B = process.env.KARGO_URL || 'http://localhost:8080';
+const B = process.env.AAHSSO_URL || 'http://localhost:8080';
 const db = new Pool({ connectionString: process.env.DATABASE_URL });
 const rnd = Math.random().toString(36).slice(2, 8);
 const TWO = process.env.ADMIN_REQUIRE_2FA === 'true'; // TODO(2FA): two-step sign-in is off by default for now
@@ -17,9 +17,9 @@ const cron = () => fetch(B + '/api/cron/reminders', { headers: { Authorization: 
 function adminClient() {
   let cookie = '';
   const call = async (method, p, body, extra = {}) => {
-    const headers = Object.assign({ 'x-kargo-admin': '1' }, extra); if (cookie) headers.cookie = cookie; if (body) headers['content-type'] = 'application/json';
+    const headers = Object.assign({ 'x-aahsso-admin': '1' }, extra); if (cookie) headers.cookie = cookie; if (body) headers['content-type'] = 'application/json';
     const r = await fetch(B + p, { method, headers, body: body ? JSON.stringify(body) : undefined, redirect: 'manual' });
-    const sc = r.headers.get('set-cookie'); if (sc) { const m = sc.match(/(__Host-kargo_adm=[^;]*)/); if (m) cookie = m[1].endsWith('=') ? '' : m[1]; }
+    const sc = r.headers.get('set-cookie'); if (sc) { const m = sc.match(/(__Host-aahsso_adm=[^;]*)/); if (m) cookie = m[1].endsWith('=') ? '' : m[1]; }
     const ct = r.headers.get('content-type') || '';
     return { status: r.status, body: ct.includes('json') ? await r.json() : await r.text(), setCookie: sc, headers: r.headers };
   };
@@ -71,11 +71,11 @@ test('the admin does not exist for strangers or business users', async () => {
 });
 
 test('first sign-in: password' + (TWO ? ', authenticator setup, recovery codes' : ' only (two-step is off)') + ', forced password change', async () => {
-  S.ownerEmail = 'boss' + rnd + '@kargo.test';
+  S.ownerEmail = 'boss' + rnd + '@aahsso.test';
   await db.query("UPDATE platform_admins SET role='admin' WHERE role='super'"); // test database only: earlier runs left a Super Admin
   const out = cli('create', '--email', S.ownerEmail, '--name', 'Boss Owner'); S.temp = tempPw(out);
   assert.match(out, /Super Admin created/);
-  assert.throws(() => cli('create', '--email', 'second' + rnd + '@kargo.test', '--name', 'Second Super'), /Super Admin already exists/, 'only one Super Admin');
+  assert.throws(() => cli('create', '--email', 'second' + rnd + '@aahsso.test', '--name', 'Second Super'), /Super Admin already exists/, 'only one Super Admin');
   assert.match(cli('list'), new RegExp(S.ownerEmail));
   const c = adminClient();
   assert.equal((await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: 'wrong-password' })).status, 401);
@@ -83,7 +83,7 @@ test('first sign-in: password' + (TWO ? ', authenticator setup, recovery codes' 
   if (!TWO) {
     const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.temp });
     assert.equal(l.status, 200); assert.equal(l.body.next, 'done', 'no code asked while two-step is off'); assert.equal(l.body.mustChangePassword, true);
-    assert.match(l.setCookie, /^__Host-kargo_adm=[^;]+; Path=\/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800/);
+    assert.match(l.setCookie, /^__Host-aahsso_adm=[^;]+; Path=\/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800/);
   } else {
     const l = await c.call('POST', '/api/admin/auth/login', { email: S.ownerEmail, password: S.temp });
     assert.equal(l.body.next, 'setup'); assert.match(l.body.qr, /^<svg/); assert.match(l.body.otpauth, /^otpauth:\/\/totp\//);
@@ -91,7 +91,7 @@ test('first sign-in: password' + (TWO ? ', authenticator setup, recovery codes' 
     assert.equal((await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: '000000' })).status, 401);
     const v = await c.call('POST', '/api/admin/auth/verify', { ticket: l.body.ticket, code: totp.codeAt(secret, totp.stepNow()) });
     assert.equal(v.status, 200); assert.equal(v.body.recoveryCodes.length, 10); assert.equal(v.body.mustChangePassword, true); S.recovery = v.body.recoveryCodes;
-    assert.match(v.setCookie, /^__Host-kargo_adm=[^;]+; Path=\/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800/);
+    assert.match(v.setCookie, /^__Host-aahsso_adm=[^;]+; Path=\/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800/);
     const row = (await db.query('SELECT totp_secret, recovery_codes FROM platform_admins WHERE email=$1', [S.ownerEmail])).rows[0];
     assert.ok(row.totp_secret.startsWith('v1.') && !row.totp_secret.includes(secret), 'secret stored encrypted');
     assert.ok(!JSON.stringify(row.recovery_codes).includes(S.recovery[0]), 'recovery codes stored hashed');
@@ -100,7 +100,7 @@ test('first sign-in: password' + (TWO ? ', authenticator setup, recovery codes' 
   // must change the password before anything else
   assert.equal((await c.call('GET', '/api/admin/overview')).body.code, 'change_password');
   assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'short' })).status, 400);
-  assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'Correct-Horse-' + rnd }, { 'x-kargo-admin': '' })).status, 403, 'missing anti-CSRF header');
+  assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'Correct-Horse-' + rnd }, { 'x-aahsso-admin': '' })).status, 403, 'missing anti-CSRF header');
   assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'Correct-Horse-' + rnd }, { origin: 'https://evil.example' })).status, 403, 'wrong origin');
   assert.equal((await c.call('POST', '/api/admin/auth/password', { current: S.temp, password: 'Correct-Horse-' + rnd })).status, 200);
   S.pw = 'Correct-Horse-' + rnd; S.c = c;
@@ -191,7 +191,7 @@ test('business: trial → chooses a plan → reports payment → admin confirms 
   const mails = await (await fetch('http://127.0.0.1:18090/_emails')).json();
   assert.ok(mails.some((m) => m.to.includes('biz' + rnd + '@shop.test') && /invoice/i.test(m.subject)), 'invoice emailed');
   assert.ok(mails.some((m) => m.to.includes('biz' + rnd + '@shop.test') && /Payment received/.test(m.subject)), 'receipt emailed');
-  assert.ok(mails.some((m) => m.to.includes('alerts@kargo.test') && /Payment to check/.test(m.subject)), 'platform told about the claim');
+  assert.ok(mails.some((m) => m.to.includes('alerts@aahsso.test') && /Payment to check/.test(m.subject)), 'platform told about the claim');
 });
 
 test('admin: change plan, record payment, renewal keeps the price, suspend needs reason + code', async () => {
@@ -253,7 +253,7 @@ test('support view is read-only and visible to the business; owner password rese
   const w = await api('PUT', '/api/data/products/pq', tok, { name: 'Q' }); assert.equal(w.status, 403); assert.equal(w.body.code, 'read_only');
   const today = new Date().toISOString().slice(0, 10);
   const act = (await api('GET', '/api/activity?from=' + today + '&to=' + today, S.biz)).body;
-  assert.ok(JSON.stringify(act).includes('Kargo support viewed your account'), 'the owner sees it in the activity log');
+  assert.ok(JSON.stringify(act).includes('Aahsso support viewed your account'), 'the owner sees it in the activity log');
   const rp = await S.c.call('POST', '/api/admin/tenants/' + S.tid + '/reset-owner-password', { reason: 'Owner locked out, called support' });
   assert.equal(rp.status, 200); assert.equal((await api('POST', '/api/auth/login', null, { login: 'biz' + rnd, password: rp.body.password })).status, 200);
 });
@@ -302,8 +302,8 @@ test('users: admins add, edit, disable, reset and delete business users; owner p
 });
 
 test('roles: support and finance only do their part; lockout after 5 failures', async () => {
-  const sup = await addAdmin('sup' + rnd + '@kargo.test', 'Sam Support', 'support');
-  const s = await firstSignIn('sup' + rnd + '@kargo.test', sup.password, 'Support-Pass-' + rnd);
+  const sup = await addAdmin('sup' + rnd + '@aahsso.test', 'Sam Support', 'support');
+  const s = await firstSignIn('sup' + rnd + '@aahsso.test', sup.password, 'Support-Pass-' + rnd);
   assert.equal((await s.c.call('GET', '/api/admin/tenants')).status, 200);
   assert.equal((await s.c.call('GET', '/api/admin/invoices')).status, 403, 'support: no billing');
   assert.equal((await s.c.call('PUT', '/api/admin/plans/starter', { name: 'Hack', price_monthly: 1 })).status, 403);
@@ -312,24 +312,24 @@ test('roles: support and finance only do their part; lockout after 5 failures', 
   assert.equal((await s.c.call('GET', '/api/admin/users')).status, 200, 'support: sees business users');
   const someone = (await s.c.call('GET', '/api/admin/users?role=staff')).body.users[0];
   if (someone) assert.equal((await s.c.call('POST', '/api/admin/users/' + someone.id + '/delete', { reason: 'Testing it' })).status, 403, 'support: cannot delete users');
-  const fin = await addAdmin('fin' + rnd + '@kargo.test', 'Fiona Finance', 'finance');
-  const f = await firstSignIn('fin' + rnd + '@kargo.test', fin.password, 'Finance-Pass-' + rnd);
+  const fin = await addAdmin('fin' + rnd + '@aahsso.test', 'Fiona Finance', 'finance');
+  const f = await firstSignIn('fin' + rnd + '@aahsso.test', fin.password, 'Finance-Pass-' + rnd);
   assert.equal((await f.c.call('GET', '/api/admin/invoices')).status, 200);
   assert.equal((await f.c.call('POST', '/api/admin/tenants/' + S.tid + '/view', { reason: 'curious' })).status, 403, 'finance cannot view as owner');
   assert.equal((await f.c.call('GET', '/api/admin/support')).status, 403);
   // lockout
   const x = adminClient();
-  for (let i = 0; i < 5; i++) assert.equal((await x.call('POST', '/api/admin/auth/login', { email: 'fin' + rnd + '@kargo.test', password: 'nope' + i })).status, 401);
-  assert.equal((await x.call('POST', '/api/admin/auth/login', { email: 'fin' + rnd + '@kargo.test', password: 'Finance-Pass-' + rnd })).status, 429, 'locked even with the right password');
+  for (let i = 0; i < 5; i++) assert.equal((await x.call('POST', '/api/admin/auth/login', { email: 'fin' + rnd + '@aahsso.test', password: 'nope' + i })).status, 401);
+  assert.equal((await x.call('POST', '/api/admin/auth/login', { email: 'fin' + rnd + '@aahsso.test', password: 'Finance-Pass-' + rnd })).status, 429, 'locked even with the right password');
   const mails = await (await fetch('http://127.0.0.1:18090/_emails')).json();
-  assert.ok(mails.some((m) => m.to.includes('alerts@kargo.test') && /locked/i.test(m.subject)), 'lockout alert');
-  assert.ok(mails.some((m) => m.to.includes(S.ownerEmail) && /Sign-in to Kargo admin/.test(m.subject)), 'sign-in alert');
-  cli('unlock', '--email', 'fin' + rnd + '@kargo.test');
+  assert.ok(mails.some((m) => m.to.includes('alerts@aahsso.test') && /locked/i.test(m.subject)), 'lockout alert');
+  assert.ok(mails.some((m) => m.to.includes(S.ownerEmail) && /Sign-in to Aahsso admin/.test(m.subject)), 'sign-in alert');
+  cli('unlock', '--email', 'fin' + rnd + '@aahsso.test');
 });
 
 test('only the Super Admin adds admins and changes roles; the Super Admin cannot be changed', async () => {
   await db.query("UPDATE admin_sessions SET reauth_at = now() - interval '10 minutes' WHERE revoked_at IS NULL");
-  const body = { name: 'Nadia New', email: 'nadia' + rnd + '@kargo.test', role: 'support' };
+  const body = { name: 'Nadia New', email: 'nadia' + rnd + '@aahsso.test', role: 'support' };
   const r0 = await S.c.call('POST', '/api/admin/admins', body); assert.equal(r0.body.code, 'reauth', 'confirming is required');
   assert.equal((await S.c.call('POST', '/api/admin/auth/reauth', reauthBody(5))).status, 200);
   assert.equal((await S.c.call('POST', '/api/admin/admins', Object.assign({}, body, { email: 'bad' }))).status, 400);
@@ -345,8 +345,8 @@ test('only the Super Admin adds admins and changes roles; the Super Admin cannot
   assert.equal((await n.c.call('POST', '/api/admin/admins', { name: 'Eve Evil', email: 'eve' + rnd + '@x.test', role: 'admin' })).status, 403, 'support cannot add admins');
   assert.equal((await S.c.call('POST', '/api/admin/admins', { name: 'Two Supers', email: 'two' + rnd + '@x.test', role: 'super' })).status, 400, 'no second Super Admin from the dashboard');
   // an Admin can do everything except manage admins
-  const adm = await addAdmin('adm' + rnd + '@kargo.test', 'Ada Admin', 'admin');
-  const ac = await firstSignIn('adm' + rnd + '@kargo.test', adm.password, 'Ada-Admin-Pass-' + rnd);
+  const adm = await addAdmin('adm' + rnd + '@aahsso.test', 'Ada Admin', 'admin');
+  const ac = await firstSignIn('adm' + rnd + '@aahsso.test', adm.password, 'Ada-Admin-Pass-' + rnd);
   assert.equal((await ac.c.call('GET', '/api/admin/invoices')).status, 200); assert.equal((await ac.c.call('GET', '/api/admin/plans')).status, 200);
   await db.query("UPDATE admin_sessions SET reauth_at = now() WHERE revoked_at IS NULL");
   assert.equal((await ac.c.call('POST', '/api/admin/admins', { name: 'Eve Evil', email: 'eve2' + rnd + '@x.test', role: 'support' })).status, 403, 'an Admin cannot add admins');
@@ -382,15 +382,15 @@ test('audit log is complete and cannot be edited; support inbox; CSV export is f
 test('ADMIN_HOST: the admin answers only on its host, and the business app never there', async () => {
   // a second server on the same database with ADMIN_HOST set
   const { spawn } = require('node:child_process');
-  const srv = spawn('node', ['src/index.js'], { cwd: path.join(__dirname, '..'), env: Object.assign({}, process.env, { PORT: '18099', ADMIN_HOST: 'admin.kargo.test', REMINDERS_DISABLED: 'true', EMAILS_SCHEDULER_DISABLED: 'true' }), stdio: 'ignore' });
+  const srv = spawn('node', ['src/index.js'], { cwd: path.join(__dirname, '..'), env: Object.assign({}, process.env, { PORT: '18099', ADMIN_HOST: 'admin.aahsso.test', REMINDERS_DISABLED: 'true', EMAILS_SCHEDULER_DISABLED: 'true' }), stdio: 'ignore' });
   try {
     const get = (host, p) => new Promise((res) => { const req = http.get({ host: '127.0.0.1', port: 18099, path: p, headers: { host } }, (r) => { r.resume(); res({ status: r.statusCode, location: r.headers.location }); }); req.on('error', () => res({ status: 0 })); });
-    for (let i = 0; i < 50 && (await get('app.kargo.test', '/healthz')).status !== 200; i++) await new Promise((r) => setTimeout(r, 200));
-    assert.equal((await get('app.kargo.test', '/admin')).status, 404, 'not on the business host');
-    assert.equal((await get('app.kargo.test', '/api/admin/me')).status, 404);
-    assert.equal((await get('admin.kargo.test', '/admin')).status, 200);
-    const root = await get('admin.kargo.test', '/'); assert.equal(root.status, 302); assert.equal(root.location, '/admin');
-    assert.equal((await get('admin.kargo.test', '/api/me')).status, 404, 'business API not on the admin host');
-    assert.equal((await get('admin.kargo.test', '/index.html')).status, 404, 'business app not on the admin host');
+    for (let i = 0; i < 50 && (await get('app.aahsso.test', '/healthz')).status !== 200; i++) await new Promise((r) => setTimeout(r, 200));
+    assert.equal((await get('app.aahsso.test', '/admin')).status, 404, 'not on the business host');
+    assert.equal((await get('app.aahsso.test', '/api/admin/me')).status, 404);
+    assert.equal((await get('admin.aahsso.test', '/admin')).status, 200);
+    const root = await get('admin.aahsso.test', '/'); assert.equal(root.status, 302); assert.equal(root.location, '/admin');
+    assert.equal((await get('admin.aahsso.test', '/api/me')).status, 404, 'business API not on the admin host');
+    assert.equal((await get('admin.aahsso.test', '/index.html')).status, 404, 'business app not on the admin host');
   } finally { srv.kill(); }
 });

@@ -35,10 +35,10 @@ function verify(secret, code, lastStep, ms) {
   }
   return null;
 }
-const otpauthUrl = (secret, account, issuer = 'Kargo Admin') => 'otpauth://totp/' + encodeURIComponent(issuer + ':' + account) + '?secret=' + secret + '&issuer=' + encodeURIComponent(issuer) + '&algorithm=SHA1&digits=6&period=30';
+const otpauthUrl = (secret, account, issuer = 'Aahsso Admin') => 'otpauth://totp/' + encodeURIComponent(issuer + ':' + account) + '?secret=' + secret + '&issuer=' + encodeURIComponent(issuer) + '&algorithm=SHA1&digits=6&period=30';
 
 /* secrets at rest: AES-256-GCM with a key derived from ADMIN_SECRET */
-const key = () => { const s = process.env.ADMIN_SECRET; if (!s || s.length < 32) throw new Error('ADMIN_SECRET must be set (at least 32 characters)'); return crypto.createHash('sha256').update('kargo-admin:' + s).digest(); };
+const key = () => { const s = process.env.ADMIN_SECRET; if (!s || s.length < 32) throw new Error('ADMIN_SECRET must be set (at least 32 characters)'); return crypto.createHash('sha256').update('aahsso-admin:' + s).digest(); };
 function seal(text) {
   const iv = crypto.randomBytes(12); const c = crypto.createCipheriv('aes-256-gcm', key(), iv);
   const enc = Buffer.concat([c.update(String(text), 'utf8'), c.final()]);

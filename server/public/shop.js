@@ -1,4 +1,4 @@
-/* Kargo — public online shop. Clients browse items in stock, fill a basket and send their order with their own
+/* Aahsso — public online shop. Clients browse items in stock, fill a basket and send their order with their own
  * delivery details (mode, agency, town, recipient name and phone). No login. Talks to /api/shop/<key>. */
 (function () {
   'use strict';
@@ -8,7 +8,8 @@
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const esc = (v) => String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const store = { get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v === null ? d : v; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } } };
-  const CART_KEY = 'kargo-shop-cart-' + KEY, ME_KEY = 'kargo-shop-me';
+  try { Object.keys(localStorage).filter((k) => k.startsWith('kargo-shop-')).forEach((k) => { const n = 'aahsso-' + k.slice(6); if (localStorage.getItem(n) === null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }); } catch (e) { } // renamed from Kargo
+  const CART_KEY = 'aahsso-shop-cart-' + KEY, ME_KEY = 'aahsso-shop-me';
   const S = { biz: null, items: [], delivery: { modes: [], agencies: [] }, cart: store.get(CART_KEY, {}), q: '', cat: '', mode: 'pickup' };
   const fmt = (v) => Math.round(Number(v) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const money = (v) => fmt(v) + ' ' + (S.biz ? S.biz.symbol : 'FCFA');

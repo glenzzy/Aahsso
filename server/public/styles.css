@@ -752,7 +752,7 @@ table.pu-t2 tr.pu-more td{background:var(--bg);padding:12px}
 .tour-hl::after{content:'';position:absolute;inset:-4px;border-radius:13px;border:2px solid var(--accent);animation:tourPulse 1.4s ease-out infinite;pointer-events:none}
 @keyframes tourPulse{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(1.08)}}
 @media (max-width:899px){.tour:not(.tour-intro){right:16px;left:16px;width:auto;bottom:calc(86px + var(--safeB))}}
-/* "How Kargo works" — warm accent so it stands out without competing with New sale */
+/* "How Aahsso works" — warm accent so it stands out without competing with New sale */
 .btn.tour-btn{background:var(--accentSoft);border-color:#f0d29f;color:#7a4e0f;font-weight:650}
 .btn.tour-btn:hover{background:#f9e6c4;border-color:var(--accent)}
 .tour-q{width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--ink);display:inline-grid;place-items:center;font-size:12px;font-weight:800;flex:none}
@@ -1180,7 +1180,7 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .help-q summary:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
 .help-a { padding: 0 16px 14px; color: var(--ink2); font-size: 14.5px; line-height: 1.55; }
 
-/* read-only support view (opened by the Kargo team) */
+/* read-only support view (opened by the Aahsso team) */
 .support-bar { position: sticky; top: 0; z-index: 70; display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 8px 14px; background: #7a1f12; color: #fff; font-size: 14px; font-weight: 600; text-align: center; }
 .support-bar button { background: #fff; color: #7a1f12; border: 0; border-radius: 8px; padding: 5px 12px; font-weight: 700; cursor: pointer; }
 /* billing */

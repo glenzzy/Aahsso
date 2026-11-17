@@ -9,7 +9,7 @@ const { importBackup } = require('../src/index');
   const [file, login] = process.argv.slice(2);
   if (!file || !login) { console.log('Usage: node scripts/import-backup.js <backup.json> <owner-login>'); process.exit(1); }
   const b = JSON.parse(fs.readFileSync(file, 'utf8'));
-  if (b.app !== 'kargo' || !b.data) throw new Error('Not a Kargo backup file');
+  if (!['aahsso', 'kargo'].includes(b.app) || !b.data) throw new Error('Not an Aahsso backup file');
   const u = (await q('SELECT id, tenant_id FROM users WHERE login=$1', [login.toLowerCase()])).rows[0];
   if (!u) throw new Error('No user with login ' + login + ' — register the business in the app first');
   const n = await importBackup(u.tenant_id, u.id, b);
