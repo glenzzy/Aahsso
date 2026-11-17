@@ -206,7 +206,7 @@ function mountTenant(app, { auth, wrap, err, canU, tx, momo }) {
       subscription: s && { planId: s.plan_id, planName: s.plan_name, status: s.status, statusLabel: STATUS_LABEL[s.status], cycle: s.cycle, price: s.price, currency: s.currency, trialEndsAt: s.trial_ends_at, periodEnd: s.current_period_end, graceDays: s.grace_days },
       limits: (await limitsFor(pool, tid)).limits, features: (await limitsFor(pool, tid)).features, catalog: KC.FEATURES, usage: await usage(pool, tid), plans: await plansPublic(),
       invoices: (await q('SELECT i.id, i.number, i.plan_id, p.name AS plan_name, i.cycle, i.period_start, i.period_end, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.created_by FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE i.tenant_id=$1 ORDER BY i.issued_at DESC LIMIT 36', [tid])).rows,
-      payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, provider, network, failure, CASE WHEN status=\'processing\' THEN checkout_url END AS checkout_url, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
+      payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, provider, network, phone, failure, CASE WHEN status=\'processing\' THEN checkout_url END AS checkout_url, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
       momo: momo ? momo.publicInfo() : { enabled: false },
       instructions: S.paymentInstructions, methods: PAY_METHODS, trialDays: FREE_TRIAL_DAYS, trialAvailable: !!s && s.status === 'trialing',
     });

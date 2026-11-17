@@ -334,8 +334,7 @@ function subTabs(r) {
 const ROUTE_ALIAS = { containers: 'ship', purchases: 'buy' }; // old links keep working
 function go(r) { if (location.hash !== '#' + r) location.hash = r; else route(); }
 function route() {
-  while (K.sheets.length) { const t = K.sheets.pop(); t.remove(); }
-  document.body.style.overflow = '';
+  const closeAll = () => { while (K.sheets.length) { const t = K.sheets.pop(); t.remove(); } document.body.style.overflow = ''; };
   let r = (location.hash || '#home').slice(1) || 'home';
   r = ROUTE_ALIAS[r] || r;
   // New sale is a modal: #sell opens it over the page you were on
@@ -344,6 +343,8 @@ function route() {
   if (!VIEWS[r]) r = 'home';
   if (!K.member) r = 'pending';
   else if (!navOk(r)) r = 'home';
+  // a real page change closes open windows; re-checking access on the same page (e.g. just after loading) keeps them
+  if (K.route !== r || openSale || !K.sheets.length) closeAll();
   const same = K.route === r && openSale; K.route = r; if (!same) { window.scrollTo(0, 0); render(true); }
   if (openSale && K.member && can('sell')) A.newSale();
 }

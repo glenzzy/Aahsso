@@ -148,7 +148,7 @@ function supportLinks(text) {
   return out.join('');
 }
 const money0 = (n, cur) => (n === null || n === undefined ? '—' : fmt(n) + ' ' + (!cur || cur === 'XAF' ? 'FCFA' : cur));
-async function loadBilling() { try { K._bill = await K.store.req('GET', '/api/billing'); K._billErr = null; } catch (e) { K._billErr = e.message; } if (K.route === 'billing') render(true); }
+async function loadBilling() { try { K._bill = await K.store.req('GET', '/api/billing'); K._billErr = null; } catch (e) { K._billErr = e.message; } if (K.route === 'billing') render(true); if (K._bill && typeof payRefresh === 'function') payRefresh(); }
 const BILL_INV = { open: ['To pay', 'warn'], paid: ['Paid', 'ok'], void: ['Cancelled', ''] };
 VIEWS.billing = {
   render() {
@@ -169,23 +169,20 @@ VIEWS.billing = {
         : s.status === 'past_due' ? '<div class="alert warn mt">Your payment is overdue. Pay within ' + esc(s.graceDays) + ' days of the end date to keep recording.</div>'
         : s.status === 'trialing' ? '<p class="small muted mt" style="margin-bottom:0">' + (s.planName ? 'You have the features of ' + esc(s.planName) + ' during your free trial. Choose a paid plan below before it ends to keep recording without a break.' : 'Everything is unlocked during the trial. Choose a plan below before it ends to keep recording without a break.') + '</p>' : '') +
       '<div class="mt">' + Object.entries(LBL).map(([k, l]) => { const used = (b.usage || {})[k] || 0; const max = lim[k]; return '<div class="mb"><div class="row between small"><span>' + l + '</span><b>' + used + (max ? ' / ' + max : '') + '</b></div>' + (max ? '<div class="meter' + (used >= max ? ' full' : '') + '"><span style="width:' + Math.min(100, used / max * 100) + '%"></span></div>' : '') + '</div>'; }).join('') + '</div></div>';
-    // invoices to pay
-    const pi = b.instructions || {};
+    // invoices to pay: a short card; paying happens in the Pay modal
     open.forEach((i) => {
       const pend = pendingFor(i), rej = rejectedFor(i);
-      html += '<div class="card pad2 mb bill-pay" id="inv-' + i.id + '"><div class="row between wrap mb"><div><div class="hint">Invoice ' + esc(i.number) + '</div><h2>' + money0(i.amount, i.currency) + '</h2><div class="small muted">' + esc((i.plan_name || '') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly') + ' · due ' + fmtDate(String(i.due_date).slice(0, 10))) + '</div></div>' +
-        '<div class="row"><button class="btn sm" data-a="billPdf" data-id="' + i.id + '">' + ic('dl', 'sm') + 'PDF</button>' + (i.created_by === 'owner' && !pend && !b.payments.some((p) => p.invoice_id === i.id && p.status === 'processing') ? '<button class="btn sm" data-a="billCancel" data-id="' + i.id + '">Cancel</button>' : '') + '</div></div>';
-      if (pend) html += '<div class="alert info">We are checking your payment (' + esc(pend.method) + (pend.reference ? ' · ' + esc(pend.reference) : '') + '). Your subscription starts as soon as it is confirmed — usually within a few hours.</div></div>';
-      else {
-        const lines = [['MTN MoMo', pi.momoNumber, pi.momoName], ['Orange Money', pi.omNumber, pi.omName]].filter((x) => x[1]);
-        const mm = b.momo || {}; const auto = mm.enabled ? momoBox(i, b) : '';
-        if (auto) html += auto + '<details class="bill-other mt2"' + (rej ? ' open' : '') + '><summary>Other ways to pay <span class="hint">— transfer, bank or cash, then send us the reference</span></summary><div class="mt">';
-        html += (rej ? '<div class="alert bad mb">Your last payment report was not confirmed' + (rej.note ? ': ' + esc(rej.note) : '') + '. Check the reference and report it again.</div>' : '') +
-          '<h3 class="mb">How to pay</h3>' + (lines.length || pi.bank ? lines.map(([m, n, nm]) => '<div class="pay-line"><div><div class="b">' + esc(m) + '</div><div class="small muted">' + esc(n) + (nm ? ' · ' + esc(nm) : '') + '</div></div><button class="btn sm" data-a="billCopy" data-v="' + esc(n) + '">' + ic('copy', 'sm') + 'Copy</button></div>').join('') + (pi.bank ? '<div class="pay-line"><div><div class="b">Bank</div><div class="small muted">' + esc(pi.bank) + '</div></div></div>' : '') : '<div class="small muted mb">Contact the Kargo team for payment details.</div>') +
-          (pi.note ? '<div class="small muted mt">' + esc(pi.note) + '</div>' : '') +
-          '<h3 class="mb mt2">I have paid</h3><div class="grid2">' + field('How you paid', sel('pm_' + i.id, b.methods || ['MTN MoMo', 'Orange Money'], 'MTN MoMo')) + field('Transaction reference', inp('pr_' + i.id, '', 'placeholder="From your payment SMS" autocomplete="off"')) + '</div>' +
-          '<button class="btn ' + (auto ? '' : 'pri ') + 'mt" data-a="billClaim" data-id="' + i.id + '">' + ic('check') + 'Send payment details</button>' + (auto ? '</div></details>' : '') + '</div>';
-      }
+      const live = b.payments.find((p) => p.invoice_id === i.id && p.provider === 'fapshi' && p.status === 'processing');
+      if (live) momoWatch(live.id);
+      const lastAuto = b.payments.find((p) => p.invoice_id === i.id && p.provider === 'fapshi');
+      const note = pend ? '<span class="pay-note info">' + ic('clock', 'sm') + 'We are checking your payment' + (pend.reference ? ' · ' + esc(pend.reference) : '') + '</span>'
+        : live ? '<span class="pay-note brand"><span class="pay-pulse" aria-hidden="true"></span>Payment in progress</span>'
+        : rej ? '<span class="pay-note bad">Your last payment report was not confirmed</span>'
+        : lastAuto && lastAuto.status === 'failed' ? '<span class="pay-note bad">The last payment did not go through</span>' : '';
+      html += '<div class="card pad2 mb bill-pay" id="inv-' + i.id + '"><div class="row between wrap"><div><div class="hint">Invoice ' + esc(i.number) + '</div><h2>' + money0(i.amount, i.currency) + '</h2><div class="small muted">' + esc((i.plan_name || '') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly') + ' · due ' + fmtDate(String(i.due_date).slice(0, 10))) + '</div></div>' +
+        '<div class="row"><button class="btn sm" data-a="billPdf" data-id="' + i.id + '">' + ic('dl', 'sm') + 'PDF</button>' + (i.created_by === 'owner' && !pend && !live ? '<button class="btn sm" data-a="billCancel" data-id="' + i.id + '">Cancel</button>' : '') + '</div></div>' +
+        '<div class="pay-cta row between wrap mt">' + (note || '<span class="small muted">' + ((b.momo || {}).enabled ? 'Pay with MTN MoMo or Orange Money — your plan starts straight away.' : 'Pay, then send us the reference.') + '</span>') +
+        '<button class="btn ' + (pend ? '' : 'pri ') + 'pay-open" data-a="payOpen" data-id="' + i.id + '">' + (pend ? 'View details' : live ? 'View payment' : ic('wallet') + 'Pay now') + '</button></div></div>';
     });
     // plans: the same comparison table as the Choose-your-plan page
     html += '<div class="mt2"></div>' + planTable(b) + '<div class="mb2"></div>';
@@ -200,10 +197,20 @@ VIEWS.billing = {
     return html;
   },
 };
+VIEWS.billing.after = () => {
+  // just back from Fapshi's page (the app has only just loaded): show where the payment is, unless they closed it
+  const b = K._bill; if (!b || performance.now() > 20000) return;
+  const live = b.payments.find((p) => p.provider === 'fapshi' && p.status === 'processing' && b.invoices.some((i) => i.id === p.invoice_id && i.status === 'open'));
+  if (live && K._payShut !== live.id) setTimeout(() => { if (!K.sheets.length && K.route === 'billing') { const el = openPay(live.invoice_id, true); if (el) el._onClose = () => { K.ui.payTab = undefined; K._payShut = live.id; }; } }, 50);
+};
 A.billCycle = (el) => { K.ui.billCycle = el.dataset.v; render(true); };
-/* ---------- mobile money (Fapshi): pay an invoice with MTN MoMo or Orange Money; the plan starts by itself ----------
- * Two ways, chosen on the server (b.momo.direct): Fapshi's payment page (we send the payer there and they come back
- * here), or a prompt on the payer's phone that they approve with their PIN, without leaving Kargo. */
+/* ---------- Pay modal: everything about paying one invoice, in one window ----------
+ * Mobile Money (Fapshi): either Fapshi's payment page (we send the payer there and they come back here) or, with
+ * b.momo.direct, a prompt on the payer's phone that they approve with their PIN. "Other ways": transfer, bank or
+ * cash, then the payer sends us the reference. The modal follows the payment: form → waiting → paid. */
+if (!IP.lock) IP.lock = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
+if (!IP.phone) IP.phone = '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>';
+if (!IP.bank) IP.bank = '<path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/>';
 const MOMO_KEY = 'kargo-momo-phone';
 const momoSaved = () => { try { return localStorage.getItem(MOMO_KEY) || ''; } catch (e) { return ''; } };
 /** network from a Cameroon number: MTN 67x / 650-654 / 680-683, Orange 69x / 655-659 / 686-689 */
@@ -216,39 +223,104 @@ function momoGuess(v) {
 }
 const momoDigits = (v) => { let d = String(v || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.length === 12 && d.startsWith('237')) d = d.slice(3); return d; };
 const momoDots = '<span class="momo-dot mtn" aria-hidden="true"></span><span class="momo-dot orange" aria-hidden="true"></span>';
-function momoBox(i, b) {
-  const mm = b.momo; const mine = b.payments.filter((p) => p.invoice_id === i.id && p.provider === 'fapshi');
-  const live = mine.find((p) => p.status === 'processing');
-  if (live) {
-    momoWatch(live.id);
-    if (live.checkout_url) { // Fapshi's payment page
-      return '<div class="momo-wait" role="status" aria-live="polite"><span class="momo-spin" aria-hidden="true"></span><div class="grow"><h3>Waiting for your payment</h3>' +
-        '<p class="small">Finish paying <b>' + money0(live.amount, live.currency) + '</b> on the Fapshi payment page. This page updates by itself as soon as it is paid.</p>' +
-        '<div class="row wrap mt"><a class="btn pri sm" href="' + esc(live.checkout_url) + '" rel="noopener">' + ic('wallet', 'sm') + 'Continue to payment</a><button class="btn sm" data-a="momoCheck" data-id="' + esc(live.id) + '">I paid — check now</button></div></div></div>';
-    }
-    const net = mm.networks.find((n) => n.code === live.network) || { label: live.method };
-    return '<div class="momo-wait" role="status" aria-live="polite"><span class="momo-spin" aria-hidden="true"></span><div class="grow"><h3>Check your phone</h3>' +
-      '<p class="small">Approve <b>' + money0(live.amount, live.currency) + '</b> with your <b>' + esc(net.label) + '</b> PIN. This page updates by itself as soon as it is paid.</p>' +
-      '<ol class="small muted momo-steps"><li>' + (/^[AEIOU]/.test(net.label) ? 'An ' : 'A ') + esc(net.label) + ' message appears on the phone' + (net.code === 'mtn' ? ' (or dial *126# if it does not)' : net.code === 'orange' ? ' (or dial #150*50# if it does not)' : '') + '</li><li>Enter your PIN to approve</li></ol>' +
-      '<button class="btn sm" data-a="momoCheck" data-id="' + esc(live.id) + '">I approved — check now</button></div></div>';
-  }
-  const last = mine[0]; // newest first
-  const paid = b.payments.filter((p) => p.invoice_id === i.id && p.status === 'confirmed').reduce((a, p) => a + p.amount, 0);
-  const failed = last && last.status === 'failed' ? '<div class="alert bad mb">' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '';
-  const pay = '<button class="btn pri mt momo-pay" data-a="momoPay" data-id="' + esc(i.id) + '">' + ic('wallet') + 'Pay ' + money0(i.amount - paid, i.currency) + '</button>';
-  const test = mm.sandbox ? '<b>Test mode: no real money moves.</b> 670000000 or 690000000 pays; 670000001 or 690000001 fails.' : '';
-  if (!mm.direct) {
-    return failed + '<h3 class="mb row" style="gap:8px">Pay with Mobile Money ' + momoDots + '</h3>' +
-      '<p class="small muted" style="margin:0">Pay with MTN MoMo or Orange Money on Fapshi\'s secure payment page, then come back here. Your plan starts as soon as it is paid — no reference to send.</p>' + pay +
-      (test ? '<p class="hint mt">' + test + '</p>' : '');
-  }
-  const phone = K.ui.momoPhone !== undefined ? K.ui.momoPhone : momoSaved();
-  const net = K.ui.momoNet || momoGuess(phone) || mm.networks[0].code;
-  return failed + '<h3 class="mb">Pay with Mobile Money</h3>' +
-    '<div class="momo-nets" role="radiogroup" aria-label="Mobile money network">' + mm.networks.map((n) => '<button type="button" role="radio" aria-checked="' + (n.code === net) + '" class="momo-net' + (n.code === net ? ' on' : '') + '" data-a="momoNet" data-v="' + esc(n.code) + '"><span class="momo-dot ' + esc(n.code) + '" aria-hidden="true"></span>' + esc(n.label) + '</button>').join('') + '</div>' +
-    field('Mobile money number', '<div class="momo-phone"><span aria-hidden="true">+' + esc(mm.prefix) + '</span>' + inp('mp_' + i.id, phone, 'type="tel" inputmode="tel" autocomplete="tel-national" placeholder="6 77 12 34 56" data-momo-phone aria-label="Mobile money number"') + '</div>') + pay +
-    '<p class="hint mt">You get a message on this phone to approve with your PIN. Your plan starts as soon as it is paid — no reference to send.' + (test ? ' ' + test : '') + '</p>';
+const DIAL = { mtn: '*126#', orange: '#150*50#' };
+
+/** what the modal shows for this invoice right now (used to redraw only when something changed) */
+function payState(id) {
+  const b = K._bill; const i = b && b.invoices.find((x) => x.id === id); if (!i) return { k: 'gone' };
+  if (i.status === 'paid') return { k: 'paid', i };
+  if (i.status !== 'open') return { k: 'gone' };
+  const pend = b.payments.find((p) => p.invoice_id === id && p.status === 'pending'); if (pend) return { k: 'pending', i, p: pend };
+  const live = b.payments.find((p) => p.invoice_id === id && p.provider === 'fapshi' && p.status === 'processing'); if (live) return { k: 'wait', i, p: live };
+  const mm = b.momo || {}; const rej = b.payments.find((p) => p.invoice_id === id && p.status === 'rejected');
+  const tab = mm.enabled ? K.ui.payTab || (rej ? 'other' : 'momo') : 'other';
+  return { k: 'form', i, tab };
 }
+const payKey = (s) => s.k + '|' + (s.p ? s.p.id + s.p.status : '') + '|' + (s.tab || '') + '|' + (s.i ? s.i.status : '');
+
+function paySummary(i) {
+  const b = K._bill; const paid = b.payments.filter((p) => p.invoice_id === i.id && p.status === 'confirmed').reduce((a, p) => a + p.amount, 0);
+  return '<div class="pay-sum"><div class="pay-sum-top"><span>' + esc((i.plan_name || 'Kargo') + ' · ' + (i.cycle === 'yearly' ? 'yearly' : 'monthly')) + '</span><span>' + esc(i.number) + '</span></div>' +
+    '<div class="pay-amt">' + fmt(i.amount - paid) + ' <small>' + esc(!i.currency || i.currency === 'XAF' ? 'FCFA' : i.currency) + '</small></div>' +
+    '<div class="pay-sum-bot">Due ' + esc(fmtDate(String(i.due_date).slice(0, 10))) + (i.period_start ? ' · covers ' + esc(fmtDate(String(i.period_start).slice(0, 10))) + ' → ' + esc(fmtDate(String(i.period_end).slice(0, 10))) : '') + '</div></div>';
+}
+const payLeft = (i) => i.amount - K._bill.payments.filter((p) => p.invoice_id === i.id && p.status === 'confirmed').reduce((a, p) => a + p.amount, 0);
+
+function payView(s) {
+  const b = K._bill; const mm = b.momo || {}; const i = s.i;
+  const close = '<button class="btn grow" data-a="sheetClose">Close</button>';
+  if (s.k === 'paid') {
+    const sub = b.subscription || {};
+    return { body: '<div class="pay-done" role="status"><div class="pay-tick">' + ic('check') + '</div><h2>Payment received</h2><p>Thank you! <b>' + esc(i.plan_name || 'Your plan') + '</b> is active' + (sub.periodEnd ? ' until <b>' + esc(fmtDate(String(sub.periodEnd).slice(0, 10))) + '</b>' : '') + '.</p><p class="small muted">The receipt is in your invoices below.</p></div>',
+      foot: '<button class="btn pri grow" data-a="sheetClose">Done</button>' };
+  }
+  if (s.k === 'pending') {
+    return { body: paySummary(i) + '<div class="pay-state"><div class="pay-ic info">' + ic('clock') + '</div><h3>We are checking your payment</h3><p class="small muted">' + esc(s.p.method) + (s.p.reference ? ' · reference <b>' + esc(s.p.reference) + '</b>' : '') + '</p><p class="small">Your plan starts as soon as the Kargo team confirms it — usually within a few hours. You don\'t need to keep this open.</p></div>', foot: close };
+  }
+  if (s.k === 'wait') {
+    const p = s.p; const amt = '<b>' + money0(p.amount, p.currency) + '</b>';
+    if (p.checkout_url) {
+      return { body: paySummary(i) + '<div class="pay-state" role="status" aria-live="polite"><span class="momo-spin lg" aria-hidden="true"></span><h3>Waiting for your payment</h3><p class="small">Finish paying ' + amt + ' on Fapshi\'s secure page. This window updates by itself as soon as it is paid.</p>' +
+        '<button class="btn sm ghost-link" data-a="momoCheck" data-id="' + esc(p.id) + '">I paid — check now</button></div>' + payTrust(),
+        foot: close + '<a class="btn pri grow" href="' + esc(p.checkout_url) + '" rel="noopener">' + ic('lock', 'sm') + 'Continue to payment</a>' };
+    }
+    const net = (mm.networks || []).find((n) => n.code === p.network) || { label: p.method };
+    return { body: paySummary(i) + '<div class="pay-state" role="status" aria-live="polite"><div class="pay-phone" aria-hidden="true">' + ic('phone') + '<span class="pay-pulse"></span></div><h3>Check your phone</h3><p class="small">Approve ' + amt + ' with your <b>' + esc(net.label) + '</b> PIN. This window updates by itself.</p>' +
+      '<ol class="pay-steps"><li><span>1</span><div>' + (/^[AEIOU]/.test(net.label) ? 'An ' : 'A ') + esc(net.label) + ' message appears on ' + esc(p.phone ? '+237 ' + p.phone : 'your phone') + (DIAL[net.code] ? ' — or dial <b>' + DIAL[net.code] + '</b>' : '') + '</div></li><li><span>2</span><div>Enter your PIN to approve</div></li><li><span>3</span><div>Your plan starts straight away</div></li></ol></div>',
+      foot: close + '<button class="btn pri grow" data-a="momoCheck" data-id="' + esc(p.id) + '">I approved — check now</button>' };
+  }
+  // the form: choose how to pay
+  const tabs = mm.enabled ? '<div class="pay-tabs" role="tablist" aria-label="How to pay">' +
+    '<button type="button" role="tab" aria-selected="' + (s.tab === 'momo') + '" class="pay-tab' + (s.tab === 'momo' ? ' on' : '') + '" data-a="payTab" data-v="momo"><span class="pay-tab-ic">' + momoDots + '</span><span><b>Mobile Money</b><small>MTN MoMo · Orange Money</small></span></button>' +
+    '<button type="button" role="tab" aria-selected="' + (s.tab === 'other') + '" class="pay-tab' + (s.tab === 'other' ? ' on' : '') + '" data-a="payTab" data-v="other"><span class="pay-tab-ic">' + ic('bank') + '</span><span><b>Other ways</b><small>Transfer, bank or cash</small></span></button></div>' : '';
+  if (s.tab === 'momo') {
+    const mine = b.payments.filter((p) => p.invoice_id === i.id && p.provider === 'fapshi'); const last = mine[0];
+    const failed = last && last.status === 'failed' ? '<div class="alert bad mb">' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '';
+    const test = mm.sandbox ? '<div class="pay-test"><b>Test mode</b> — no real money moves. 670000000 or 690000000 pays; 670000001 or 690000001 fails.</div>' : '';
+    const payBtn = '<button class="btn pri grow" data-a="momoPay" data-id="' + esc(i.id) + '">' + ic('lock', 'sm') + 'Pay ' + money0(payLeft(i), i.currency) + '</button>';
+    if (!mm.direct) {
+      return { body: paySummary(i) + tabs + failed + '<ol class="pay-steps"><li><span>1</span><div>Tap <b>Pay</b> — Fapshi\'s secure payment page opens</div></li><li><span>2</span><div>Choose MTN MoMo or Orange Money and approve on your phone</div></li><li><span>3</span><div>You come back here and your plan starts straight away</div></li></ol>' + test + payTrust(),
+        foot: '<button class="btn" data-a="sheetClose">Cancel</button>' + payBtn };
+    }
+    const phone = K.ui.momoPhone !== undefined ? K.ui.momoPhone : momoSaved();
+    const net = K.ui.momoNet || momoGuess(phone) || (mm.networks[0] || {}).code;
+    return { body: paySummary(i) + tabs + failed +
+      field('Mobile money number', '<div class="momo-phone"><span aria-hidden="true">+' + esc(mm.prefix) + '</span>' + inp('mp_' + i.id, phone, 'type="tel" inputmode="tel" autocomplete="tel-national" placeholder="6 77 12 34 56" data-momo-phone aria-label="Mobile money number"') + '</div>') +
+      '<div class="pay-lbl">Network</div><div class="momo-nets" role="radiogroup" aria-label="Mobile money network">' + mm.networks.map((n) => '<button type="button" role="radio" aria-checked="' + (n.code === net) + '" class="momo-net' + (n.code === net ? ' on' : '') + '" data-a="momoNet" data-v="' + esc(n.code) + '"><span class="momo-dot ' + esc(n.code) + '" aria-hidden="true"></span>' + esc(n.label) + '</button>').join('') + '</div>' +
+      '<p class="hint" style="margin-top:0">You get a message on this phone to approve with your PIN. No reference to send.</p>' + test + payTrust(),
+      foot: '<button class="btn" data-a="sheetClose">Cancel</button>' + payBtn };
+  }
+  // other ways: pay by hand, then send the reference
+  const pi = b.instructions || {}; const rej = b.payments.find((p) => p.invoice_id === i.id && p.status === 'rejected');
+  const lines = [['MTN MoMo', pi.momoNumber, pi.momoName, 'mtn'], ['Orange Money', pi.omNumber, pi.omName, 'orange']].filter((x) => x[1]);
+  return { body: paySummary(i) + tabs + (rej ? '<div class="alert bad mb">Your last payment report was not confirmed' + (rej.note ? ': ' + esc(rej.note) : '') + '. Check the reference and send it again.</div>' : '') +
+    '<div class="pay-lbl">1. Pay ' + money0(payLeft(i), i.currency) + ' to</div><div class="pay-lines">' + (lines.length || pi.bank ? lines.map(([m, n, nm, c]) => '<div class="pay-line"><span class="momo-dot ' + c + '" aria-hidden="true"></span><div class="grow"><div class="b">' + esc(m) + '</div><div class="small muted">' + esc(n) + (nm ? ' · ' + esc(nm) : '') + '</div></div><button class="btn sm" data-a="billCopy" data-v="' + esc(n) + '">' + ic('copy', 'sm') + 'Copy</button></div>').join('') + (pi.bank ? '<div class="pay-line"><span class="pay-line-ic">' + ic('bank', 'sm') + '</span><div class="grow"><div class="b">Bank</div><div class="small muted">' + esc(pi.bank) + '</div></div></div>' : '') : '<div class="small muted pay-line">Contact the Kargo team for payment details.</div>') + '</div>' +
+    (pi.note ? '<div class="small muted mt">' + esc(pi.note) + '</div>' : '') +
+    '<div class="pay-lbl mt2">2. Tell us you paid</div><div class="grid2">' + field('How you paid', sel('pm_' + i.id, b.methods || ['MTN MoMo', 'Orange Money'], 'MTN MoMo')) + field('Transaction reference', inp('pr_' + i.id, K.ui.payRef || '', 'placeholder="From your payment SMS" autocomplete="off"')) + '</div>' +
+    '<p class="hint" style="margin-top:0">Your plan starts once the Kargo team confirms it — usually within a few hours.</p>',
+    foot: '<button class="btn" data-a="sheetClose">Cancel</button><button class="btn pri grow" data-a="billClaim" data-id="' + esc(i.id) + '">' + ic('check', 'sm') + 'Send payment details</button>' };
+}
+const payTrust = () => '<div class="pay-trust">' + ic('lock', 'sm') + 'Secure payment by Fapshi · Kargo never sees your PIN</div>';
+
+/** open the Pay modal for an invoice; it redraws itself when the payment moves on */
+function openPay(id, fromReturn) {
+  const ex = K.sheets.find((x) => x._pay); if (ex) { if (ex._pay === id) return ex._refresh(true); closeSheet(); }
+  const s = payState(id); if (s.k === 'gone') return;
+  const v = payView(s);
+  const el = openSheet({ title: s.k === 'paid' ? 'All paid' : 'Pay your invoice', body: v.body, foot: v.foot, onClose: () => { K.ui.payTab = undefined; } });
+  el.classList.add('pay-sheet'); el._pay = id; el._key = payKey(s);
+  el._refresh = (force) => {
+    const st = payState(id); if (st.k === 'gone') { if (K.sheets.includes(el)) { el._onClose = null; K.sheets.splice(K.sheets.indexOf(el), 1); el.remove(); if (!K.sheets.length) document.body.style.overflow = ''; } return; }
+    const key = payKey(st); if (!force && key === el._key) return; el._key = key;
+    const ref = $('[name="pr_' + id + '"]', el); if (ref) K.ui.payRef = ref.value;
+    const vv = payView(st); $('.sh h2', el).textContent = st.k === 'paid' ? 'All paid' : 'Pay your invoice'; $('.sb', el).innerHTML = vv.body; $('.sf', el).innerHTML = vv.foot;
+  };
+  if (s.k === 'wait') momoWatch(s.p.id, fromReturn ? 300 : undefined);
+  return el;
+}
+const payRefresh = () => { const s = K.sheets.find((x) => x._pay); if (s) s._refresh(); };
+A.payOpen = (el) => { openPay(el.dataset.id); };
+A.payTab = (el) => { const s = K.sheets.find((x) => x._pay); const ref = s && $('[name^="pr_"]', s); if (ref) K.ui.payRef = ref.value; K.ui.payTab = el.dataset.v; if (s) s._refresh(); };
 /* pick the network as the number is typed (until the payer picks one themselves) */
 document.addEventListener('input', (e) => {
   if (!e.target.matches || !e.target.matches('[data-momo-phone]')) return;
@@ -265,30 +337,30 @@ A.momoPay = async (el) => {
     body = { phone: d, network: K.ui.momoPicked ? K.ui.momoNet : momoGuess(d) || K.ui.momoNet || (mm.networks[0] || {}).code };
     K.ui.momoPhone = phone; try { localStorage.setItem(MOMO_KEY, phone); } catch (e) { }
   }
-  const label = el.innerHTML; el.disabled = true; el.textContent = mm.direct ? 'Sending…' : 'Opening the payment page…';
+  const label = el.innerHTML; el.textContent = mm.direct ? 'Sending…' : 'Opening the secure page…';
   try {
     const r = await K.store.req('POST', '/api/billing/invoices/' + id + '/momo', body);
-    if (r.link) { location.href = r.link; return; } // Fapshi's payment page; it sends the payer back to Billing
-    toast(r.message || 'Check your phone and approve with your PIN');
-  } catch (e) { toast(e.message, true); el.disabled = false; el.innerHTML = label; }
+    if (r.link) { location.href = r.link; await new Promise(() => {}); } // off to Fapshi's page; it sends the payer back to Billing
+  } catch (e) { toast(e.message, true); el.innerHTML = label; }
   await loadBilling();
 };
-A.momoCheck = (el) => { if (K._mmw) clearTimeout(K._mmw.t); K._mmw = null; el.disabled = true; momoWatch(el.dataset.id, 0); };
+A.momoCheck = (el) => { if (K._mmw) clearTimeout(K._mmw.t); K._mmw = null; momoWatch(el.dataset.id, 0); return new Promise((r) => setTimeout(r, 1200)); };
 /** ask the server until the payment is settled: every 5 s for 3 minutes, then every 15 s while Billing is open */
 function momoWatch(id, first) {
-  if (K._mmw && K._mmw.id === id) return; if (K._mmw) clearTimeout(K._mmw.t);
+  if (K._mmw && K._mmw.id === id) { if (first !== undefined) { clearTimeout(K._mmw.t); K._mmw.t = setTimeout(K._mmw.tick, first); } return; }
+  if (K._mmw) clearTimeout(K._mmw.t);
   const w = K._mmw = { id, start: Date.now() };
-  const tick = async () => {
+  const tick = w.tick = async () => {
     if (K._mmw !== w) return;
     if (K.route !== 'billing') { K._mmw = null; return; }
     try {
       const p = (await K.store.req('GET', '/api/billing/momo/' + id)).payment;
       if (K._mmw !== w) return;
       if (p.status !== 'processing') {
-        K._mmw = null;
-        if (p.status === 'confirmed') { toast('Payment received — thank you! Your plan is active.'); await refreshEntitlements(); }
-        else if (p.status === 'failed') toast(p.failure || 'The payment did not go through', true);
-        else toast('Payment received — the Kargo team is checking it');
+        K._mmw = null; const shown = K.sheets.some((x) => x._pay === p.invoiceId); // the modal shows the outcome itself
+        if (p.status === 'confirmed') { if (!shown) toast('Payment received — thank you! Your plan is active.'); await refreshEntitlements(); }
+        else if (p.status === 'failed') { if (!shown) toast(p.failure || 'The payment did not go through', true); }
+        else if (!shown) toast('Payment received — the Kargo team is checking it');
         await loadBilling(); return;
       }
     } catch (e) { /* network hiccup: keep asking */ }
@@ -382,15 +454,14 @@ A.billChoose = async (el) => {
   if (!(await confirmBox('Choose ' + p.name + ' (' + money0(p['price_' + cyc], p.currency) + ' / ' + (cyc === 'yearly' ? 'year' : 'month') + ')? An invoice is created for you to pay.', 'Choose plan'))) return;
   try {
     const r = await K.store.req('POST', '/api/billing/choose', { planId: p.id, cycle: cyc });
-    toast(r.reused ? 'You already have this invoice — pay it below' : 'Invoice ' + r.invoice.number + ' created — pay it below');
     if (K.route !== 'billing') location.hash = '#billing';
-    await loadBilling(); setTimeout(() => { const el2 = document.getElementById('inv-' + r.invoice.id); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 300);
+    await loadBilling(); openPay(r.invoice.id);
   } catch (e) { toast(e.message, true); }
 };
 A.billClaim = async (el) => {
   const id = el.dataset.id; const method = $('[name=pm_' + id + ']').value; const reference = $('[name=pr_' + id + ']').value.trim();
   if (method !== 'Cash' && reference.length < 4) return toast('Type the transaction reference from your payment SMS', true);
-  try { await K.store.req('POST', '/api/billing/invoices/' + id + '/claim', { method, reference }); toast('Thank you — we are checking your payment'); await loadBilling(); }
+  try { await K.store.req('POST', '/api/billing/invoices/' + id + '/claim', { method, reference }); K.ui.payRef = ''; toast('Thank you — we are checking your payment'); await loadBilling(); }
   catch (e) { toast(e.message, true); }
 };
 A.billCancel = async (el) => { if (!(await confirmBox('Cancel this invoice?', 'Cancel invoice', true))) return; try { await K.store.req('POST', '/api/billing/invoices/' + el.dataset.id + '/cancel'); await loadBilling(); } catch (e) { toast(e.message, true); } };
