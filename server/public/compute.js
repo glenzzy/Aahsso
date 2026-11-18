@@ -321,11 +321,11 @@
   ];
   const FEATURE_KEYS = FEATURES.map((f) => f[0]);
   /* ================= EDITIONS (the kind of business) =================
-   * Aahsso Import: buy abroad, ship, receive, sell. Aahsso Store: buy locally, sell, manage stock.
+   * Aahsso Brocan: buy abroad, ship, receive, sell. Aahsso Store: buy locally, sell, manage stock.
    * Chosen at sign-up; only the platform admin changes it. Features an edition does not have are off whatever the plan says,
    * and the server refuses them. Plans are made for one edition. */
   const EDITIONS = {
-    import: { key: 'import', label: 'Aahsso Import', short: 'Import', tag: 'Buy abroad, ship, receive and sell', points: ['Buy in dollars or any currency', 'Containers, freight and customs', 'Landed cost on every item'], off: [] },
+    import: { key: 'import', label: 'Aahsso Brocan', short: 'Brocan', tag: 'Buy abroad, ship, receive and sell', points: ['Buy in dollars or any currency', 'Containers, freight and customs', 'Landed cost on every item'], off: [] },
     store: { key: 'store', label: 'Aahsso Store', short: 'Store', tag: 'Buy locally, sell and manage your stock', points: ['Buy from local suppliers', 'Sell at the till, track stock', 'Simple and quick to learn'], off: ['ship', 'receive'] },
   };
   const EDITION_KEYS = Object.keys(EDITIONS);

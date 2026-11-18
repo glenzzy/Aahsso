@@ -1,4 +1,4 @@
-// API tests: the two kinds of business — Aahsso Import and Aahsso Store.
+// API tests: the two kinds of business — Aahsso Brocan and Aahsso Store.
 // Sign-up choice, what a Store business can and cannot do, plans per kind, and the platform admin switching a business.
 // Needs a server started with ADMIN_SECRET and the same DATABASE_URL (like admin-api.test.js):
 //   AAHSSO_URL=http://localhost:8080 DATABASE_URL=… node --test test/editions-api.test.js
@@ -101,7 +101,7 @@ test('the platform admin switches a business between Store and Import — data k
   await fresh();
   assert.equal((await sw({ edition: 'store', reason: 'same kind' })).status, 400);
   assert.equal((await sw({ edition: 'import', planId: 'xi-' + rnd })).status, 400, 'a reason is needed');
-  assert.match((await sw({ edition: 'import', reason: 'starts importing' })).body.error, /choose its new Aahsso Import plan/);
+  assert.match((await sw({ edition: 'import', reason: 'starts importing' })).body.error, /choose its new Aahsso Brocan plan/);
   assert.equal((await sw({ edition: 'import', planId: 'xs-' + rnd, reason: 'starts importing' })).status, 400, 'the new plan must be of the new kind');
   const ok = await sw({ edition: 'import', planId: 'xi-' + rnd, reason: 'starts importing' }); assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.deepEqual(ok.body.voided, [S.inv.number], 'the open invoice for the Store plan is voided');

@@ -22,8 +22,8 @@
   const PAY_L = { pending: 'to check', processing: 'waiting for the payer', failed: 'failed' };
   const isAuto = (p) => p.provider && p.provider !== 'manual'; // paid through Fapshi, not reported by hand
   const badge = (t, cls) => '<span class="badge ' + (cls || '') + '">' + esc(t) + '</span>';
-  /* the two kinds of business: Aahsso Import and Aahsso Store */
-  const ED = { import: { label: 'Aahsso Import', short: 'Import', cls: 'info', what: 'buy abroad, ship, receive and sell' }, store: { label: 'Aahsso Store', short: 'Store', cls: 'ok', what: 'buy locally, sell and manage stock' } };
+  /* the two kinds of business: Aahsso Brocan and Aahsso Store */
+  const ED = { import: { label: 'Aahsso Brocan', short: 'Brocan', cls: 'info', what: 'buy abroad, ship, receive and sell' }, store: { label: 'Aahsso Store', short: 'Store', cls: 'ok', what: 'buy locally, sell and manage stock' } };
   const edOf = (e) => ED[e] || ED.import;
   const edBadge = (e) => badge(edOf(e).short, edOf(e).cls);
   const METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
@@ -272,7 +272,7 @@
     if (id) return tenantPage(v, id);
     const f = S.tf || (S.tf = { q: '', status: '', plan: '', edition: '' }); await plans();
     v.innerHTML = '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search businesses</span>' + ic('search', 'sm') + '<input class="inp" id="tq" type="search" placeholder="Search business, owner, login or email" value="' + esc(f.q) + '"></label>' +
-      sel('te', [['', 'Import & Store']].concat(Object.entries(ED).map(([k, x]) => [k, x.label])), f.edition, 'id="te" style="width:auto"') +
+      sel('te', [['', 'Brocan & Store']].concat(Object.entries(ED).map(([k, x]) => [k, x.label])), f.edition, 'id="te" style="width:auto"') +
       sel('ts', [['', 'All statuses']].concat(Object.entries(STATUS).map(([k, x]) => [k, x[0]])), f.status, 'id="ts" style="width:auto"') +
       sel('tp', [['', 'All plans']].concat(S.plans.filter((p) => !f.edition || p.edition === f.edition).map((p) => [p.id, p.name + ' · ' + edOf(p.edition).short])), f.plan, 'id="tp" style="width:auto"') +
       '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" data-act="dl" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
@@ -548,7 +548,7 @@
     S.catalog = d.catalog; S.editions = d.editions;
     const catOf = (ed) => { const e = d.editions.find((x) => x.key === ed) || d.editions[0]; return d.catalog.filter(([k]) => e.features.includes(k)); };
     const lim = (p) => { const L = p.limits || {}; const cat = catOf(p.edition); const off = cat.filter(([k]) => (p.modules || {})[k] === false).length; return Object.entries(d.limitKeys.counts).map(([k, l]) => (L[k] ? L[k] : '∞') + ' ' + l.split(' (')[0]).join(' · ') + ' · ' + (cat.length - off) + '/' + cat.length + ' features'; };
-    v.innerHTML = '<div class="page-intro"><p>What each plan costs and which features and limits it includes. Each plan is for one kind of business: <b>Aahsso Import</b> or <b>Aahsso Store</b> — a business only sees the plans of its kind. Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
+    v.innerHTML = '<div class="page-intro"><p>What each plan costs and which features and limits it includes. Each plan is for one kind of business: <b>Aahsso Brocan</b> or <b>Aahsso Store</b> — a business only sees the plans of its kind. Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
       d.editions.map((e) => { const rows = d.plans.filter((p) => p.edition === e.key); return '<h2 class="mt2 mb row" style="gap:8px">' + edBadge(e.key) + esc(e.label) + ' plans <span class="small muted" style="font-weight:400">' + esc(edOf(e.key).what) + '</span></h2>' +
       (rows.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No ' + esc(e.label) + ' plan is shown to businesses yet.</b> ' + esc(e.short) + ' businesses see an empty Plans page until you click <b>Publish</b> on one.</div>') +
       '<div class="card mb2">' + table([
@@ -576,7 +576,7 @@
     const drawFeat = () => { const ed = edSel.value; $('#plFeat', box).innerHTML = ed ? checkGroups(catOf(ed), (k) => Mo[k] !== false, 'F_') + (ed === 'store' ? '<div class="tiny muted mt">Shipments and Receiving are never part of Aahsso Store.</div>' : '') : '<div class="small muted">Choose who the plan is for to pick its features.</div>'; };
     edSel.onchange = () => { $$('#plFeat input[type=checkbox]', box).forEach((c) => { const k = c.name.slice(2); if (!c.checked) Mo[k] = false; else delete Mo[k]; }); drawFeat(); }; drawFeat();
     $('#go', box).onclick = (e) => busy(e.target, async () => {
-      const v = vals(box); const limits = {}; const ed = edSel.value; if (!ed) throw new Error('Choose who the plan is for: Aahsso Import or Aahsso Store');
+      const v = vals(box); const limits = {}; const ed = edSel.value; if (!ed) throw new Error('Choose who the plan is for: Aahsso Brocan or Aahsso Store');
       Object.keys(S.limitKeys.counts).forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
       const modules = {}; catOf(ed).forEach(([k]) => { if (!v['F_' + k]) modules[k] = false; });
       const body = { edition: ed, id: v.id, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };

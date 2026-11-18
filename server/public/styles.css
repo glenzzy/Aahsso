@@ -1434,7 +1434,7 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .day-flags .cl { border-color: rgba(122,82,16,.12); }
 .day-items { max-height: 260px; overflow: auto; }
 
-/* sign-up step 2: Aahsso Import or Aahsso Store */
+/* sign-up step 2: Aahsso Brocan or Aahsso Store */
 .auth-ed { display: flex; flex-direction: column; gap: 10px; }
 .auth-edc { text-align: left; border: 2px solid var(--line); border-radius: 14px; background: var(--card); padding: 14px 16px; cursor: pointer; color: var(--ink); font: inherit; transition: border-color .15s, background .15s; }
 .auth-edc:hover { border-color: var(--ink3); }

@@ -1,4 +1,4 @@
--- Editions: the kind of business. 'import' (Aahsso Import: buy abroad, ship, receive, sell) or
+-- Editions: the kind of business. 'import' (Aahsso Brocan: buy abroad, ship, receive, sell) or
 -- 'store' (Aahsso Store: buy locally, sell, manage stock). Chosen at sign-up; only a platform admin changes it.
 -- Every business that exists today is an importer.
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS edition text NOT NULL DEFAULT 'import';

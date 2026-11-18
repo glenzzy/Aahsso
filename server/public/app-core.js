@@ -75,7 +75,7 @@ const can = (p) => !!K.perms[p];
 /** is this feature in the business's plan? (this-device / trial: everything is) */
 const has = (f) => KC.featureOn(K.info && K.info.features, f);
 const hasAny = (...fs) => KC.anyOn(K.info && K.info.features, fs);
-/** Aahsso Store (buy locally, sell, manage stock) — or Aahsso Import (buy abroad, ship, receive, sell). Set at sign-up. */
+/** Aahsso Store (buy locally, sell, manage stock) — or Aahsso Brocan (buy abroad, ship, receive, sell). Set at sign-up. */
 const isStore = () => !!K.info && K.info.edition === 'store';
 const edition = () => KC.editionOf(K.info && K.info.edition);
 /** what an item cost you: "landed cost" for importers (goods + freight + customs), plain "cost" in a store */

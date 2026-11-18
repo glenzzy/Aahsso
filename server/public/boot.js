@@ -23,7 +23,7 @@ function renderLogin() {
   let reg = false, step = 1, eds = null, edPick = '';
   const err = (m) => { const e = $('#err'); e.textContent = m || ''; e.classList.toggle('hide', !m); };
   const apiBase = () => (window.AAHSSO_CONFIG.api || location.origin).replace(/\/$/, '');
-  /** Aahsso Import / Aahsso Store: the ones the platform has open for sign-up */
+  /** Aahsso Brocan / Aahsso Store: the ones the platform has open for sign-up */
   const loadEds = async () => { if (eds) return eds; try { const r = await fetch(apiBase() + '/api/signup-options'); if (r.ok) eds = (await r.json()).editions || []; } catch (e) { } return eds; };
   const drawEds = () => {
     $('#fEd').innerHTML = (eds || []).map((e) => '<button type="button" class="auth-edc' + (edPick === e.key ? ' on' : '') + '" role="radio" aria-checked="' + (edPick === e.key) + '" data-ed="' + esc(e.key) + '">' +

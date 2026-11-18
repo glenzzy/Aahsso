@@ -35,7 +35,7 @@ const ADMIN_PERMS = [
   ['tenants.view', 'See businesses and their details', 'Businesses'],
   ['subs.write', 'Change plans, extend trials and paid periods, cancel', 'Businesses'],
   ['tenants.features', 'Give a business its own features and limits', 'Businesses'],
-  ['tenants.edition', 'Switch a business between Aahsso Import and Aahsso Store', 'Businesses'],
+  ['tenants.edition', 'Switch a business between Aahsso Brocan and Aahsso Store', 'Businesses'],
   ['tenants.suspend', 'Suspend and reactivate businesses', 'Businesses'],
   ['tenants.impersonate', 'View a business as its owner (read-only)', 'Businesses'],
   ['tenants.resetOwner', 'Reset a business owner\'s password', 'Businesses'],
@@ -396,11 +396,11 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     await audit(req, 'subscription_' + act, { tenantId: t.id, target: t.name, reason, details: { before: { plan: s.plan_id, status: s.status, end: s.current_period_end, trial: s.trial_ends_at }, after: patch } });
     res.json({ ok: true, subscription: await B.getSub(pool, t.id) });
   }));
-  /* switch a business between Aahsso Import and Aahsso Store. Its data is kept; pages of the other edition just hide.
+  /* switch a business between Aahsso Brocan and Aahsso Store. Its data is kept; pages of the other edition just hide.
    * A business on a plan moves to a plan of the new edition in the same step, and open invoices for the old plan are voided. */
   A.post('/tenants/:id/edition', need('tenants.edition'), reauth, wrap(async (req, res) => {
     const t = await tenantOr404(req, res); if (!t) return; const b = req.body || {};
-    const to = String(b.edition || ''); if (!KC.EDITION_KEYS.includes(to)) return bad(res, 'Choose Aahsso Import or Aahsso Store');
+    const to = String(b.edition || ''); if (!KC.EDITION_KEYS.includes(to)) return bad(res, 'Choose Aahsso Brocan or Aahsso Store');
     if (to === t.edition) return bad(res, 'This business already uses ' + KC.editionOf(to).label);
     const reason = String(b.reason || '').trim().slice(0, 300); if (reason.length < 4) return bad(res, 'Give a reason (it is kept in the audit log)');
     const s = await B.getSub(pool, t.id); if (!s) return bad(res, 'No subscription');
@@ -608,7 +608,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   function cleanPlan(b) {
     const intOrNull = (v) => (v === '' || v === null || v === undefined ? null : Math.round(Number(v)));
     const p = { name: String(b.name || '').trim().slice(0, 40), description: String(b.description || '').trim().slice(0, 200), price_monthly: intOrNull(b.price_monthly), price_yearly: intOrNull(b.price_yearly), active: b.active !== false, public: !!b.public, sort: Math.round(Number(b.sort) || 0), features: (Array.isArray(b.features) ? b.features : []).map((f) => String(f).trim().slice(0, 80)).filter(Boolean).slice(0, 12), limits: {}, modules: {} };
-    p.edition = String(b.edition || 'import'); if (!KC.EDITION_KEYS.includes(p.edition)) return { error: 'Choose who the plan is for: Aahsso Import or Aahsso Store' };
+    p.edition = String(b.edition || 'import'); if (!KC.EDITION_KEYS.includes(p.edition)) return { error: 'Choose who the plan is for: Aahsso Brocan or Aahsso Store' };
     if (p.name.length < 2) return { error: 'Give the plan a name' };
     if ([p.price_monthly, p.price_yearly].some((v) => v !== null && !(v >= 0))) return { error: 'Prices must be 0 or more' };
     const L = b.limits || {};
@@ -642,7 +642,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       renewalNoticeDays: Math.min(30, Math.max(1, Math.round(Number(b.renewalNoticeDays) || 7))), invoiceDueDays: Math.min(60, Math.max(0, Math.round(Number(b.invoiceDueDays) || 0))),
       signup: Object.fromEntries(KC.EDITION_KEYS.map((k) => [k, ((b.signup || {})[k]) !== false])), // which editions new businesses can choose
     };
-    if (!KC.EDITION_KEYS.some((k) => v.signup[k])) return bad(res, 'Keep sign-up open for at least one of Aahsso Import and Aahsso Store');
+    if (!KC.EDITION_KEYS.some((k) => v.signup[k])) return bad(res, 'Keep sign-up open for at least one of Aahsso Brocan and Aahsso Store');
     const ents = Object.entries(v);
     await q('INSERT INTO platform_settings (key, value, updated_by) VALUES ' + ents.map((_, i) => '($' + (i * 2 + 2) + ',$' + (i * 2 + 3) + ',$1)').join(',') + ' ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now(), updated_by=EXCLUDED.updated_by',
       [req.admin.id].concat(...ents.map(([k, val]) => [k, JSON.stringify(val)])));
