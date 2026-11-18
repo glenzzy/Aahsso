@@ -11,7 +11,6 @@ function renderLogin() {
       '<h1 id="aTitle">Welcome back</h1><p class="auth-sub" id="aSub">Sign in to your business account.</p>' +
       '<div id="fReg" class="auth-fields hide">' + field('Business name', inp('businessName', '', 'autocomplete="organization"')) + field('Your name', inp('name', '', 'autocomplete="name"')) + '</div>' +
       '<div class="auth-fields" id="fCore">' + field('Email or phone', inp('login', '', 'autocomplete="username" autocapitalize="off" spellcheck="false"')) + field('Password', pw('password', 'current-password')) + '</div>' +
-      '<div id="fRegMail" class="auth-fields hide">' + field('Email for password reset (optional)', inp('email', '', 'type="email" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="Only if you sign in with a phone number"')) + '</div>' +
       '<div id="fEd" class="auth-ed hide" role="radiogroup" aria-label="What will you use Aahsso for?"></div>' +
       '<div class="auth-forgot" id="fgRow"><button type="button" class="auth-link" id="tForgot">Forgot password?</button></div>' +
       '<div class="auth-err hide" id="err" role="alert"></div>' +
@@ -35,17 +34,17 @@ function renderLogin() {
   /** sign-up: 1 = your details, 2 = what you will use Aahsso for */
   const goStep = (n) => {
     step = n; err(''); const two = n === 2;
-    ['#fReg', '#fCore', '#fRegMail'].forEach((s) => $(s).classList.toggle('hide', two)); $('#fEd').classList.toggle('hide', !two);
+    ['#fReg', '#fCore'].forEach((s) => $(s).classList.toggle('hide', two)); $('#fEd').classList.toggle('hide', !two);
     $('#aTitle').textContent = two ? 'What will you use Aahsso for?' : 'Create your business';
-    $('#aSub').textContent = two ? 'Pick the one that fits. Aahsso shows only what you need.' : 'Takes a minute. You will be the owner.';
+    $('#aSub').textContent = two ? '' : 'Takes a minute. You will be the owner.'; $('#aSub').classList.toggle('hide', two);
     $('#go').textContent = two ? 'Create account' : (eds && eds.length > 1 ? 'Continue' : 'Create account');
     if (two) { drawEds(); const f = $('#fEd [data-ed]'); if (f) f.focus(); } else $('[name=businessName]').focus();
   };
   const sw = (r) => {
     reg = r; err(''); if (step === 2) goStep(1);
-    $('#fReg').classList.toggle('hide', !r); $('#fRegMail').classList.toggle('hide', !r); $('#fgRow').classList.toggle('hide', r); $('#swLogin').classList.toggle('hide', r); $('#swReg').classList.toggle('hide', !r);
+    $('#fReg').classList.toggle('hide', !r); $('#fgRow').classList.toggle('hide', r); $('#swLogin').classList.toggle('hide', r); $('#swReg').classList.toggle('hide', !r);
     $('#aTitle').textContent = r ? 'Create your business' : 'Welcome back';
-    $('#aSub').textContent = r ? 'Takes a minute. You will be the owner.' : 'Sign in to your business account.';
+    $('#aSub').textContent = r ? 'Takes a minute. You will be the owner.' : 'Sign in to your business account.'; $('#aSub').classList.remove('hide');
     $('#go').textContent = r ? (eds && eds.length > 1 ? 'Continue' : 'Create account') : 'Sign in';
     if (r) loadEds().then(() => { if (reg && step === 1) $('#go').textContent = eds && eds.length > 1 ? 'Continue' : 'Create account'; });
     $('[name=password]').setAttribute('autocomplete', r ? 'new-password' : 'current-password');
