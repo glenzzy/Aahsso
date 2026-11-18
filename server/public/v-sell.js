@@ -575,10 +575,10 @@ VIEWS.sales = {
     const live = list.filter((s) => K.C.saleX[s.id].status !== 'cancelled');
     const tot = live.reduce((a, s) => a + K.C.saleX[s.id].net, 0), paid = live.reduce((a, s) => a + K.C.saleX[s.id].paid, 0), bal = live.reduce((a, s) => a + Math.max(0, K.C.saleX[s.id].balance), 0), prof = live.reduce((a, s) => a + K.C.saleX[s.id].profit, 0);
     const R = [['today', 'Today'], ['yday', 'Yesterday'], ['week', '7 days'], ['month', 'This month'], ['all', 'All']];
-    const SS = [['all', 'All'], ['owing', 'Owing'], ['pickup', 'Awaiting pickup'], ['deliver', 'To deliver'], ['cancelled', 'Cancelled']];
+    const SS = isStore() ? [['all', 'All'], ['owing', 'Owing']] : [['all', 'All'], ['owing', 'Owing'], ['pickup', 'Awaiting pickup'], ['deliver', 'To deliver'], ['cancelled', 'Cancelled']];
     return (!can('salesAll') ? '<div class="alert info mb">Showing your own sales only.</div>' : '') + '<div class="row wrap between mb"><div class="seg">' + R.map(([k, l]) => '<button class="' + (K.ui.salesRange === k ? 'on' : '') + '" data-a="salesRange" data-v="' + k + '">' + l + '</button>').join('') + '</div>' + (can('sell') ? '<button class="btn pri" data-a="newSale">' + ic('plus') + 'New sale</button>' : '') + (can('export') ? '<button class="btn ghost" data-a="exportSales">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + SS.map(([k, l]) => '<button class="chip' + (st === k ? ' on' : '') + '" data-a="salesStatus" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
-      '<div class="kpis mb">' + kpi('Sales', F(tot), live.length + ' receipt(s)', true) + kpi('Collected', F(paid)) + kpi('Balance owed', F(bal)) + (seeCost() ? kpi('Gross profit', F(prof), tot ? pct(prof / tot * 100) + ' margin' : '') : kpi('Items', fmt(live.reduce((a, s) => a + (s.lines || []).reduce((b, l) => b + num(l.qty), 0), 0)))) + '</div>' +
+      '<div class="kpis mb">' + kpi('Sales', F(tot), live.length + ' receipt(s)', true) + (isStore() ? kpi('Owed to you', F(bal)) : kpi('Collected', F(paid)) + kpi('Balance owed', F(bal)) + (seeCost() ? kpi('Gross profit', F(prof), tot ? pct(prof / tot * 100) + ' margin' : '') : kpi('Items', fmt(live.reduce((a, s) => a + (s.lines || []).reduce((b, l) => b + num(l.qty), 0), 0))))) + '</div>' +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search customer, receipt no., item" value="' + esc(K.ui.salesQ) + '" data-i="salesQ"></div>' +
       salesRows(list);
   },
@@ -608,7 +608,7 @@ function salesRows(list) {
     rowAttr: (s) => ' data-a="openSale" data-id="' + s.id + '"', rowClass: (s) => live(s) ? '' : 'cx',
     cols: [
       { k: 'date', label: 'Date', core: true, v: (s) => saleDate(s), html: (s) => dtDate(saleDate(s)) },
-      { k: 'no', label: 'Receipt', core: true, v: (s) => s.no, html: (s) => '<b>' + esc(s.no) + '</b>' },
+      { k: 'no', label: 'Receipt', core: true, st: false, v: (s) => s.no, html: (s) => '<b>' + esc(s.no) + '</b>' },
       { k: 'txn', label: 'Transaction ID', v: (s) => KC.saleTxnId(s), cls: 'mut' },
       { k: 'cust', label: 'Customer', core: true, v: (s) => s.customerName },
       { k: 'phone', label: 'Phone', v: (s) => s.customerPhone || '', cls: 'mut' },
@@ -617,9 +617,9 @@ function salesRows(list) {
       { k: 'mode', label: 'Payment mode', v: (s) => [...new Set(pays(s).map((p) => p.method || 'Cash'))].join(', ') },
       { k: 'ref', label: 'Payment txn ID', v: (s) => pays(s).map((p) => p.ref).filter(Boolean).join(', '), cls: 'mut' },
       { k: 'total', label: 'Total', core: true, money: true, cls: 'b', v: (s) => X(s).net, total: sumLive((s) => X(s).net) },
-      { k: 'paid', label: 'Paid', core: true, money: true, v: (s) => X(s).paid, total: sumLive((s) => X(s).paid) },
+      { k: 'paid', label: 'Paid', core: true, st: false, money: true, v: (s) => X(s).paid, total: sumLive((s) => X(s).paid) },
       { k: 'fees', label: 'MoMo charges', money: true, v: (s) => X(s).fees || '', total: sumLive((s) => X(s).fees || 0) },
-      { k: 'bal', label: 'Balance', core: true, money: true, v: (s) => owes(s) ? X(s).balance : '', html: (s) => owes(s) ? '<span style="color:var(--bad);font-weight:700">' + fmt(X(s).balance) + '</span>' : dtNil, total: sumLive((s) => Math.max(0, X(s).balance)) },
+      { k: 'bal', label: 'Balance', core: true, st: false, money: true, v: (s) => owes(s) ? X(s).balance : '', html: (s) => owes(s) ? '<span style="color:var(--bad);font-weight:700">' + fmt(X(s).balance) + '</span>' : dtNil, total: sumLive((s) => Math.max(0, X(s).balance)) },
       { k: 'due', label: 'Pay by', v: (s) => owes(s) ? KC.dueDateOf(s, S()) : '', html: (s) => { if (!owes(s)) return dtNil; const d = KC.dueDateOf(s, S()); return d < today ? '<span class="badge bad">Overdue · ' + esc(dayMon(d)) + '</span>' : dtDate(d); } },
       cost ? { k: 'profit', label: 'Profit', money: true, v: (s) => live(s) ? X(s).profit : '', total: sumLive((s) => X(s).profit) } : null,
       { k: 'status', label: 'Status', core: true, v: (s) => X(s).status, html: (s) => statusBadge(X(s).status) },

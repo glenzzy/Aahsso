@@ -23,11 +23,11 @@ function stockList() {
 }
 VIEWS.stock = {
   render() {
-    const F_ = [['all', 'In stock'], ['transit', 'Incoming'], ['low', 'Low stock'], ['expiring', 'Expiring'], ['out', 'Sold out'], ['every', 'All items'], ['archived', 'Archived']].concat(K.raw.products.some((p) => (K.C.prodX[p.id] || {}).oversold > 0) ? [['problems', '⚠ Oversold']] : []);
+    const F_ = isStore() ? [['all', 'In stock'], ['low', 'Low stock'], ['out', 'Sold out'], ['every', 'All items']] : [['all', 'In stock'], ['transit', 'Incoming'], ['low', 'Low stock'], ['expiring', 'Expiring'], ['out', 'Sold out'], ['every', 'All items'], ['archived', 'Archived']].concat(K.raw.products.some((p) => (K.C.prodX[p.id] || {}).oversold > 0) ? [['problems', '⚠ Oversold']] : []);
     const list = stockList();
     const tot = K.raw.products.reduce((a, p) => { const x = K.C.prodX[p.id]; a.u += x.available; a.c += x.stockValue; a.r += x.retailValue; a.t += x.transit + x.us; return a; }, { u: 0, c: 0, r: 0, t: 0 });
-    return (seeCost() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), fmt(tot.t) + ' incoming', true) + kpi('Stock at cost', F(tot.c)) + kpi('Stock at selling price', F(tot.r)) + kpi('Potential profit', F(tot.r - tot.c), tot.c ? pct((tot.r - tot.c) / tot.c * 100) + ' markup' : '') + '</div>' : '') +
-      '<div class="row wrap mb">' + (can('stockEdit') ? '<button class="btn pri" data-a="pricing">' + ic('tag') + 'Set prices / markup</button><button class="btn" data-a="labels">' + ic('barcode') + 'Barcode labels</button>' : '') + (can('export') ? '<button class="btn" data-a="exportStock">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
+    return (seeCost() && isStore() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), '', true) + kpi('Worth (at cost)', F(tot.c), 'sells for ' + fmt(tot.r)) + '</div>' : seeCost() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), fmt(tot.t) + ' incoming', true) + kpi('Stock at cost', F(tot.c)) + kpi('Stock at selling price', F(tot.r)) + kpi('Potential profit', F(tot.r - tot.c), tot.c ? pct((tot.r - tot.c) / tot.c * 100) + ' markup' : '') + '</div>' : '') +
+      '<div class="row wrap mb">' + (can('stockEdit') ? '<button class="btn pri" data-a="pricing">' + ic('tag') + (isStore() ? 'Set prices' : 'Set prices / markup') + '</button><button class="btn" data-a="labels">' + ic('barcode') + 'Barcode labels</button>' : '') + (can('export') ? '<button class="btn" data-a="exportStock">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + F_.map(([k, l]) => '<button class="chip' + (K.ui.stockFilter === k ? ' on' : '') + '" data-a="stockFilter" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="row mb"><div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search item or barcode" value="' + esc(K.ui.stockQ) + '" data-i="stockQ"></div><select class="inp" style="width:auto;max-width:44%" data-c="stockCat"><option value="">All categories</option>' + catOpts().map((c) => '<option' + (K.ui.stockCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>' +
       stockRows(list);
@@ -47,7 +47,7 @@ function stockRows(list) {
     cols: [
       { k: 'photo', label: 'Photo', core: true, cls: 'thumbc', v: () => '', html: (p) => thumb(p, 36, 9) },
       { k: 'name', label: 'Item', core: true, v: (p) => p.name, html: (p) => '<b>' + esc(p.name) + '</b>' },
-      { k: 'cat', label: 'Category', core: true, v: (p) => p.category || '' },
+      { k: 'cat', label: 'Category', core: true, st: false, v: (p) => p.category || '' },
       { k: 'sub', label: 'Subcategory', v: (p) => p.subcategory || '', cls: 'mut' },
       { k: 'cond', label: 'Condition', v: (p) => p.condition || 'New' },
       { k: 'size', label: 'Size', v: (p) => KC.sizeLabel(p) || '' },
@@ -64,7 +64,7 @@ function stockRows(list) {
       cost ? { k: 'val', label: 'Stock value (cost)', money: true, v: (p) => Math.round(X(p).stockValue), total: (rows) => fmt(dtSum(rows, (p) => X(p).stockValue)) } : null,
       { k: 'sold', label: 'Sold', num: true, v: (p) => X(p).sold || '' },
       { k: 'exp', label: 'Next expiry', v: (p) => X(p).nextExpiry || '', html: (p) => X(p).nextExpiry ? expiryBadge(X(p).nextExpiry) : dtNil },
-      { k: 'status', label: 'Status', core: true, v: (p) => status(p)[0], html: (p) => '<span class="badge ' + status(p)[1] + '">' + status(p)[0] + '</span>' },
+      { k: 'status', label: 'Status', core: true, st: false, v: (p) => status(p)[0], html: (p) => '<span class="badge ' + status(p)[1] + '">' + status(p)[0] + '</span>' },
     ],
   });
 }

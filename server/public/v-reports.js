@@ -21,12 +21,15 @@ function vbars(rows, labelFn, valKey) {
   return '<div class="vbars">' + rows.map((r, i) => '<div class="vb' + (i === top && r[valKey] > 0 ? ' hi' : '') + '" title="' + esc(labelFn(r) + ': ' + fmt(r[valKey])) + '"><i style="height:' + (r[valKey] / max * 100) + '%"></i><span>' + esc(labelFn(r)) + '</span></div>').join('') + '</div>';
 }
 const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/* Aahsso Store: five plain reports */
+const ST_RTABS = { overview: 'Summary', daily: 'Daily close', items: 'Best sellers', monthly: 'Profit & loss', forecast: 'What to buy' };
 const RTABS = [['overview', 'Overview'], ['daily', 'Daily close'], ['items', 'Items & categories'], ['timing', 'Best times'], ['people', 'Staff & customers'], ['inventory', 'Fast / slow stock'], ['forecast', 'Forecast'], ['containers', 'Containers'], ['monthly', 'Profit & loss'], ['expiry', 'Expiry'], ['losses', 'Losses']];
 VIEWS.reports = {
   render() {
     const costTabs = ['monthly', 'losses', 'containers'];
-    const tabs = RTABS.filter(([k]) => (can('costs') || !costTabs.includes(k)) && (k !== 'containers' || hasAny('ship', 'receive'))); // a store has no containers
-    let tab = K.ui.repTab; if (!tabs.find((t) => t[0] === tab)) tab = K.ui.repTab = 'overview';
+    const tabs = RTABS.filter(([k]) => (can('costs') || !costTabs.includes(k)) && (k !== 'containers' || hasAny('ship', 'receive')) && (!isStore() || ST_RTABS[k])) // a store has no containers, and only the reports a shop owner reads
+      .map(([k, l]) => [k, (isStore() && ST_RTABS[k]) || l]);
+    let tab = isStore() && !K.ui.repPicked ? 'overview' : K.ui.repTab; // a store opens on the summary if (!tabs.find((t) => t[0] === tab)) tab = K.ui.repTab = 'overview';
     const needsRange = ['overview', 'items', 'timing', 'people'].includes(tab);
     if (tab === 'daily' && allLocs().length > 1) K._dailyLocSel = true;
     const r = repRange();
@@ -42,7 +45,7 @@ VIEWS.reports = {
       (!can('salesAll') ? '<div class="alert info mb">Reports show your own sales only.</div>' : '') + body;
   },
 };
-A.repTab = (el) => { K.ui.repTab = el.dataset.v; render(true); };
+A.repTab = (el) => { K.ui.repTab = el.dataset.v; K.ui.repPicked = true; render(true); };
 CH.rp = (el) => { K.ui.rp = el.value; render(true); };
 CH.rpFrom = (el) => { K.ui.rpFrom = el.value; render(true); };
 CH.rpTo = (el) => { K.ui.rpTo = el.value; render(true); };

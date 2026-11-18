@@ -350,6 +350,7 @@ const NAV = [
   ['payroll', 'Payroll', 'wallet', () => true],
   ['employees', 'Employees', 'users', () => can('hr') || can('payroll')],
   ['profile', 'My profile', 'user', () => true], ['billing', 'Billing & subscription', 'card', () => K.info.mode === 'saas' && canBilling()], ['plans', 'Choose your plan', 'card', () => K.info.mode === 'saas' && canBilling()], ['help', 'Help & support', 'help', () => true],
+  ['tools', 'More tools', 'more', () => isStore() && storeTools().length > 0],
   ['team', 'Team & access', 'key', () => can('team')], ['settings', 'Settings', 'gear', () => can('settings') || can('export')],
 ];
 const navOk = (r) => { if (!KC.routeFeatureOn(K.info && K.info.features, r)) return false; const n = NAV.find((x) => x[0] === r); return !n || n[3](); }; // pages of features outside the plan do not exist
@@ -366,15 +367,31 @@ const SECTIONS = [
   ['people', 'Staff', 'clock', ['staff', 'leave', 'payroll', 'employees']],
   ['settings', 'Settings', 'gear', ['settings', 'team', 'activity']],
 ];
+/* Aahsso Store: buy, sell and keep records — a short menu. Any other tool the plan includes waits under "More tools". */
+const STORE_SECTIONS = [
+  ['home', 'Home', 'home', ['home']],
+  ['sell', 'Sell', 'sell', ['sales']],
+  ['buy', 'Buy', 'buy', ['buy']],
+  ['stock', 'Stock', 'stock', ['stock']],
+  ['customers', 'Customers', 'users', ['customers']],
+  ['records', 'Records', 'wallet', ['expenses', 'reports']],
+  ['tools', 'More tools', 'more', ['tools', 'orders', 'promos', 'audit', 'losses', 'transfers', 'reminders', 'cash', 'suppliers', 'claims', 'assets', 'staff', 'leave', 'payroll', 'employees', 'activity']],
+  ['settings', 'Settings', 'gear', ['settings', 'team']],
+];
+const sections = () => (isStore() ? STORE_SECTIONS : SECTIONS);
+/** the extra tools a Store business has (from its plan and permissions) */
+const storeTools = () => STORE_SECTIONS[6][3].slice(1).filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
 const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', losses: 'Losses', claims: 'Returns & claims', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
 /** Routes of a section this person can open (transfers only when there is more than one branch). */
-const secRoutes = (sec) => sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
-const secOf = (r) => SECTIONS.find((x) => x[3].includes(r)) || SECTIONS[0];
+const secRoutes = (sec) => sec[0] === 'tools' ? (storeTools().length ? ['tools'].concat(storeTools()) : []) : sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
+const secOf = (r) => sections().find((x) => x[3].includes(r)) || sections()[0];
 const secCount = (sec) => secRoutes(sec).reduce((a, r) => { const n = NAV.find((x) => x[0] === r); return a + (n && n[4] ? n[4]() || 0 : 0); }, 0);
 const TITLES = Object.assign(Object.fromEntries(NAV.map((n) => [n[0], n[1]])), { pending: 'Access' });
 /** Tabs at the top of a page whose section has several pages. */
 function subTabs(r) {
-  const sec = secOf(r); const rs = secRoutes(sec); if (rs.length < 2) return '';
+  const sec = secOf(r); const rs = secRoutes(sec);
+  if (sec[0] === 'tools') return r === 'tools' ? '' : '<a class="st-back" href="#tools">' + ic('back', 'sm') + 'More tools</a>'; // Store: one tool at a time
+  if (rs.length < 2) return '';
   return '<nav class="subtabs" aria-label="' + esc(sec[1]) + '">' + rs.map((x) => { const n = NAV.find((y) => y[0] === x); const c = n && n[4] ? n[4]() : 0; return '<a href="#' + x + '" class="' + (x === r ? 'on' : '') + '"' + (x === r ? ' aria-current="page"' : '') + '>' + esc(TAB_LABEL[x] || TITLES[x]) + (c ? '<span class="nav-count">' + c + '</span>' : '') + '</a>'; }).join('') + '</nav>';
 }
 const ROUTE_ALIAS = { containers: 'ship', purchases: 'buy' }; // old links keep working
@@ -399,18 +416,18 @@ const navCount = (n) => { const c = n[4] ? n[4]() : 0; return c ? '<span class="
 function shell() {
   const s = S();
   $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div><div class="bn">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">' + esc(edition().label) + '</div></div></div>' +
-    '<div class="navs">' + SECTIONS.map((sec) => { const rs = secRoutes(sec); if (!rs.length) return ''; const c = secCount(sec); return '<a class="nav' + (sec[3].includes(K.route) ? ' on' : '') + '" href="#' + rs[0] + '">' + ic(sec[2]) + sec[1] + (c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : '') + '</a>'; }).join('') + '</div>' +
+    '<div class="navs">' + sections().map((sec) => { const rs = secRoutes(sec); if (!rs.length) return ''; const c = secCount(sec); return '<a class="nav' + (sec[3].includes(K.route) ? ' on' : '') + '" href="#' + rs[0] + '">' + ic(sec[2]) + sec[1] + (c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : '') + '</a>'; }).join('') + '</div>' +
     '<div class="sp"></div><div class="who">' + esc(K.me.name || K.info.userLabel || '') + ' · ' + esc(roleLabel()) + '</div>';
   drawAvatar();
   if (!K.member) { $('#bnav').innerHTML = ''; $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div class="bn">' + esc(s.businessName) + '</div></div>'; $('#title').textContent = 'Access'; $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"'); return; }
   const bn = [['home', 'Home', 'home'], ['buy', 'Buy', 'buy'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']].filter((n) => n[0] === 'more' || navOk(n[0]));
-  const inSec = SECTIONS.some((x) => x[3].includes(K.route)); // account pages (profile, billing, help) belong to no section
+  const inSec = sections().some((x) => x[3].includes(K.route)); // account pages (profile, billing, help) belong to no section
   const cur = inSec ? secOf(K.route)[0] : ''; const moreOn = inSec && !['home', 'buy', 'sell', 'stock'].includes(cur);
   $('#bnav').innerHTML = bn.map((n) => n[0] === 'more'
     ? '<a href="#" data-a="moreMenu" class="' + (moreOn ? 'on' : '') + '">' + ic('more') + '<span>More</span></a>'
     : '<a href="#' + n[0] + '" class="' + (n[0] === 'sell' ? 'sell ' : '') + (cur === n[0] ? 'on' : '') + '"><div class="ic">' + ic(n[2]) + '</div><span>' + n[1] + '</span></a>').join('');
   $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"');
-  $('#title').textContent = secOf(K.route)[1] === 'Home' && K.route !== 'home' ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
+  $('#title').textContent = (secOf(K.route)[1] === 'Home' && K.route !== 'home') || (secOf(K.route)[0] === 'tools' && K.route !== 'tools') ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
   shellSync();
   if (K.tour && typeof tourMark === 'function') setTimeout(tourMark, 0);
   const lb = $('#locBtn'); if (lb) { const L = myLocs(); lb.classList.toggle('hide', allLocs().length < 2 || !has('branches')); lb.disabled = L.length < 2; lb.innerHTML = ic('home', 'sm') + '<span class="ellipsis" style="max-width:110px">' + esc(locName(K.loc)) + '</span>'; }
@@ -497,7 +514,7 @@ A.sheetClose = () => closeSheet();
 A.go = (el) => { closeSheet(); go(el.dataset.r); };
 A.toggleX = (el) => { const k = el.dataset.k; K.ui.expanded[k] = !K.ui.expanded[k]; render(true); };
 A.moreMenu = () => {
-  const list = SECTIONS.filter((sec) => !['home', 'buy', 'sell', 'stock'].includes(sec[0]) && secRoutes(sec).length);
+  const list = sections().filter((sec) => !['home', 'buy', 'sell', 'stock'].includes(sec[0]) && secRoutes(sec).length);
   openSheet({ title: 'More', body: '<div class="card list">' + list.map((sec) => { const c = secCount(sec); return '<div class="li" data-a="go" data-r="' + secRoutes(sec)[0] + '"><div class="av ink">' + ic(sec[2]) + '</div><div class="grow t">' + sec[1] + '</div>' + (c ? '<span class="nav-count">' + c + '</span>' : '') + ic('chev', 'sm') + '</div>'; }).join('') + '</div>' });
 };
 const VIEWS = {};
@@ -585,9 +602,9 @@ function dtSet(id, patch) { const p = dtPrefs(); p[id] = Object.assign({}, p[id]
 const dtMode = (id) => (dtPrefs()[id] || {}).mode || 'compact';
 function dataTable(cfg) {
   const { id, rows } = cfg; const pref = dtPrefs()[id] || {};
-  const mode = cfg.bar === false ? 'compact' : dtMode(id); // a plain small table: its key columns only, no view switch
+  const st = isStore(); const mode = cfg.bar === false || st ? 'compact' : dtMode(id); // Aahsso Store: always the short table, no view switch // a plain small table: its key columns only, no view switch
   const allCols = cfg.cols.filter(Boolean);
-  const cols = mode === 'full' ? allCols : allCols.filter((c) => c.core);
+  const cols = mode === 'full' ? allCols : allCols.filter((c) => c.core && !(st && c.st === false));
   const hidden = allCols.length - cols.length;
   const cellText = (c, r) => { const v = c.v ? c.v(r) : ''; return v === null || v === undefined || v === '' ? '' : String(v); };
   let list = rows.slice();
@@ -614,8 +631,8 @@ function dataTable(cfg) {
   const hasFoot = cols.some((c) => c.total);
   const foot = hasFoot ? '<tfoot><tr>' + cols.map((c, i) => '<td class="' + (isNum(c) ? 'n' : '') + '">' + (c.total ? c.total(list) : i === 0 ? (cfg.footLabel || 'Total') + ' · ' + fmt(list.length) : '') + '</td>').join('') + '</tr></tfoot>' : '';
   const bar = cfg.bar === false ? '' : '<div class="dt-bar"><span class="dt-count">' + fmt(list.length) + ' ' + (cfg.noun || 'row') + (list.length === 1 ? '' : 's') + (list.length > limit ? ' · showing first ' + limit : '') + '</span>' +
-    '<span class="dt-cols">' + (hidden ? hidden + ' more column' + (hidden === 1 ? '' : 's') + ' in Full view' : mode === 'full' && allCols.some((c) => !c.core) ? 'All ' + allCols.length + ' columns' : '') + '</span>' +
-    (allCols.some((c) => !c.core) ? '<div class="seg dt-mode" role="group" aria-label="Table view"><button type="button" class="' + (mode === 'compact' ? 'on' : '') + '" data-a="dtMode" data-t="' + id + '" data-v="compact" aria-pressed="' + (mode === 'compact') + '">Compact</button><button type="button" class="' + (mode === 'full' ? 'on' : '') + '" data-a="dtMode" data-t="' + id + '" data-v="full" aria-pressed="' + (mode === 'full') + '">Full view</button></div>' : '') + '</div>';
+    (st ? '' : '<span class="dt-cols">') + (st ? '' : hidden ? hidden + ' more column' + (hidden === 1 ? '' : 's') + ' in Full view' : mode === 'full' && allCols.some((c) => !c.core) ? 'All ' + allCols.length + ' columns' : '') + (st ? '' : '</span>') +
+    (!st && allCols.some((c) => !c.core) ? '<div class="seg dt-mode" role="group" aria-label="Table view"><button type="button" class="' + (mode === 'compact' ? 'on' : '') + '" data-a="dtMode" data-t="' + id + '" data-v="compact" aria-pressed="' + (mode === 'compact') + '">Compact</button><button type="button" class="' + (mode === 'full' ? 'on' : '') + '" data-a="dtMode" data-t="' + id + '" data-v="full" aria-pressed="' + (mode === 'full') + '">Full view</button></div>' : '') + '</div>';
   return '<div class="card dt dt-' + mode + '" id="' + id + '">' + bar +
     (rows.length ? '<div class="dt-scroll"><table class="dt-t"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody>' + foot + '</table></div>' : '<div class="empty">' + (cfg.empty || 'Nothing here yet.') + '</div>') + '</div>';
 }
