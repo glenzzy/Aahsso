@@ -25,7 +25,7 @@ function phaseHead(cur, big) {
   if (items.length < 2) return '';
   return '<nav class="phases' + (big ? ' big' : '') + '" aria-label="Business flow">' + items.map((p) => {
     const i = PHASES.indexOf(p);
-    return '<a class="ph' + (i === ci ? ' on' : '') + (ci >= 0 && i < ci ? ' done' : '') + '" href="#' + p[0] + '"' + (i === ci ? ' aria-current="page"' : '') + '><span class="ph-n">' + (i + 1) + '</span><span class="ph-t"><b>' + p[1] + '</b><span>' + esc(n[p[0]]) + '</span></span></a>';
+    return '<a class="ph' + (i === ci ? ' on' : '') + (ci >= 0 && i < ci ? ' done' : '') + '" href="#' + p[0] + '"' + (i === ci ? ' aria-current="page"' : '') + '><span class="ph-n">' + (items.indexOf(p) + 1) + '</span><span class="ph-t"><b>' + p[1] + '</b><span>' + esc(n[p[0]]) + '</span></span></a>';
   }).join('') + '</nav>';
 }
 
@@ -41,6 +41,14 @@ VIEWS.buy = {
     const spent = mLots.reduce((a, l) => a + K.C.lotX[l.id].paidX * num(l.qty), 0), tax = mLots.reduce((a, l) => a + K.C.lotX[l.id].taxX * num(l.qty), 0);
     const owed = purchaseGroups(K.raw.lots).reduce((a, g) => a + (g.bx && g.bill.status !== 'cancelled' ? Math.max(0, g.bx.balanceX) : 0), 0);
     const wait = waitingLots(); const waitU = wait.reduce((a, l) => a + num(l.qty), 0);
+    if (isStore()) { // Aahsso Store: what you bought, what you owe, and the list — nothing to ship
+      const nMonth = purchaseGroups(mLots).length;
+      return '<div class="kpis mb2">' + kpi('Bought this month', F(spent), nMonth + ' purchase' + (nMonth === 1 ? '' : 's') + (tax ? ' · tax ' + fmt(tax) : '')) + kpi('Owed to suppliers', F(owed), 'unpaid or part paid') + '</div>' +
+        '<div class="toolbar mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'New purchase</button>' +
+          '<div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search supplier, item, receipt or txn ID" value="' + esc(K.ui.buyQ || '') + '" data-c="buyQ"></div>' +
+          (can('export') ? '<button class="btn ghost" data-a="exportPurch" title="Download as Excel">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
+        purchaseTable(groups);
+    }
     return '' +
       '<div class="kpis mb2">' + kpi('Bought this month', F(spent), 'tax included') + kpi('Tax this month', F(tax), spent ? pct(tax / Math.max(1, spent - tax) * 100) + ' on average' : '') + kpi('Owed to sellers', F(owed), 'unpaid or part paid') +
         '<div class="card kpi"><div class="l">Waiting to ship</div><div class="v">' + fmt(waitU) + ' <span class="hint">units</span></div><div class="s">' + (waitU && can('containers') ? '<a href="#ship">Put them in a shipment →</a>' : 'bought, not shipped yet') + '</div></div></div>' +
@@ -77,21 +85,22 @@ function purchaseForm() {
   const names = [...new Set(K.raw.products.map((p) => p.name))];
   const usd = num((S().fxRates || {}).USD) || num(S().fxRate) || 0;
   const whereCard = (w, flag, title, sub) => '<button type="button" class="pu-wc' + (w === 'abroad' ? ' on' : '') + '" data-a="puWhere" data-v="' + w + '" aria-pressed="' + (w === 'abroad') + '"><span class="pu-flag" aria-hidden="true">' + flag + '</span><span><b>' + title + '</b><span>' + sub + '</span></span></button>';
+  const st = isStore(); const who = st ? 'supplier' : 'seller'; const Who = st ? 'Supplier' : 'Seller'; // Aahsso Store: bought locally, in your money, straight to stock
   const sh = openSheet({
     title: 'New purchase', wide: true,
     body: '<datalist id="dlNames">' + names.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
       // where & seller
       '<section class="pu-sec" id="puHead">' +
-        '<div class="pu-where2" role="group" aria-label="Where did you buy?">' + whereCard('abroad', '🇺🇸', 'Bought abroad', 'Prices in US dollars ($)') + whereCard('local', '🇨🇲', 'Bought in Cameroon', 'Prices in ' + esc(baseSym()) + ' · goes straight to stock') + '</div>' +
+        (st ? '' : '<div class="pu-where2" role="group" aria-label="Where did you buy?">' + whereCard('abroad', '🇺🇸', 'Bought abroad', 'Prices in US dollars ($)') + whereCard('local', '🇨🇲', 'Bought in Cameroon', 'Prices in ' + esc(baseSym()) + ' · goes straight to stock') + '</div>') +
         '<input type="hidden" name="where" value="abroad"><input type="hidden" name="currency" id="puCur" value="USD">' +
-        '<div class="pu-rate hint" id="puRate">' + (usd ? '1 $ = ' + fmt(usd) + ' ' + esc(baseSym()) + ' · <a href="#settings">change rate</a>' : 'Set the dollar rate in <a href="#settings">Settings</a> to see totals in ' + esc(baseSym())) + '</div>' +
-        '<div class="pu-seller">' + field('Seller', '<select class="inp" name="vendorPick" id="puSeller"></select>') + field('Bought from', sel('sourceType', KC.SOURCE_TYPES, 'Store', 'id="puSrc"')) + field('Date', inp('purchaseDate', todayStr(), 'type="date"')) + '</div>' +
-        '<div class="pu-newsel hide" id="puNewSel"><div class="grid2">' + field('New seller name', inp('vendor', '', 'placeholder="e.g. Mama Ngono, Costco Houston" autocomplete="off"')) + field('Seller phone', inp('vendorPhone', '', 'inputmode="tel" placeholder="Optional"')) + '</div></div>' +
+        '<div class="pu-rate hint' + (st ? ' hide' : '') + '" id="puRate">' + (usd ? '1 $ = ' + fmt(usd) + ' ' + esc(baseSym()) + ' · <a href="#settings">change rate</a>' : 'Set the dollar rate in <a href="#settings">Settings</a> to see totals in ' + esc(baseSym())) + '</div>' +
+        '<div class="pu-seller' + (st ? ' pu-st' : '') + '">' + field(Who, '<select class="inp" name="vendorPick" id="puSeller"></select>') + (st ? '<input type="hidden" name="sourceType" id="puSrc" value="Local (Cameroon)">' : field('Bought from', sel('sourceType', KC.SOURCE_TYPES, 'Store', 'id="puSrc"'))) + field('Date', inp('purchaseDate', todayStr(), 'type="date"')) + '</div>' +
+        '<div class="pu-newsel hide" id="puNewSel"><div class="grid2">' + field('New ' + who + ' name', inp('vendor', '', 'placeholder="' + (st ? 'e.g. Mama Ngono, Santa Lucia Akwa' : 'e.g. Mama Ngono, Costco Houston') + '" autocomplete="off"')) + field(Who + ' phone', inp('vendorPhone', '', 'inputmode="tel" placeholder="Optional"')) + '</div></div>' +
         '<details class="pu-extra"><summary>More details <span class="hint">receipt no., pick-up</span></summary><div class="grid2 mt">' +
-          field('Receipt / order no.', inp('poNumber', '', 'placeholder="Optional"')) + field('Collected from the seller?', sel('puCollected', [['yes', 'Yes, we have the goods'], ['no', 'No — pick up later']], 'yes')) + '</div></details></section>' +
+          field('Receipt / order no.', inp('poNumber', '', 'placeholder="Optional"')) + field('Collected from the ' + who + '?', sel('puCollected', [['yes', 'Yes, we have the goods'], ['no', 'No — pick up later']], 'yes')) + '</div></details></section>' +
       // items
       '<section class="pu-sec"><div class="pu-h2"><h3 class="pu-t3">Items</h3><div class="row gap6"><button type="button" class="btn sm ghost" data-a="puImport">' + ic('up', 'sm') + 'Import Excel</button><button type="button" class="btn sm ghost" data-a="tplPurch">' + ic('dl', 'sm') + 'Template</button></div></div>' +
-        '<div class="pu-tw"><table class="t pu-t2"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Weight each</th><th class="r" id="puPriceH">Price each</th><th class="r">Total</th><th></th></tr></thead><tbody id="puRows"></tbody></table></div>' +
+        '<div class="pu-tw"><table class="t pu-t2"><thead><tr><th>Item</th><th class="r">Qty</th>' + (st ? '' : '<th class="r">Weight each</th>') + '<th class="r" id="puPriceH">Price each</th><th class="r">Total</th><th></th></tr></thead><tbody id="puRows"></tbody></table></div>' +
         '<div class="pu-under"><div class="col" style="gap:10px"><button type="button" class="btn sm" data-a="puAdd" style="align-self:flex-start">' + ic('plus', 'sm') + 'Add item</button><span class="hint">Tip: press Enter in the price to add the next item.</span>' +
           '<div id="puSpread" class="hide"><div class="hint mb">Paid one price for the items without a price?</div><div class="row gap6"><input class="inp" id="puLot" inputmode="decimal" placeholder="Total paid" style="width:140px"><button type="button" class="btn sm" data-a="puSpread">Spread it</button></div></div></div>' +
           '<div class="pu-tot"><div class="row between"><span>Items</span><span class="money" id="puSub"></span></div>' +
@@ -132,13 +141,13 @@ function purchaseForm() {
   };
   const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" list="dlNames" value="' + esc(r.name) + '" placeholder="Item name" autocomplete="off" aria-label="Item"></td>' +
     '<td data-l="Qty"><input class="inp r" data-f="qty" inputmode="numeric" value="' + esc(r.qty) + '" aria-label="Quantity"></td>' +
-    '<td data-l="Weight each"><div class="in-unit"><input class="inp r" data-f="weight" inputmode="decimal" value="' + esc(r.weight) + '" placeholder="0" aria-label="Weight of one item in kg"><span>kg</span></div></td>' +
+    (st ? '' : '<td data-l="Weight each"><div class="in-unit"><input class="inp r" data-f="weight" inputmode="decimal" value="' + esc(r.weight) + '" placeholder="0" aria-label="Weight of one item in kg"><span>kg</span></div></td>') +
     '<td data-l="Price each"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="0" aria-label="Price each"><span data-unit>' + esc(curSym(cur())) + '</span></div></td>' +
     '<td class="r pu-ltot" data-l="Total"><b class="money" data-out="total">—</b><span class="pu-tx" data-out="tax"></span></td>' +
     '<td class="nowrap r"><button type="button" class="icon-btn' + (r.open ? ' on' : '') + '" data-a="puMore" data-i="' + i + '" title="Category, condition, expiry, barcode, photo…" aria-label="Item details">' + ic('more', 'sm') + '</button><button type="button" class="icon-btn" data-a="puRm" data-i="' + i + '" aria-label="Remove item">' + ic('x', 'sm') + '</button></td></tr>' +
-    '<tr class="pu-cost" data-c="' + i + '"><td colspan="6"><div class="pu-cb" data-out="cost"></div></td></tr>' +
-    (r.open ? '<tr class="pu-more" data-m="' + i + '"><td colspan="6"><div class="grid4">' +
-      field('Category', sel('cat_' + i, catOpts(), r.category, 'data-f="category"')) + field('Condition', sel('cond_' + i, KC.CONDITIONS, r.condition, 'data-f="condition"')) + field('Working?', sel('work_' + i, KC.WORKING, r.working, 'data-f="working"')) +
+    '<tr class="pu-cost" data-c="' + i + '"><td colspan="' + (st ? 5 : 6) + '"><div class="pu-cb" data-out="cost"></div></td></tr>' +
+    (r.open ? '<tr class="pu-more" data-m="' + i + '"><td colspan="' + (st ? 5 : 6) + '"><div class="grid4">' +
+      field('Category', sel('cat_' + i, catOpts(), r.category, 'data-f="category"')) + field('Condition', sel('cond_' + i, KC.CONDITIONS, r.condition, 'data-f="condition"')) + (st ? '' : field('Working?', sel('work_' + i, KC.WORKING, r.working, 'data-f="working"'))) +
       field('Pack of', '<input class="inp" data-f="packOf" inputmode="numeric" value="' + esc(r.packOf) + '" title="Units you will sell for each one bought">') +
       field('Shelf price each', '<input class="inp" data-f="regularPrice" inputmode="decimal" value="' + esc(r.regularPrice) + '" placeholder="Optional">') + field('Expiry date', '<input class="inp" type="date" data-f="expiry" value="' + esc(r.expiry) + '">') + field('Barcode', '<input class="inp" data-f="barcode" value="' + esc(r.barcode) + '" placeholder="Optional">') +
       field('Bought for a client?', sel('res_' + i, custOpts(), r.reservedFor, 'data-f="reservedFor"')) +
@@ -147,7 +156,7 @@ function purchaseForm() {
   // seller dropdown: sellers used before + "+ New seller"
   const drawSellers = (keep) => {
     const list = puSellers(sh._where); const s = $('#puSeller', sh); const v = keep !== undefined ? keep : s.value;
-    s.innerHTML = '<option value="">Choose a seller…</option>' + list.map((x) => '<option value="' + esc(x.name) + '">' + esc(x.name) + (x.type && x.type !== 'Store' ? ' · ' + esc(x.type) : '') + '</option>').join('') + '<option value="__new">+ New seller…</option>';
+    s.innerHTML = '<option value="">Choose a ' + who + '…</option>' + list.filter((x) => !st || x.local).map((x) => '<option value="' + esc(x.name) + '">' + esc(x.name) + (!st && x.type && x.type !== 'Store' ? ' · ' + esc(x.type) : '') + '</option>').join('') + '<option value="__new">+ New ' + who + '…</option>';
     s.value = list.some((x) => x.name === v) || v === '__new' ? v : '';
   };
   sh._sellers = () => drawSellers();
@@ -156,6 +165,7 @@ function purchaseForm() {
     if (v === '__new') { $('[name=vendor]', sh).focus(); return; }
     const x = puSellers(sh._where).find((y) => y.name === v); if (!x) return;
     $('[name=vendor]', sh).value = ''; $('[name=vendorPhone]', sh).value = x.phone || '';
+    if (st) return;
     if (x.type && KC.SOURCE_TYPES.includes(x.type)) $('#puSrc', sh).value = x.type;
     if (x.local !== (sh._where === 'local')) sh._setWhere(x.local ? 'local' : 'abroad');
   });
@@ -166,6 +176,7 @@ function purchaseForm() {
     setPayCurrency(sh, cur());
   };
   sh._setWhere = (w) => {
+    if (st) w = 'local'; // a store only buys locally
     if (!PU_WHERE[w]) return; sh._where = w;
     $('[name=where]', sh).value = w; $$('.pu-wc', sh).forEach((b) => { b.classList.toggle('on', b.dataset.v === w); b.setAttribute('aria-pressed', String(b.dataset.v === w)); });
     $('#puCur', sh).value = PU_WHERE[w].cur(); $('#puRate', sh).classList.toggle('hide', w === 'local');
@@ -193,12 +204,12 @@ function purchaseForm() {
   $('#puTax', sh).addEventListener('input', totals);
   $('#puSrc', sh).addEventListener('change', (e) => { if (e.target.value === 'Local (Cameroon)') sh._setWhere('local'); });
   $('#puCur', sh).addEventListener('change', () => { setPayCurrency(sh, cur()); totals(); });
-  sh._setWhere('abroad');
+  sh._setWhere(st ? 'local' : 'abroad');
   sh._sums = sums;
   $('#puSave', sh).onclick = async () => {
     const h = formVals($('#puHead', sh)); const pv = formVals($('#puPay', sh).parentNode); pv.payStatus = sh._paid === 'credit' ? 'credit' : 'paid';
     h.vendor = h.vendorPick && h.vendorPick !== '__new' ? h.vendorPick : (h.vendor || '').trim(); delete h.vendorPick;
-    if (!h.vendor) { toast('Choose the seller (or add a new one)', true); $('#puSeller', sh).focus(); return; }
+    if (!h.vendor) { toast('Choose the ' + who + ' (or add a new one)', true); $('#puSeller', sh).focus(); return; }
     if (sh._paid === 'paid') { pv.payAmount = ''; pv.payDate = h.purchaseDate; }
     if (sh._paid === 'part' && !(num(pv.payAmount) > 0)) { toast('Type how much you paid', true); const a = $('#payAmount', sh); if (a) a.focus(); return; }
     const rows = sh._rows.filter((r) => r.name.trim() || num(r.unitCost));
@@ -227,7 +238,7 @@ function purchaseForm() {
       await createBillFor({ txnId: h.purchaseTxnId, payment: pay, supplierId: (K.raw.suppliers.find((x) => x.name.toLowerCase() === (h.vendor || '').toLowerCase()) || {}).id, newSupplier: h.vendor || h.sourceType || 'Seller', newSupplierType: SELLER_SUP_TYPE[h.sourceType] || 'Other', description: 'Purchase ' + (h.poNumber ? '#' + h.poNumber + ' ' : '') + fmtDate(h.purchaseDate) + (s.tax ? ' (tax ' + money(s.tax, h.currency) + ')' : ''), amount: s.total, currency: h.currency || 'USD', date: h.purchaseDate, dueDate: sh._paid === 'paid' ? h.purchaseDate : pv.payBy });
     }
     while (K.sheets.length && K.sheets[K.sheets.length - 1] !== sh) closeSheet(); closeSheet(); scheduleRender();
-    toast(lines.length + ' item' + (lines.length === 1 ? '' : 's') + ' saved' + (h.where === 'local' ? ' · in stock now' : ' · waiting to ship') + (credit ? ' · bill created' : pay && pay.amount < s.total - 0.005 ? ' · part paid, rest added to bills' : ''));
+    toast(lines.length + ' item' + (lines.length === 1 ? '' : 's') + ' saved' + (h.where === 'local' ? (st ? ' · in stock' : ' · in stock now') : ' · waiting to ship') + (credit ? ' · bill created' : pay && pay.amount < s.total - 0.005 ? ' · part paid, rest added to bills' : ''));
     };
     puPreview({ h, lines, s, pay, credit, paid: sh._paid, payBy: pv.payBy, sellerType: h.sourceType }, go);
   };
@@ -385,15 +396,15 @@ function puCostHTML(r, share, cur, fx) {
 function puPreview(d, go) {
   const { h, lines, s, pay, credit } = d; const cur = h.currency || 'USD'; const foreign = cur !== baseCode(); const fx = foreign ? KC.rateOf(S(), cur) : 1;
   const m = (v) => money(v, cur); const loc = (v) => foreign ? '<span class="pv-loc">' + F(v * fx) + '</span>' : '';
-  const wt = lines.reduce((a, l) => a + num(l.weightEach) * num(l.boughtQty), 0);
+  const wt = lines.reduce((a, l) => a + num(l.weightEach) * num(l.boughtQty), 0); const st = isStore();
   const kv = (k, v) => v ? '<div class="pv-kv"><span>' + k + '</span><b>' + v + '</b></div>' : '';
   const payTxt = credit ? 'Not paid yet · pay by ' + fmtDate(d.payBy)
     : pay ? esc(pay.method) + ' · ' + m(pay.amount) + (pay.fee ? ' + ' + m(pay.fee) + ' charges' : '') + (pay.ref ? ' · ref ' + esc(pay.ref) : '') + (pay.amount < s.total - 0.005 ? ' · rest ' + m(s.total - pay.amount) + ' by ' + fmtDate(d.payBy) : '') : '—';
   const body = '<div class="pv">' +
-    '<div class="pv-head">' + kv('Bought', h.where === 'local' ? '🇨🇲 In Cameroon' : '🇺🇸 Abroad') + kv('Seller', esc(h.vendor) + (h.sourceType ? ' <span class="hint">' + esc(h.sourceType) + '</span>' : '')) + kv('Phone', esc(h.vendorPhone || '')) + kv('Date', fmtDate(h.purchaseDate)) + kv('Receipt no.', esc(h.poNumber || '')) + kv('Currency', foreign ? curSym(cur) + ' · 1 ' + curSym(cur) + ' = ' + fmt(fx) + ' ' + esc(baseSym()) : esc(baseSym())) + kv('Collected', h.puCollected === 'no' ? 'No — pick up later' : 'Yes') + '</div>' +
-    '<div class="pv-tw"><table class="pv-t"><thead><tr><th class="w-it">Item</th><th class="r">Qty</th><th class="r">Weight</th><th class="r">Each</th><th class="r">Tax each</th><th class="r">Each with tax</th><th class="r">Line total</th></tr></thead><tbody>' +
+    '<div class="pv-head">' + (st ? '' : kv('Bought', h.where === 'local' ? '🇨🇲 In Cameroon' : '🇺🇸 Abroad')) + kv(st ? 'Supplier' : 'Seller', esc(h.vendor) + (h.sourceType && !st ? ' <span class="hint">' + esc(h.sourceType) + '</span>' : '')) + kv('Phone', esc(h.vendorPhone || '')) + kv('Date', fmtDate(h.purchaseDate)) + kv('Receipt no.', esc(h.poNumber || '')) + kv('Currency', foreign ? curSym(cur) + ' · 1 ' + curSym(cur) + ' = ' + fmt(fx) + ' ' + esc(baseSym()) : esc(baseSym())) + kv('Collected', h.puCollected === 'no' ? 'No — pick up later' : 'Yes') + '</div>' +
+    '<div class="pv-tw"><table class="pv-t"><thead><tr><th class="w-it">Item</th><th class="r">Qty</th>' + (st ? '' : '<th class="r">Weight</th>') + '<th class="r">Each</th><th class="r">Tax each</th><th class="r">Each with tax</th><th class="r">Line total</th></tr></thead><tbody>' +
       lines.map((l) => { const pk = num(l.pack) || 1; const bq = num(l.boughtQty); const each = num(l.unitCost) * pk, tx = num(l.unitTax) * pk; return '<tr><td><span class="pv-n">' + esc(l.name) + '</span><span class="pv-s">' + esc([l.category, l.condition !== 'New' ? l.condition : '', pk > 1 ? 'pack of ' + pk : ''].filter(Boolean).join(' · ')) + '</span></td>' +
-        '<td class="r">' + fmt(bq) + '</td><td class="r">' + (num(l.weightEach) ? fmtKg(num(l.weightEach) * bq) : '<span class="faint">—</span>') + '</td>' +
+        '<td class="r">' + fmt(bq) + '</td>' + (st ? '' : '<td class="r">' + (num(l.weightEach) ? fmtKg(num(l.weightEach) * bq) : '<span class="faint">—</span>') + '</td>') +
         '<td class="r">' + m(each) + loc(each) + '</td><td class="r">' + m(tx) + loc(tx) + '</td><td class="r b">' + m(each + tx) + loc(each + tx) + '</td><td class="r b">' + m((each + tx) * bq) + loc((each + tx) * bq) + '</td></tr>'; }).join('') +
     '</tbody></table></div>' +
     '<div class="pv-foot"><div class="pv-pay"><div class="pv-l">Payment</div><div>' + payTxt + '</div><div class="pv-l mt">Next</div><div>' + (h.where === 'local' ? 'Goes straight to stock, ready to sell.' : 'Waits in <b>Ship</b> until you put it in a shipment.') + '</div></div>' +

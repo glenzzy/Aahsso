@@ -1,4 +1,6 @@
 /* Aahsso — Team & access: roles, per-person permissions, approvals */
+/** permissions of features this business has (Aahsso Store has no containers; a plan can switch features off) */
+const teamPerms = () => KC.PERMS.filter(([k]) => KC.permFeatureOn(K.info && K.info.features, k));
 const ROLES_NOW = () => KC.rolesWith(S().roles);
 const ROLE_OPTS = () => Object.entries(has('customRoles') ? ROLES_NOW() : KC.ROLES).filter(([k]) => k !== 'owner').map(([k, r]) => [k, r.label]); // custom roles only in plans that include them
 const ROLE_HELP = {
@@ -7,7 +9,7 @@ const ROLE_HELP = {
   sales: 'Sells, takes payments, adds customers, sees stock. Sees only their own sales. No costs or profit.',
   viewer: 'Can look at stock, sales and reports. Cannot change anything.',
 };
-function permSummary(m) { const p = KC.permsFor(m, S().roles); return KC.PERMS.filter(([k]) => p[k]).length + ' of ' + KC.PERMS.length + ' permissions'; }
+function permSummary(m) { const p = KC.permsFor(m, S().roles); return teamPerms().filter(([k]) => p[k]).length + ' of ' + teamPerms().length + ' permissions'; }
 
 VIEWS.team = {
   render() {
@@ -27,7 +29,7 @@ VIEWS.team = {
 function roleTable() {
   const roles = Object.entries(ROLES_NOW()).filter(([k]) => k !== 'owner');
   return '<h2 class="mb mt2">What each role can do</h2><div class="card tw"><table class="t"><thead><tr><th>Permission</th>' + roles.map(([, r]) => '<th class="center">' + esc(r.label.split(' ')[0]) + '</th>').join('') + '</tr></thead><tbody>' +
-    KC.PERMS.map(([k, l]) => '<tr><td>' + esc(l) + '</td>' + roles.map(([, r]) => '<td class="center">' + (r.perms.includes(k) ? '<span style="color:var(--ok)">✓</span>' : '<span class="faint">—</span>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div><div class="tiny muted mt">Change what a whole role can do with <b>Edit roles</b>, or switch a permission on/off for one person by tapping their name.</div>' +
+    teamPerms().map(([k, l]) => '<tr><td>' + esc(l) + '</td>' + roles.map(([, r]) => '<td class="center">' + (r.perms.includes(k) ? '<span style="color:var(--ok)">✓</span>' : '<span class="faint">—</span>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div><div class="tiny muted mt">Change what a whole role can do with <b>Edit roles</b>, or switch a permission on/off for one person by tapping their name.</div>' +
     (can('team') && can('settings') ? '<div class="row wrap mt"><button class="btn" data-a="roleEdit">' + ic('plus') + 'New role</button>' + roles.map(([k, r]) => '<button class="btn sm" data-a="roleEdit" data-k="' + k + '">' + ic('edit', 'sm') + esc(r.label) + '</button>').join('') + '</div>' : '');
 }
 /** Sheet to edit a person's role & permissions. onSave(result) gets {name, role, perms, active}. */
@@ -37,7 +39,7 @@ function memberSheet(m, title, onSave, onRemove) {
   const keep = () => { const v = formVals(sh); m = Object.assign({}, m, { name: v.mName, login: m.id ? m.login : v.mLogin, email: v.mEmail, mSend: v.mSend, _pass: v.mPass, locationId: v.mLoc || m.locationId }); };
   const draw = () => {
     const eff = KC.permsFor({ role, perms: over }, S().roles);
-    const groups = {}; KC.PERMS.forEach(([k, l, g]) => (groups[g] = groups[g] || []).push([k, l]));
+    const groups = {}; teamPerms().forEach(([k, l, g]) => (groups[g] = groups[g] || []).push([k, l]));
     setSheetBody(sh, '<div class="col">' + field('Name', inp('mName', m.name || '')) + (m.login !== undefined ? field('Login (email or phone)', inp('mLogin', m.login || '', m.id ? 'disabled' : '')) + (m.id ? field('New password (optional)', inp('mPass', m._pass || '', 'type="text" placeholder="Leave empty to keep"')) : field('Password', inp('mPass', m._pass || '', 'type="text"'))) +
         field('Email (optional)', inp('mEmail', m.email || '', 'type="email" inputmode="email" placeholder="Only needed if the login is a phone number"')) +
         '<label class="toggle"><input type="checkbox" name="mSend"' + (m.mSend === false ? '' : ' checked') + '>' + (m.id ? 'Email them the new password (if you set one)' : 'Email them their login and password') + '</label>' : '') +
@@ -109,7 +111,7 @@ A.roleEdit = (el) => {
   const builtIn = key && KC.ROLES[key]; const used = key ? K.raw.members.filter((m) => m.role === key).length : 0;
   let perms = new Set(r.perms);
   const sh = openSheet({ title: key ? 'Edit role: ' + r.label : 'New role', body: '', foot: (key ? (builtIn ? '<button class="btn" id="rlReset">Reset to default</button>' : '<button class="btn danger" id="rlDel">' + ic('trash') + '</button>') : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="rlSave">Save role</button>' });
-  const groups = {}; KC.PERMS.forEach(([k, l, g]) => (groups[g] = groups[g] || []).push([k, l]));
+  const groups = {}; teamPerms().forEach(([k, l, g]) => (groups[g] = groups[g] || []).push([k, l]));
   setSheetBody(sh, '<div class="col">' + field('Role name', inp('rlName', r.label, 'placeholder="e.g. Cashier, Store keeper, Branch manager"')) + (used ? '<div class="tiny muted">' + used + ' person(s) have this role — changes apply to them at once (except their personal on/off switches).</div>' : '') +
     '<div class="card pad">' + Object.entries(groups).map(([g, ps]) => '<div class="tiny b faint" style="text-transform:uppercase;letter-spacing:.05em;margin-top:8px">' + g + '</div><div class="perm-grid">' + ps.map(([k, l]) => '<label><input type="checkbox" data-rp="' + k + '"' + (perms.has(k) ? ' checked' : '') + '>' + esc(l) + '</label>').join('') + '</div>').join('') + '</div></div>');
   const write = async (rolesObj) => { const ok = await saveSettings({ roles: rolesObj }); if (ok) { resolveAccess(); closeSheet(); render(true); toast('Roles saved'); } };

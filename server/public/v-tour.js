@@ -9,7 +9,14 @@ const TOUR = [
   { r: 'receive', title: 'Receive', lead: 'When the shipment reaches Cameroon, tick off four steps.', points: ['Mark it arrived', 'Add customs and clearing costs', 'Unload and count — the goods are now in stock', 'Check prices and print labels'], tip: 'Every cost is spread over the items, so you see the real cost of each one.' },
   { r: 'sales', title: 'Sell', lead: 'Sell at the shop, by phone or on social media.', points: ['Tap New sale, then search or scan an item', 'Get paid by cash, MTN MoMo or Orange Money', 'Send the receipt by WhatsApp', 'See who owes you and remind them'], act: ['newSale', 'Make a sale', 'sell'] },
 ];
-const tourSteps = () => TOUR.filter((s) => !s.r || navOk(s.r));
+/* Aahsso Store: buy locally → keep stock right → sell */
+const STORE_TOUR = [
+  { r: null, title: 'Welcome to Aahsso', lead: 'Your shop in three steps: buy, keep your stock right, sell. Aahsso keeps the numbers, so you always know what you have and what you made.', intro: true },
+  { r: 'buy', title: 'Buy', lead: 'Record what you buy from your suppliers.', points: ['Who you bought from', 'Each item, how many and the price', 'Paid, part paid or still owed — Aahsso reminds you'], tip: 'It goes straight into your stock, ready to sell.', act: ['newPurchase', 'Record a purchase', 'purchases'] },
+  { r: 'stock', title: 'Stock', lead: 'See what you have, at a glance.', points: ['What is running low', 'Selling prices worked out from what you paid', 'Count your stock and record losses (theft, damage, rats…)'] },
+  { r: 'sales', title: 'Sell', lead: 'Sell at the till, by phone or on social media.', points: ['Tap New sale, then search or scan an item', 'Get paid by cash, MTN MoMo or Orange Money', 'Send the receipt by WhatsApp', 'See who owes you and remind them'], act: ['newSale', 'Make a sale', 'sell'] },
+];
+const tourSteps = () => (isStore() ? STORE_TOUR : TOUR).filter((s) => !s.r || navOk(s.r));
 const tourDone = () => { try { return localStorage.getItem(TOUR_KEY) === '1'; } catch (e) { return true; } };
 /** Ring the menu item of the current step (sidebar and phone bar); called again after every redraw. */
 function tourMark() {

@@ -1433,3 +1433,19 @@ table.oq-t{width:100%;min-width:620px;border-collapse:collapse;table-layout:fixe
 .day-flags { padding: 8px 12px; border-radius: 10px; background: var(--warnSoft); margin: 6px 0 10px; }
 .day-flags .cl { border-color: rgba(122,82,16,.12); }
 .day-items { max-height: 260px; overflow: auto; }
+
+/* sign-up step 2: Aahsso Import or Aahsso Store */
+.auth-ed { display: flex; flex-direction: column; gap: 10px; }
+.auth-edc { text-align: left; border: 2px solid var(--line); border-radius: 14px; background: var(--card); padding: 14px 16px; cursor: pointer; color: var(--ink); font: inherit; transition: border-color .15s, background .15s; }
+.auth-edc:hover { border-color: var(--ink3); }
+.auth-edc.on { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 7%, #fff); }
+.auth-edc:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.auth-edt { display: flex; flex-direction: column; gap: 2px; }
+.auth-edt b { font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.auth-edt b::before { content: ''; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ink3); flex: none; box-sizing: border-box; }
+.auth-edc.on .auth-edt b::before { border: 5px solid var(--brand); }
+.auth-edt span { color: var(--ink2); font-size: 13.5px; padding-left: 24px; }
+.auth-edc ul { margin: 8px 0 0; padding: 0 0 0 40px; color: var(--ink3); font-size: 12.5px; line-height: 1.55; }
+.auth-edn { margin: 2px 0 0; color: var(--ink3); font-size: 12.5px; text-align: center; }
+.auth-ed .auth-link { color: var(--ink2); text-decoration-color: var(--line); align-self: center; font-size: 13px; }
+.plans-head .ed-chip { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .02em; padding: 3px 10px; border-radius: 99px; background: color-mix(in srgb, var(--brand) 12%, #fff); color: var(--brand); margin-bottom: 6px; }

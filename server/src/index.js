@@ -90,19 +90,29 @@ const sign = (u) => jwt.sign({ uid: u.id, tid: u.tenant_id, role: u.role }, SECR
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: Number(process.env.AUTH_RATE) || 50 });
 app.use('/api/', rateLimit({ windowMs: 60 * 1000, max: Number(process.env.API_RATE_PER_MIN || 1200), standardHeaders: true, legacyHeaders: false }));
 
+/** Editions a new business can choose (the platform admin can close one for sign-ups). */
+async function signupEditions() { const S = await billing.platformSettings(); return KC.EDITION_KEYS.filter((k) => (S.signup || {})[k] !== false); }
+app.get('/api/signup-options', wrap(async (req, res) => {
+  const open = await signupEditions();
+  res.json({ editions: open.map((k) => { const e = KC.editionOf(k); return { key: e.key, label: e.label, tag: e.tag, points: e.points }; }) });
+}));
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const { businessName, name, login, password, email } = req.body || {};
   if (!businessName || !name || !login || !password) return err(res, 400, 'Business name, your name, login and password are required');
+  const open = await signupEditions();
+  const asked = String((req.body || {}).edition || '');
+  const edition = asked || (open.includes('import') ? 'import' : open[0]); // an older app sends nothing: it only knew importers
+  if (!open.includes(edition)) return err(res, 400, open.length === 1 ? KC.editionOf(asked).label + ' is not open for sign-up right now' : 'Choose what you will use Aahsso for');
   if (String(password).length < 6) return err(res, 400, 'Password must be at least 6 characters');
   const l = String(login).trim().toLowerCase();
   if ((await q('SELECT 1 FROM users WHERE login=$1', [l])).rowCount) return err(res, 409, 'This login is already registered');
   const days = billing.FREE_TRIAL_DAYS; // 5-day free trial
   const user = await tx(async (c) => {
-    const t = (await c.query("INSERT INTO tenants(name, trial_ends_at) VALUES ($1, now() + ($2 || ' days')::interval) RETURNING id, trial_ends_at", [businessName, String(days)])).rows[0];
+    const t = (await c.query("INSERT INTO tenants(name, trial_ends_at, edition) VALUES ($1, now() + ($2 || ' days')::interval, $3) RETURNING id, trial_ends_at", [businessName, String(days), edition])).rows[0];
     await billing.ensureSub(c, t.id, t.trial_ends_at); await billing.syncTenant(c, t.id);
     const u = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,email) VALUES ($1,$2,$3,$4,'owner',$5) RETURNING *", [t.id, name, l, await bcrypt.hash(String(password), 10), cleanEmail(email)])).rows[0];
     await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName })), u.id]);
-    await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action) VALUES ($1,$2,$3,'main','register')", [t.id, u.id, name]);
+    await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','register',$4)", [t.id, u.id, name, JSON.stringify({ edition })]);
     return u;
   });
   const to = mailer.emailOf(user);
@@ -158,7 +168,7 @@ async function auth(req, res, next) {
   try {
     let p; try { p = jwt.verify(token, SECRET); } catch (e) { return err(res, 401, 'Please sign in'); } // only a bad/expired token signs you out
     if (p.ro && !['GET', 'HEAD'].includes(req.method)) return err(res, 403, 'Aahsso support view is read-only — nothing can be changed', { code: 'read_only' });
-    const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.email,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.plan,t.status,t.trial_ends_at,t.paid_until,t.grace_days FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
+    const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.email,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.edition,t.plan,t.status,t.trial_ends_at,t.paid_until,t.grace_days FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
     if (!u || !u.active) return err(res, 401, 'Session expired');
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0];
     u.customRoles = (st && st.roles) || {};
@@ -217,9 +227,9 @@ app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enab
 app.get('/api/me', auth, wrap(async (req, res) => {
   const u = req.user; const sub = await billing.getSub(pool, u.tenant_id); const lim = await billing.limitsFor(pool, u.tenant_id);
   const pin = (await q('SELECT approval_pin_hash IS NOT NULL AS has FROM users WHERE id=$1', [u.id])).rows[0];
-  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u), approvalPin: !!(pin && pin.has) }, tenant: { id: u.tenant_id, name: u.tenant_name, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
+  res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u), approvalPin: !!(pin && pin.has) }, tenant: { id: u.tenant_id, name: u.tenant_name, edition: KC.editionOf(u.edition).key, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
     subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
-    limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null });
+    edition: lim.edition, limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null });
 }));
 
 /* ---------- live updates (Server-Sent Events) ---------- */

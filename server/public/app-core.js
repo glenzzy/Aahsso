@@ -75,8 +75,13 @@ const can = (p) => !!K.perms[p];
 /** is this feature in the business's plan? (this-device / trial: everything is) */
 const has = (f) => KC.featureOn(K.info && K.info.features, f);
 const hasAny = (...fs) => KC.anyOn(K.info && K.info.features, fs);
+/** Aahsso Store (buy locally, sell, manage stock) — or Aahsso Import (buy abroad, ship, receive, sell). Set at sign-up. */
+const isStore = () => !!K.info && K.info.edition === 'store';
+const edition = () => KC.editionOf(K.info && K.info.edition);
+/** what an item cost you: "landed cost" for importers (goods + freight + customs), plain "cost" in a store */
+const costWord = (cap) => (isStore() ? (cap ? 'Cost' : 'cost') : (cap ? 'Landed cost' : 'landed cost'));
 /** page classes nf-<feature> for each feature that is off — the stylesheet hides those features' buttons */
-function featureClasses() { const f = (K.info && K.info.features) || {}; KC.FEATURE_KEYS.forEach((k) => document.body.classList.toggle('nf-' + k, f[k] === false)); }
+function featureClasses() { const f = (K.info && K.info.features) || {}; KC.FEATURE_KEYS.forEach((k) => document.body.classList.toggle('nf-' + k, f[k] === false)); document.body.classList.toggle('ed-store', isStore()); }
 const isAdmin = () => can('settings') || can('team');
 const seeCost = () => can('costs');
 const roleLabel = () => (KC.rolesWith(S().roles)[(K.member || {}).role] || { label: 'Custom' }).label;
@@ -393,7 +398,7 @@ function logoHTML(cls = 'logo') { const s = S(); return '<div class="' + cls + '
 const navCount = (n) => { const c = n[4] ? n[4]() : 0; return c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : ''; };
 function shell() {
   const s = S();
-  $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div><div class="bn">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">Import & sales manager</div></div></div>' +
+  $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div><div class="bn">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">' + esc(edition().label) + '</div></div></div>' +
     '<div class="navs">' + SECTIONS.map((sec) => { const rs = secRoutes(sec); if (!rs.length) return ''; const c = secCount(sec); return '<a class="nav' + (sec[3].includes(K.route) ? ' on' : '') + '" href="#' + rs[0] + '">' + ic(sec[2]) + sec[1] + (c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : '') + '</a>'; }).join('') + '</div>' +
     '<div class="sp"></div><div class="who">' + esc(K.me.name || K.info.userLabel || '') + ' · ' + esc(roleLabel()) + '</div>';
   drawAvatar();

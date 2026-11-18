@@ -35,6 +35,7 @@ const ADMIN_PERMS = [
   ['tenants.view', 'See businesses and their details', 'Businesses'],
   ['subs.write', 'Change plans, extend trials and paid periods, cancel', 'Businesses'],
   ['tenants.features', 'Give a business its own features and limits', 'Businesses'],
+  ['tenants.edition', 'Switch a business between Aahsso Import and Aahsso Store', 'Businesses'],
   ['tenants.suspend', 'Suspend and reactivate businesses', 'Businesses'],
   ['tenants.impersonate', 'View a business as its owner (read-only)', 'Businesses'],
   ['tenants.resetOwner', 'Reset a business owner\'s password', 'Businesses'],
@@ -305,6 +306,9 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const d = (await q(`SELECT
       (SELECT coalesce(json_object_agg(status, n), '{}') FROM (SELECT status, count(*)::int AS n FROM subscriptions GROUP BY status) x) AS statuses,
       (SELECT count(*)::int FROM tenants) AS tenants,
+      (SELECT coalesce(json_object_agg(edition, n), '{}') FROM (SELECT edition, count(*)::int AS n FROM tenants GROUP BY edition) x) AS editions,
+      (SELECT coalesce(json_object_agg(edition, n), '{}') FROM (SELECT edition, count(*)::int AS n FROM tenants WHERE created_at > now() - interval '30 days' GROUP BY edition) x) AS "signupsByEdition",
+      (SELECT coalesce(json_object_agg(edition, v), '{}') FROM (SELECT t.edition, coalesce(sum(CASE WHEN s.cycle='yearly' THEN s.price/12.0 ELSE s.price END),0)::int AS v FROM subscriptions s JOIN tenants t ON t.id=s.tenant_id WHERE s.status IN ('active','past_due') AND s.price IS NOT NULL GROUP BY t.edition) x) AS "mrrByEdition",
       (SELECT coalesce(sum(CASE WHEN cycle='yearly' THEN price/12.0 ELSE price END),0)::int FROM subscriptions WHERE status IN ('active','past_due') AND price IS NOT NULL) AS mrr,
       (SELECT coalesce(sum(amount),0)::int FROM payments WHERE status='confirmed' AND date_trunc('month', paid_on) = date_trunc('month', now())) AS "collectedMonth",
       (SELECT coalesce(json_agg(x ORDER BY x.m), '[]') FROM (SELECT to_char(date_trunc('month', paid_on),'YYYY-MM') AS m, sum(amount)::int AS v FROM payments WHERE status='confirmed' AND paid_on >= date_trunc('month', now()) - interval '5 months' GROUP BY 1) x) AS revenue,
@@ -314,22 +318,22 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       (SELECT row_to_json(x) FROM (SELECT count(*) FILTER (WHERE due_date <= current_date + 7)::int AS week, coalesce(sum(amount) FILTER (WHERE due_date <= current_date + 7),0)::int AS week_amount, count(*) FILTER (WHERE due_date < current_date)::int AS overdue FROM invoices WHERE status='open') x) AS due,
       (SELECT count(*)::int FROM payments WHERE status='pending') AS "pendingPayments",
       (SELECT count(*)::int FROM support_tickets WHERE status='open') AS "openTickets",
-      (SELECT coalesce(json_agg(x), '[]') FROM (SELECT t.id, t.name, t.created_at, s.status FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id ORDER BY t.created_at DESC LIMIT 8) x) AS "recentSignups",
+      (SELECT coalesce(json_agg(x), '[]') FROM (SELECT t.id, t.name, t.edition, t.created_at, s.status FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id ORDER BY t.created_at DESC LIMIT 8) x) AS "recentSignups",
       (SELECT coalesce(json_agg(x), '[]') FROM (SELECT p.id, p.amount, p.currency, p.method, p.paid_on, p.status, t.name AS tenant, t.id AS tenant_id FROM payments p JOIN tenants t ON t.id=p.tenant_id ORDER BY p.created_at DESC LIMIT 8) x) AS "recentPayments"`)).rows[0];
     res.json(d);
   }));
 
   /* ---------- businesses ---------- */
-  const TENANT_LIST = `SELECT t.id, t.name, t.created_at, s.status, s.plan_id, p.name AS plan_name, s.cycle, s.price, s.trial_ends_at, s.current_period_end,
+  const TENANT_LIST = `SELECT t.id, t.name, t.edition, t.created_at, s.status, s.plan_id, p.name AS plan_name, s.cycle, s.price, s.trial_ends_at, s.current_period_end,
       (SELECT count(*)::int FROM users u WHERE u.tenant_id=t.id AND u.active) AS users,
       (SELECT max(at) FROM audit_log a WHERE a.tenant_id=t.id) AS last_activity, o.name AS owner_name, o.login AS owner_login, o.email AS owner_email
     FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id LEFT JOIN plans p ON p.id=s.plan_id
     LEFT JOIN LATERAL (SELECT name, login, email FROM users WHERE tenant_id=t.id AND role='owner' ORDER BY created_at LIMIT 1) o ON true
     WHERE ($1 = '' OR t.name ILIKE '%' || $1 || '%' OR o.login ILIKE '%' || $1 || '%' OR coalesce(o.email,'') ILIKE '%' || $1 || '%' OR o.name ILIKE '%' || $1 || '%')
-      AND ($2 = '' OR s.status = $2) AND ($3 = '' OR s.plan_id = $3)`;
+      AND ($2 = '' OR s.status = $2) AND ($3 = '' OR s.plan_id = $3) AND ($5 = '' OR t.edition = $5)`;
   A.get('/tenants', need('tenants.view'), wrap(async (req, res) => {
     const page = Math.max(0, Number(req.query.page) || 0); const qs = String(req.query.q || '').slice(0, 80).replace(/[%_]/g, '');
-    const rows = (await q(TENANT_LIST + ' ORDER BY t.created_at DESC LIMIT 51 OFFSET $4', [qs, String(req.query.status || ''), String(req.query.plan || ''), page * 50])).rows;
+    const rows = (await q(TENANT_LIST + ' ORDER BY t.created_at DESC LIMIT 51 OFFSET $4', [qs, String(req.query.status || ''), String(req.query.plan || ''), page * 50, KC.EDITION_KEYS.includes(req.query.edition) ? req.query.edition : ''])).rows;
     res.json({ tenants: rows.slice(0, 50), more: rows.length > 50 });
   }));
   async function tenantOr404(req, res) { const t = (await q('SELECT * FROM tenants WHERE id::text=$1', [req.params.id])).rows[0]; if (!t) bad(res, 'Business not found', 404); return t; }
@@ -351,7 +355,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const st = d.settings;
     res.json({
       tenant: t, subscription, settings: st ? { businessName: st.businessName, phone: st.phone, address: st.address, currency: st.currency, shopSlug: st.shopSlug, shopEnabled: !!st.shopEnabled } : {},
-      users: d.users, usage, limits: ent.limits, features: ent.features, catalog: KC.FEATURES, counts: d.counts,
+      users: d.users, usage, limits: ent.limits, features: ent.features, catalog: KC.featuresOf(t.edition), counts: d.counts, edition: KC.editionOf(t.edition).key,
       invoices: d.invoices, payments: d.payments, activity: d.activity, tickets: d.tickets, adminLog: d.adminLog,
     });
   }));
@@ -366,6 +370,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     if (['suspend', 'reactivate', 'cancel', 'change_plan'].includes(act) && reason.length < 4) return bad(res, 'Give a reason (it is kept in the audit log)');
     if (act === 'change_plan') {
       const plan = (await q('SELECT * FROM plans WHERE id=$1', [b.planId])).rows[0]; if (!plan) return bad(res, 'Choose a plan');
+      if (plan.edition !== KC.editionOf(t.edition).key) return bad(res, plan.name + ' is a plan for ' + KC.editionOf(plan.edition).label + ' — this business uses ' + KC.editionOf(t.edition).label + '. Switch its type first.');
       const cycle = b.cycle === 'yearly' ? 'yearly' : 'monthly'; const price = b.price === '' || b.price === undefined || b.price === null ? plan['price_' + cycle] : Math.round(Number(b.price));
       if (price !== null && !(price >= 0)) return bad(res, 'Price must be 0 or more');
       const end = b.periodEnd ? new Date(b.periodEnd + 'T23:59:59Z') : s.current_period_end && new Date(s.current_period_end) > now ? new Date(s.current_period_end) : B.addPeriod(now, cycle);
@@ -390,6 +395,29 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     await tx((c) => B.setSub(c, t.id, patch));
     await audit(req, 'subscription_' + act, { tenantId: t.id, target: t.name, reason, details: { before: { plan: s.plan_id, status: s.status, end: s.current_period_end, trial: s.trial_ends_at }, after: patch } });
     res.json({ ok: true, subscription: await B.getSub(pool, t.id) });
+  }));
+  /* switch a business between Aahsso Import and Aahsso Store. Its data is kept; pages of the other edition just hide.
+   * A business on a plan moves to a plan of the new edition in the same step, and open invoices for the old plan are voided. */
+  A.post('/tenants/:id/edition', need('tenants.edition'), reauth, wrap(async (req, res) => {
+    const t = await tenantOr404(req, res); if (!t) return; const b = req.body || {};
+    const to = String(b.edition || ''); if (!KC.EDITION_KEYS.includes(to)) return bad(res, 'Choose Aahsso Import or Aahsso Store');
+    if (to === t.edition) return bad(res, 'This business already uses ' + KC.editionOf(to).label);
+    const reason = String(b.reason || '').trim().slice(0, 300); if (reason.length < 4) return bad(res, 'Give a reason (it is kept in the audit log)');
+    const s = await B.getSub(pool, t.id); if (!s) return bad(res, 'No subscription');
+    let plan = null;
+    if (b.planId) { plan = (await q('SELECT * FROM plans WHERE id=$1', [b.planId])).rows[0]; if (!plan || plan.edition !== to) return bad(res, 'Choose a plan for ' + KC.editionOf(to).label); }
+    if (s.plan_id && !plan) return bad(res, 'This business is on ' + (s.plan_name || s.plan_id) + ' — choose its new ' + KC.editionOf(to).label + ' plan');
+    const busy = (await q("SELECT i.number FROM payments p JOIN invoices i ON i.id=p.invoice_id WHERE p.tenant_id=$1 AND p.status IN ('pending','processing') AND i.status='open' LIMIT 1", [t.id])).rows[0];
+    if (busy) return bad(res, 'A payment for invoice ' + busy.number + ' is still being checked — confirm or reject it first');
+    const voided = await tx(async (c) => {
+      await c.query('UPDATE tenants SET edition=$2 WHERE id=$1', [t.id, to]);
+      const v = (await c.query("UPDATE invoices i SET status='void', void_reason=$2 FROM plans p WHERE p.id=i.plan_id AND i.tenant_id=$1 AND i.status='open' AND p.edition <> $3 RETURNING i.number", [t.id, 'Business switched to ' + KC.editionOf(to).label, to])).rows.map((r0) => r0.number);
+      if (plan) { const price = plan['price_' + (s.cycle === 'yearly' ? 'yearly' : 'monthly')]; await B.setSub(c, t.id, { plan_id: plan.id, price: price === null || price === undefined ? s.price : price }); }
+      return v;
+    });
+    B.invalidate(t.id);
+    await audit(req, 'tenant_edition', { tenantId: t.id, target: t.name, reason, details: { before: { edition: t.edition, plan: s.plan_id }, after: { edition: to, plan: plan ? plan.id : s.plan_id }, voided } });
+    res.json({ ok: true, edition: to, voided });
   }));
   /* a business's own deal on top of its plan: features switched on/off, other limits */
   A.post('/tenants/:id/features', need('tenants.features'), reauth, wrap(async (req, res) => {
@@ -574,30 +602,33 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
 
   /* ---------- plans ---------- */
   A.get('/plans', need('plans.view'), wrap(async (req, res) => {
-    res.json({ plans: (await q("SELECT p.*, (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id=p.id AND s.status IN ('active','past_due','cancelled')) AS subscribers FROM plans p ORDER BY sort, name")).rows, limitKeys: { counts: B.COUNT_LIMITS }, catalog: KC.FEATURES });
+    res.json({ plans: (await q("SELECT p.*, (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id=p.id AND s.status IN ('active','past_due','cancelled')) AS subscribers, (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id=p.id) AS used FROM plans p ORDER BY sort, name")).rows, limitKeys: { counts: B.COUNT_LIMITS }, catalog: KC.FEATURES,
+      editions: KC.EDITION_KEYS.map((k) => { const e = KC.editionOf(k); return { key: k, label: e.label, short: e.short, features: KC.featuresOf(k).map((f) => f[0]) }; }) });
   }));
   function cleanPlan(b) {
     const intOrNull = (v) => (v === '' || v === null || v === undefined ? null : Math.round(Number(v)));
     const p = { name: String(b.name || '').trim().slice(0, 40), description: String(b.description || '').trim().slice(0, 200), price_monthly: intOrNull(b.price_monthly), price_yearly: intOrNull(b.price_yearly), active: b.active !== false, public: !!b.public, sort: Math.round(Number(b.sort) || 0), features: (Array.isArray(b.features) ? b.features : []).map((f) => String(f).trim().slice(0, 80)).filter(Boolean).slice(0, 12), limits: {}, modules: {} };
+    p.edition = String(b.edition || 'import'); if (!KC.EDITION_KEYS.includes(p.edition)) return { error: 'Choose who the plan is for: Aahsso Import or Aahsso Store' };
     if (p.name.length < 2) return { error: 'Give the plan a name' };
     if ([p.price_monthly, p.price_yearly].some((v) => v !== null && !(v >= 0))) return { error: 'Prices must be 0 or more' };
     const L = b.limits || {};
     Object.keys(B.COUNT_LIMITS).forEach((k) => { const v = intOrNull(L[k]); if (v !== null) p.limits[k] = Math.max(1, v); });
-    const M = b.modules || {}; KC.FEATURE_KEYS.forEach((k) => { if (M[k] === false) p.modules[k] = false; }); // only what is OFF is stored
+    const M = b.modules || {}; KC.FEATURE_KEYS.forEach((k) => { if (M[k] === false && KC.editionHas(p.edition, k)) p.modules[k] = false; }); // only what is OFF is stored (features the edition never has are not stored)
     return { p };
   }
   A.post('/plans', need('plans.write'), reauth, wrap(async (req, res) => {
     const id = String((req.body || {}).id || '').trim().toLowerCase(); if (!/^[a-z0-9][a-z0-9-]{1,29}$/.test(id) || id === 'trial') return bad(res, 'Plan code: 2–30 lowercase letters, numbers or dashes (not "trial")');
     const { p, error } = cleanPlan(req.body || {}); if (error) return bad(res, error);
-    try { await q('INSERT INTO plans (id, name, description, price_monthly, price_yearly, active, public, sort, features, limits, modules) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules)]); }
+    try { await q('INSERT INTO plans (id, name, description, price_monthly, price_yearly, active, public, sort, features, limits, modules, edition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules), p.edition]); }
     catch (e) { if (e.code === '23505') return bad(res, 'A plan with this code already exists', 409); throw e; }
     await audit(req, 'plan_created', { target: id, details: p }); res.json({ ok: true });
   }));
   A.put('/plans/:id', need('plans.write'), reauth, wrap(async (req, res) => {
     const old = (await q('SELECT * FROM plans WHERE id=$1', [req.params.id])).rows[0]; if (!old) return bad(res, 'Plan not found', 404);
-    const { p, error } = cleanPlan(req.body || {}); if (error) return bad(res, error);
-    await q('UPDATE plans SET name=$2, description=$3, price_monthly=$4, price_yearly=$5, active=$6, public=$7, sort=$8, features=$9, limits=$10, modules=$11, updated_at=now() WHERE id=$1', [old.id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules)]); B.invalidate();
-    await audit(req, 'plan_updated', { target: old.id, details: { before: { price_monthly: old.price_monthly, price_yearly: old.price_yearly, limits: old.limits, modules: old.modules, active: old.active, public: old.public }, after: p } });
+    const { p, error } = cleanPlan(Object.assign({ edition: old.edition }, req.body || {})); if (error) return bad(res, error);
+    if (p.edition !== old.edition && (await q('SELECT 1 FROM subscriptions WHERE plan_id=$1 UNION ALL SELECT 1 FROM invoices WHERE plan_id=$1 LIMIT 1', [old.id])).rowCount) return bad(res, 'Businesses already use this plan — make a new plan for ' + KC.editionOf(p.edition).label + ' instead');
+    await q('UPDATE plans SET name=$2, description=$3, price_monthly=$4, price_yearly=$5, active=$6, public=$7, sort=$8, features=$9, limits=$10, modules=$11, edition=$12, updated_at=now() WHERE id=$1', [old.id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules), p.edition]); B.invalidate();
+    await audit(req, 'plan_updated', { target: old.id, details: { before: { edition: old.edition, price_monthly: old.price_monthly, price_yearly: old.price_yearly, limits: old.limits, modules: old.modules, active: old.active, public: old.public }, after: p } });
     res.json({ ok: true });
   }));
 
@@ -609,7 +640,9 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       paymentInstructions: { momoNumber: cut(pi.momoNumber, 30), momoName: cut(pi.momoName, 60), omNumber: cut(pi.omNumber, 30), omName: cut(pi.omName, 60), bank: cut(pi.bank, 200), note: cut(pi.note, 300) },
       graceDays: Math.min(60, Math.max(0, Math.round(Number(b.graceDays) || 0))),
       renewalNoticeDays: Math.min(30, Math.max(1, Math.round(Number(b.renewalNoticeDays) || 7))), invoiceDueDays: Math.min(60, Math.max(0, Math.round(Number(b.invoiceDueDays) || 0))),
+      signup: Object.fromEntries(KC.EDITION_KEYS.map((k) => [k, ((b.signup || {})[k]) !== false])), // which editions new businesses can choose
     };
+    if (!KC.EDITION_KEYS.some((k) => v.signup[k])) return bad(res, 'Keep sign-up open for at least one of Aahsso Import and Aahsso Store');
     const ents = Object.entries(v);
     await q('INSERT INTO platform_settings (key, value, updated_by) VALUES ' + ents.map((_, i) => '($' + (i * 2 + 2) + ',$' + (i * 2 + 3) + ',$1)').join(',') + ' ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now(), updated_by=EXCLUDED.updated_by',
       [req.admin.id].concat(...ents.map(([k, val]) => [k, JSON.stringify(val)])));
@@ -742,7 +775,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   }));
   A.get('/export/:kind', wrap(async (req, res) => {
     const kind = req.params.kind; const perm = kind === 'tenants' ? 'tenants.view' : 'billing'; if (!can(req.admin, 'export') || !can(req.admin, perm)) return bad(res, 'Your admin role cannot do this', 403);
-    const sql = { tenants: "SELECT t.name AS business, o.login AS owner_login, o.email AS owner_email, s.status, s.plan_id AS plan, s.cycle, s.price, s.trial_ends_at, s.current_period_end, t.created_at FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id LEFT JOIN LATERAL (SELECT login, email FROM users WHERE tenant_id=t.id AND role='owner' ORDER BY created_at LIMIT 1) o ON true ORDER BY t.created_at",
+    const sql = { tenants: "SELECT t.name AS business, t.edition, o.login AS owner_login, o.email AS owner_email, s.status, s.plan_id AS plan, s.cycle, s.price, s.trial_ends_at, s.current_period_end, t.created_at FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id LEFT JOIN LATERAL (SELECT login, email FROM users WHERE tenant_id=t.id AND role='owner' ORDER BY created_at LIMIT 1) o ON true ORDER BY t.created_at",
       invoices: "SELECT i.number, t.name AS business, i.plan_id AS plan, i.cycle, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.period_start, i.period_end FROM invoices i JOIN tenants t ON t.id=i.tenant_id ORDER BY i.issued_at",
       payments: "SELECT p.paid_on, t.name AS business, i.number AS invoice, p.amount, p.currency, p.method, p.reference, p.status, p.created_at FROM payments p JOIN tenants t ON t.id=p.tenant_id LEFT JOIN invoices i ON i.id=p.invoice_id ORDER BY p.created_at" }[kind];
     if (!sql) return bad(res, 'Unknown export', 404);

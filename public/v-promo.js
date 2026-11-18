@@ -77,7 +77,7 @@ function promoForm(id, preset) {
     const ex = items.slice(0, 3).map((p) => { const x = K.C.prodX[p.id]; return esc(p.name) + ' <s class="faint">' + fmt(x.priceMax) + '</s> → <b>' + F(KC.promoPriceOf(st, x.priceMax, S())) + '</b>'; });
     const under = seeCost() ? items.filter((p) => { const x = K.C.prodX[p.id]; return x.avgCost && KC.promoPriceOf(st, x.priceMax, S()) < x.avgCost; }) : [];
     P.innerHTML = '<div><b>' + items.length + ' item' + (items.length === 1 ? '' : 's') + '</b> in stock on promotion</div><div class="pr-ex">' + ex.join('<br>') + (items.length > 3 ? '<br><span class="faint">…and ' + (items.length - 3) + ' more</span>' : '') + '</div>' +
-      (under.length ? '<div class="pr-warn">' + ic('alert', 'sm') + under.length + ' item' + (under.length === 1 ? ' goes' : 's go') + ' below landed cost: ' + esc(under.slice(0, 3).map((p) => p.name).join(', ')) + (under.length > 3 ? '…' : '') + '</div>' : '');
+      (under.length ? '<div class="pr-warn">' + ic('alert', 'sm') + under.length + ' item' + (under.length === 1 ? ' goes' : 's go') + ' below ' + costWord() + ': ' + esc(under.slice(0, 3).map((p) => p.name).join(', ')) + (under.length > 3 ? '…' : '') + '</div>' : '');
   };
   sh.addEventListener('click', (e) => { const b = e.target.closest('[data-seg] button'); if (!b) return; const k = b.closest('[data-seg]').dataset.seg; st[k] = b.dataset.v; if (k === 'type') st.value = ''; draw(); if (k === 'type') $('#prVal', sh).focus(); });
   sh.addEventListener('input', (e) => {

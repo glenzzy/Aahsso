@@ -420,7 +420,7 @@ VIEWS.plans = {
     const s = b.subscription || {}; const left = s.trialEndsAt ? Math.ceil((new Date(s.trialEndsAt).getTime() - Date.now()) / 864e5) : null;
     const line = s.status === 'trialing' ? (s.planId ? 'You are on a free trial of ' + esc(s.planName) + (left !== null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '') + '. Choose a paid plan any time.' : 'Welcome to Aahsso! Pick the plan that fits your business. Free plans start a ' + (b.trialDays || 5) + '-day free trial — no payment needed.')
       : s.status === 'active' ? 'You are on ' + esc(s.planName || 'a paid plan') + '. Compare plans or switch below.' : 'Your subscription has ended. Choose a plan to keep recording — your data is safe.';
-    return '<div class="plans-head"><h1>Choose your plan</h1><p>' + line + '</p></div>' + planTable(b) +
+    return '<div class="plans-head"><span class="ed-chip">' + esc(KC.editionOf(b.edition || (K.info && K.info.edition)).label) + '</span><h1>Choose your plan</h1><p>' + line + '</p></div>' + planTable(b) +
       '<p class="hint plans-foot">Prices in ' + esc((b.plans[0] || {}).currency === 'XAF' || !(b.plans[0] || {}).currency ? 'FCFA' : b.plans[0].currency) + '. You can change plan later in <a href="#billing">Billing & subscription</a>. ' + (s.status === 'trialing' && !s.planId ? '<a href="#home">Decide later</a>' : '') + '</p>';
   },
 };

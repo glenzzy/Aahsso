@@ -65,14 +65,14 @@ function homeWelcome(hello) {
   const named = S().businessName && S().businessName !== KC.DEFAULT_SETTINGS.businessName;
   const steps = [
     ['settings', 'Add your business details', 'Name, logo and MoMo numbers for receipts', named, can('settings')],
-    ['buy', 'Record what you bought', 'Seller, items and tax — from a receipt or an Excel list', K.raw.lots.length > 0, can('purchases')],
+    ['buy', 'Record what you bought', (isStore() ? 'Supplier, items and price' : 'Seller, items and tax') + ' — from a receipt or an Excel list', K.raw.lots.length > 0, can('purchases')],
     ['ship', 'Put it in a shipment', 'Container, loading and shipping costs', K.raw.shipments.length > 0, can('containers')],
     ['receive', 'Receive it in Cameroon', 'Customs, unloading and prices', K.raw.shipments.some((s) => stIdx(s.status) >= 5), can('containers')],
     ['sell', 'Start selling', 'At the shop, by phone or online', visibleSales().length > 0, can('sell')],
   ].filter((x) => x[4]);
   const next = steps.find((x) => !x[3]);
   return '<div class="welcome"><div class="hint">' + fmtDate(todayStr()) + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1>' +
-    '<p class="muted">Aahsso follows your goods from the shop where you buy them to the customer who buys them from you.</p><button class="btn tour-btn mb2" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>Take the 1-minute tour</button>' +
+    '<p class="muted">' + (isStore() ? 'Aahsso keeps your shop in order: what you buy, what you sell, what you have left and who owes you.' : 'Aahsso follows your goods from the shop where you buy them to the customer who buys them from you.') + '</p><button class="btn tour-btn mb2" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>Take the 1-minute tour</button>' +
     '<ol class="wsteps card">' + steps.map(([r, t, d, done], i) => '<li class="' + (done ? 'done' : x_(next, r) ? 'now' : '') + '" data-a="go" data-r="' + r + '" role="button" tabindex="0"><span class="ws-n">' + (done ? ic('check', 'sm') : i + 1) + '</span><div class="grow"><div class="ws-t">' + t + '</div><div class="hint">' + d + '</div></div>' + (x_(next, r) ? '<span class="btn sm pri">Start</span>' : ic('chev', 'sm')) + '</li>').join('') + '</ol></div>';
 }
 const x_ = (next, r) => !!next && next[0] === r;
@@ -294,8 +294,8 @@ function currencyBlock(s) {
   return '<div class="set-grid">' +
     sf('Your currency', '<select class="inp" name="baseCurrency" id="baseCur">' + KC.CURRENCIES.map((c) => '<option value="' + c[0] + '"' + (c[0] === base ? ' selected' : '') + '>' + c[0] + ' — ' + esc(c[2]) + '</option>').join('') + '</select>', 'Sales, prices, profit and reports are always in this currency.', 'span2') +
     sf('Symbol on receipts', '<input class="inp" name="currencySymbol" id="curSym" value="' + esc(baseSym()) + '" maxlength="5">', 'Prices show as <b id="curEg">25,000 ' + esc(baseSym()) + '</b>') + '</div>' +
-    '<div class="set-sub"><h3>Exchange rates</h3><p class="hint">For purchases made abroad ($, €…). A rate set on a container is used instead for that container.</p>' +
-    '<div id="fxBox">' + rates.map(([c, r]) => fxRow(c, r, base)).join('') + '</div><button type="button" class="btn sm" data-a="fxAdd">' + ic('plus', 'sm') + 'Add a currency</button></div>';
+    (isStore() ? '' : '<div class="set-sub"><h3>Exchange rates</h3><p class="hint">For purchases made abroad ($, €…). A rate set on a container is used instead for that container.</p>' +
+    '<div id="fxBox">' + rates.map(([c, r]) => fxRow(c, r, base)).join('') + '</div><button type="button" class="btn sm" data-a="fxAdd">' + ic('plus', 'sm') + 'Add a currency</button></div>');
 }
 VIEWS.settings = {
   form: true,
@@ -310,11 +310,11 @@ VIEWS.settings = {
     const form = '<div id="setForm">' +
       setCard('business', 'Business', 'How your business appears on receipts, the shop page and messages to customers.',
         '<div class="logo-row" id="setLogo">' + logoHTML('logo" style="width:64px;height:64px;font-size:22px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : '') + '</div>' +
-        '<div class="set-grid">' + sf('Business name', inp('businessName', s.businessName)) + sf('Tagline', inp('tagline', s.tagline, 'placeholder="e.g. Quality goods from the USA"')) + sf('Phone (on receipts)', inp('phone', s.phone, 'inputmode="tel"')) + sf('Address', inp('address', s.address)) + '</div>' +
+        '<div class="set-grid">' + sf('Business name', inp('businessName', s.businessName)) + sf('Tagline', inp('tagline', s.tagline, 'placeholder="' + (isStore() ? 'e.g. Everything for your home' : 'e.g. Quality goods from the USA') + '"')) + sf('Phone (on receipts)', inp('phone', s.phone, 'inputmode="tel"')) + sf('Address', inp('address', s.address)) + '</div>' +
         sf('Receipt footer', inp('receiptFooter', s.receiptFooter), 'Printed at the bottom of every receipt.', 'mt')) +
-      setCard('currency', 'Currency', 'Your money, and how purchases in other currencies are converted.', currencyBlock(s)) +
+      setCard('currency', 'Currency', isStore() ? 'The money your shop works in.' : 'Your money, and how purchases in other currencies are converted.', currencyBlock(s)) +
       setCard('pricing', 'Pricing', 'How selling prices are worked out from what each item cost you, and when to warn you.',
-        '<div class="set-grid">' + sf('Default markup', unitIn('defaultMarkup', s.defaultMarkup, '%'), 'Selling price = landed cost + this %.') + sf('Lowest markup', unitIn('minMarkup', s.minMarkup, '%'), 'Staff cannot sell below this without permission.') + sf('Round prices up to', unitIn('roundTo', s.roundTo, baseSym(), 'inputmode="numeric"'), 'e.g. 50 → 12,330 becomes 12,350.') +
+        '<div class="set-grid">' + sf('Default markup', unitIn('defaultMarkup', s.defaultMarkup, '%'), 'Selling price = ' + costWord() + ' + this %.') + sf('Lowest markup', unitIn('minMarkup', s.minMarkup, '%'), 'Staff cannot sell below this without permission.') + sf('Round prices up to', unitIn('roundTo', s.roundTo, baseSym(), 'inputmode="numeric"'), 'e.g. 50 → 12,330 becomes 12,350.') +
         sf('Low stock alert at', unitIn('lowStock', s.lowStock, 'units', 'inputmode="numeric"'), 'Items at or below this show as Low.') + sf('Expiry warning', unitIn('expiryWarnDays', s.expiryWarnDays, 'days', 'inputmode="numeric"'), 'Warn this many days before expiry.') + '</div>') +
       setCard('credit', 'Wholesale & credit', 'Prices for resellers and how much customers may owe. Who sees costs and profit is set per person in <a href="#team">Team & access</a>.',
         '<div class="set-grid">' + sf('Wholesale markup', unitIn('wholesaleMarkup', s.wholesaleMarkup, '%'), 'For customers marked Wholesale or Reseller.') + sf('Bulk price from', unitIn('bulkQty', s.bulkQty, 'units', 'inputmode="numeric"'), '0 = off. Buying this many gets the wholesale price.') +
@@ -420,7 +420,7 @@ A.saveSettings = async () => {
   const mm = $$('#momoList [data-mm]').map((r) => ({ method: $('select', r).value, number: $('[data-mmn]', r).value.trim(), label: $('[data-mml]', r).value.trim() })).filter((m) => m.number);
   const fee = feeDraftForSave(); if (fee.error) { toast(fee.error, true); const ed = $('#feeEd'); if (ed) ed.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
   const momoFeeTables = fee.tables;
-  const rates = {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
+  const rates = isStore() ? Object.assign({}, S().fxRates || {}) : {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
   const curInfo = KC.CURRENCIES.find((c) => c[0] === v.baseCurrency) || [v.baseCurrency, v.baseCurrency];
   const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit),
     ...(K.info.mode === 'saas' && v.apDiscountPct !== undefined ? { approvals: { discountPct: v.apDiscountPct === '' ? null : Math.max(0, Math.min(100, num(v.apDiscountPct))), refundAbove: v.apRefundAbove === '' ? null : Math.max(0, num(v.apRefundAbove)), cancel: !!v.apCancel } } : {}), momoAccounts: mm, momoFeeTables, vendors: K.ui.storeDraft.slice(), shopAgencies: (K.ui.agDraft || []).slice(0, 30), staffRules: readStaffRules(v), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };

@@ -289,7 +289,7 @@
    * Off = hidden everywhere in the business app AND refused by the server. Data is kept; turning it back on restores it.
    * Always included (not in this list): Home, stock list & prices, settings, team members, profile, billing, help. */
   const FEATURES = [
-    ['buy', 'Purchases', 'Import flow', 'Record what you buy, with costs, weight and tax'],
+    ['buy', 'Purchases', 'Buying', 'Record what you buy, with costs and tax'],
     ['ship', 'Shipments', 'Import flow', 'Group items into shipments and track them to Cameroon'],
     ['receive', 'Receiving', 'Import flow', 'Arrival, customs and putting stock in the warehouse'],
     ['sell', 'Point of sale', 'Sales', 'Sales, receipts, payments, returns'],
@@ -320,6 +320,20 @@
     ['excel', 'Excel & backup', 'Team', 'Download Excel files and full backups'],
   ];
   const FEATURE_KEYS = FEATURES.map((f) => f[0]);
+  /* ================= EDITIONS (the kind of business) =================
+   * Aahsso Import: buy abroad, ship, receive, sell. Aahsso Store: buy locally, sell, manage stock.
+   * Chosen at sign-up; only the platform admin changes it. Features an edition does not have are off whatever the plan says,
+   * and the server refuses them. Plans are made for one edition. */
+  const EDITIONS = {
+    import: { key: 'import', label: 'Aahsso Import', short: 'Import', tag: 'Buy abroad, ship, receive and sell', points: ['Buy in dollars or any currency', 'Containers, freight and customs', 'Landed cost on every item'], off: [] },
+    store: { key: 'store', label: 'Aahsso Store', short: 'Store', tag: 'Buy locally, sell and manage your stock', points: ['Buy from local suppliers', 'Sell at the till, track stock', 'Simple and quick to learn'], off: ['ship', 'receive'] },
+  };
+  const EDITION_KEYS = Object.keys(EDITIONS);
+  const editionOf = (k) => EDITIONS[k] || EDITIONS.import;
+  /** does this edition have this feature at all (before the plan is applied) */
+  const editionHas = (ed, key) => !editionOf(ed).off.includes(key);
+  /** the plan catalog for one edition */
+  const featuresOf = (ed) => FEATURES.filter((f) => editionHas(ed, f[0]));
   /** features: {key: false} map from the server ({} or null = everything on, e.g. the free trial or this-device mode) */
   const featureOn = (features, key) => !features || features[key] !== false;
   const anyOn = (features, keys) => keys.some((k) => featureOn(features, k));
@@ -1153,6 +1167,6 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

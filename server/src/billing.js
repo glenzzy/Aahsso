@@ -15,11 +15,12 @@ const PAY_METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other
 const STATUS_LABEL = { trialing: 'Free trial', active: 'Active', past_due: 'Payment overdue', expired: 'Expired', suspended: 'Suspended', cancelled: 'Cancelled' };
 
 /* ---------- platform settings ---------- */
-const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, renewalNoticeDays: 7, invoiceDueDays: 7 };
+const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, renewalNoticeDays: 7, invoiceDueDays: 7, signup: { import: true, store: true } };
 async function platformSettings(c = pool) {
   const rows = (await c.query('SELECT key, value FROM platform_settings')).rows;
   const o = JSON.parse(JSON.stringify(DEFAULTS)); rows.forEach((r) => { o[r.key] = r.value; });
   o.paymentInstructions = Object.assign({}, DEFAULTS.paymentInstructions, o.paymentInstructions || {});
+  o.signup = Object.assign({}, DEFAULTS.signup, o.signup || {}); // which editions new businesses can choose
   return o;
 }
 
@@ -35,7 +36,7 @@ const money = (n, cur) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3
 
 /* ---------- subscription state ---------- */
 async function getSub(c, tid) {
-  return (await c.query('SELECT s.*, p.name AS plan_name, p.limits, p.modules, p.price_monthly, p.price_yearly, p.active AS plan_active FROM subscriptions s LEFT JOIN plans p ON p.id = s.plan_id WHERE s.tenant_id = $1', [tid])).rows[0] || null;
+  return (await c.query('SELECT s.*, p.name AS plan_name, p.limits, p.modules, p.price_monthly, p.price_yearly, p.active AS plan_active, p.edition AS plan_edition, t.edition FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id LEFT JOIN plans p ON p.id = s.plan_id WHERE s.tenant_id = $1', [tid])).rows[0] || null;
 }
 async function ensureSub(c, tid, trialEndsAt) {
   await c.query("INSERT INTO subscriptions (tenant_id, status, trial_ends_at) VALUES ($1, 'trialing', $2) ON CONFLICT (tenant_id) DO NOTHING", [tid, trialEndsAt]);
@@ -72,10 +73,11 @@ async function limitsFor(c, tid) {
   const trial = !s || s.status === 'trialing';
   const open = !s || !s.plan_id; // no plan chosen yet: everything is open (the free trial right after sign-up)
   const modules = Object.assign({}, open ? {} : (s.modules || {}), ov.modules || {});
-  const features = {}; KC.FEATURE_KEYS.forEach((k) => { if (modules[k] === false) features[k] = false; });
+  const edition = KC.editionOf(s && s.edition).key;
+  const features = {}; KC.FEATURE_KEYS.forEach((k) => { if (modules[k] === false || !KC.editionHas(edition, k)) features[k] = false; }); // not in this edition = off, whatever the plan or override says
   const limits = Object.assign({}, open ? {} : (s.limits || {}), ov.limits || {});
   Object.keys(limits).forEach((k) => { if (!COUNT_LIMITS[k] || limits[k] === null || limits[k] === '') delete limits[k]; });
-  const v = { features, limits, plan: s && s.plan_name, trial };
+  const v = { features, limits, plan: s && s.plan_name, trial, edition };
   entCache.set(tid, { at: Date.now(), v }); return v;
 }
 /** null when the feature(s) are on; otherwise a 402 for "not in your plan" (any one of `keys` being on is enough) */
@@ -108,6 +110,7 @@ async function createInvoice(c, { tid, planId, cycle, amount, createdBy, dueDays
   cycle = cycle === 'yearly' ? 'yearly' : 'monthly';
   const plan = (await c.query('SELECT * FROM plans WHERE id=$1', [planId])).rows[0]; if (!plan) throw Object.assign(new Error('Unknown plan'), { status: 400 });
   const s = await getSub(c, tid); const S = await platformSettings(c);
+  if (s && plan.edition !== KC.editionOf(s.edition).key) throw Object.assign(new Error(plan.name + ' is a plan for ' + KC.editionOf(plan.edition).label + ' — this business uses ' + KC.editionOf(s.edition).label), { status: 400 });
   let price = amount !== undefined && amount !== null && amount !== '' ? Math.round(Number(amount)) : null;
   if (price === null) price = s && s.plan_id === planId && s.cycle === cycle && s.price !== null && s.status !== 'trialing' ? s.price : plan['price_' + cycle]; // a renewal keeps the price they signed up at
   if (price === null || price === undefined || !(price >= 0)) throw Object.assign(new Error(plan.name + ' is not sold ' + (cycle === 'yearly' ? 'yearly' : 'monthly') + ' yet'), { status: 400 });
@@ -198,13 +201,13 @@ async function daily(url) {
 function mountTenant(app, { auth, wrap, err, canU, tx, momo }) {
   const may = (u) => ['owner', 'admin'].includes(u.role) || canU(u, 'settings');
   const guard = (req, res, next) => (may(req.user) ? next() : err(res, 403, 'Only the owner or an admin can manage billing'));
-  const plansPublic = async () => (await q('SELECT id, name, description, price_monthly, price_yearly, currency, limits, modules, features FROM plans WHERE active AND public ORDER BY sort, name')).rows;
+  const plansPublic = async (edition) => (await q('SELECT id, name, description, edition, price_monthly, price_yearly, currency, limits, modules, features FROM plans WHERE active AND public AND edition = $1 ORDER BY sort, name', [edition])).rows; // only the plans of this business's edition
   // (no requireActive: an expired business must still be able to pay)
   app.get('/api/billing', auth, guard, wrap(async (req, res) => {
-    const tid = req.user.tenant_id; const s = await getSub(pool, tid); const S = await platformSettings();
-    res.json({
+    const tid = req.user.tenant_id; const s = await getSub(pool, tid); const S = await platformSettings(); const ed = KC.editionOf(s && s.edition).key;
+    res.json({ edition: ed,
       subscription: s && { planId: s.plan_id, planName: s.plan_name, status: s.status, statusLabel: STATUS_LABEL[s.status], cycle: s.cycle, price: s.price, currency: s.currency, trialEndsAt: s.trial_ends_at, periodEnd: s.current_period_end, graceDays: s.grace_days },
-      limits: (await limitsFor(pool, tid)).limits, features: (await limitsFor(pool, tid)).features, catalog: KC.FEATURES, usage: await usage(pool, tid), plans: await plansPublic(),
+      limits: (await limitsFor(pool, tid)).limits, features: (await limitsFor(pool, tid)).features, catalog: KC.featuresOf(ed), usage: await usage(pool, tid), plans: await plansPublic(ed),
       invoices: (await q('SELECT i.id, i.number, i.plan_id, p.name AS plan_name, i.cycle, i.period_start, i.period_end, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.created_by FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE i.tenant_id=$1 ORDER BY i.issued_at DESC LIMIT 36', [tid])).rows,
       payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, provider, network, phone, failure, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
       momo: momo ? momo.publicInfo() : { enabled: false },
@@ -214,7 +217,7 @@ function mountTenant(app, { auth, wrap, err, canU, tx, momo }) {
   // the business picks a plan: an invoice to pay (reuses an open one for the same plan)
   app.post('/api/billing/choose', auth, guard, wrap(async (req, res) => {
     const { planId, cycle } = req.body || {}; const tid = req.user.tenant_id;
-    const plan = (await q('SELECT * FROM plans WHERE id=$1 AND active AND public', [planId])).rows[0]; if (!plan) return err(res, 400, 'Choose one of the plans');
+    const plan = (await q('SELECT p.* FROM plans p JOIN tenants t ON t.id=$2 AND t.edition=p.edition WHERE p.id=$1 AND p.active AND p.public', [planId, tid])).rows[0]; if (!plan) return err(res, 400, 'Choose one of the plans');
     const cyc = cycle === 'yearly' ? 'yearly' : 'monthly';
     if (isFree(plan)) { // Free = the free trial, with this plan's features
       const s = await getSub(pool, tid); const S0 = await platformSettings();

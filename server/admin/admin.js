@@ -22,6 +22,10 @@
   const PAY_L = { pending: 'to check', processing: 'waiting for the payer', failed: 'failed' };
   const isAuto = (p) => p.provider && p.provider !== 'manual'; // paid through Fapshi, not reported by hand
   const badge = (t, cls) => '<span class="badge ' + (cls || '') + '">' + esc(t) + '</span>';
+  /* the two kinds of business: Aahsso Import and Aahsso Store */
+  const ED = { import: { label: 'Aahsso Import', short: 'Import', cls: 'info', what: 'buy abroad, ship, receive and sell' }, store: { label: 'Aahsso Store', short: 'Store', cls: 'ok', what: 'buy locally, sell and manage stock' } };
+  const edOf = (e) => ED[e] || ED.import;
+  const edBadge = (e) => badge(edOf(e).short, edOf(e).cls);
   const METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
 
   /* ---------- toasts, modals, forms ---------- */
@@ -254,28 +258,31 @@
     v.innerHTML =
       '<div class="kpis mb2">' + kpi('Monthly recurring revenue', money(d.mrr), 'active + overdue subscriptions') + kpi('Collected this month', money(d.collectedMonth)) +
       kpi('Paying businesses', (st.active || 0) + (st.past_due || 0), (st.past_due || 0) + ' overdue') + kpi('On free trial', st.trialing || 0, d.signups30 + ' new in 30 days') +
+      kpi('Businesses by type', Object.keys(ED).map((k) => '<span title="' + esc(ED[k].label) + '">' + esc(ED[k].short) + ' ' + ((d.editions || {})[k] || 0) + '</span>').join(' · '), Object.keys(ED).map((k) => esc(ED[k].short) + ' ' + ((d.signupsByEdition || {})[k] || 0) + ' new · ' + esc(money((d.mrrByEdition || {})[k] || 0)) + '/mo').join('<br>'), '', '#/tenants') +
       kpi('Trial → paid', conv, 'last 180 days') + kpi('Lost in 30 days', d.lost30, 'expired or cancelled') +
       kpi('Due this week', money(d.due.week_amount), d.due.week + ' invoice(s)' + (d.due.overdue ? ' · <b style="color:var(--bad)">' + d.due.overdue + ' overdue</b>' : ''), d.due.overdue ? 'alert' : '', can('billing') ? '#/billing/invoices' : '') +
       kpi('Payments to check', d.pendingPayments, 'businesses say they paid', d.pendingPayments ? 'alert' : '', can('billing') ? '#/billing' : '') +
       kpi('Support', d.openTickets, 'open tickets', d.openTickets ? 'alert' : '', can('support') ? '#/support' : '') + kpi('Expired / suspended', (st.expired || 0) + (st.suspended || 0), 'read-only') + '</div>' +
       '<div class="grid2 mb2"><section class="card pad2"><h2 class="mb">Revenue · last 6 months</h2><div class="bars">' + months.map((m) => { const x = d.revenue.find((r) => r.m === m); const val = x ? x.v : 0; return '<div class="bar" title="' + esc(money(val)) + '"><small>' + (val ? esc(Math.round(val / 1000) + 'k') : '') + '</small><span style="height:' + Math.round(val / max * 100) + '%"></span><small>' + esc(new Date(m + '-01').toLocaleDateString('en-GB', { month: 'short' })) + '</small></div>'; }).join('') + '</div></section>' +
-      '<section class="card pad2"><h2 class="mb">Newest businesses</h2>' + table([{ label: 'Business', v: (r) => esc(r.name) }, { label: 'Status', v: (r) => stBadge(r.status) }, { label: 'Joined', v: (r) => esc(ago(r.created_at)) }], d.recentSignups, { href: (r) => '#/tenants/' + r.id, empty: 'No businesses yet.' }) + '</section></div>' +
+      '<section class="card pad2"><h2 class="mb">Newest businesses</h2>' + table([{ label: 'Business', v: (r) => esc(r.name) }, { label: 'Type', v: (r) => edBadge(r.edition) }, { label: 'Status', v: (r) => stBadge(r.status) }, { label: 'Joined', v: (r) => esc(ago(r.created_at)) }], d.recentSignups, { href: (r) => '#/tenants/' + r.id, empty: 'No businesses yet.' }) + '</section></div>' +
       '<section class="card pad2"><h2 class="mb">Latest payments</h2>' + table([{ label: 'Business', v: (r) => esc(r.tenant) }, { label: 'Amount', num: true, v: (r) => esc(money(r.amount, r.currency)) }, { label: 'Method', v: (r) => esc(r.method) }, { label: 'Paid on', v: (r) => esc(fmtD(r.paid_on)) }, { label: 'Status', v: (r) => badge(r.status, PAY[r.status]) }], d.recentPayments, { href: (r) => '#/tenants/' + r.tenant_id, empty: 'No payments yet.' }) + '</section>';
   };
 
   PAGES.tenants = async (v, [id]) => {
     if (id) return tenantPage(v, id);
-    const f = S.tf || (S.tf = { q: '', status: '', plan: '' }); await plans();
+    const f = S.tf || (S.tf = { q: '', status: '', plan: '', edition: '' }); await plans();
     v.innerHTML = '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search businesses</span>' + ic('search', 'sm') + '<input class="inp" id="tq" type="search" placeholder="Search business, owner, login or email" value="' + esc(f.q) + '"></label>' +
+      sel('te', [['', 'Import & Store']].concat(Object.entries(ED).map(([k, x]) => [k, x.label])), f.edition, 'id="te" style="width:auto"') +
       sel('ts', [['', 'All statuses']].concat(Object.entries(STATUS).map(([k, x]) => [k, x[0]])), f.status, 'id="ts" style="width:auto"') +
-      sel('tp', [['', 'All plans']].concat(S.plans.map((p) => [p.id, p.name])), f.plan, 'id="tp" style="width:auto"') +
+      sel('tp', [['', 'All plans']].concat(S.plans.filter((p) => !f.edition || p.edition === f.edition).map((p) => [p.id, p.name + ' · ' + edOf(p.edition).short])), f.plan, 'id="tp" style="width:auto"') +
       '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" data-act="dl" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
     let page = 0; let timer;
     const load = async (more) => {
       page = more ? page + 1 : 0;
-      const d = await api('GET', '/tenants?q=' + encodeURIComponent(f.q) + '&status=' + f.status + '&plan=' + f.plan + '&page=' + page);
+      const d = await api('GET', '/tenants?q=' + encodeURIComponent(f.q) + '&status=' + f.status + '&plan=' + f.plan + '&edition=' + f.edition + '&page=' + page);
       const html = table([
         { label: 'Business', v: (r) => '<b>' + esc(r.name) + '</b><div class="tiny faint">' + esc(r.owner_name || '') + ' · ' + esc(r.owner_email || r.owner_login || '') + '</div>' },
+        { label: 'Type', v: (r) => edBadge(r.edition) },
         { label: 'Plan', v: (r) => esc(r.status === 'trialing' ? 'Trial' : r.plan_name || '—') + (r.price ? '<div class="tiny faint">' + esc(money(r.price)) + ' / ' + (r.cycle === 'yearly' ? 'yr' : 'mo') + '</div>' : '') },
         { label: 'Status', v: (r) => stBadge(r.status) },
         { label: 'Renews / ends', v: (r) => { const dd = r.status === 'trialing' ? r.trial_ends_at : r.current_period_end; const n = daysLeft(dd); return esc(fmtD(dd)) + (n !== null ? '<div class="tiny ' + (n < 0 ? '' : 'faint') + '" style="' + (n < 0 ? 'color:var(--bad)' : '') + '">' + (n < 0 ? Math.abs(n) + ' days ago' : 'in ' + n + ' days') + '</div>' : ''); } },
@@ -287,6 +294,7 @@
     };
     $('#tq').oninput = (e) => { f.q = e.target.value; clearTimeout(timer); timer = setTimeout(() => load(), 250); };
     $('#ts').onchange = (e) => { f.status = e.target.value; load(); }; $('#tp').onchange = (e) => { f.plan = e.target.value; load(); };
+    $('#te').onchange = (e) => { f.edition = e.target.value; if (f.plan && (S.plans.find((p) => p.id === f.plan) || {}).edition !== f.edition && f.edition) f.plan = ''; route(); };
     await load();
   };
   async function plans(force) { if (!S.plans || force) S.plans = (await api('GET', '/plans')).plans; return S.plans; }
@@ -299,7 +307,7 @@
     v.innerHTML = '<div class="row between mb"><div class="row"><a class="btn sm" href="#/tenants">← Businesses</a>' + stBadge(s.status) + (s.suspended_reason ? '<span class="small muted">' + esc(s.suspended_reason) + '</span>' : '') + '</div>' +
       '<div class="row">' + A('tViewAs', 'View as owner', '', 'tenants.impersonate') + A('tResetPw', 'Reset owner password', '', 'tenants.resetOwner') + (can('users.view') ? '<button class="btn sm" data-act5="uForTenant">' + ic('users', 'sm') + 'Users</button>' : '') + '</div></div>' +
       '<div class="grid2 mb2"><section class="card pad2"><div class="row between mb"><h2>Subscription</h2><div class="row">' + A('tPlan', 'Change plan', '', 'subs.write') + A('tExtend', 'Extend', '', 'subs.write') + '</div></div>' +
-        '<dl class="kv"><dt>Plan</dt><dd>' + esc(s.status === 'trialing' ? 'Free trial' : s.plan_name || '—') + (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? ' · ' + esc(money(s.price, s.currency)) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') : '') + '</dd>' +
+        '<dl class="kv"><dt>Type</dt><dd>' + edBadge(t.edition) + ' <span class="small muted">' + esc(edOf(t.edition).what) + '</span> ' + (can('tenants.edition') ? '<button class="link small" data-act="tEdition">switch</button>' : '') + '</dd><dt>Plan</dt><dd>' + esc(s.status === 'trialing' ? 'Free trial' : s.plan_name || '—') + (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? ' · ' + esc(money(s.price, s.currency)) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') : '') + '</dd>' +
         '<dt>' + (s.status === 'trialing' ? 'Trial ends' : 'Paid until') + '</dt><dd>' + esc(fmtD(end)) + (n !== null ? ' <span class="faint small">(' + (n < 0 ? Math.abs(n) + ' days ago' : 'in ' + n + ' days') + ')</span>' : '') + '</dd>' +
         '<dt>Grace period</dt><dd>' + esc(s.grace_days) + ' days ' + (can('subs.write') ? '<button class="link small" data-act="tGrace">change</button>' : '') + '</dd><dt>Joined</dt><dd>' + esc(fmtD(t.created_at)) + '</dd>' +
         '<dt>Shop</dt><dd>' + (d.settings.shopSlug ? esc('/s/' + d.settings.shopSlug) + (d.settings.shopEnabled ? '' : ' (off)') : '—') + '</dd><dt>Records</dt><dd>' + esc((d.counts.products || 0) + ' items · ' + (d.counts.sales || 0) + ' sales · ' + (d.counts.customers || 0) + ' customers') + '</dd></dl>' +
@@ -325,7 +333,7 @@
   ].filter(Boolean), rows, { empty: 'No payments.' });
   const reasonField = (req) => field('Reason' + (req ? '' : ' (optional)') + ' — kept in the audit log', '<textarea class="inp" name="reason" rows="2" maxlength="300"></textarea>');
   async function subAction(body, okMsg) { await api('POST', '/tenants/' + S.t.tenant.id + '/subscription', body); closeModal(); toast(okMsg); route(); }
-  const planOpts = () => S.plans.filter((p) => p.active).map((p) => [p.id, p.name + (p.price_monthly !== null ? ' · ' + money(p.price_monthly) + '/mo' : '') + (p.price_yearly !== null ? ' · ' + money(p.price_yearly) + '/yr' : '')]);
+  const planOpts = (ed) => S.plans.filter((p) => p.active && p.edition === (ed || S.t.tenant.edition)).map((p) => [p.id, p.name + (p.price_monthly !== null ? ' · ' + money(p.price_monthly) + '/mo' : '') + (p.price_yearly !== null ? ' · ' + money(p.price_yearly) + '/yr' : '')]);
   const ACT = {
     cgAll: (el) => { const fs = el.closest('fieldset'); const boxes = $$('input[type=checkbox]', fs); const all = boxes.every((b) => b.checked); boxes.forEach((b) => (b.checked = !all)); },
     tFeatures: () => {
@@ -353,6 +361,16 @@
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     },
     logout: async () => { await api('POST', '/auth/logout').catch(() => { }); S.me = null; renderLogin('You are signed out.'); },
+    tEdition: () => {
+      const t = S.t.tenant; const s = S.t.subscription; const to = t.edition === 'store' ? 'import' : 'store'; const opts = planOpts(to); const needPlan = !!s.plan_id;
+      const box = modal({ title: 'Switch ' + t.name + ' to ' + ED[to].label, body: '<div class="col">' +
+        '<div class="alert ' + (to === 'store' ? 'warn' : 'info') + '">' + (to === 'store' ? 'The business keeps all its data, but <b>Ship</b> and <b>Receive</b> disappear, purchases are in ' + 'local money only, and import costs are no longer shown. Shipments already recorded stay in their item history.' : 'The business gets <b>Ship</b> and <b>Receive</b>: buying abroad, containers, freight and customs. Everything they recorded stays.') + '</div>' +
+        (needPlan ? (opts.length ? field('Their ' + ED[to].label + ' plan (they are on ' + esc(s.plan_name || s.plan_id) + ')', sel('planId', opts, '')) + '<div class="tiny muted">Their paid period and billing cycle stay the same; the plan price for their cycle applies from the next invoice. Open invoices for their old plan are voided.</div>'
+          : '<div class="alert bad">There is no active ' + esc(ED[to].label) + ' plan yet. Create one on the Plans page first.</div>')
+          : '<div class="small muted">They are on the free trial, so no plan changes. Open invoices for ' + esc(ED[t.edition].label) + ' plans are voided.</div>') +
+        reasonField(true) + '</div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go"' + (needPlan && !opts.length ? ' disabled' : '') + '>Switch to ' + esc(ED[to].short) + '</button>' });
+      $('#go', box).onclick = (e) => busy(e.target, async () => { const r = await api('POST', '/tenants/' + t.id + '/edition', Object.assign({ edition: to }, vals(box))); closeModal(); toast(t.name + ' now uses ' + ED[to].label + (r.voided && r.voided.length ? ' · voided ' + r.voided.join(', ') : '')); route(); });
+    },
     tPlan: () => { const s = S.t.subscription; const box = modal({ title: 'Change plan', body: '<div class="col">' + field('Plan', sel('planId', planOpts(), s.plan_id || '')) + '<div class="grid2">' + field('Billed', sel('cycle', [['monthly', 'Monthly'], ['yearly', 'Yearly']], s.cycle)) + field('Price for this business (FCFA)', inp('price', '', 'inputmode="numeric" placeholder="Plan price"')) + '</div>' + field('Paid until (optional)', inp('periodEnd', '', 'type="date"')) + '<div class="tiny muted">Without a date: the current paid period is kept, or one period starts today.</div>' + reasonField(true) + '</div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Change plan</button>' });
       $('#go', box).onclick = (e) => busy(e.target, () => subAction(Object.assign({ action: 'change_plan' }, vals(box)), 'Plan changed')); },
     tExtend: () => { const s = S.t.subscription; const trial = s.status === 'trialing' || (!s.plan_id); const box = modal({ title: trial ? 'Extend the free trial' : 'Extend the paid period', body: '<div class="col">' + field('Days to add', inp('days', '14', 'inputmode="numeric"')) + '<div class="tiny muted">' + (trial ? 'Counted from the trial end (or today if it already ended).' : 'Counted from the paid-until date (or today if it passed). No invoice is made.') + '</div>' + reasonField(false) + '</div>', foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Extend</button>' });
@@ -391,7 +409,7 @@
   /** Record a payment received outside the app. pre = { id, name, invoices } when opened from a business page. */
   async function payModal(pre) {
     await plans(); const today = new Date().toISOString().slice(0, 10);
-    const sellable = S.plans.filter((p) => p.active && (p.price_monthly !== null || p.price_yearly !== null));
+    let ed = pre ? S.t.tenant.edition : 'import'; const sellableAll = () => S.plans.filter((p) => p.active && p.edition === ed && (p.price_monthly !== null || p.price_yearly !== null)); let sellable = sellableAll();
     const box = modal({ title: 'Record a payment', body: '<div class="col">' +
       (pre ? '<input type="hidden" name="tenantId" value="' + esc(pre.id) + '"><div class="small">Business: <b>' + esc(pre.name) + '</b></div>' : '<div id="pyPick">' + tenantPick() + '</div><div class="small hide" id="pyBiz"></div>') +
       '<div id="pyFor"></div>' +
@@ -415,7 +433,7 @@
       $$('[name=for],[name=planId],[name=cycle]', box).forEach((x) => (x.onchange = sync)); sync();
     };
     const pick = async (id, name) => {
-      const d = await api('GET', '/tenants/' + id); invoices = d.invoices.filter((i) => i.status === 'open');
+      const d = await api('GET', '/tenants/' + id); invoices = d.invoices.filter((i) => i.status === 'open'); ed = d.tenant.edition; sellable = sellableAll();
       if (!pre) { $('#pyPick', box).classList.add('hide'); $('#pyBiz', box).classList.remove('hide'); $('#pyBiz', box).innerHTML = 'Business: <b>' + esc(name) + '</b> <button type="button" class="link small" id="pyChange">change</button>'; $('#pyChange', box).onclick = () => { $('#tpId', box).value = ''; $('#pyPick', box).classList.remove('hide'); $('#pyBiz', box).classList.add('hide'); $('#pyFor', box).innerHTML = ''; $('#go', box).disabled = true; $('#tpQ', box).focus(); }; }
       drawFor(); $('#go', box).disabled = false;
     };
@@ -527,32 +545,41 @@
 
   PAGES.plans = async (v) => {
     const d = await api('GET', '/plans'); S.plans = d.plans; S.limitKeys = d.limitKeys;
-    S.catalog = d.catalog;
-    const lim = (p) => { const L = p.limits || {}; const off = d.catalog.filter(([k]) => (p.modules || {})[k] === false).length; return Object.entries(d.limitKeys.counts).map(([k, l]) => (L[k] ? L[k] : '∞') + ' ' + l.split(' (')[0]).join(' · ') + ' · ' + (d.catalog.length - off) + '/' + d.catalog.length + ' features'; };
-    v.innerHTML = (d.plans.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No plan is shown to businesses yet.</b> Their Plans and Billing pages stay empty until you click <b>Publish</b> on at least one plan.</div>') + '<div class="page-intro"><p>What each plan costs and which features and limits it includes. Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
-      '<div class="card">' + table([
+    S.catalog = d.catalog; S.editions = d.editions;
+    const catOf = (ed) => { const e = d.editions.find((x) => x.key === ed) || d.editions[0]; return d.catalog.filter(([k]) => e.features.includes(k)); };
+    const lim = (p) => { const L = p.limits || {}; const cat = catOf(p.edition); const off = cat.filter(([k]) => (p.modules || {})[k] === false).length; return Object.entries(d.limitKeys.counts).map(([k, l]) => (L[k] ? L[k] : '∞') + ' ' + l.split(' (')[0]).join(' · ') + ' · ' + (cat.length - off) + '/' + cat.length + ' features'; };
+    v.innerHTML = '<div class="page-intro"><p>What each plan costs and which features and limits it includes. Each plan is for one kind of business: <b>Aahsso Import</b> or <b>Aahsso Store</b> — a business only sees the plans of its kind. Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
+      d.editions.map((e) => { const rows = d.plans.filter((p) => p.edition === e.key); return '<h2 class="mt2 mb row" style="gap:8px">' + edBadge(e.key) + esc(e.label) + ' plans <span class="small muted" style="font-weight:400">' + esc(edOf(e.key).what) + '</span></h2>' +
+      (rows.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No ' + esc(e.label) + ' plan is shown to businesses yet.</b> ' + esc(e.short) + ' businesses see an empty Plans page until you click <b>Publish</b> on one.</div>') +
+      '<div class="card mb2">' + table([
         { label: 'Plan', v: (p) => '<b>' + esc(p.name) + '</b> <span class="tiny faint mono">' + esc(p.id) + '</span><div class="tiny faint">' + esc(p.description) + '</div>' },
         { label: 'Monthly', num: true, v: (p) => (p.price_monthly === null && p.price_yearly === null ? badge('Free · trial', 'info') : esc(p.price_monthly === null ? '—' : money(p.price_monthly, p.currency))) }, { label: 'Yearly', num: true, v: (p) => esc(p.price_yearly === null ? '—' : money(p.price_yearly, p.currency)) },
         { label: 'Limits', v: (p) => '<span class="small">' + esc(lim(p)) + '</span>' }, { label: 'Subscribers', num: true, v: (p) => esc(p.subscribers) },
         { label: 'On the business Plans page', v: (p) => (!p.active ? badge('Retired', 'bad') : (p.public ? badge('Shown', 'ok') : badge('Hidden', 'warn')) + (can('plans.write') ? ' <button class="btn sm" data-act2="planPublish" data-id="' + esc(p.id) + '">' + (p.public ? 'Hide' : 'Publish') + '</button>' : '')) },
         { label: '', v: (p) => (can('plans.write') ? '<button class="btn sm" data-act2="planEdit" data-id="' + esc(p.id) + '">Edit</button>' : '') },
-      ], d.plans) + '</div>';
+      ], rows, { empty: 'No ' + esc(e.label) + ' plans yet.' }) + '</div>'; }).join('');
   };
   function planModal(p) {
-    const isNew = !p; p = p || { limits: {}, modules: {}, features: [], active: true, public: false, sort: (S.plans || []).length + 1 }; const L = p.limits || {}; const Mo = p.modules || {};
+    const isNew = !p; p = p || { edition: '', limits: {}, modules: {}, features: [], active: true, public: false, sort: (S.plans || []).length + 1 }; const L = p.limits || {}; const Mo = p.modules || {};
+    const catOf = (ed) => { const e = (S.editions || []).find((x) => x.key === ed); return e ? S.catalog.filter(([k]) => e.features.includes(k)) : []; };
+    const locked = !isNew && p.used > 0; // businesses use it: its kind cannot change
     const box = modal({ title: isNew ? 'New plan' : 'Edit ' + p.name, wide: true, body: '<div class="col">' +
-      '<div class="grid2">' + (isNew ? field('Code (cannot change later)', inp('id', '', 'placeholder="e.g. pro" autocapitalize="off"')) : '') + field('Name', inp('name', p.name)) + '</div>' + field('Short description', inp('description', p.description)) +
+      field('For which businesses?', sel('edition', (isNew ? [['', 'Choose…']] : []).concat(Object.entries(ED).map(([k, x]) => [k, x.label + ' — ' + x.what])), p.edition, locked ? 'disabled' : '')) + (locked ? '<div class="tiny muted">Businesses use this plan, so it stays a ' + esc(edOf(p.edition).label) + ' plan. Make a new plan for the other kind.</div>' : '') +
+      '<div class="grid2">' + (isNew ? field('Code (cannot change later)', inp('id', '', 'placeholder="e.g. store-pro" autocapitalize="off"')) : '') + field('Name', inp('name', p.name)) + '</div>' + field('Short description', inp('description', p.description)) +
       '<div class="grid3">' + field('Monthly price (FCFA)', inp('price_monthly', p.price_monthly, 'inputmode="numeric" placeholder="no price"')) + field('Yearly price (FCFA)', inp('price_yearly', p.price_yearly, 'inputmode="numeric" placeholder="no price"')) + '<div class="tiny muted" style="grid-column:1/-1">No price at all = a Free plan: businesses get a free trial on it.</div>' + field('Order', inp('sort', p.sort, 'inputmode="numeric"')) + '</div>' +
       '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.entries(S.limitKeys.counts).map(([k, l]) => field(l[0].toUpperCase() + l.slice(1), inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
-      '<h3>Features in this plan <span class="tiny faint">(unticked = hidden from the business)</span></h3>' + checkGroups(S.catalog, (k) => Mo[k] !== false, 'F_') +
+      '<h3>Features in this plan <span class="tiny faint">(unticked = hidden from the business)</span></h3><div id="plFeat"></div>' +
       field('Lines on the plan card (one per line)', '<textarea class="inp" name="features" rows="4">' + esc((p.features || []).join('\n')) + '</textarea>') +
       '<div class="row"><label class="check"><input type="checkbox" name="active"' + (p.active ? ' checked' : '') + '> Can be chosen</label><label class="check"><input type="checkbox" name="public"' + (p.public ? ' checked' : '') + '> Show on the business Plans page (published)</label></div></div>',
       foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">' + (isNew ? 'Create plan' : 'Save plan') + '</button>' });
+    const edSel = $('[name=edition]', box);
+    const drawFeat = () => { const ed = edSel.value; $('#plFeat', box).innerHTML = ed ? checkGroups(catOf(ed), (k) => Mo[k] !== false, 'F_') + (ed === 'store' ? '<div class="tiny muted mt">Shipments and Receiving are never part of Aahsso Store.</div>' : '') : '<div class="small muted">Choose who the plan is for to pick its features.</div>'; };
+    edSel.onchange = () => { $$('#plFeat input[type=checkbox]', box).forEach((c) => { const k = c.name.slice(2); if (!c.checked) Mo[k] = false; else delete Mo[k]; }); drawFeat(); }; drawFeat();
     $('#go', box).onclick = (e) => busy(e.target, async () => {
-      const v = vals(box); const limits = {};
+      const v = vals(box); const limits = {}; const ed = edSel.value; if (!ed) throw new Error('Choose who the plan is for: Aahsso Import or Aahsso Store');
       Object.keys(S.limitKeys.counts).forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
-      const modules = {}; S.catalog.forEach(([k]) => { if (!v['F_' + k]) modules[k] = false; });
-      const body = { id: v.id, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };
+      const modules = {}; catOf(ed).forEach(([k]) => { if (!v['F_' + k]) modules[k] = false; });
+      const body = { edition: ed, id: v.id, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };
       if (isNew) await api('POST', '/plans', body); else await api('PUT', '/plans/' + encodeURIComponent(p.id), body);
       closeModal(); toast('Plan saved'); S.plans = null; route();
     });
@@ -561,7 +588,7 @@
     planNew: () => planModal(null), planEdit: (el) => planModal(S.plans.find((p) => p.id === el.dataset.id)),
     planPublish: (el) => busy(el, async () => { // one click: show / hide a plan on the business side
       const p = S.plans.find((x) => x.id === el.dataset.id);
-      await api('PUT', '/plans/' + encodeURIComponent(p.id), { name: p.name, description: p.description, price_monthly: p.price_monthly, price_yearly: p.price_yearly, sort: p.sort, active: p.active, public: !p.public, limits: p.limits || {}, modules: p.modules || {}, features: p.features || [] });
+      await api('PUT', '/plans/' + encodeURIComponent(p.id), { edition: p.edition, name: p.name, description: p.description, price_monthly: p.price_monthly, price_yearly: p.price_yearly, sort: p.sort, active: p.active, public: !p.public, limits: p.limits || {}, modules: p.modules || {}, features: p.features || [] });
       toast(p.public ? p.name + ' is hidden from businesses' : p.name + ' is now shown to businesses'); S.plans = null; route();
     }),
   };
@@ -704,8 +731,11 @@
       field('Bank details', '<textarea class="inp" name="bank" rows="2"' + ro + '>' + esc(p.bank) + '</textarea>', 'mt') + field('Note to businesses', inp('note', p.note, 'placeholder="e.g. Put your business name in the payment message"' + ro), 'mt') + '</section>' +
       '<section class="card pad2"><h2 class="mb">Subscription rules</h2><div class="grid2">' + field('Grace period after the paid period (days)', inp('graceDays', s.graceDays, 'inputmode="numeric"' + ro)) +
       field('Renewal invoice sent … days before the end', inp('renewalNoticeDays', s.renewalNoticeDays, 'inputmode="numeric"' + ro)) + field('Invoices are due after (days)', inp('invoiceDueDays', s.invoiceDueDays, 'inputmode="numeric"' + ro)) + '</div>' +
-      '<p class="tiny muted">The free trial is 5 days (after sign-up, and on Free plans). The grace period applies to new subscriptions; change it for one business on its page.</p></section>' + (ro ? '' : '<div class="set-save"><button class="btn pri" id="sgo">Save settings</button></div>') + '</form>';
-    if (!ro) $('#setf').onsubmit = (e) => { e.preventDefault(); const x = vals($('#setf')); busy($('#sgo'), async () => { await api('PUT', '/settings', { paymentInstructions: { momoNumber: x.momoNumber, momoName: x.momoName, omNumber: x.omNumber, omName: x.omName, bank: x.bank, note: x.note }, graceDays: x.graceDays, renewalNoticeDays: x.renewalNoticeDays, invoiceDueDays: x.invoiceDueDays }); toast('Settings saved'); }); };
+      '<p class="tiny muted">The free trial is 5 days (after sign-up, and on Free plans). The grace period applies to new subscriptions; change it for one business on its page.</p></section>' +
+      '<section class="card pad2"><h2 class="mb">Sign-up</h2><p class="small muted" style="margin-top:0">What new businesses can choose when they create an account. With only one open, nobody is asked.</p>' +
+        Object.entries(ED).map(([k, x]) => '<label class="check mb"><input type="checkbox" name="su_' + k + '"' + ((s.signup || {})[k] !== false ? ' checked' : '') + ro + '> <span><b>' + esc(x.label) + '</b> <span class="small muted">— ' + esc(x.what) + '</span></span></label>').join('') +
+        '<p class="tiny muted">Closing one does not touch businesses that already use it.</p></section>' + (ro ? '' : '<div class="set-save"><button class="btn pri" id="sgo">Save settings</button></div>') + '</form>';
+    if (!ro) $('#setf').onsubmit = (e) => { e.preventDefault(); const x = vals($('#setf')); busy($('#sgo'), async () => { await api('PUT', '/settings', { paymentInstructions: { momoNumber: x.momoNumber, momoName: x.momoName, omNumber: x.omNumber, omName: x.omName, bank: x.bank, note: x.note }, graceDays: x.graceDays, renewalNoticeDays: x.renewalNoticeDays, invoiceDueDays: x.invoiceDueDays, signup: Object.fromEntries(Object.keys(ED).map((k) => [k, !!x['su_' + k]])) }); toast('Settings saved'); }); };
   };
 
   /* ---------- one click handler for everything ---------- */
