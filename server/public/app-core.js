@@ -374,13 +374,14 @@ const STORE_SECTIONS = [
   ['buy', 'Buy', 'buy', ['buy']],
   ['stock', 'Stock', 'stock', ['stock']],
   ['customers', 'Customers', 'users', ['customers']],
+  ['suppliers', 'Suppliers', 'truck', ['suppliers']],
   ['records', 'Records', 'wallet', ['expenses', 'reports']],
-  ['tools', 'More tools', 'more', ['tools', 'orders', 'promos', 'audit', 'losses', 'transfers', 'reminders', 'cash', 'suppliers', 'claims', 'assets', 'staff', 'leave', 'payroll', 'employees', 'activity']],
+  ['tools', 'More tools', 'more', ['tools', 'orders', 'promos', 'audit', 'losses', 'transfers', 'reminders', 'cash', 'claims', 'assets', 'staff', 'leave', 'payroll', 'employees', 'activity']],
   ['settings', 'Settings', 'gear', ['settings', 'team']],
 ];
 const sections = () => (isStore() ? STORE_SECTIONS : SECTIONS);
 /** the extra tools a Store business has (from its plan and permissions) */
-const storeTools = () => STORE_SECTIONS[6][3].slice(1).filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
+const storeTools = () => STORE_SECTIONS.find((x) => x[0] === 'tools')[3].slice(1).filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
 const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', losses: 'Losses', claims: 'Returns & claims', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
 /** Routes of a section this person can open (transfers only when there is more than one branch). */
 const secRoutes = (sec) => sec[0] === 'tools' ? (storeTools().length ? ['tools'].concat(storeTools()) : []) : sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));

@@ -120,7 +120,7 @@ function storeHome(hello, t, d, todos, recent) {
 /* Aahsso Store: the extra tools in the plan, one tap each */
 VIEWS.tools = {
   render() {
-    const desc = { orders: 'Orders from your online shop', promos: 'Discounts for a period', audit: 'Count your stock', losses: 'Broken, expired or missing items', transfers: 'Move stock between branches', reminders: 'Remind customers who owe you', cash: 'Close the day and hand over cash', suppliers: 'Suppliers and bills to pay', claims: 'Return goods to a supplier', assets: 'Equipment you own', staff: 'Clock in and out', leave: 'Days off', payroll: 'Salaries and payslips', employees: 'Your staff', activity: 'Who did what' };
+    const desc = { orders: 'Orders from your online shop', promos: 'Discounts for a period', audit: 'Count your stock', losses: 'Broken, expired or missing items', transfers: 'Move stock between branches', reminders: 'Remind customers who owe you', cash: 'Close the day and hand over cash', claims: 'Return goods to a supplier', assets: 'Equipment you own', staff: 'Clock in and out', leave: 'Days off', payroll: 'Salaries and payslips', employees: 'Your staff', activity: 'Who did what' };
     return '<div class="card list sh-tools">' + storeTools().map((r) => { const n = NAV.find((x) => x[0] === r); const c = n && n[4] ? n[4]() : 0; return '<a class="li" href="#' + r + '"><div class="av ink">' + ic(n ? n[2] : 'more', 'sm') + '</div><div class="grow"><div class="t">' + esc(TAB_LABEL[r] || TITLES[r]) + '</div><div class="hint">' + esc(desc[r] || '') + '</div></div>' + (c ? '<span class="nav-count">' + c + '</span>' : '') + ic('chev', 'sm') + '</a>'; }).join('') + '</div>';
   },
 };

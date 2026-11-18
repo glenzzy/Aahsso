@@ -77,6 +77,7 @@ function puSellers(where) {
     const n = (l.vendor || '').trim(); if (!n || m.has(n.toLowerCase())) return;
     m.set(n.toLowerCase(), { name: n, type: l.sourceType || '', phone: l.vendorPhone || '', local: l.sourceType === 'Local (Cameroon)' || !!l.inWarehouse || (l.currency || 'USD') === baseCode() });
   });
+  if (isStore()) K.raw.suppliers.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((s) => { const k = supKey(s.name); if (k && !m.has(k)) m.set(k, { name: s.name.trim(), type: 'Local (Cameroon)', phone: s.phone || '', local: true }); });
   (S().vendors || []).forEach((n) => { if (!m.has(n.toLowerCase())) m.set(n.toLowerCase(), { name: n, type: /b-?stock/i.test(n) ? 'Auction' : 'Store', phone: '', local: false }); });
   const all = [...m.values()]; const fits = (v) => (where === 'local') === v.local;
   return all.filter(fits).concat(all.filter((v) => !fits(v)));

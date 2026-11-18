@@ -195,6 +195,7 @@ function supplierOwed(id) { return K.raw.bills.filter((b) => b.supplierId === id
 const totalOwedSuppliers = () => K.raw.bills.filter((b) => b.status !== 'cancelled').reduce((a, b) => a + Math.max(0, billX(b).balanceX), 0);
 VIEWS.suppliers = {
   render() {
+    if (isStore()) return storeSuppliers();
     const tab = K.ui.supTab || 'open'; const t = todayStr();
     const open = K.raw.bills.filter((b) => b.status !== 'cancelled' && billX(b).balance > 0.005);
     const overdue = open.filter((b) => billDue(b) < t);
@@ -220,11 +221,13 @@ function supplierSelect(val) { return sel('supplierId', [['', 'Choose supplier�
 async function ensureSupplier(v) { if (v.supplierId && v.supplierId !== '__new') return v.supplierId; const name = (v.newSupplier || '').trim(); if (!name) return null; const ex = K.raw.suppliers.find((s) => s.name.toLowerCase() === name.toLowerCase()); if (ex) return ex.id; const s = { id: uid('su_'), name, type: v.newSupplierType || 'Other' }; await save('suppliers', s); return s.id; }
 A.supNew = () => supForm(null);
 A.supOpen = (el) => {
+  if (isStore()) return storeSupOpen(el.dataset.id, el.dataset.n);
   const s = byId('suppliers', el.dataset.id); const bills = K.raw.bills.filter((b) => b.supplierId === s.id).sort((a, b) => billDue(b).localeCompare(billDue(a)));
   openSheet({ title: s.name, body: '<div class="row wrap mb"><button class="btn" data-a="supEdit" data-id="' + s.id + '">' + ic('edit') + 'Edit</button><button class="btn pri" data-a="billNew" data-sup="' + s.id + '">' + ic('plus') + 'New bill</button></div><div class="tiny muted mb">' + esc([s.type, s.phone, s.notes].filter(Boolean).join(' · ')) + '</div>' + kpi('You owe', F(supplierOwed(s.id)), bills.length + ' bill(s)', true) + '<div class="card list mt">' + (bills.map(billRow).join('') || '<div class="empty small">No bills.</div>') + '</div>' });
 };
 A.supEdit = (el) => supForm(el.dataset.id);
 function supForm(id) {
+  if (isStore()) return storeSupForm(id);
   const s = id ? byId('suppliers', id) : { type: 'Other' };
   const sh = openSheet({ title: id ? 'Edit supplier' : 'New supplier', body: '<div class="col">' + field('Name', inp('name', s.name)) + field('Type', sel('type', SUP_TYPES, s.type)) + field('Phone', inp('phone', s.phone, 'inputmode="tel"')) + field('Notes', inp('notes', s.notes)) + '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="suSave">Save</button>' });
   $('#suSave', sh).onclick = async () => { const v = formVals(sh); if (!v.name) return toast('Enter a name', true); if (await save('suppliers', Object.assign({}, s, v, { id: id || uid('su_') }))) { closeSheet(); scheduleRender(); } };
@@ -269,6 +272,88 @@ async function createBillFor({ supplierId, newSupplier, newSupplierType, descrip
   if (assetId) bill.assetId = assetId;
   return (await save('bills', bill)) ? bill : false;
 }
+/* ================= Aahsso Store: suppliers, like customers =================
+ * One list: who you buy from, their phone, how much you bought and what you still owe them. Tap one to call,
+ * WhatsApp, pay a bill, see every purchase, or buy from them again. Purchases are matched by the supplier's name. */
+const supKey = (n) => String(n || '').trim().toLowerCase();
+function supPurchases(s) { const k = supKey(s.name); return purchaseGroups(K.raw.lots.filter((l) => supKey(l.vendor) === k)).sort((a, b) => (b.date || '').localeCompare(a.date || '')); }
+function storeSupStats() {
+  const by = {}; purchaseGroups(K.raw.lots).forEach((g) => { const k = supKey(g.vendor); if (!k) return; const o = (by[k] = by[k] || { bought: 0, n: 0, last: '' }); o.bought += g.totalX; o.n++; if ((g.date || '') > o.last) o.last = g.date || ''; });
+  return (s) => by[supKey(s.name)] || { bought: 0, n: 0, last: '' };
+}
+function storeSuppliers() {
+  const q = supKey(K.ui.supQ); const st = storeSupStats();
+  // anyone you bought from without a supplier card yet gets one in the list too (saved when you open or edit it)
+  const known = new Set(K.raw.suppliers.map((s) => supKey(s.name)));
+  const extra = []; K.raw.lots.forEach((l) => { const k = supKey(l.vendor); if (k && !known.has(k)) { known.add(k); extra.push({ id: '', name: l.vendor.trim(), phone: l.vendorPhone || '', _new: true }); } });
+  const list = K.raw.suppliers.concat(extra).filter((s) => !q || (s.name + ' ' + (s.phone || '') + ' ' + (s.city || '')).toLowerCase().includes(q))
+    .sort((a, b) => supplierOwed(b.id) - supplierOwed(a.id) || (st(b).last || '').localeCompare(st(a).last || '') || a.name.localeCompare(b.name));
+  return '<div class="kpis mb">' + kpi('You owe suppliers', F(totalOwedSuppliers()), '', true) + kpi('Suppliers', fmt(K.raw.suppliers.length + extra.length)) + '</div>' +
+    '<div class="row wrap mb"><button class="btn pri" data-a="supNew">' + ic('plus') + 'New supplier</button></div>' +
+    '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search name, phone, town" value="' + esc(K.ui.supQ || '') + '" data-c="supQ"></div>' +
+    dataTable({
+      id: 'supList', rows: list, noun: 'supplier', empty: '<div class="big">🚚</div>No suppliers yet. Add one, or record a purchase — its supplier shows up here.',
+      rowAttr: (s) => ' data-a="supOpen" data-id="' + esc(s.id) + '" data-n="' + esc(s.name) + '"',
+      cols: [
+        { k: 'name', label: 'Name', core: true, v: (s) => s.name, html: (s) => '<b>' + esc(s.name) + '</b>' },
+        { k: 'phone', label: 'Phone', core: true, v: (s) => s.phone || '' },
+        { k: 'bought', label: 'Bought', core: true, money: true, v: (s) => Math.round(st(s).bought) || '', total: (rows) => fmt(dtSum(rows, (s) => st(s).bought)) },
+        { k: 'owed', label: 'You owe', core: true, money: true, v: (s) => supplierOwed(s.id) || '', html: (s) => supplierOwed(s.id) > 0 ? '<span style="color:var(--bad);font-weight:700">' + fmt(supplierOwed(s.id)) + '</span>' : dtNil, total: (rows) => fmt(dtSum(rows, (s) => supplierOwed(s.id))) },
+      ],
+    });
+}
+CH.supQ = (el) => { K.ui.supQ = el.value; render(true); };
+/** a supplier seen only on purchases: make its card first */
+async function supEnsure(id, name) {
+  if (id) return id; const ex = K.raw.suppliers.find((s) => supKey(s.name) === supKey(name)); if (ex) return ex.id;
+  const l = K.raw.lots.find((x) => supKey(x.vendor) === supKey(name)) || {};
+  const s = { id: uid('su_'), name: String(name).trim(), type: 'Store / wholesaler', phone: l.vendorPhone || '' };
+  return (await save('suppliers', s)) ? s.id : null;
+}
+async function storeSupOpen(id0, name) {
+  const id = id0 || (await supEnsure('', name || '')); if (!id) return;
+  const sh = openSheet({ title: 'Supplier', body: '' });
+  sh._refresh = () => {
+    const s = byId('suppliers', id); if (!s) return closeSheet();
+    const groups = supPurchases(s); const bills = K.raw.bills.filter((b) => b.supplierId === id && b.status !== 'cancelled');
+    const open = bills.filter((b) => billX(b).balance > 0.005).sort((a, b) => billDue(a).localeCompare(billDue(b)));
+    const bought = groups.reduce((a, g) => a + g.totalX, 0); const wa = phoneWA(s.phone); const tel = String(s.phone || '').replace(/[^\d+]/g, '');
+    setSheetBody(sh, '<div class="row mb"><div class="av acc" style="width:44px;height:44px;font-size:15px">' + esc(initials(s.name)) + '</div><div class="grow"><div class="b" style="font-size:16px">' + esc(s.name) + '</div><div class="small muted">' + esc([s.phone, s.city].filter(Boolean).join(' · ') || 'No phone yet') + '</div></div></div>' +
+      '<div class="row wrap mb">' + (can('purchases') ? '<button class="btn pri" data-a="supBuy" data-id="' + id + '">' + ic('buy') + 'New purchase</button>' : '') +
+        (wa ? '<a class="btn" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '">' + ic('wa') + 'WhatsApp</a>' : '') +
+        (tel ? '<a class="btn" href="tel:' + esc(tel) + '">' + ic('user') + 'Call</a>' : '') +
+        (can('suppliers') ? '<button class="btn" data-a="supEdit" data-id="' + id + '">' + ic('edit') + 'Edit</button>' : '') + '</div>' +
+      '<div class="sh-ks sup-ks">' + [['Bought', fmt(bought), ''], ['Purchases', fmt(groups.length), ''], ['You owe', fmt(supplierOwed(id)), supplierOwed(id) > 0 ? ' warn' : '']].map(([l, v, c]) => '<div class="sh-k' + c + '"><span>' + l + '</span><b class="money">' + v + '</b></div>').join('') + '</div>' +
+      (s.notes ? '<div class="alert info mb">' + esc(s.notes) + '</div>' : '') +
+      (open.length ? '<h3 class="mb">To pay</h3><div class="card list mb">' + open.map(billRow).join('') + '</div>' : '') +
+      '<h3 class="mb">Purchases</h3><div class="card list">' + (groups.length ? groups.slice(0, 100).map((g) => '<div class="li" data-a="openPurchase" data-k="' + esc(g.key) + '"><div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(g.lots.map((l) => ((byId('products', l.productId) || {}).name || '?') + ' ×' + fmt(l.qty)).join(', ')) + '</div><div class="tiny muted">' + fmtDate(g.date) + (g.po ? ' · #' + esc(g.po) : '') + '</div></div><div class="right"><div class="b money">' + fmt(g.totalX) + '</div>' + (g.bx && g.bx.balanceX > 0.5 ? '<div class="tiny" style="color:var(--bad)">owe ' + fmt(g.bx.balanceX) + '</div>' : '') + '</div></div>').join('') : '<div class="empty small">Nothing bought from them yet.</div>') + '</div>');
+  };
+  sh._refresh();
+}
+/** New purchase with this supplier already chosen */
+A.supBuy = (el) => {
+  const s = byId('suppliers', el.dataset.id); if (!s) return; closeSheet(); purchaseForm();
+  const p = $('#puSeller'); if (!p) return;
+  if (![...p.options].some((o) => o.value === s.name)) { const o = document.createElement('option'); o.value = o.textContent = s.name; p.insertBefore(o, p.options[1] || null); }
+  p.value = s.name; p.dispatchEvent(new Event('change', { bubbles: true }));
+};
+function storeSupForm(id) {
+  const s = id ? byId('suppliers', id) : {};
+  const used = id && (K.raw.bills.some((b) => b.supplierId === id) || supPurchases(s).length);
+  const sh = openSheet({ title: id ? 'Edit supplier' : 'New supplier', body: '<div class="col">' + field('Name', inp('name', s.name, 'placeholder="e.g. Santa Lucia Akwa"')) + '<div class="grid2">' + field('Phone', inp('phone', s.phone, 'inputmode="tel" placeholder="6XX XX XX XX"')) + field('Town / area', inp('city', s.city, 'placeholder="e.g. Akwa, Douala"')) + '</div>' + field('Notes', inp('notes', s.notes, 'placeholder="What they sell, days they deliver…"')) + '</div>',
+    foot: (id && !used ? '<button class="btn danger" id="suDel" title="Delete">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="suSave">' + ic('check') + 'Save</button>' });
+  $('#suSave', sh).onclick = async () => {
+    const v = formVals(sh); v.name = (v.name || '').trim(); if (!v.name) return toast('Enter a name', true);
+    if (K.raw.suppliers.some((x) => x.id !== id && supKey(x.name) === supKey(v.name))) return toast('You already have a supplier called ' + v.name, true);
+    const old = s.name; const rec = Object.assign({ type: 'Store / wholesaler' }, s, v, { id: id || uid('su_') });
+    if (!(await save('suppliers', rec))) return;
+    // renamed: keep its purchases with it
+    if (id && old && supKey(old) !== supKey(v.name)) for (const l of K.raw.lots.filter((x) => supKey(x.vendor) === supKey(old))) await save('lots', Object.assign({}, l, { vendor: v.name }));
+    closeSheet(); scheduleRender(); toast(id ? 'Supplier saved' : 'Supplier added');
+  };
+  if ($('#suDel', sh)) $('#suDel', sh).onclick = async () => { if (await confirmBox('Delete ' + s.name + '?', 'Delete', true)) { await remove('suppliers', id); closeSheet(); closeSheet(); scheduleRender(); } };
+}
+
 /* ================= DEBT REMINDERS ================= */
 function owingCustomers() {
   const m = {};
