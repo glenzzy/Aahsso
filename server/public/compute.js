@@ -335,8 +335,9 @@
   const editionOf = (k) => EDITIONS[k] || EDITIONS.import;
   /** "warehouses" / "stores" for an edition; with n: "1 warehouse", "3 stores" */
   const locWord = (ed, n, cap) => { const L = editionOf(ed).loc; const w = n === 1 ? (cap ? L.One : L.one) : (cap ? L.Many : L.many); return n === undefined ? w : n + ' ' + w; };
-  /** a plan limit's name for an edition (maxLocations → Warehouses / Stores) */
-  const limitLabel = (ed, key) => ({ maxUsers: 'Team members', maxLocations: editionOf(ed).loc.Many, maxProducts: 'Items' })[key] || key;
+  /** a plan limit's name for an edition. maxBusinesses = how many businesses of this kind the owner may have:
+   *  "Stores" on an Aahsso Store plan, "Warehouses" on an Aahsso Brocan plan. maxLocations = branches inside one business. */
+  const limitLabel = (ed, key) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: editionOf(ed).loc.Many })[key] || key;
   /** does this edition have this feature at all (before the plan is applied) */
   const editionHas = (ed, key) => !editionOf(ed).off.includes(key);
   /** the plan catalog for one edition */

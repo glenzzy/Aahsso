@@ -26,7 +26,8 @@
   const ED = { import: { label: 'Aahsso Brocan', short: 'Brocan', cls: 'info', what: 'buy abroad, ship, receive and sell' }, store: { label: 'Aahsso Store', short: 'Store', cls: 'ok', what: 'buy locally, sell and manage stock' } };
   const edOf = (e) => ED[e] || ED.import;
   /** plan limit names: the branch limit is Warehouses for Brocan, Stores for Aahsso Store */
-  const limName = (k, ed) => ({ maxUsers: 'Team members', maxLocations: ed === 'store' ? 'Stores' : ed === 'import' ? 'Warehouses' : 'Warehouses / stores', maxProducts: 'Items' })[k] || k;
+  const limName = (k, ed) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: ed === 'store' ? 'Stores' : ed === 'import' ? 'Warehouses' : 'Stores / warehouses' })[k] || k;
+  const LIM_HINT = { maxBusinesses: 'how many businesses of this kind the owner can have', maxLocations: 'inside one business, including the main one' };
   const edBadge = (e) => badge(edOf(e).short, edOf(e).cls);
   const METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
 
@@ -305,7 +306,7 @@
     $('#title').textContent = t.name;
     const end = s.status === 'trialing' ? s.trial_ends_at : s.current_period_end; const n = daysLeft(end);
     const A = (act, label, cls, perm) => (can(perm) ? '<button class="btn sm ' + (cls || '') + '" data-act="' + act + '">' + label + '</button>' : '');
-    const lim = d.limits || {}; const LBL = { maxUsers: limName('maxUsers'), maxLocations: limName('maxLocations', t.edition), maxProducts: limName('maxProducts') };
+    const lim = d.limits || {}; const LBL = { maxUsers: limName('maxUsers'), maxLocations: limName('maxLocations'), maxProducts: limName('maxProducts'), maxBusinesses: limName('maxBusinesses', t.edition) };
     v.innerHTML = '<div class="row between mb"><div class="row"><a class="btn sm" href="#/tenants">← Businesses</a>' + stBadge(s.status) + (s.suspended_reason ? '<span class="small muted">' + esc(s.suspended_reason) + '</span>' : '') + '</div>' +
       '<div class="row">' + A('tViewAs', 'View as owner', '', 'tenants.impersonate') + A('tResetPw', 'Reset owner password', '', 'tenants.resetOwner') + (can('users.view') ? '<button class="btn sm" data-act5="uForTenant">' + ic('users', 'sm') + 'Users</button>' : '') + '</div></div>' +
       '<div class="grid2 mb2"><section class="card pad2"><div class="row between mb"><h2>Subscription</h2><div class="row">' + A('tPlan', 'Change plan', '', 'subs.write') + A('tExtend', 'Extend', '', 'subs.write') + '</div></div>' +
@@ -343,12 +344,12 @@
       const g = {}; d.catalog.forEach(([k, l, grp]) => (g[grp] = g[grp] || []).push([k, l]));
       const box = modal({ title: 'Features for ' + d.tenant.name, wide: true, body: '<p class="small muted" style="margin-top:0">Start from the plan' + (s.plan_name ? ' (' + esc(s.plan_name) + ')' : '') + ', then give or take away single features for this business only.</p>' +
         '<div class="cgroups">' + Object.entries(g).map(([grp, items]) => '<fieldset class="cgroup"><legend>' + esc(grp) + '</legend>' + items.map(([k, l]) => '<div class="frow"><span class="grow">' + esc(l) + ' <span class="tiny faint">plan: ' + (pm[k] === false ? 'off' : 'on') + '</span></span>' + sel('M_' + k, [['', 'As plan'], ['on', 'On'], ['off', 'Off']], om[k] === true ? 'on' : om[k] === false ? 'off' : '', 'style="width:auto;min-height:34px;padding:4px 8px"') + '</div>').join('') + '</fieldset>').join('') + '</div>' +
-        '<h3 class="mt">Limits</h3><div class="grid3">' + ['maxUsers', 'maxLocations', 'maxProducts'].map((k) => [k, limName(k, d.tenant.edition)]).map(([k, l]) => field(l + ' (plan: ' + (pl[k] || '∞') + ')', inp('L_' + k, ol[k] || '', 'inputmode="numeric" placeholder="as plan"'))).join('') + '</div>' +
+        '<h3 class="mt">Limits</h3><div class="grid3">' + ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses'].map((k) => [k, limName(k, d.tenant.edition)]).map(([k, l]) => field(l + ' (plan: ' + (pl[k] || '∞') + ')', inp('L_' + k, ol[k] || '', 'inputmode="numeric" placeholder="as plan"'))).join('') + '</div>' +
         reasonField(false), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => {
         const v = vals(box); const modules = {}, limits = {};
         d.catalog.forEach(([k]) => { if (v['M_' + k] === 'on') modules[k] = true; if (v['M_' + k] === 'off') modules[k] = false; });
-        ['maxUsers', 'maxLocations', 'maxProducts'].forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
+        ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses'].forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
         await api('POST', '/tenants/' + d.tenant.id + '/features', { modules, limits, reason: v.reason }); closeModal(); toast('Saved — the business sees the change within seconds'); route();
       });
     },
@@ -569,7 +570,7 @@
       field('For which businesses?', sel('edition', (isNew ? [['', 'Choose…']] : []).concat(Object.entries(ED).map(([k, x]) => [k, x.label + ' — ' + x.what])), p.edition, locked ? 'disabled' : '')) + (locked ? '<div class="tiny muted">Businesses use this plan, so it stays a ' + esc(edOf(p.edition).label) + ' plan. Make a new plan for the other kind.</div>' : '') +
       field('Name', inp('name', p.name, isNew ? 'placeholder="e.g. Pro"' : '')) + field('Short description', inp('description', p.description)) +
       '<div class="grid3">' + field('Monthly price (FCFA)', inp('price_monthly', p.price_monthly, 'inputmode="numeric" placeholder="no price"')) + field('Yearly price (FCFA)', inp('price_yearly', p.price_yearly, 'inputmode="numeric" placeholder="no price"')) + '<div class="tiny muted" style="grid-column:1/-1">No price at all = a Free plan: businesses get a free trial on it.</div>' + field('Order', inp('sort', p.sort, 'inputmode="numeric"')) + '</div>' +
-      '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.keys(S.limitKeys.counts).map((k) => field('', '<span data-limn="' + k + '">' + esc(limName(k, p.edition)) + '</span>' + inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
+      '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.keys(S.limitKeys.counts).map((k) => field('', '<span data-limn="' + k + '">' + esc(limName(k, p.edition)) + '</span>' + (LIM_HINT[k] ? '<span class="tiny muted" style="font-weight:400">' + LIM_HINT[k] + '</span>' : '') + inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
       '<h3>Features in this plan <span class="tiny faint">(unticked = hidden from the business)</span></h3><div id="plFeat"></div>' +
       field('Lines on the plan card (one per line)', '<textarea class="inp" name="features" rows="4">' + esc((p.features || []).join('\n')) + '</textarea>') +
       '<div class="row"><label class="check"><input type="checkbox" name="active"' + (p.active ? ' checked' : '') + '> Can be chosen</label><label class="check"><input type="checkbox" name="public"' + (p.public ? ' checked' : '') + '> Show on the business Plans page (published)</label></div></div>',
@@ -737,7 +738,7 @@
       '<section class="card pad2"><h2 class="mb">Sign-up</h2><p class="small muted" style="margin-top:0">What new businesses can choose when they create an account. With only one open, nobody is asked.</p>' +
         Object.entries(ED).map(([k, x]) => '<label class="check mb"><input type="checkbox" name="su_' + k + '"' + ((s.signup || {})[k] !== false ? ' checked' : '') + ro + '> <span><b>' + esc(x.label) + '</b> <span class="small muted">— ' + esc(x.what) + '</span></span></label>').join('') +
         '<p class="tiny muted">Closing one does not touch businesses that already use it.</p>' +
-        '<label class="f mt">Businesses one person can own<input class="inp" name="maxBusinesses" inputmode="numeric" style="max-width:120px" value="' + esc(s.maxBusinesses || 3) + '"' + ro + '></label><p class="tiny muted">An owner adds more businesses (Brocan or Store) from their account menu and switches between them with one sign-in. 1 = no extra businesses.</p></section>' + (ro ? '' : '<div class="set-save"><button class="btn pri" id="sgo">Save settings</button></div>') + '</form>';
+        '<label class="f mt">Businesses one person can own<input class="inp" name="maxBusinesses" inputmode="numeric" style="max-width:120px" value="' + esc(s.maxBusinesses || 3) + '"' + ro + '></label><p class="tiny muted">A safety limit over all kinds. Each plan decides the rest: <b>Stores</b> on a Store plan, <b>Warehouses</b> on a Brocan plan.</p></section>' + (ro ? '' : '<div class="set-save"><button class="btn pri" id="sgo">Save settings</button></div>') + '</form>';
     if (!ro) $('#setf').onsubmit = (e) => { e.preventDefault(); const x = vals($('#setf')); busy($('#sgo'), async () => { await api('PUT', '/settings', { paymentInstructions: { momoNumber: x.momoNumber, momoName: x.momoName, omNumber: x.omNumber, omName: x.omName, bank: x.bank, note: x.note }, graceDays: x.graceDays, renewalNoticeDays: x.renewalNoticeDays, invoiceDueDays: x.invoiceDueDays, signup: Object.fromEntries(Object.keys(ED).map((k) => [k, !!x['su_' + k]])), maxBusinesses: x.maxBusinesses }); toast('Settings saved'); }); };
   };
 

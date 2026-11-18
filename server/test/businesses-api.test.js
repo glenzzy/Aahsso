@@ -58,9 +58,30 @@ test('one password and one name for the person, whichever business they are in',
   const team = (await api('GET', '/api/users', S.b)).body.users; assert.equal(team[0].login, S.login, 'team page shows the real login');
 });
 
-test('a person owns at most the platform limit (3 by default)', async () => {
-  const third = await api('POST', '/api/businesses', S.a, { businessName: 'Third ' + rnd, edition: 'import' }); assert.equal(third.status, 200);
-  const me = (await api('GET', '/api/me', S.a)).body; assert.equal(me.businesses.length, 3); assert.equal(me.canAddBusiness, false);
-  const fourth = await api('POST', '/api/businesses', S.a, { businessName: 'Fourth ' + rnd, edition: 'store' });
-  assert.equal(fourth.status, 400); assert.equal(fourth.body.code, 'max_businesses');
+test('each plan decides how many of its kind: Stores on a Store plan', async () => {
+  // a Super Admin puts the Store on a plan that allows 2 stores
+  const { execFileSync } = require('node:child_process'); const path = require('node:path'); const { Pool } = require('pg');
+  const db = new Pool({ connectionString: process.env.DATABASE_URL }); const email = 'bz' + rnd + '@aahsso.test';
+  let cookie = ''; const adm = async (method, p, body) => { const headers = { 'x-aahsso-admin': '1' }; if (cookie) headers.cookie = cookie; if (body) headers['content-type'] = 'application/json'; const r = await fetch(B + p, { method, headers, body: body ? JSON.stringify(body) : undefined, redirect: 'manual' }); const sc = r.headers.get('set-cookie'); if (sc) { const m = sc.match(/(__Host-aahsso_adm=[^;]*)/); if (m) cookie = m[1].endsWith('=') ? '' : m[1]; } const ct = r.headers.get('content-type') || ''; return { status: r.status, body: ct.includes('json') ? await r.json() : await r.text() }; };
+  try {
+    await db.query("UPDATE platform_admins SET role='admin' WHERE role='super'"); // test database only
+    const out = execFileSync('node', [path.join(__dirname, '..', 'scripts', 'admin.js'), 'create', '--email', email, '--name', 'Biz Boss'], { env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    const temp = out.match(/\(shown once\):\s+(\S+)/)[1];
+    await adm('POST', '/api/admin/auth/login', { email, password: temp }); await adm('POST', '/api/admin/auth/password', { current: temp, password: 'Correct-Horse-' + rnd }); await adm('POST', '/api/admin/auth/pin', { pin: '2580' });
+    await db.query('UPDATE admin_sessions SET reauth_at = now() WHERE revoked_at IS NULL AND admin_id=(SELECT id FROM platform_admins WHERE email=$1)', [email]);
+    const pl = await adm('POST', '/api/admin/plans', { edition: 'store', name: 'Two Stores ' + rnd, price_monthly: 3000, active: true, public: false, limits: { maxBusinesses: 2 }, modules: {}, features: [] });
+    assert.equal(pl.status, 200, JSON.stringify(pl.body));
+    const pid = (await adm('GET', '/api/admin/plans')).body.plans.find((p) => p.name === 'Two Stores ' + rnd).id;
+    assert.equal((await adm('POST', '/api/admin/tenants/' + S.bId + '/subscription', { action: 'change_plan', planId: pid, reason: 'test two stores' })).status, 200);
+    let room = (await api('GET', '/api/businesses/room', S.a)).body.room;
+    assert.deepEqual([room.store.ok, room.store.max, room.store.used], [true, 2, 1], 'the Store plan allows 2, you have 1');
+    assert.equal(room.import.ok, true, 'the Brocan has no plan yet: no limit');
+    assert.equal((await api('POST', '/api/businesses', S.a, { businessName: 'Second store ' + rnd, edition: 'store' })).status, 200);
+    room = (await api('GET', '/api/businesses/room', S.a)).body.room; assert.equal(room.store.ok, false); assert.match(room.store.why, /allows 2 stores/);
+    const third = await api('POST', '/api/businesses', S.a, { businessName: 'Third store ' + rnd, edition: 'store' });
+    assert.equal(third.status, 402); assert.equal(third.body.code, 'plan_limit');
+    assert.equal((await api('POST', '/api/businesses', S.a, { businessName: 'Second Brocan ' + rnd, edition: 'import' })).status, 200, 'Brocans are counted apart');
+    const t = (await adm('GET', '/api/admin/tenants/' + S.bId)).body; assert.equal(t.usage.maxBusinesses, 2, 'admin sees 2 of 2 stores');
+    assert.equal((await api('GET', '/api/me', S.a)).body.canAddBusiness, true, 'Add a business stays (the window says what is full)');
+  } finally { await db.end(); }
 });

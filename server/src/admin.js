@@ -648,7 +648,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       graceDays: Math.min(60, Math.max(0, Math.round(Number(b.graceDays) || 0))),
       renewalNoticeDays: Math.min(30, Math.max(1, Math.round(Number(b.renewalNoticeDays) || 7))), invoiceDueDays: Math.min(60, Math.max(0, Math.round(Number(b.invoiceDueDays) || 0))),
       signup: Object.fromEntries(KC.EDITION_KEYS.map((k) => [k, ((b.signup || {})[k]) !== false])), // which editions new businesses can choose
-      maxBusinesses: Math.min(20, Math.max(1, Math.round(Number(b.maxBusinesses) || 3))), // businesses one person can own under one sign-in
+      maxBusinesses: Math.min(50, Math.max(1, Math.round(Number(b.maxBusinesses) || 10))), // businesses one person can own under one sign-in
     };
     if (!KC.EDITION_KEYS.some((k) => v.signup[k])) return bad(res, 'Keep sign-up open for at least one of Aahsso Brocan and Aahsso Store');
     const ents = Object.entries(v);

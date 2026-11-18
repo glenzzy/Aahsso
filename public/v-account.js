@@ -115,15 +115,19 @@ A.bizSwitch = async (el) => {
 };
 A.bizAdd = async () => {
   closePMenu(); while (K.sheets.length) closeSheet();
-  let eds = []; try { eds = (await K.store.req('GET', '/api/signup-options')).editions || []; } catch (e) { return toast(e.message, true); }
+  let eds = [], room = {};
+  try { const [o, r] = await Promise.all([K.store.req('GET', '/api/signup-options'), K.store.req('GET', '/api/businesses/room')]); eds = o.editions || []; room = r.room || {}; } catch (e) { return toast(e.message, true); }
   if (!eds.length) return toast('New businesses cannot be added right now', true);
-  const other = eds.find((e) => e.key !== edition().key) || eds[0]; // most people add the other kind
+  const free = eds.filter((e) => (room[e.key] || {}).ok);
+  // most people add the other kind; a kind that is full is shown but cannot be picked
+  const other = free.find((e) => e.key !== edition().key) || free[0];
+  const count = (e) => { const r = room[e.key] || {}; const L = KC.editionOf(e.key).loc; return r.ok ? (r.max ? 'You have ' + r.used + ' of ' + r.max + ' ' + L.many : r.used ? 'You have ' + r.used + ' · no limit' : '') : ''; };
   const sh = openSheet({ title: 'Add a business', body: '<div class="col">' + field('Business name', inp('bizName', '', 'placeholder="e.g. ' + (other.key === 'store' ? 'Chez Mama Store' : 'Mama Imports') + '" autocomplete="organization"')) +
-      '<div class="lbl-t">What is it for?</div><div class="biz-pick">' + eds.map((e) => '<label class="biz-opt"><input type="radio" name="bizEd" value="' + esc(e.key) + '"' + (e.key === other.key ? ' checked' : '') + '><span><b>' + esc(e.label) + '</b><span class="hint">' + esc(e.tag) + '</span></span></label>').join('') + '</div>' +
+      '<div class="lbl-t">What is it for?</div><div class="biz-pick">' + eds.map((e) => { const r = room[e.key] || {}; return '<label class="biz-opt' + (r.ok ? '' : ' full') + '"><input type="radio" name="bizEd" value="' + esc(e.key) + '"' + (other && e.key === other.key ? ' checked' : '') + (r.ok ? '' : ' disabled') + '><span><b>' + esc(e.label) + '</b><span class="hint">' + esc(e.tag) + '</span>' + (r.ok ? (count(e) ? '<span class="biz-cnt">' + esc(count(e)) + '</span>' : '') : '<span class="biz-why">' + esc(r.why || 'Not available') + '</span>') + '</span></label>'; }).join('') + '</div>' +
       '<p class="hint">Starts with a ' + 5 + '-day free trial and its own plan. You sign in the same way and switch from your account menu.</p></div>',
-    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="bizGo">' + ic('plus') + 'Create and open</button>' });
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="bizGo"' + (free.length ? '' : ' disabled') + '>' + ic('plus') + 'Create and open</button>' });
   $('#bizGo', sh).onclick = async () => {
-    const v = formVals(sh); const name = (v.bizName || '').trim(); if (name.length < 2) return toast('Type the name of the business', true);
+    const v = formVals(sh); const name = (v.bizName || '').trim(); if (name.length < 2) return toast('Type the name of the business', true); if (!v.bizEd) return toast('Choose what it is for', true);
     if (K.outbox.length) { await flushOutbox(); if (K.outbox.length) return toast('Some changes are still waiting to upload. Connect to the internet first.', true); }
     try { const r = await K.store.req('POST', '/api/businesses', { businessName: name, edition: v.bizEd }); await bizEnter(r.token, name); } catch (e) { toast(e.message, true); }
   };
@@ -213,7 +217,7 @@ VIEWS.billing = {
     const ended = ['expired', 'suspended'].includes(s.status);
     const ask = 'Hello Aahsso team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ';
     // current plan + usage
-    const lim = b.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: locW().Many, maxProducts: 'Items' };
+    const lim = b.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: locW().Many };
     let html = '<div class="card pad2 mb bill-cur"><div class="row between wrap"><div><div class="hint">Current plan</div><h2>' + esc(!s.planName ? 'Free trial' : s.planName + (s.status === 'trialing' ? ' · free trial' : '')) + '</h2>' +
       (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? '<div class="small muted">' + money0(s.price, s.currency) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') + '</div>' : '') + '</div><span class="badge ' + st.tone + '">' + esc(st.label) + '</span></div>' +
       '<div class="bill-rows mt">' + (s.status === 'trialing' && s.trialEndsAt ? '<div class="row between cl"><span>Trial ends</span><b>' + esc(fmtDate(String(s.trialEndsAt).slice(0, 10))) + '</b></div>' : '') +
@@ -433,7 +437,7 @@ function planTable(b) {
     return '<tr class="pt-group' + (isOpen ? ' open' : '') + '" data-g="' + esc(title) + '"><th scope="rowgroup" class="pt-gth"><button type="button" class="pt-gbtn" data-a="ptGroup" data-g="' + esc(title) + '" aria-expanded="' + isOpen + '">' + ic('down', 'sm') + '<span>' + esc(title) + '</span>' + (keys ? '<span class="pt-gn">' + keys.length + '</span>' : '') + '</button></th>' +
       plans.map((p) => '<td class="pt-cell pt-gsum">' + (keys ? (() => { const n = keys.filter((k) => (p.modules || {})[k] !== false).length; return '<span class="pt-gcount' + (n === keys.length ? ' all' : n ? '' : ' none') + '">' + n + ' / ' + keys.length + '</span>'; })() : '') + '</td>').join('') + '</tr>'; };
   const lim = (p, k) => { const v = (p.limits || {})[k]; return '<td class="pt-cell pt-val">' + (v ? esc(fmt(v)) : 'Unlimited') + '</td>'; };
-  let body = group('Limits') + row('Team members', plans.map((p) => lim(p, 'maxUsers')).join('')) + row(locW().Many, plans.map((p) => lim(p, 'maxLocations')).join(''), 'Including the main one') + row('Items', plans.map((p) => lim(p, 'maxProducts')).join(''));
+  let body = group('Limits') + row('Team members', plans.map((p) => lim(p, 'maxUsers')).join('')) + row(locW().Many, plans.map((p) => lim(p, 'maxBusinesses')).join(''), 'How many ' + edition().short + ' businesses you can have') + row('Branches', plans.map((p) => lim(p, 'maxLocations')).join(''), 'Including the main one') + row('Items', plans.map((p) => lim(p, 'maxProducts')).join(''));
   const groups = {}; (b.catalog || []).forEach(([k, l, g, d]) => (groups[g] = groups[g] || []).push([k, l, d]));
   Object.entries(groups).forEach(([g, items]) => { body += group(g, items.map((x) => x[0])) + items.map(([k, l, d]) => row(l, plans.map((p) => tick((p.modules || {})[k] !== false)).join(''), d)).join(''); });
   body += group('Always included') + row('Essentials', plans.map(() => tick(true)).join(''), ALWAYS);

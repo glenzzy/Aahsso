@@ -232,7 +232,7 @@ app.get('/api/me', auth, wrap(async (req, res) => {
   res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u), approvalPin: !!(pin && pin.has) }, tenant: { id: u.tenant_id, name: u.tenant_name, edition: KC.editionOf(u.edition).key, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
     subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
     edition: lim.edition, limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null,
-    businesses: u.supportView ? [] : await myBusinesses(u), canAddBusiness: !u.supportView && u.role === 'owner' && (await myBusinesses(u)).length < (await billing.platformSettings()).maxBusinesses });
+    businesses: u.supportView ? [] : await myBusinesses(u), canAddBusiness: !u.supportView && u.role === 'owner' });
 }));
 
 /* ---------- one person, several businesses (e.g. an Aahsso Brocan and an Aahsso Store) ----------
@@ -244,6 +244,30 @@ async function myBusinesses(u) {
   return (await q("SELECT u.tenant_id AS id, t.name, t.edition, u.role FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE (u.id=$1 OR u.person_id=$1) AND u.active ORDER BY u.created_at", [pid])).rows
     .map((b) => ({ id: b.id, name: b.name, edition: KC.editionOf(b.edition).key, label: KC.editionOf(b.edition).label, role: b.role, current: b.id === u.tenant_id }));
 }
+/** May this person add one more business of each kind? The plans of the businesses of that kind decide
+ *  (Stores on an Aahsso Store plan, Warehouses on a Brocan plan; the most generous one counts; empty = no limit).
+ *  The first business of a kind is always allowed. The platform cap (admin Settings) is a safety limit over all kinds. */
+async function addRoom(mine) {
+  const cap = (await billing.platformSettings()).maxBusinesses; const out = {};
+  for (const ed of KC.EDITION_KEYS) {
+    const same = mine.filter((b) => b.edition === ed); const word = (n) => KC.locWord(ed, n);
+    // only businesses on a plan decide (a new one still on its free trial has no plan yet, and must not lift the limit)
+    let max = Infinity, plan = '', planned = false;
+    for (const b of same) {
+      const l = await billing.limitsFor(pool, b.id); if (!l.plan) continue;
+      const v = Number(l.limits.maxBusinesses); if (!planned) { max = 0; planned = true; }
+      if (!v) { max = Infinity; break; } if (v > max) { max = v; plan = l.plan; }
+    }
+    if (mine.length >= cap) out[ed] = { ok: false, code: 'max_businesses', why: 'You can have up to ' + cap + ' businesses in all. Contact Aahsso support for more.' };
+    else if (same.length >= max) out[ed] = { ok: false, code: 'plan_limit', max, used: same.length, why: 'Your ' + KC.editionOf(ed).label + ' plan' + (plan ? ' (' + plan + ')' : '') + ' allows ' + word(max) + ' — you have ' + same.length + '. Upgrade that plan in Billing & subscription to add more.' };
+    else out[ed] = { ok: true, max: max === Infinity ? null : max, used: same.length };
+  }
+  return out;
+}
+app.get('/api/businesses/room', auth, wrap(async (req, res) => {
+  if (req.user.supportView || req.user.role !== 'owner') return res.json({ room: {} });
+  res.json({ room: await addRoom(await myBusinesses(req.user)) });
+}));
 const bizLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10 });
 app.post('/api/businesses', auth, bizLimiter, wrap(async (req, res) => {
   const u = req.user; const b = req.body || {};
@@ -253,8 +277,8 @@ app.post('/api/businesses', auth, bizLimiter, wrap(async (req, res) => {
   const open = await signupEditions(); const edition = String(b.edition || '');
   if (!KC.EDITION_KEYS.includes(edition)) return err(res, 400, 'Choose Aahsso Brocan or Aahsso Store');
   if (!open.includes(edition)) return err(res, 400, KC.editionOf(edition).label + ' is not open for new businesses right now');
-  const mine = await myBusinesses(u); const max = (await billing.platformSettings()).maxBusinesses;
-  if (mine.length >= max) return err(res, 400, 'You can own up to ' + max + ' businesses. Contact Aahsso support for more.', { code: 'max_businesses' });
+  const mine = await myBusinesses(u); const room = (await addRoom(mine))[edition];
+  if (!room.ok) return err(res, 402, room.why, { code: room.code });
   const pid = personOf(u); const me = (await q('SELECT name, email, login FROM users WHERE id=$1', [pid])).rows[0];
   const days = billing.FREE_TRIAL_DAYS;
   const user = await tx(async (c) => {

@@ -5,7 +5,7 @@ const { q, pool } = require('./db');
 const KC = require('../public/compute.js');
 const mailer = require('./mailer');
 
-const COUNT_LIMITS = { maxUsers: 'team members', maxLocations: 'branches (including the main one)', maxProducts: 'items' };
+const COUNT_LIMITS = { maxUsers: 'team members', maxLocations: 'branches (including the main one)', maxProducts: 'items', maxBusinesses: 'businesses of this kind for one owner' };
 const FEATURES = Object.fromEntries(KC.FEATURES.map(([k, l]) => [k, l])); // every business feature a plan can include
 const LIMIT_KEYS = Object.keys(COUNT_LIMITS);
 const FREE_TRIAL_DAYS = 5; // the free trial: after sign-up, and on a Free plan (fixed — not an env or admin setting)
@@ -15,7 +15,7 @@ const PAY_METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other
 const STATUS_LABEL = { trialing: 'Free trial', active: 'Active', past_due: 'Payment overdue', expired: 'Expired', suspended: 'Suspended', cancelled: 'Cancelled' };
 
 /* ---------- platform settings ---------- */
-const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, renewalNoticeDays: 7, invoiceDueDays: 7, signup: { import: true, store: true }, maxBusinesses: 3 };
+const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, renewalNoticeDays: 7, invoiceDueDays: 7, signup: { import: true, store: true }, maxBusinesses: 10 };
 async function platformSettings(c = pool) {
   const rows = (await c.query('SELECT key, value FROM platform_settings')).rows;
   const o = JSON.parse(JSON.stringify(DEFAULTS)); rows.forEach((r) => { o[r.key] = r.value; });
@@ -90,11 +90,13 @@ async function usage(c, tid) {
   const r = (await c.query(`SELECT
       (SELECT count(*)::int FROM users WHERE tenant_id=$1 AND active) AS "maxUsers",
       (SELECT count(*)::int + 1 FROM documents WHERE tenant_id=$1 AND collection='locations' AND coalesce((data->>'archived')::boolean, false) = false) AS "maxLocations",
-      (SELECT count(*)::int FROM documents WHERE tenant_id=$1 AND collection='products' AND coalesce((data->>'archived')::boolean, false) = false) AS "maxProducts"`, [tid])).rows[0];
+      (SELECT count(*)::int FROM documents WHERE tenant_id=$1 AND collection='products' AND coalesce((data->>'archived')::boolean, false) = false) AS "maxProducts",
+      (SELECT count(*)::int FROM users u JOIN tenants t ON t.id=u.tenant_id, (SELECT coalesce(o.person_id, o.id) AS pid, ot.edition FROM users o JOIN tenants ot ON ot.id=o.tenant_id WHERE o.tenant_id=$1 AND o.role='owner' ORDER BY o.created_at LIMIT 1) me
+         WHERE (u.id=me.pid OR u.person_id=me.pid) AND u.active AND t.edition=me.edition) AS "maxBusinesses"`, [tid])).rows[0];
   return r;
 }
 const limitError = (plan, key, max, edition) => COUNT_LIMITS[key]
-  ? 'Your plan' + (plan ? ' (' + plan + ')' : '') + ' allows ' + (key === 'maxLocations' ? KC.locWord(edition, max) + ' (including the main one)' : max + ' ' + COUNT_LIMITS[key]) + '. Upgrade in Billing & subscription to add more.'
+  ? 'Your plan' + (plan ? ' (' + plan + ')' : '') + ' allows ' + (key === 'maxBusinesses' ? KC.locWord(edition, max) : max + ' ' + COUNT_LIMITS[key]) + '. Upgrade in Billing & subscription to add more.'
   : FEATURES[key] + ' is not included in your plan' + (plan ? ' (' + plan + ')' : '') + '. Upgrade in Billing & subscription to use it.';
 /** null when allowed; otherwise {status: 402, error, code: 'plan_limit', limit} */
 async function checkLimit(c, tid, key) {
