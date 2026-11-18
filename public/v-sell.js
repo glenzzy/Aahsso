@@ -619,7 +619,7 @@ function salesRows(list) {
       { k: 'total', label: 'Total', core: true, money: true, cls: 'b', v: (s) => X(s).net, total: sumLive((s) => X(s).net) },
       { k: 'paid', label: 'Paid', core: true, st: false, money: true, v: (s) => X(s).paid, total: sumLive((s) => X(s).paid) },
       { k: 'fees', label: 'MoMo charges', money: true, v: (s) => X(s).fees || '', total: sumLive((s) => X(s).fees || 0) },
-      { k: 'bal', label: 'Balance', core: true, st: false, money: true, v: (s) => owes(s) ? X(s).balance : '', html: (s) => owes(s) ? '<span style="color:var(--bad);font-weight:700">' + fmt(X(s).balance) + '</span>' : dtNil, total: sumLive((s) => Math.max(0, X(s).balance)) },
+      { k: 'bal', label: 'Balance', core: true, st: false, money: true, v: (s) => owes(s) ? X(s).balance : '', html: (s) => owes(s) ? '<span style="color:var(--bad);font-weight:600">' + fmt(X(s).balance) + '</span>' : dtNil, total: sumLive((s) => Math.max(0, X(s).balance)) },
       { k: 'due', label: 'Pay by', v: (s) => owes(s) ? KC.dueDateOf(s, S()) : '', html: (s) => { if (!owes(s)) return dtNil; const d = KC.dueDateOf(s, S()); return d < today ? '<span class="badge bad">Overdue · ' + esc(dayMon(d)) + '</span>' : dtDate(d); } },
       cost ? { k: 'profit', label: 'Profit', money: true, v: (s) => live(s) ? X(s).profit : '', total: sumLive((s) => X(s).profit) } : null,
       { k: 'status', label: 'Status', core: true, v: (s) => X(s).status, html: (s) => statusBadge(X(s).status) },

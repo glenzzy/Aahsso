@@ -298,7 +298,7 @@ function storeSuppliers() {
         { k: 'name', label: 'Name', core: true, v: (s) => s.name, html: (s) => '<b>' + esc(s.name) + '</b>' },
         { k: 'phone', label: 'Phone', core: true, v: (s) => s.phone || '' },
         { k: 'bought', label: 'Bought', core: true, money: true, v: (s) => Math.round(st(s).bought) || '', total: (rows) => fmt(dtSum(rows, (s) => st(s).bought)) },
-        { k: 'owed', label: 'You owe', core: true, money: true, v: (s) => supplierOwed(s.id) || '', html: (s) => supplierOwed(s.id) > 0 ? '<span style="color:var(--bad);font-weight:700">' + fmt(supplierOwed(s.id)) + '</span>' : dtNil, total: (rows) => fmt(dtSum(rows, (s) => supplierOwed(s.id))) },
+        { k: 'owed', label: 'You owe', core: true, money: true, v: (s) => supplierOwed(s.id) || '', html: (s) => supplierOwed(s.id) > 0 ? '<span style="color:var(--bad);font-weight:600">' + fmt(supplierOwed(s.id)) + '</span>' : dtNil, total: (rows) => fmt(dtSum(rows, (s) => supplierOwed(s.id))) },
       ],
     });
 }
@@ -424,7 +424,7 @@ function hoTable(rows, d) {
       { k: 'fees', label: 'MoMo charges', money: true, v: (r) => r.exp.fees || '' },
       { k: 'out', label: 'Paid out', core: true, money: true, v: (r) => r.ho ? num(r.ho.payouts) : '' },
       { k: 'handed', label: 'Handed over', core: true, money: true, v: (r) => r.ho ? sumObj(r.ho.declared) : '', total: (rs) => fmt(dtSum(rs, (r) => r.ho ? sumObj(r.ho.declared) : 0)) },
-      { k: 'diff', label: 'Difference', core: true, money: true, v: (r) => r.ho ? Math.round(diff(r)) : '', html: (r) => !r.ho ? dtNil : '<span style="font-weight:700;color:' + (Math.abs(diff(r)) < 1 ? 'var(--ok)' : diff(r) < 0 ? 'var(--bad)' : 'var(--warn)') + '">' + (Math.abs(diff(r)) < 1 ? 'Balanced' : fmt(diff(r))) + '</span>' },
+      { k: 'diff', label: 'Difference', core: true, money: true, v: (r) => r.ho ? Math.round(diff(r)) : '', html: (r) => !r.ho ? dtNil : '<span style="font-weight:600;color:' + (Math.abs(diff(r)) < 1 ? 'var(--ok)' : diff(r) < 0 ? 'var(--bad)' : 'var(--warn)') + '">' + (Math.abs(diff(r)) < 1 ? 'Balanced' : fmt(diff(r))) + '</span>' },
       { k: 'status', label: 'Status', core: true, v: (r) => r.ho ? r.ho.status : 'pending', html: (r) => r.ho ? hoBadge(r.ho) : '<span class="badge warn">Pending</span>' },
       { k: 'at', label: 'Submitted', v: (r) => r.ho ? r.ho.submittedAt || '' : '', html: (r) => r.ho && r.ho.submittedAt ? esc(fmtDT(r.ho.submittedAt)) : dtNil },
       { k: 'conf', label: 'Confirmed by', v: (r) => r.ho ? r.ho.confirmedBy || '' : '', cls: 'mut' },
@@ -448,7 +448,7 @@ function billsTable(list, empty) {
       { k: 'amt', label: 'Amount', core: true, money: true, cls: 'b', v: (b) => num(b.amount), html: (b) => money(b.amount, b.currency) },
       { k: 'paid', label: 'Paid', core: true, money: true, v: (b) => billX(b).paid, html: (b) => money(billX(b).paid, b.currency) },
       { k: 'fees', label: 'MoMo charges', money: true, v: (b) => billX(b).fees || '', html: (b) => billX(b).fees > 0 ? money(billX(b).fees, b.currency) : dtNil },
-      { k: 'owed', label: 'Owed', core: true, money: true, v: (b) => owed(b) || '', html: (b) => owed(b) ? '<span style="color:var(--bad);font-weight:700">' + money(owed(b), b.currency) + '</span>' : dtNil },
+      { k: 'owed', label: 'Owed', core: true, money: true, v: (b) => owed(b) || '', html: (b) => owed(b) ? '<span style="color:var(--bad);font-weight:600">' + money(owed(b), b.currency) + '</span>' : dtNil },
       { k: 'owedx', label: 'Owed (' + baseCode() + ')', money: true, v: (b) => owed(b) ? Math.round(billX(b).balanceX) : '', total: (rows) => fmt(dtSum(rows, (b) => owed(b) ? billX(b).balanceX : 0)) },
       { k: 'mode', label: 'Payment mode', v: (b) => [...new Set(pays(b).map((p) => p.method))].join(', ') },
       { k: 'last', label: 'Last payment', v: (b) => (pays(b).slice(-1)[0] || {}).date || '', html: (b) => dtDate((pays(b).slice(-1)[0] || {}).date) },
@@ -468,7 +468,7 @@ function supTable() {
       { k: 'phone', label: 'Phone', core: true, v: (s) => s.phone || '' },
       { k: 'n', label: 'Bills', core: true, num: true, v: (s) => bills(s).length },
       { k: 'open', label: 'Open bills', core: true, num: true, v: (s) => bills(s).filter((b) => billX(b).balance > 0.005).length },
-      { k: 'owed', label: 'You owe', core: true, money: true, v: (s) => supplierOwed(s.id) || '', html: (s) => supplierOwed(s.id) > 0 ? '<span style="color:var(--bad);font-weight:700">' + fmt(supplierOwed(s.id)) + '</span>' : dtNil, total: (rows) => fmt(dtSum(rows, (s) => supplierOwed(s.id))) },
+      { k: 'owed', label: 'You owe', core: true, money: true, v: (s) => supplierOwed(s.id) || '', html: (s) => supplierOwed(s.id) > 0 ? '<span style="color:var(--bad);font-weight:600">' + fmt(supplierOwed(s.id)) + '</span>' : dtNil, total: (rows) => fmt(dtSum(rows, (s) => supplierOwed(s.id))) },
       { k: 'notes', label: 'Notes', v: (s) => s.notes || '', cls: 'mut' },
     ],
   });
@@ -483,7 +483,7 @@ function remTable(list) {
     cols: [
       { k: 'name', label: 'Customer', core: true, v: (o) => o.c.name, html: (o) => '<b>' + esc(o.c.name) + '</b>' },
       { k: 'phone', label: 'Phone', core: true, v: (o) => o.c.phone || '' },
-      { k: 'bal', label: 'Owes', core: true, money: true, v: (o) => o.balance, html: (o) => '<span style="color:var(--bad);font-weight:700">' + fmt(o.balance) + '</span>', total: (rows) => fmt(dtSum(rows, (o) => o.balance)) },
+      { k: 'bal', label: 'Owes', core: true, money: true, v: (o) => o.balance, html: (o) => '<span style="color:var(--bad);font-weight:600">' + fmt(o.balance) + '</span>', total: (rows) => fmt(dtSum(rows, (o) => o.balance)) },
       { k: 'n', label: 'Sales', num: true, v: (o) => o.sales.length },
       { k: 'rc', label: 'Receipts', wrap: true, v: (o) => o.sales.map((s) => s.no).join(', '), cls: 'mut' },
       { k: 'due', label: 'Due', core: true, v: (o) => o.due, html: (o) => dtDate(o.due) },

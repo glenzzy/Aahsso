@@ -275,7 +275,7 @@ function purchaseTable(groups) {
       { k: 'ref', label: 'Payment txn ID', v: (g) => pays(g).map((p) => p.ref).filter(Boolean).join(', '), cls: 'mut' },
       { k: 'paid', label: 'Paid', core: true, money: true, v: (g) => g.bx ? g.bx.paid : '', html: (g) => g.bx ? money(g.bx.paid, g.cur) : dtNil, total: curTotal((g) => g.bx ? g.bx.paid : 0) },
       { k: 'fees', label: 'MoMo charges', money: true, v: (g) => g.bx && g.bx.fees > 0 ? g.bx.fees : '', html: (g) => g.bx && g.bx.fees > 0 ? money(g.bx.fees, g.cur) : dtNil },
-      { k: 'owed', label: 'Owed', core: true, money: true, v: (g) => owed(g) || '', html: (g) => owed(g) ? '<span style="color:var(--bad);font-weight:700">' + money(owed(g), g.cur) + '</span>' : dtNil, total: curTotal(owed) },
+      { k: 'owed', label: 'Owed', core: true, money: true, v: (g) => owed(g) || '', html: (g) => owed(g) ? '<span style="color:var(--bad);font-weight:600">' + money(owed(g), g.cur) + '</span>' : dtNil, total: curTotal(owed) },
       { k: 'due', label: 'Pay by', v: (g) => owed(g) ? (g.bill.dueDate || g.bill.date) : '', html: (g) => { if (!owed(g)) return dtNil; const d = g.bill.dueDate || g.bill.date; return d < today ? '<span class="badge bad">Overdue · ' + esc(dayMon(d)) + '</span>' : dtDate(d); } },
       st ? null : { k: 'where', label: 'Where', core: true, v: (g) => Object.keys(g.stages).map((s) => STAGE_NAME[s]).join(', '), html: (g) => Object.keys(g.stages).map((s) => STAGE_BADGE[s] || '').join(' ') },
       { k: 'coll', label: 'Collected', v: (g) => g.atSeller ? 'No' : 'Yes', html: (g) => g.atSeller ? '<span class="badge warn">' + (g.atSeller === g.lots.length ? 'No · at ' + (st ? 'supplier' : 'seller') : 'Partly') + '</span>' : '<span class="badge">Yes</span>' },
