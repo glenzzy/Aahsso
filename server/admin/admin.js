@@ -548,7 +548,7 @@
     S.catalog = d.catalog; S.editions = d.editions;
     const catOf = (ed) => { const e = d.editions.find((x) => x.key === ed) || d.editions[0]; return d.catalog.filter(([k]) => e.features.includes(k)); };
     const lim = (p) => { const L = p.limits || {}; const cat = catOf(p.edition); const off = cat.filter(([k]) => (p.modules || {})[k] === false).length; return Object.entries(d.limitKeys.counts).map(([k, l]) => (L[k] ? L[k] : '∞') + ' ' + l.split(' (')[0]).join(' · ') + ' · ' + (cat.length - off) + '/' + cat.length + ' features'; };
-    v.innerHTML = '<div class="page-intro"><p>What each plan costs and which features and limits it includes. Each plan is for one kind of business: <b>Aahsso Brocan</b> or <b>Aahsso Store</b> — a business only sees the plans of its kind. Businesses keep the price they signed up at; new prices apply to new subscriptions and plan changes.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
+    v.innerHTML = '<div class="page-intro"><p>Each plan is for Aahsso Brocan or Aahsso Store; price changes apply to new subscriptions only.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
       d.editions.map((e) => { const rows = d.plans.filter((p) => p.edition === e.key); return '<h2 class="mt2 mb row" style="gap:8px">' + edBadge(e.key) + esc(e.label) + ' plans <span class="small muted" style="font-weight:400">' + esc(edOf(e.key).what) + '</span></h2>' +
       (rows.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No ' + esc(e.label) + ' plan is shown to businesses yet.</b> ' + esc(e.short) + ' businesses see an empty Plans page until you click <b>Publish</b> on one.</div>') +
       '<div class="card mb2">' + table([
@@ -565,7 +565,7 @@
     const locked = !isNew && p.used > 0; // businesses use it: its kind cannot change
     const box = modal({ title: isNew ? 'New plan' : 'Edit ' + p.name, wide: true, body: '<div class="col">' +
       field('For which businesses?', sel('edition', (isNew ? [['', 'Choose…']] : []).concat(Object.entries(ED).map(([k, x]) => [k, x.label + ' — ' + x.what])), p.edition, locked ? 'disabled' : '')) + (locked ? '<div class="tiny muted">Businesses use this plan, so it stays a ' + esc(edOf(p.edition).label) + ' plan. Make a new plan for the other kind.</div>' : '') +
-      '<div class="grid2">' + (isNew ? field('Code (cannot change later)', inp('id', '', 'placeholder="e.g. store-pro" autocapitalize="off"')) : '') + field('Name', inp('name', p.name)) + '</div>' + field('Short description', inp('description', p.description)) +
+      field('Name', inp('name', p.name, isNew ? 'placeholder="e.g. Pro"' : '')) + field('Short description', inp('description', p.description)) +
       '<div class="grid3">' + field('Monthly price (FCFA)', inp('price_monthly', p.price_monthly, 'inputmode="numeric" placeholder="no price"')) + field('Yearly price (FCFA)', inp('price_yearly', p.price_yearly, 'inputmode="numeric" placeholder="no price"')) + '<div class="tiny muted" style="grid-column:1/-1">No price at all = a Free plan: businesses get a free trial on it.</div>' + field('Order', inp('sort', p.sort, 'inputmode="numeric"')) + '</div>' +
       '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.entries(S.limitKeys.counts).map(([k, l]) => field(l[0].toUpperCase() + l.slice(1), inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
       '<h3>Features in this plan <span class="tiny faint">(unticked = hidden from the business)</span></h3><div id="plFeat"></div>' +
@@ -579,7 +579,7 @@
       const v = vals(box); const limits = {}; const ed = edSel.value; if (!ed) throw new Error('Choose who the plan is for: Aahsso Brocan or Aahsso Store');
       Object.keys(S.limitKeys.counts).forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
       const modules = {}; catOf(ed).forEach(([k]) => { if (!v['F_' + k]) modules[k] = false; });
-      const body = { edition: ed, id: v.id, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };
+      const body = { edition: ed, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };
       if (isNew) await api('POST', '/plans', body); else await api('PUT', '/plans/' + encodeURIComponent(p.id), body);
       closeModal(); toast('Plan saved'); S.plans = null; route();
     });

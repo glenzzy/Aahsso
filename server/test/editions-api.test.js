@@ -74,6 +74,11 @@ test('plans belong to one kind: a Store business sees and buys only Store plans'
   assert.equal((await mk('xi-' + rnd, 'import')).status, 200);
   assert.equal((await mk('xs-' + rnd, 'store', { modules: { ship: false, payroll: false } })).status, 200);
   assert.equal((await mk('xx-' + rnd, 'galaxy')).status, 400, 'an unknown kind');
+  // no code given: made from the name (Store plans start with store-), and never clashes
+  const nm = 'Pro ' + rnd; const slug = 'store-pro-' + rnd;
+  assert.equal((await mk('', 'store', { name: nm })).status, 200); assert.equal((await mk('', 'store', { name: nm })).status, 200);
+  const ids = (await S.c.call('GET', '/api/admin/plans')).body.plans.map((p) => p.id);
+  assert.ok(ids.includes(slug) && ids.includes(slug + '-2'), 'codes ' + slug + ' and ' + slug + '-2');
   const pl = (await S.c.call('GET', '/api/admin/plans')).body;
   const xs = pl.plans.find((p) => p.id === 'xs-' + rnd); assert.equal(xs.edition, 'store'); assert.deepEqual(xs.modules, { payroll: false }, 'features a Store never has are not stored');
   assert.ok(!pl.editions.find((e) => e.key === 'store').features.includes('ship'));

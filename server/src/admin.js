@@ -617,8 +617,15 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     return { p };
   }
   A.post('/plans', need('plans.write'), reauth, wrap(async (req, res) => {
-    const id = String((req.body || {}).id || '').trim().toLowerCase(); if (!/^[a-z0-9][a-z0-9-]{1,29}$/.test(id) || id === 'trial') return bad(res, 'Plan code: 2–30 lowercase letters, numbers or dashes (not "trial")');
     const { p, error } = cleanPlan(req.body || {}); if (error) return bad(res, error);
+    // the plan's code (kept on subscriptions and invoices) is made from its name: "Pro" for Aahsso Store → store-pro, store-pro-2…
+    let id = String((req.body || {}).id || '').trim().toLowerCase();
+    if (!id) {
+      const base = ((p.edition === 'store' ? 'store-' : '') + String(p.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')).slice(0, 26).replace(/-+$/, '') || 'plan';
+      const taken = new Set((await q('SELECT id FROM plans WHERE id = $1 OR id LIKE $2', [base, base + '-%'])).rows.map((r) => r.id)); taken.add('trial');
+      id = base.length < 2 ? 'plan-' + base : base; for (let n = 2; taken.has(id); n++) id = base + '-' + n;
+    }
+    if (!/^[a-z0-9][a-z0-9-]{1,29}$/.test(id) || id === 'trial') return bad(res, 'That plan code cannot be used');
     try { await q('INSERT INTO plans (id, name, description, price_monthly, price_yearly, active, public, sort, features, limits, modules, edition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules), p.edition]); }
     catch (e) { if (e.code === '23505') return bad(res, 'A plan with this code already exists', 409); throw e; }
     await audit(req, 'plan_created', { target: id, details: p }); res.json({ ok: true });
