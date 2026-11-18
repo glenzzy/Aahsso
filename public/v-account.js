@@ -48,6 +48,7 @@ function openPMenu() {
   const pop = document.createElement('div');
   pop.id = 'pmPop'; pop.className = 'pm-pop'; pop.setAttribute('role', 'menu'); pop.setAttribute('aria-label', 'Account');
   pop.innerHTML = '<div class="pm-head">' + avatarHTML(name, 'lg') + '<div class="grow" style="min-width:0"><div class="pm-n">' + esc(name) + '</div><div class="pm-s">' + esc(role) + ' · ' + esc(S().businessName || '') + '</div>' + (u.email || u.login ? '<div class="pm-s ellipsis">' + esc(u.email || u.login) + '</div>' : '') + '</div></div>' + (saas ? planLine() : '') +
+    (bizCan() ? '<div class="pm-list pm-biz"><div class="pm-sec">Your businesses</div>' + bizRows('pm-item', 'menuitem') + '</div>' : '') +
     '<div class="pm-list">' + item('#profile', 'user', 'Profile') +
       (saas && canBilling() ? item('#billing', 'card', 'Billing & subscription') : '') +
       item('#help', 'help', 'Help & support') + '</div>' +
@@ -89,6 +90,46 @@ A.logoutAsk = async () => {
   try { localStorage.removeItem('aahsso-me'); } catch (e) { }
   A.logout();
 };
+
+/* ================= YOUR BUSINESSES: one sign-in, a Brocan and a Store (or more) =================
+ * The list sits in the account menu, under the business name in the sidebar, and behind the logo on a phone.
+ * Switching reloads the app in the other business; unsent offline changes must be uploaded first. */
+const bizList = () => (K.info && K.info.businesses) || [];
+const bizCan = () => K.info && K.info.mode === 'saas' && !K.info.supportView && (bizList().length > 1 || !!K.info.canAddBusiness);
+const edTag = (ed) => '<span class="biz-ed biz-' + esc(ed) + '">' + esc(KC.editionOf(ed).short) + '</span>';
+function bizRows(cls, role) {
+  return bizList().map((b) => '<button type="button" class="' + cls + ' biz-row' + (b.current ? ' on' : '') + '"' + (role ? ' role="' + role + '" tabindex="-1"' : '') + ' data-a="bizSwitch" data-id="' + esc(b.id) + '"' + (b.current ? ' aria-current="true"' : '') + '>' +
+    '<span class="biz-av">' + esc(initials(b.name).slice(0, 2)) + '</span><span class="grow" style="min-width:0"><span class="biz-n ellipsis">' + esc(b.name) + '</span>' + edTag(b.edition) + '</span>' + (b.current ? ic('check', 'sm') : '') + '</button>').join('') +
+    (K.info.canAddBusiness ? '<button type="button" class="' + cls + ' biz-add"' + (role ? ' role="' + role + '" tabindex="-1"' : '') + ' data-a="bizAdd">' + ic('plus') + '<span class="grow">Add a business</span></button>' : '');
+}
+A.bizSheet = () => { closePMenu(); openSheet({ title: 'Your businesses', body: '<div class="card list biz-list">' + bizRows('li') + '</div><p class="hint mt">One sign-in for all of them. Each business has its own stock, sales, team and plan.</p>' }); };
+async function bizEnter(token, name) {
+  ['aahsso-me', 'aahsso-cart', 'aahsso-loc', 'aahsso-choose-plan'].forEach((k) => { try { localStorage.removeItem(k); } catch (e) { } });
+  try { localStorage.setItem('aahsso-token', token); sessionStorage.setItem('aahsso-switched', name); } catch (e) { }
+  location.hash = '#home'; location.reload();
+}
+A.bizSwitch = async (el) => {
+  const b = bizList().find((x) => x.id === el.dataset.id); closePMenu(); if (!b || b.current) return;
+  if (K.outbox.length) { await flushOutbox(); if (K.outbox.length) return toast(K.outbox.length + ' change(s) are still waiting to upload. Connect to the internet, then switch.', true); }
+  try { const r = await K.store.req('POST', '/api/businesses/switch', { tenantId: b.id }); await bizEnter(r.token, b.name); } catch (e) { toast(e.message, true); }
+};
+A.bizAdd = async () => {
+  closePMenu(); while (K.sheets.length) closeSheet();
+  let eds = []; try { eds = (await K.store.req('GET', '/api/signup-options')).editions || []; } catch (e) { return toast(e.message, true); }
+  if (!eds.length) return toast('New businesses cannot be added right now', true);
+  const other = eds.find((e) => e.key !== edition().key) || eds[0]; // most people add the other kind
+  const sh = openSheet({ title: 'Add a business', body: '<div class="col">' + field('Business name', inp('bizName', '', 'placeholder="e.g. ' + (other.key === 'store' ? 'Chez Mama Store' : 'Mama Imports') + '" autocomplete="organization"')) +
+      '<div class="lbl-t">What is it for?</div><div class="biz-pick">' + eds.map((e) => '<label class="biz-opt"><input type="radio" name="bizEd" value="' + esc(e.key) + '"' + (e.key === other.key ? ' checked' : '') + '><span><b>' + esc(e.label) + '</b><span class="hint">' + esc(e.tag) + '</span></span></label>').join('') + '</div>' +
+      '<p class="hint">Starts with a ' + 5 + '-day free trial and its own plan. You sign in the same way and switch from your account menu.</p></div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="bizGo">' + ic('plus') + 'Create and open</button>' });
+  $('#bizGo', sh).onclick = async () => {
+    const v = formVals(sh); const name = (v.bizName || '').trim(); if (name.length < 2) return toast('Type the name of the business', true);
+    if (K.outbox.length) { await flushOutbox(); if (K.outbox.length) return toast('Some changes are still waiting to upload. Connect to the internet first.', true); }
+    try { const r = await K.store.req('POST', '/api/businesses', { businessName: name, edition: v.bizEd }); await bizEnter(r.token, name); } catch (e) { toast(e.message, true); }
+  };
+};
+// just switched: say where you are
+setTimeout(() => { try { const n = sessionStorage.getItem('aahsso-switched'); if (n) { sessionStorage.removeItem('aahsso-switched'); toast('You are now in ' + n); } } catch (e) { } }, 1500);
 
 /* ================= PROFILE ================= */
 VIEWS.profile = {
@@ -172,7 +213,7 @@ VIEWS.billing = {
     const ended = ['expired', 'suspended'].includes(s.status);
     const ask = 'Hello Aahsso team, I am ' + myName() + ' from ' + (S().businessName || '') + '. ';
     // current plan + usage
-    const lim = b.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items' };
+    const lim = b.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: locW().Many, maxProducts: 'Items' };
     let html = '<div class="card pad2 mb bill-cur"><div class="row between wrap"><div><div class="hint">Current plan</div><h2>' + esc(!s.planName ? 'Free trial' : s.planName + (s.status === 'trialing' ? ' · free trial' : '')) + '</h2>' +
       (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? '<div class="small muted">' + money0(s.price, s.currency) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') + '</div>' : '') + '</div><span class="badge ' + st.tone + '">' + esc(st.label) + '</span></div>' +
       '<div class="bill-rows mt">' + (s.status === 'trialing' && s.trialEndsAt ? '<div class="row between cl"><span>Trial ends</span><b>' + esc(fmtDate(String(s.trialEndsAt).slice(0, 10))) + '</b></div>' : '') +
@@ -392,7 +433,7 @@ function planTable(b) {
     return '<tr class="pt-group' + (isOpen ? ' open' : '') + '" data-g="' + esc(title) + '"><th scope="rowgroup" class="pt-gth"><button type="button" class="pt-gbtn" data-a="ptGroup" data-g="' + esc(title) + '" aria-expanded="' + isOpen + '">' + ic('down', 'sm') + '<span>' + esc(title) + '</span>' + (keys ? '<span class="pt-gn">' + keys.length + '</span>' : '') + '</button></th>' +
       plans.map((p) => '<td class="pt-cell pt-gsum">' + (keys ? (() => { const n = keys.filter((k) => (p.modules || {})[k] !== false).length; return '<span class="pt-gcount' + (n === keys.length ? ' all' : n ? '' : ' none') + '">' + n + ' / ' + keys.length + '</span>'; })() : '') + '</td>').join('') + '</tr>'; };
   const lim = (p, k) => { const v = (p.limits || {})[k]; return '<td class="pt-cell pt-val">' + (v ? esc(fmt(v)) : 'Unlimited') + '</td>'; };
-  let body = group('Limits') + row('Team members', plans.map((p) => lim(p, 'maxUsers')).join('')) + row('Branches', plans.map((p) => lim(p, 'maxLocations')).join(''), 'Including the main one') + row('Items', plans.map((p) => lim(p, 'maxProducts')).join(''));
+  let body = group('Limits') + row('Team members', plans.map((p) => lim(p, 'maxUsers')).join('')) + row(locW().Many, plans.map((p) => lim(p, 'maxLocations')).join(''), 'Including the main one') + row('Items', plans.map((p) => lim(p, 'maxProducts')).join(''));
   const groups = {}; (b.catalog || []).forEach(([k, l, g, d]) => (groups[g] = groups[g] || []).push([k, l, d]));
   Object.entries(groups).forEach(([g, items]) => { body += group(g, items.map((x) => x[0])) + items.map(([k, l, d]) => row(l, plans.map((p) => tick((p.modules || {})[k] !== false)).join(''), d)).join(''); });
   body += group('Always included') + row('Essentials', plans.map(() => tick(true)).join(''), ALWAYS);

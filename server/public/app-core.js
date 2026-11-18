@@ -79,6 +79,10 @@ const hasAny = (...fs) => KC.anyOn(K.info && K.info.features, fs);
 const isStore = () => !!K.info && K.info.edition === 'store';
 const edition = () => KC.editionOf(K.info && K.info.edition);
 /** what an item cost you: "landed cost" for importers (goods + freight + customs), plain "cost" in a store */
+/** a count limit of the plan (null = unlimited) */
+const planMax = (k) => { const v = K.info && K.info.limits && K.info.limits[k]; return v ? Number(v) : null; };
+/** warehouse / store words for this business (KC.EDITIONS[*].loc) */
+const locW = () => edition().loc;
 const costWord = (cap) => (isStore() ? (cap ? 'Cost' : 'cost') : (cap ? 'Landed cost' : 'landed cost'));
 /** page classes nf-<feature> for each feature that is off — the stylesheet hides those features' buttons */
 function featureClasses() { const f = (K.info && K.info.features) || {}; KC.FEATURE_KEYS.forEach((k) => document.body.classList.toggle('nf-' + k, f[k] === false)); document.body.classList.toggle('ed-store', isStore()); }
@@ -98,8 +102,8 @@ function resolveAccessInner() {
   K.member = m; K.perms = KC.permsWithFeatures(base, F); featureClasses();
 }
 function resolveAccess() { resolveAccessInner(); if (K.member && K.info.mode === 'saas' && K.info.user.locationId) K.member = Object.assign({}, K.member, { locationId: K.info.user.locationId }); fixLoc(); }
-const allLocs = () => [{ id: 'main', name: S().mainLocationName || 'Main warehouse' }].concat(K.raw.locations.filter((l) => !l.archived).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-const locName = (id) => (allLocs().find((l) => l.id === (id || 'main')) || { name: 'Main warehouse' }).name;
+const allLocs = () => [{ id: 'main', name: S().mainLocationName || locW().main }].concat(K.raw.locations.filter((l) => !l.archived).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+const locName = (id) => (allLocs().find((l) => l.id === (id || 'main')) || { name: locW().main }).name;
 const myLocs = () => can('allLocations') ? allLocs() : allLocs().filter((l) => l.id === ((K.member && K.member.locationId) || 'main'));
 function fixLoc() { const ok = myLocs(); if (!ok.find((l) => l.id === K.loc)) K.loc = (ok[0] || { id: 'main' }).id; try { localStorage.setItem('aahsso-loc', K.loc); } catch (e) { } }
 try { K.loc = localStorage.getItem('aahsso-loc') || 'main'; } catch (e) { }
@@ -416,7 +420,8 @@ function logoHTML(cls = 'logo') { const s = S(); return '<div class="' + cls + '
 const navCount = (n) => { const c = n[4] ? n[4]() : 0; return c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : ''; };
 function shell() {
   const s = S();
-  $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div><div class="bn">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">' + esc(edition().label) + '</div></div></div>' +
+  const sw = typeof bizCan === 'function' && bizCan();
+  $('#side').innerHTML = '<div class="brandbox' + (sw ? ' biz-sw' : '') + '"' + (sw ? ' data-a="bizSheet" role="button" tabindex="0" title="Switch or add a business"' : '') + '>' + logoHTML() + '<div class="grow" style="min-width:0"><div class="bn ellipsis">' + esc(s.businessName) + '</div><div class="tiny" style="color:#93a2b0">' + esc(edition().label) + '</div></div>' + (sw ? ic('down', 'sm') : '') + '</div>' +
     '<div class="navs">' + sections().map((sec) => { const rs = secRoutes(sec); if (!rs.length) return ''; const c = secCount(sec); return '<a class="nav' + (sec[3].includes(K.route) ? ' on' : '') + '" href="#' + rs[0] + '">' + ic(sec[2]) + sec[1] + (c ? '<span class="nav-count" aria-label="' + c + ' new">' + c + '</span>' : '') + '</a>'; }).join('') + '</div>' +
     '<div class="sp"></div><div class="who">' + esc(K.me.name || K.info.userLabel || '') + ' · ' + esc(roleLabel()) + '</div>';
   drawAvatar();
@@ -427,7 +432,7 @@ function shell() {
   $('#bnav').innerHTML = bn.map((n) => n[0] === 'more'
     ? '<a href="#" data-a="moreMenu" class="' + (moreOn ? 'on' : '') + '">' + ic('more') + '<span>More</span></a>'
     : '<a href="#' + n[0] + '" class="' + (n[0] === 'sell' ? 'sell ' : '') + (cur === n[0] ? 'on' : '') + '"><div class="ic">' + ic(n[2]) + '</div><span>' + n[1] + '</span></a>').join('');
-  $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"');
+  $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"' + (sw ? ' data-a="bizSheet" role="button" title="Switch or add a business"' : ''));
   $('#title').textContent = (secOf(K.route)[1] === 'Home' && K.route !== 'home') || (secOf(K.route)[0] === 'tools' && K.route !== 'tools') ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
   shellSync();
   if (K.tour && typeof tourMark === 'function') setTimeout(tourMark, 0);

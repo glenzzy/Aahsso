@@ -328,7 +328,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       (SELECT count(*)::int FROM users u WHERE u.tenant_id=t.id AND u.active) AS users,
       (SELECT max(at) FROM audit_log a WHERE a.tenant_id=t.id) AS last_activity, o.name AS owner_name, o.login AS owner_login, o.email AS owner_email
     FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id LEFT JOIN plans p ON p.id=s.plan_id
-    LEFT JOIN LATERAL (SELECT name, login, email FROM users WHERE tenant_id=t.id AND role='owner' ORDER BY created_at LIMIT 1) o ON true
+    LEFT JOIN LATERAL (SELECT u.name, coalesce(p.login, u.login) AS login, u.email FROM users u LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=t.id AND u.role='owner' ORDER BY u.created_at LIMIT 1) o ON true
     WHERE ($1 = '' OR t.name ILIKE '%' || $1 || '%' OR o.login ILIKE '%' || $1 || '%' OR coalesce(o.email,'') ILIKE '%' || $1 || '%' OR o.name ILIKE '%' || $1 || '%')
       AND ($2 = '' OR s.status = $2) AND ($3 = '' OR s.plan_id = $3) AND ($5 = '' OR t.edition = $5)`;
   A.get('/tenants', need('tenants.view'), wrap(async (req, res) => {
@@ -344,7 +344,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       q(`SELECT
         (SELECT data FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main') AS settings,
         (SELECT coalesce(json_object_agg(collection, n), '{}') FROM (SELECT collection, count(*)::int AS n FROM documents WHERE tenant_id=$1 AND collection IN ('products','sales','customers','orders') GROUP BY collection) x) AS counts,
-        (SELECT coalesce(json_agg(x ORDER BY x.created_at), '[]') FROM (SELECT id, name, login, email, role, active, created_at, last_login_at FROM users WHERE tenant_id=$1) x) AS users,
+        (SELECT coalesce(json_agg(x ORDER BY x.created_at), '[]') FROM (SELECT u.id, u.name, coalesce(p.login, u.login) AS login, u.email, u.role, u.active, u.created_at, u.last_login_at, u.person_id IS NOT NULL AS linked FROM users u LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=$1) x) AS users,
         (SELECT coalesce(json_agg(x ORDER BY x.issued_at DESC), '[]') FROM (SELECT i.*, p.name AS plan_name FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE tenant_id=$1 ORDER BY issued_at DESC LIMIT 50) x) AS invoices,
         (SELECT coalesce(json_agg(x ORDER BY x.created_at DESC), '[]') FROM (SELECT * FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 50) x) AS payments,
         (SELECT coalesce(json_agg(x ORDER BY x.at DESC), '[]') FROM (SELECT at, user_name, action, collection, doc_id FROM audit_log WHERE tenant_id=$1 ORDER BY at DESC LIMIT 25) x) AS activity,
@@ -434,7 +434,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const t = await tenantOr404(req, res); if (!t) return; const reason = needReason(req, res); if (!reason) return;
     const o = await B.ownerOf(pool, t.id); if (!o) return bad(res, 'This business has no active owner');
     const temp = tempPassword();
-    await q('UPDATE users SET password_hash=$2 WHERE id=$1', [o.id, await bcrypt.hash(temp, 10)]);
+    await q('UPDATE users SET password_hash=$2 WHERE id=$1', [o.person_id || o.id, await bcrypt.hash(temp, 10)]); // a linked owner signs in as the person
     await q("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, $2, 'main', 'support_password', $3)", [t.id, 'Aahsso support', JSON.stringify({ reason, by: req.admin.name })]);
     const to = mailer.emailOf(o); let emailed = null;
     if (to) emailed = (await mailer.sendEmail(Object.assign({ to, kind: 'staff_password', tenantId: t.id }, mailer.T.staffAccount({ name: o.name, business: t.name, login: o.login, password: temp, role: 'owner', url: mailer.appUrl(), by: 'Aahsso support', reset: true })))).status;
@@ -443,7 +443,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   }));
 
   /* ---------- business users: everyone who signs in to a business (owners and their team) ---------- */
-  const USER_SEL = 'SELECT u.id, u.tenant_id, u.name, u.login, u.email, u.role, u.active, u.location_id, u.created_at, u.last_login_at, t.name AS tenant FROM users u JOIN tenants t ON t.id=u.tenant_id';
+  const USER_SEL = 'SELECT u.id, u.tenant_id, u.name, coalesce(lp.login, u.login) AS login, u.email, u.role, u.active, u.location_id, u.created_at, u.last_login_at, t.name AS tenant, u.person_id IS NOT NULL AS linked FROM users u JOIN tenants t ON t.id=u.tenant_id LEFT JOIN users lp ON lp.id=u.person_id';
   /** the roles a business can give: the standard ones, plus its own custom roles when its plan includes them */
   async function rolesOf(tid) {
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [tid])).rows[0];
@@ -492,7 +492,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const u = await userOr404(req, res); if (!u) return; const b = req.body || {}; const ch = {};
     if (b.name !== undefined) { const n = String(b.name).trim().slice(0, 80); if (n.length < 2) return bad(res, 'Type their name'); ch.name = n; }
     if (b.email !== undefined) { if (b.email && !mailer.isEmail(b.email)) return bad(res, 'Type a valid email address (or leave it empty)'); ch.email = b.email ? String(b.email).trim().toLowerCase() : null; }
-    if (b.login !== undefined && String(b.login).trim().toLowerCase() !== u.login) { const l = String(b.login).trim().toLowerCase().slice(0, 120); if (l.length < 3 || /\s/.test(l)) return bad(res, 'Login: an email or phone number, no spaces'); ch.login = l; }
+    if (b.login !== undefined && !u.linked && String(b.login).trim().toLowerCase() !== u.login) { const l = String(b.login).trim().toLowerCase().slice(0, 120); if (l.length < 3 || /\s/.test(l)) return bad(res, 'Login: an email or phone number, no spaces'); ch.login = l; }
     if (b.role !== undefined && b.role !== u.role) { if (u.role === 'owner') return bad(res, 'The owner stays the owner'); if (b.role === 'owner' || !(await rolesOf(u.tenant_id)).some((r) => r.id === b.role)) return bad(res, 'Choose a role this business has'); ch.role = b.role; }
     if (typeof b.active === 'boolean' && b.active !== u.active) {
       if (u.role === 'owner' && !b.active) return bad(res, 'The owner cannot be disabled — suspend the business instead');
@@ -648,6 +648,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       graceDays: Math.min(60, Math.max(0, Math.round(Number(b.graceDays) || 0))),
       renewalNoticeDays: Math.min(30, Math.max(1, Math.round(Number(b.renewalNoticeDays) || 7))), invoiceDueDays: Math.min(60, Math.max(0, Math.round(Number(b.invoiceDueDays) || 0))),
       signup: Object.fromEntries(KC.EDITION_KEYS.map((k) => [k, ((b.signup || {})[k]) !== false])), // which editions new businesses can choose
+      maxBusinesses: Math.min(20, Math.max(1, Math.round(Number(b.maxBusinesses) || 3))), // businesses one person can own under one sign-in
     };
     if (!KC.EDITION_KEYS.some((k) => v.signup[k])) return bad(res, 'Keep sign-up open for at least one of Aahsso Brocan and Aahsso Store');
     const ents = Object.entries(v);

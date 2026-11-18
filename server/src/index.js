@@ -127,7 +127,7 @@ app.post('/api/auth/forgot', authLimiter, wrap(async (req, res) => {
   const l = String((req.body || {}).login || '').trim().toLowerCase();
   const done = () => res.json({ ok: true, message: 'If this account has an email address, a reset link is on its way.' }); // same answer either way
   if (!l) return err(res, 400, 'Type your email or phone');
-  const u = (await q('SELECT * FROM users WHERE active AND (login=$1 OR lower(email)=$1) ORDER BY created_at LIMIT 1', [l])).rows[0];
+  const u = (await q('SELECT * FROM users WHERE active AND person_id IS NULL AND (login=$1 OR lower(email)=$1) ORDER BY created_at LIMIT 1', [l])).rows[0];
   const to = mailer.emailOf(u); if (!u || !to) return done();
   const recent = (await q("SELECT count(*)::int AS n FROM password_resets WHERE user_id=$1 AND created_at > now() - interval '1 hour'", [u.id])).rows[0].n;
   if (recent >= 5) return done();
@@ -168,7 +168,7 @@ async function auth(req, res, next) {
   try {
     let p; try { p = jwt.verify(token, SECRET); } catch (e) { return err(res, 401, 'Please sign in'); } // only a bad/expired token signs you out
     if (p.ro && !['GET', 'HEAD'].includes(req.method)) return err(res, 403, 'Aahsso support view is read-only — nothing can be changed', { code: 'read_only' });
-    const u = (await q('SELECT u.id,u.tenant_id,u.name,u.login,u.email,u.role,u.perms,u.location_id,u.active,t.name AS tenant_name,t.edition,t.plan,t.status,t.trial_ends_at,t.paid_until,t.grace_days FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1', [p.uid])).rows[0];
+    const u = (await q('SELECT u.id,u.tenant_id,u.name,coalesce(lp.login,u.login) AS login,u.email,u.role,u.perms,u.location_id,u.active,u.person_id,t.name AS tenant_name,t.edition,t.plan,t.status,t.trial_ends_at,t.paid_until,t.grace_days FROM users u JOIN tenants t ON t.id=u.tenant_id LEFT JOIN users lp ON lp.id=u.person_id WHERE u.id=$1', [p.uid])).rows[0];
     if (!u || !u.active) return err(res, 401, 'Session expired');
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0];
     u.customRoles = (st && st.roles) || {};
@@ -191,9 +191,10 @@ const requirePerm = (p) => (req, res, next) => canU(req.user, p) ? next() : err(
 app.post('/api/me/password', auth, authLimiter, wrap(async (req, res) => {
   const { current, password } = req.body || {};
   if (!password || String(password).length < 6) return err(res, 400, 'New password must be at least 6 characters');
-  const row = (await q('SELECT password_hash FROM users WHERE id=$1', [req.user.id])).rows[0];
+  const pid = personOf(req.user); // a linked business: the password is the person's own
+  const row = (await q('SELECT password_hash FROM users WHERE id=$1', [pid])).rows[0];
   if (!(await bcrypt.compare(String(current || ''), row.password_hash))) return err(res, 400, 'Current password is wrong', { code: 'bad_password' });
-  await q('UPDATE users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(String(password), 10), req.user.id]);
+  await q('UPDATE users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(String(password), 10), pid]);
   const to = mailer.emailOf(req.user);
   if (to) await mailer.sendEmail(Object.assign({ to, kind: 'password_changed', tenantId: req.user.tenant_id }, mailer.T.passwordChanged({ name: req.user.name, business: await businessName(req.user.tenant_id, req.user.tenant_name), url: mailer.appUrl(req), when: new Date().toUTCString() })));
   res.json({ ok: true });
@@ -203,8 +204,9 @@ app.patch('/api/me', auth, wrap(async (req, res) => {
   const { email, name } = req.body || {};
   if (email !== undefined && email !== '' && email !== null && !mailer.isEmail(email)) return err(res, 400, 'Type a valid email address');
   if (name !== undefined && (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 80)) return err(res, 400, 'Type your name (2 to 80 letters)');
-  if (email !== undefined) await q('UPDATE users SET email=$1 WHERE id=$2', [cleanEmail(email), req.user.id]);
-  if (name !== undefined) await q('UPDATE users SET name=$1 WHERE id=$2', [name.trim(), req.user.id]);
+  const pid = personOf(req.user); // the same person in each of their businesses
+  if (email !== undefined) await q('UPDATE users SET email=$1 WHERE id=$2 OR person_id=$2', [cleanEmail(email), pid]);
+  if (name !== undefined) await q('UPDATE users SET name=$1 WHERE id=$2 OR person_id=$2', [name.trim(), pid]);
   res.json({ ok: true, email: email !== undefined ? cleanEmail(email) : req.user.email || '', name: name !== undefined ? name.trim() : req.user.name });
 }));
 /* Help & Support: a message to the Aahsso team (by email, with the sender as reply-to) */
@@ -229,7 +231,52 @@ app.get('/api/me', auth, wrap(async (req, res) => {
   const pin = (await q('SELECT approval_pin_hash IS NOT NULL AS has FROM users WHERE id=$1', [u.id])).rows[0];
   res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u), approvalPin: !!(pin && pin.has) }, tenant: { id: u.tenant_id, name: u.tenant_name, edition: KC.editionOf(u.edition).key, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
     subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
-    edition: lim.edition, limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null });
+    edition: lim.edition, limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null,
+    businesses: u.supportView ? [] : await myBusinesses(u), canAddBusiness: !u.supportView && u.role === 'owner' && (await myBusinesses(u)).length < (await billing.platformSettings()).maxBusinesses });
+}));
+
+/* ---------- one person, several businesses (e.g. an Aahsso Brocan and an Aahsso Store) ----------
+ * The person signs in once. Each extra business gets an owner account linked to them (users.person_id) with no login
+ * of its own; switching hands out a session for that account. Password, name and email are shared. */
+const personOf = (u) => u.person_id || u.id;
+async function myBusinesses(u) {
+  const pid = personOf(u);
+  return (await q("SELECT u.tenant_id AS id, t.name, t.edition, u.role FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE (u.id=$1 OR u.person_id=$1) AND u.active ORDER BY u.created_at", [pid])).rows
+    .map((b) => ({ id: b.id, name: b.name, edition: KC.editionOf(b.edition).key, label: KC.editionOf(b.edition).label, role: b.role, current: b.id === u.tenant_id }));
+}
+const bizLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10 });
+app.post('/api/businesses', auth, bizLimiter, wrap(async (req, res) => {
+  const u = req.user; const b = req.body || {};
+  if (u.supportView) return err(res, 403, 'Not in the support view');
+  if (u.role !== 'owner') return err(res, 403, 'Only the owner of a business can add another business');
+  const name = String(b.businessName || '').trim().slice(0, 80); if (name.length < 2) return err(res, 400, 'Type the name of the new business');
+  const open = await signupEditions(); const edition = String(b.edition || '');
+  if (!KC.EDITION_KEYS.includes(edition)) return err(res, 400, 'Choose Aahsso Brocan or Aahsso Store');
+  if (!open.includes(edition)) return err(res, 400, KC.editionOf(edition).label + ' is not open for new businesses right now');
+  const mine = await myBusinesses(u); const max = (await billing.platformSettings()).maxBusinesses;
+  if (mine.length >= max) return err(res, 400, 'You can own up to ' + max + ' businesses. Contact Aahsso support for more.', { code: 'max_businesses' });
+  const pid = personOf(u); const me = (await q('SELECT name, email, login FROM users WHERE id=$1', [pid])).rows[0];
+  const days = billing.FREE_TRIAL_DAYS;
+  const user = await tx(async (c) => {
+    const t = (await c.query("INSERT INTO tenants(name, trial_ends_at, edition) VALUES ($1, now() + ($2 || ' days')::interval, $3) RETURNING id, trial_ends_at", [name, String(days), edition])).rows[0];
+    await billing.ensureSub(c, t.id, t.trial_ends_at); await billing.syncTenant(c, t.id);
+    const x = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,email,person_id) VALUES ($1,$2,$3,$4,'owner',$5,$6) RETURNING *",
+      [t.id, me.name, 'link:' + crypto.randomUUID(), await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10), mailer.emailOf(me), pid])).rows[0];
+    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName: name }, edition === 'store' ? { mainLocationName: KC.editionOf('store').loc.main } : {})), x.id]);
+    await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','register',$4)", [t.id, x.id, me.name, JSON.stringify({ edition, addedFrom: u.tenant_id })]);
+    await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','business_added',$4)", [u.tenant_id, u.id, u.name, JSON.stringify({ name, edition })]);
+    return x;
+  });
+  res.json({ token: sign(user), business: { id: user.tenant_id, name, edition } });
+}));
+app.post('/api/businesses/switch', auth, wrap(async (req, res) => {
+  const u = req.user; if (u.supportView) return err(res, 403, 'Not in the support view');
+  const tid = String((req.body || {}).tenantId || '');
+  const x = (await q('SELECT * FROM users WHERE tenant_id::text=$2 AND (id=$1 OR person_id=$1) AND active', [personOf(u), tid])).rows[0];
+  if (!x) return err(res, 404, 'You do not have access to this business');
+  await q('UPDATE users SET last_login_at=now() WHERE id=$1', [x.id]);
+  await q("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action) VALUES ($1,$2,$3,$4,'login')", [x.tenant_id, x.id, x.name, x.location_id || 'main']);
+  res.json({ token: sign(x) });
 }));
 
 /* ---------- live updates (Server-Sent Events) ---------- */
@@ -774,7 +821,7 @@ app.get('/api/team-names', auth, wrap(async (req, res) => {
   res.json({ people: (await q('SELECT id, name, role, location_id AS "locationId", active FROM users WHERE tenant_id=$1 ORDER BY name', [req.user.tenant_id])).rows });
 }));
 app.get('/api/users', auth, requirePerm('team'), wrap(async (req, res) => {
-  res.json({ users: (await q('SELECT id,name,login,email,role,perms,location_id AS "locationId",active,created_at,last_login_at FROM users WHERE tenant_id=$1 ORDER BY created_at', [req.user.tenant_id])).rows });
+  res.json({ users: (await q('SELECT u.id,u.name,coalesce(p.login,u.login) AS login,u.email,u.role,u.perms,u.location_id AS "locationId",u.active,u.created_at,u.last_login_at FROM users u LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=$1 ORDER BY u.created_at', [req.user.tenant_id])).rows });
 }));
 const ROLE_OK_BASE = ['admin', 'manager', 'sales', 'viewer'];
 const roleOk = (u, r) => r !== 'owner' && (ROLE_OK_BASE.includes(r) || (KC.featureOn(u.features, 'customRoles') && !!(u.customRoles && u.customRoles[r])));

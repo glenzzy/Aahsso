@@ -15,7 +15,7 @@ const PAY_METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other
 const STATUS_LABEL = { trialing: 'Free trial', active: 'Active', past_due: 'Payment overdue', expired: 'Expired', suspended: 'Suspended', cancelled: 'Cancelled' };
 
 /* ---------- platform settings ---------- */
-const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, renewalNoticeDays: 7, invoiceDueDays: 7, signup: { import: true, store: true } };
+const DEFAULTS = { paymentInstructions: { momoNumber: '', momoName: '', omNumber: '', omName: '', bank: '', note: '' }, graceDays: 7, renewalNoticeDays: 7, invoiceDueDays: 7, signup: { import: true, store: true }, maxBusinesses: 3 };
 async function platformSettings(c = pool) {
   const rows = (await c.query('SELECT key, value FROM platform_settings')).rows;
   const o = JSON.parse(JSON.stringify(DEFAULTS)); rows.forEach((r) => { o[r.key] = r.value; });
@@ -93,16 +93,16 @@ async function usage(c, tid) {
       (SELECT count(*)::int FROM documents WHERE tenant_id=$1 AND collection='products' AND coalesce((data->>'archived')::boolean, false) = false) AS "maxProducts"`, [tid])).rows[0];
   return r;
 }
-const limitError = (plan, key, max) => COUNT_LIMITS[key]
-  ? 'Your plan' + (plan ? ' (' + plan + ')' : '') + ' allows ' + max + ' ' + COUNT_LIMITS[key] + '. Upgrade in Billing & subscription to add more.'
+const limitError = (plan, key, max, edition) => COUNT_LIMITS[key]
+  ? 'Your plan' + (plan ? ' (' + plan + ')' : '') + ' allows ' + (key === 'maxLocations' ? KC.locWord(edition, max) + ' (including the main one)' : max + ' ' + COUNT_LIMITS[key]) + '. Upgrade in Billing & subscription to add more.'
   : FEATURES[key] + ' is not included in your plan' + (plan ? ' (' + plan + ')' : '') + '. Upgrade in Billing & subscription to use it.';
 /** null when allowed; otherwise {status: 402, error, code: 'plan_limit', limit} */
 async function checkLimit(c, tid, key) {
   if (FEATURES[key]) return checkFeature(c, tid, key);
-  const { limits, plan } = await limitsFor(c, tid); const v = limits[key];
+  const { limits, plan, edition } = await limitsFor(c, tid); const v = limits[key];
   if (v === null || v === undefined || v === '') return null;
   const used = (await usage(c, tid))[key];
-  return used >= Number(v) ? { status: 402, error: limitError(plan, key, Number(v)), code: 'plan_limit', limit: key, max: Number(v), used } : null;
+  return used >= Number(v) ? { status: 402, error: limitError(plan, key, Number(v), edition), code: 'plan_limit', limit: key, max: Number(v), used } : null;
 }
 
 /* ---------- invoices & payments ---------- */
@@ -139,7 +139,7 @@ async function applyPayment(c, paymentId) {
 }
 
 /* ---------- emails ---------- */
-async function ownerOf(c, tid) { return (await c.query("SELECT u.*, t.name AS tenant_name FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.tenant_id=$1 AND u.role='owner' AND u.active ORDER BY u.created_at LIMIT 1", [tid])).rows[0]; }
+async function ownerOf(c, tid) { return (await c.query("SELECT u.*, coalesce(p.login, u.login) AS login, t.name AS tenant_name FROM users u JOIN tenants t ON t.id=u.tenant_id LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=$1 AND u.role='owner' AND u.active ORDER BY u.created_at LIMIT 1", [tid])).rows[0]; }
 async function mailOwner(c, tid, kind, tpl, dedupe) {
   const o = await ownerOf(c, tid); const to = mailer.emailOf(o); if (!to) return { status: 'no_email' };
   return mailer.sendEmail(Object.assign({ to, kind, tenantId: tid, dedupe }, tpl(o)));
