@@ -56,6 +56,12 @@ function ding(msg) {
   try { _actx = _actx || new (window.AudioContext || window.webkitAudioContext)(); const o = _actx.createOscillator(); const g = _actx.createGain(); o.connect(g); g.connect(_actx.destination); o.frequency.value = 880; g.gain.setValueAtTime(0.15, _actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, _actx.currentTime + 0.5); o.start(); o.stop(_actx.currentTime + 0.5); } catch (e) { }
   if (msg) toast(msg);
 }
+/** a customer rang from the menu: the table bell, for as long as they held it (bell.js) */
+function bell(ms, msg) {
+  if (!window.Bell) return ding(msg);
+  try { navigator.vibrate && navigator.vibrate(ms > 600 ? [Math.min(ms, 3000)] : [180, 90, 180]); } catch (e) { }
+  Bell.ring(ms); if (msg) toast(msg);
+}
 /** called by the data layer before a collection is replaced (boot.js) */
 function restoWatch(col, docs) {
   if (!isResto() || !K.member) return;
@@ -68,7 +74,7 @@ function restoWatch(col, docs) {
   if (col === 'sales' && can('bills') && !K._tabSweep) { K._tabSweep = setTimeout(() => { K._tabSweep = null; (K.raw.tabs || []).filter((t) => t.status === 'open' && (t.saleIds || []).length && !dueLines(t).length && tabOwing(t) < 0.5).forEach((t) => save('tabs', Object.assign({}, t, { status: 'paid', closedAt: new Date().toISOString(), closedBy: K.me.name || '' }))); }, 1500); }
   if (col === 'tables') {
     const calls = new Map(docs.filter((t) => t.call && t.call.at).map((t) => [t.id, t.call.at]));
-    if (_seen.calls && (can('serve') || can('bills'))) { const f = docs.find((t) => t.call && t.call.at && _seen.calls.get(t.id) !== t.call.at); if (f) ding((f.label || 'A table') + (f.call.kind === 'bill' ? ' asks for the bill' : ' is calling the waiter')); }
+    if (_seen.calls && (can('serve') || can('bills'))) { const f = docs.find((t) => t.call && t.call.at && _seen.calls.get(t.id) !== t.call.at); if (f) bell(f.call.ring, (f.label || 'A table') + (f.call.kind === 'bill' ? ' asks for the bill' : ' is calling the waiter')); }
     _seen.calls = calls;
   }
 }

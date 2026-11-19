@@ -80,6 +80,11 @@
   .m-calls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
   .m-calls button{min-height:44px;border:1px solid var(--line);background:var(--card);border-radius:12px;font:inherit;font-size:13.5px;cursor:pointer;color:var(--ink)}
   .m-calls button:disabled{opacity:.5}
+  .m-calls button{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;transition:transform .1s}
+  .m-calls button.ringing{transform:scale(.97);border-color:var(--brand);animation:m-ring .5s ease-in-out infinite}
+  @keyframes m-ring{0%,100%{box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 25%,transparent)}50%{box-shadow:0 0 0 7px color-mix(in srgb,var(--brand) 10%,transparent)}}
+  @media (prefers-reduced-motion:reduce){.m-calls button.ringing{animation:none;box-shadow:0 0 0 4px color-mix(in srgb,var(--brand) 22%,transparent)}}
+  .m-calls-hint{font-size:12px;color:var(--ink3);text-align:center;margin:-4px 0 12px}
   .m-f{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--ink2);margin-top:10px}
   .m-f input,.m-f select{width:100%;box-sizing:border-box;min-height:44px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;font-size:15px;background:var(--card);color:var(--ink)}
   .m-err{color:var(--bad);font-size:13px;margin-top:6px}
@@ -106,6 +111,7 @@
 </head>
 <body>
 <div id="app"><div class="m-load">Loading the menu…</div></div>
+<script src="/bell.js"></script>
 <script src="/menu.js"></script>
 </body>
 </html>

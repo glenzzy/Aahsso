@@ -120,8 +120,12 @@ test('the public menu link: the customer picks their table; the owner can switch
   const o = await api('POST', '/api/menu/' + S.key + '/orders', null, { table: 't1', name: 'Cleo', device: 'dev3', items: [{ menuId: 'm2', qty: 1 }] }); assert.equal(o.status, 200, JSON.stringify(o.body));
   const ro = (await api('GET', '/api/data/rorders', S.o)).body.docs.find((x) => x.customerName === 'Cleo'); assert.equal(ro.tableLabel, 'T1'); assert.equal(ro.status, 'new', 'the waiter still accepts it');
   const st = (await api('GET', '/api/menu/' + S.key + '/status?table=t1&d=dev3')).body; assert.equal(st.orders.length, 1); assert.equal(st.total, 1500);
-  assert.equal((await api('POST', '/api/menu/' + S.key + '/call', null, { table: 't1', kind: 'waiter', name: 'Cleo' })).status, 200);
-  const set = (await api('GET', '/api/data/settings', S.o)).body.docs.find((d) => d.id === 'main');
+  assert.equal((await api('POST', '/api/menu/' + S.key + '/call', null, { table: 't1', kind: 'waiter', name: 'Cleo', ring: 3200 })).status, 200);
+  const rang = () => api('GET', '/api/data/tables', S.o).then((r) => r.body.docs.find((x) => x.id === 't1').call);
+  assert.equal((await rang()).ring, 3200, 'staff ring the bell as long as the customer held it');
+  await api('POST', '/api/menu/' + S.key + '/call', null, { table: 't1', kind: 'waiter', name: 'Cleo', ring: 999999 });
+  assert.equal((await rang()).ring, 8000, 'never longer than 8 seconds');
+  const set =(await api('GET', '/api/data/settings', S.o)).body.docs.find((d) => d.id === 'main');
   assert.equal((await api('PUT', '/api/data/settings/main', S.o, Object.assign({}, set, { id: undefined, pickTable: false }))).status, 200);
   const pub = (await api('GET', '/api/menu/' + S.key)).body; assert.equal(pub.canOrder, false, 'switched off: the link only shows the menu'); assert.deepEqual(pub.tables, []);
   assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { table: 't1', name: 'Cleo', items: [{ menuId: 'm2', qty: 1 }] })).status, 400, 'only the table QR code orders now');

@@ -89,12 +89,41 @@
   /* ---------- your orders (status) ---------- */
   function mineHtml() {
     if (!S.d.canOrder || !tableNow()) return '';
-    const st = S.status; const calls = '<div class="m-calls"><button data-call="waiter">🔔 Call the waiter</button><button data-call="bill">🧾 Ask for the bill</button></div>';
+    const st = S.status; const calls = callsHtml();
     if (!st || !st.orders || !st.orders.length) return st && st.open ? calls : '';
     return '<div class="m-card"><div class="m-ln" style="padding-top:0"><h2 style="margin:0">Your orders</h2>' + (st.total ? '<span class="m-muted">Bill so far: <b style="color:var(--ink)">' + money(st.total) + '</b></span>' : '') + '</div>' +
       st.orders.map((o) => '<div class="m-ln"><div class="grow"><div>' + o.lines.map((l) => l.qty + '× ' + esc(l.name)).join(', ') + '</div><div class="m-muted">#' + esc(o.no) + (o.reason ? ' · <span style="color:var(--bad)">' + esc(o.reason) + '</span>' : '') + '</div></div><span class="m-st ' + esc(o.status) + '">' + esc(LBL[o.status] || o.status) + '</span></div>').join('') +
       (st.billAsked ? '<div class="m-muted" style="color:var(--ok);margin-top:6px">Your waiter is bringing the bill.</div>' : '') + '</div>' + calls;
   }
+
+  /* ---------- the bell: tap = one ring, hold = it rings for as long as you hold (the waiter hears the same) ---------- */
+  const CALLS = [['waiter', '🔔 Call the waiter'], ['bill', '🧾 Ask for the bill']];
+  let hold = null; const callWait = {};
+  function callsHtml() {
+    return '<div class="m-calls">' + CALLS.map(([k, l]) => '<button data-call="' + k + '"' + (hold && hold.kind === k ? ' class="ringing"' : '') + ((callWait[k] || 0) > Date.now() ? ' disabled' : '') + '>' + l + '</button>').join('') + '</div>' +
+      '<div class="m-calls-hint">Tap to call · hold to ring longer</div>';
+  }
+  const ringing = (k) => $$('[data-call]').forEach((b) => b.classList.toggle('ringing', b.dataset.call === k));
+  function holdStart(b) {
+    if (hold || b.disabled) return;
+    hold = { kind: b.dataset.call, t0: Date.now(), cap: setTimeout(() => holdEnd(), window.Bell ? Bell.MAX : 0) };
+    if (window.Bell) Bell.start(); ringing(hold.kind);
+  }
+  function holdEnd() {
+    if (!hold) return; const h = hold; hold = null; clearTimeout(h.cap); ringing(null);
+    if (window.Bell) Bell.stop();
+    callSend(h.kind, Date.now() - h.t0);
+  }
+  async function callSend(kind, ms) {
+    callWait[kind] = Date.now() + 20000; drawMine(); setTimeout(drawMine, 20100);
+    const ring = window.Bell && ms >= Bell.EVERY ? Math.min(Bell.MAX, Math.round(ms)) : 0;
+    try { await req('POST', '/call', { ...tbody(), kind, name: S.name, ring }); toast(kind === 'bill' ? 'Your waiter is bringing the bill' : 'Your waiter is coming'); }
+    catch (err) { callWait[kind] = 0; drawMine(); toast(err.message); }
+  }
+  document.addEventListener('pointerdown', (e) => { const b = e.target.closest && e.target.closest('[data-call]'); if (b && e.button === 0) { e.preventDefault(); holdStart(b); } });
+  ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, holdEnd));
+  window.addEventListener('blur', holdEnd);
+  document.addEventListener('contextmenu', (e) => { if (e.target.closest && e.target.closest('[data-call]')) e.preventDefault(); });
 
   /* ---------- your basket: the same form in the side card (wide) and the sheet (phone) ---------- */
   function cartHtml(inSheet) {
@@ -164,7 +193,7 @@
     if (t.closest('[data-pick]')) { pickSheet(); return; }
     if (t.closest('[data-open]')) { sheet(cartHtml(true), 'basket'); return; }
     const sb = t.closest('[data-send]'); if (sb) { send(sb); return; }
-    const call = t.closest('[data-call]'); if (call) { call.disabled = true; try { await req('POST', '/call', { ...tbody(), kind: call.dataset.call, name: S.name }); toast(call.dataset.call === 'bill' ? 'Your waiter is bringing the bill' : 'Your waiter is coming'); } catch (err) { toast(err.message); } setTimeout(() => (call.disabled = false), 20000); return; }
+    const call = t.closest('[data-call]'); if (call) { if (e.detail === 0 && !call.disabled) { if (window.Bell) Bell.ring(0); callSend(call.dataset.call, 0); } return; } // keyboard; touch and mouse ring on press
     const b = t.closest('[data-q]'); if (b) { const id = b.dataset.id; bump(id, b.dataset.q); const it = item(id); const card = $$('.m-main .m-item [data-id]').find((x) => x.dataset.id === id); if (it && card) card.closest('.m-item').outerHTML = row(it); drawSide(); }
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });

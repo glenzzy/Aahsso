@@ -1185,8 +1185,9 @@ app.post('/api/menu/:key/call', menuCallLimiter, wrap(async (req, res) => {
   const R = await loadCols(pool, t.tid, ['tables', 'tabs']); const b = req.body || {}; const table = menuTable(R.tables, t, b);
   if (!table) return err(res, 400, menuPickOn(t) ? 'Choose your table first' : 'Scan the QR code on your table');
   const kind = b.kind === 'bill' ? 'bill' : 'waiter'; const now = new Date().toISOString();
+  const ring = Math.max(0, Math.min(8000, Math.round(Number(b.ring) || 0))); // how long the customer held the bell (ms): staff hear it as long
   await tx(async (c) => {
-    await putDoc(c, t.tid, 'tables', table.id, Object.assign({}, table, { id: undefined, call: { kind, at: now, name: String(b.name || '').slice(0, 60) } }), 'QR menu');
+    await putDoc(c, t.tid, 'tables', table.id, Object.assign({}, table, { id: undefined, call: { kind, at: now, name: String(b.name || '').slice(0, 60), ring } }), 'QR menu');
     const tab = R.tabs.find((x) => x.tableId === table.id && x.status === 'open'); if (tab && kind === 'bill') await putDoc(c, t.tid, 'tabs', tab.id, Object.assign({}, tab, { id: undefined, billAskedAt: now }), 'QR menu');
   });
   broadcast(t.tid, 'tables', table.id); broadcast(t.tid, 'tabs', '');
