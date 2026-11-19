@@ -47,7 +47,9 @@ test('a customer scans the table: menu with server prices; orders by name only',
   const m = await api('GET', '/api/menu/' + S.key + '?t=' + S.tok); assert.equal(m.status, 200);
   assert.equal(m.body.table.label, 'T1'); assert.equal(m.body.canOrder, true); assert.equal(m.body.items.length, 3);
   assert.equal(m.body.items.find((i) => i.id === 'm3').soldOut, true, 'sold out by hand');
-  assert.equal((await api('GET', '/api/menu/' + S.key)).body.canOrder, false, 'without a table: the menu only');
+  const pub = (await api('GET', '/api/menu/' + S.key)).body; assert.equal(pub.table, null);
+  assert.equal(pub.canOrder, true, 'the public menu link: the customer picks a table'); assert.deepEqual(pub.tables, [{ id: 't1', label: 'T1', area: 'Terrace' }]);
+  assert.equal(m.body.tables.length, 0, 'a scanned table does not list the others');
   assert.equal((await api('GET', '/api/menu/ffffffffffff')).status, 404);
   assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { t: 'wrongtoken1', name: 'Ada', items: [{ menuId: 'm1', qty: 1 }] })).status, 400, 'needs a real table');
   assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { t: S.tok, name: 'Ada', items: [{ menuId: 'm3', qty: 1 }] })).status, 400, 'sold out');
@@ -85,6 +87,20 @@ test('the stock runs out: the QR menu shows it sold out', async () => {
   assert.equal((await api('PUT', '/api/data/sales/sr2', S.o, { no: 'R2' + rnd, date: '2026-11-18', status: 'open', source: 'resto', payments: [{ id: 'p2', date: '2026-11-18', method: 'Cash', amount: 21000 }], lines: [{ productId: 'm:m1', menuId: 'm1', name: '33 Export', qty: 21, unitPrice: 1000, alloc: [{ lotId: l1.id, qty: 21 }] }] })).status, 200);
   const m = (await api('GET', '/api/menu/' + S.key + '?t=' + S.tok)).body; assert.equal(m.items.find((i) => i.id === 'm1').soldOut, true);
   assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { t: S.tok, name: 'Ada', items: [{ menuId: 'm1', qty: 1 }] })).status, 400);
+});
+
+test('the public menu link: the customer picks their table; the owner can switch that off', async () => {
+  assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { name: 'Cleo', device: 'dev3', items: [{ menuId: 'm2', qty: 1 }] })).status, 400, 'no table chosen');
+  assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { table: 'nope', name: 'Cleo', device: 'dev3', items: [{ menuId: 'm2', qty: 1 }] })).status, 400, 'no such table');
+  const o = await api('POST', '/api/menu/' + S.key + '/orders', null, { table: 't1', name: 'Cleo', device: 'dev3', items: [{ menuId: 'm2', qty: 1 }] }); assert.equal(o.status, 200, JSON.stringify(o.body));
+  const ro = (await api('GET', '/api/data/rorders', S.o)).body.docs.find((x) => x.customerName === 'Cleo'); assert.equal(ro.tableLabel, 'T1'); assert.equal(ro.status, 'new', 'the waiter still accepts it');
+  const st = (await api('GET', '/api/menu/' + S.key + '/status?table=t1&d=dev3')).body; assert.equal(st.orders.length, 1); assert.equal(st.total, 1500);
+  assert.equal((await api('POST', '/api/menu/' + S.key + '/call', null, { table: 't1', kind: 'waiter', name: 'Cleo' })).status, 200);
+  const set = (await api('GET', '/api/data/settings', S.o)).body.docs.find((d) => d.id === 'main');
+  assert.equal((await api('PUT', '/api/data/settings/main', S.o, Object.assign({}, set, { id: undefined, pickTable: false }))).status, 200);
+  const pub = (await api('GET', '/api/menu/' + S.key)).body; assert.equal(pub.canOrder, false, 'switched off: the link only shows the menu'); assert.deepEqual(pub.tables, []);
+  assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { table: 't1', name: 'Cleo', items: [{ menuId: 'm2', qty: 1 }] })).status, 400, 'only the table QR code orders now');
+  assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { t: S.tok, name: 'Cleo', device: 'dev3', items: [{ menuId: 'm2', qty: 1 }] })).status, 200, 'the table QR still works');
 });
 
 test('the platform admin controls it: a Resto plan without QR ordering or glasses, 1 table', async () => {

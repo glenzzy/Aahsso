@@ -1061,7 +1061,8 @@ app.post('/api/shop/:key/orders', shopOrderLimiter, wrap(async (req, res) => {
   res.json({ ok: true, no, total: order.subtotal, whatsapp: st.whatsapp || st.phone || '', business: st.businessName });
 }));
 /* ---------- Aahsso Bar & Resto: the QR menu at each table ----------
- * /t/<menuKey>/<tableToken> opens the menu with the table known; /m/<menuKey> shows the menu only.
+ * /t/<menuKey>/<tableToken> opens the menu with the table known; /m/<menuKey> is the venue's public menu, where the customer
+ * picks their table (settings.pickTable, on by default) — or only browses when that is off.
  * Orders need the plan's QR ordering, the owner's switch (settings.qrOn) and a real table token. Prices come from the server. */
 const MENU_KEY_RE = /^[a-f0-9]{8,24}$/; const TABLE_TOKEN_RE = /^[A-Za-z0-9]{6,32}$/;
 const menuReadLimiter = rateLimit({ windowMs: 60 * 1000, max: 240, standardHeaders: true, legacyHeaders: false });
@@ -1088,26 +1089,37 @@ async function liveMenu(t) {
     .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
   return { st, items, tables: R.tables.filter((x) => !x.archived), areas: R.areas, hhOn: hh && KC.hhActive(st, now) };
 }
-const menuTable = (L, token) => (TABLE_TOKEN_RE.test(String(token || '')) ? L.tables.find((x) => x.token === token) : null) || null;
+const TABLE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const menuOrdersOn = (t) => t.settings.qrOn !== false && KC.featureOn(t.features, 'qrOrders');
+/** customers may pick their table on the public menu link (/m/<key>) — the waiter still accepts each order */
+const menuPickOn = (t) => menuOrdersOn(t) && t.settings.pickTable !== false;
+/** the table: from its QR code (token), or picked from the list on the menu link (id) */
+const menuTable = (tables, t, q) => {
+  const live = tables.filter((x) => !x.archived); const token = String((q || {}).t || ''); const id = String((q || {}).table || '');
+  if (TABLE_TOKEN_RE.test(token)) { const hit = live.find((x) => x.token === token); if (hit) return hit; }
+  if (id && TABLE_ID_RE.test(id) && menuPickOn(t)) return live.find((x) => x.id === id) || null;
+  return null;
+};
 async function putDoc(c, tid, col, id, data, who) {
   await c.query('INSERT INTO documents(tenant_id,collection,id,data) VALUES ($1,$2,$3,$4) ON CONFLICT (tenant_id,collection,id) DO UPDATE SET data=EXCLUDED.data, updated_at=now()', [tid, col, id, JSON.stringify(data)]);
   await c.query("INSERT INTO audit_log(tenant_id,user_name,location_id,action,collection,doc_id,after) VALUES ($1,$2,'main','update',$3,$4,$5)", [tid, who, col, id, JSON.stringify(data)]);
 }
 app.get('/api/menu/:key', menuReadLimiter, wrap(async (req, res) => {
   const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
-  const L = await liveMenu(t); const st = L.st; const table = menuTable(L, req.query.t); const area = table && L.areas.find((a) => a.id === table.areaId);
+  const L = await liveMenu(t); const st = L.st; const table = menuTable(L.tables, t, req.query); const area = table && L.areas.find((a) => a.id === table.areaId);
   const cats = (st.menuCats || []).filter((c) => L.items.some((i) => i.category === c)).concat([...new Set(L.items.map((i) => i.category))].filter((c) => !(st.menuCats || []).includes(c)));
   res.set('Cache-Control', 'no-store').json({
     business: { name: st.businessName, tagline: st.tagline || '', logo: st.logo || '', symbol: KC.currencySymbolOf(st), venueType: st.venueType || 'both', phone: st.whatsapp || st.phone || '' },
     table: table ? { label: table.label, area: area ? area.name : '' } : null,
-    canOrder: !!table && st.qrOn !== false && KC.featureOn(t.features, 'qrOrders'),
+    canOrder: menuOrdersOn(t) && (!!table || menuPickOn(t)),
+    tables: !req.query.t && menuPickOn(t) ? L.tables.slice().sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true })).map((x) => { const a = L.areas.find((y) => y.id === x.areaId); return { id: x.id, label: x.label, area: a ? a.name : '' }; }) : [],
     happyHour: L.hhOn ? { pct: Number(st.happyHour.pct) || 0, to: st.happyHour.to || '' } : null,
     cats, items: L.items.map((i) => ({ id: i.id, name: i.name, category: i.category, desc: i.desc, photo: i.photo, price: i.price, priceNow: i.priceNow, soldOut: i.soldOut })) });
 }));
 app.post('/api/menu/:key/orders', menuOrderLimiter, wrap(async (req, res) => {
   const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
-  if (t.settings.qrOn === false || !KC.featureOn(t.features, 'qrOrders')) return err(res, 403, 'Ordering from the menu is off — please call your waiter');
-  const L = await liveMenu(t); const table = menuTable(L, (req.body || {}).t); if (!table) return err(res, 400, 'Scan the QR code on your table to order');
+  if (!menuOrdersOn(t)) return err(res, 403, 'Ordering from the menu is off — please call your waiter');
+  const L = await liveMenu(t); const table = menuTable(L.tables, t, req.body); if (!table) return err(res, 400, menuPickOn(t) ? 'Choose your table to order' : 'Scan the QR code on your table to order');
   const r = KC.validateMenuOrder(req.body, L.items, L.st); if (r.error) return err(res, 400, r.error);
   const device = String((req.body || {}).device || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 40);
   const area = L.areas.find((a) => a.id === table.areaId) || {};
@@ -1126,7 +1138,7 @@ app.post('/api/menu/:key/orders', menuOrderLimiter, wrap(async (req, res) => {
 /** what this phone ordered at this table, and the bill so far */
 app.get('/api/menu/:key/status', menuReadLimiter, wrap(async (req, res) => {
   const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
-  const R = await loadCols(pool, t.tid, ['tables', 'tabs', 'rorders']); const table = TABLE_TOKEN_RE.test(String(req.query.t || '')) && R.tables.find((x) => x.token === req.query.t);
+  const R = await loadCols(pool, t.tid, ['tables', 'tabs', 'rorders']); const table = menuTable(R.tables, t, req.query);
   if (!table) return res.json({ orders: [], total: 0 });
   const tab = R.tabs.find((x) => x.tableId === table.id && x.status === 'open'); const device = String(req.query.d || '');
   const mine = tab ? R.rorders.filter((o) => o.tabId === tab.id && device && o.device === device).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')) : [];
@@ -1135,8 +1147,8 @@ app.get('/api/menu/:key/status', menuReadLimiter, wrap(async (req, res) => {
 }));
 app.post('/api/menu/:key/call', menuCallLimiter, wrap(async (req, res) => {
   const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
-  const R = await loadCols(pool, t.tid, ['tables', 'tabs']); const b = req.body || {}; const table = TABLE_TOKEN_RE.test(String(b.t || '')) && R.tables.find((x) => x.token === b.t);
-  if (!table) return err(res, 400, 'Scan the QR code on your table');
+  const R = await loadCols(pool, t.tid, ['tables', 'tabs']); const b = req.body || {}; const table = menuTable(R.tables, t, b);
+  if (!table) return err(res, 400, menuPickOn(t) ? 'Choose your table first' : 'Scan the QR code on your table');
   const kind = b.kind === 'bill' ? 'bill' : 'waiter'; const now = new Date().toISOString();
   await tx(async (c) => {
     await putDoc(c, t.tid, 'tables', table.id, Object.assign({}, table, { id: undefined, call: { kind, at: now, name: String(b.name || '').slice(0, 60) } }), 'QR menu');

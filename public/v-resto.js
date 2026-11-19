@@ -78,6 +78,7 @@ function restoHome(hello) {
     (calls.length || late.length ? '<section class="card sh-sec"><div class="sh-sh"><h2>Needs you now</h2></div>' +
       calls.map((x) => '<div class="sh-row todo warn" data-a="tableOpen" data-id="' + x.id + '" role="button"><span class="todo-ic">' + ic('bell', 'sm') + '</span><div class="grow ellipsis">' + esc(x.label) + (x.call.kind === 'bill' ? ' asks for the bill' : ' is calling') + ' <span class="faint">· ' + rAgo(x.call.at) + '</span></div>' + ic('chev', 'sm') + '</div>').join('') +
       late.slice(0, 5).map((o) => '<div class="sh-row todo bad" data-a="go" data-r="tickets" role="button"><span class="todo-ic">' + ic('clock', 'sm') + '</span><div class="grow ellipsis">' + esc(o.tableLabel || 'Counter') + ' · waiting ' + rAgo(o.createdAt) + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</section>' : '') +
+    (rMenu().length && can('settings') ? menuCard() : '') +
     (top.length ? '<section class="card sh-sec"><div class="sh-sh"><h2>Selling tonight</h2></div>' + top.map(([n, q]) => '<div class="sh-row"><div class="grow ellipsis">' + esc(n) + '</div><b>' + fmt(q) + '</b></div>').join('') + '</section>' : '') +
     (!rMenu().length && can('menu') ? '<section class="card sh-sec"><div class="sh-sh"><h2>Get started</h2></div><div class="sh-row" data-a="go" data-r="menu" role="button"><div class="grow">1 · Add your menu</div>' + ic('chev', 'sm') + '</div>' + (can('tables') ? '<div class="sh-row" data-a="go" data-r="floor" role="button"><div class="grow">2 · Add your tables and print their QR codes</div>' + ic('chev', 'sm') + '</div>' : '') + '<div class="sh-row" data-a="go" data-r="buy" role="button"><div class="grow">3 · Record the drinks and food you bought</div>' + ic('chev', 'sm') + '</div></section>' : '');
 }
@@ -104,12 +105,23 @@ VIEWS.floor = {
     const tops = '<div class="row wrap mb">' + (can('serve') ? '<button class="btn pri" data-a="rNewOrder">' + ic('plus') + 'New order</button>' : '') +
       (has('payFirst') && S().payFirst && can('bills') ? '<button class="btn" data-a="rCounter">' + ic('sell') + 'Counter sale</button>' : '') +
       (can('tables') ? '<button class="btn" data-a="floorSetup">' + ic('gear') + 'Tables & areas</button>' : '') + (can('settings') ? '<button class="btn ghost" data-a="venueSettings">' + ic('gear') + 'Venue settings</button>' : '') + '</div>';
-    const chips = areas.length ? '<div class="chips mb">' + [['', 'All']].concat(areas.map((a) => [a.id, a.name])).map(([k, l]) => '<button class="chip' + (cur === k ? ' on' : '') + '" data-a="floorArea" data-v="' + esc(k) + '">' + esc(l) + '</button>').join('') + '</div>' : '';
-    if (!rTables().length) return tops + '<div class="card empty"><div class="big">🍽️</div>No tables yet.' + (can('tables') ? '<div class="mt"><button class="btn pri" data-a="floorSetup">' + ic('plus') + 'Add your tables</button></div>' : '') + '</div>';
+    const chips = menuCard() + (areas.length ? '<div class="chips mb">' + [['', 'All']].concat(areas.map((a) => [a.id, a.name])).map(([k, l]) => '<button class="chip' + (cur === k ? ' on' : '') + '" data-a="floorArea" data-v="' + esc(k) + '">' + esc(l) + '</button>').join('') + '</div>' : '');
+    if (!rTables().length) return tops + menuCard() + '<div class="card empty"><div class="big">🍽️</div>No tables yet.' + (can('tables') ? '<div class="mt"><button class="btn pri" data-a="floorSetup">' + ic('plus') + 'Add your tables</button></div>' : '') + '</div>';
     return tops + chips + '<div class="floor">' + ts.map((t) => { const st = tableState(t); const due = st.tab ? tabDue(st.tab) : 0; return '<button type="button" class="tbl tbl-' + st.k + '" data-a="tableOpen" data-id="' + t.id + '"><span class="tbl-l">' + esc(t.label) + '</span><span class="tbl-s">' + esc(st.l) + '</span>' + (st.tab ? '<span class="tbl-m">' + fmt(due) + ' · ' + rAgo(st.tab.openedAt) + '</span>' : '<span class="tbl-m">' + fmt(num(t.seats) || 0) + ' seats</span>') + '</button>'; }).join('') + '</div>' +
       '<div class="tbl-key hint mt">' + [['free', 'Free'], ['new', 'New order'], ['prep', 'Preparing'], ['ready', 'Ready'], ['served', 'Served'], ['call', 'Calling / bill']].map(([k, l]) => '<span><i class="tbl-dot tbl-' + k + '"></i>' + l + '</span>').join('') + '</div>';
   },
 };
+/* the venue's public menu link: customers open it (or scan its QR poster), pick their table and order */
+const menuOrdersOn = () => has('qrOrders') && S().qrOn !== false;
+function menuCard() {
+  if (!S().menuKey || !(can('tables') || can('settings') || can('menu'))) return '';
+  const on = menuOrdersOn(); const pickOn = on && S().pickTable !== false; const link = menuLink();
+  const lead = !on ? 'Customers can see your menu here. Ordering from the phone is off.' : pickOn ? 'Customers open this link, choose their table and order. You accept each order.' : 'Customers see the menu here; they order by scanning the QR code on their table.';
+  return '<div class="shop-link mb"><div class="lbl">Customer menu</div><div class="hint">' + lead + '</div><div class="shop-url">' + esc(link) + '</div><div class="shop-acts">' +
+    '<a class="btn sm" target="_blank" rel="noopener" href="' + esc(link) + '">Open menu</a><button class="btn sm" data-a="mnLink">' + ic('copy', 'sm') + 'Copy link</button>' +
+    '<a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent('See our menu' + (pickOn ? ' and order from your table' : '') + ': ' + link) + '">' + ic('wa', 'sm') + 'Share</a>' +
+    '<button class="btn sm" data-a="qrMenuPrint">' + ic('dl', 'sm') + 'QR poster</button>' + (rTables().length && on ? '<button class="btn sm" data-a="qrPrint">' + ic('dl', 'sm') + 'Table QR codes</button>' : '') + '</div></div>';
+}
 A.floorArea = (el) => { K.ui.floorArea = el.dataset.v; render(true); };
 
 /* ---------- one table: its tickets, its bill ---------- */
@@ -422,6 +434,15 @@ A.qrPrint = async () => {
   w.document.write('<!doctype html><meta charset="utf-8"><title>QR codes</title><style>body{font-family:system-ui;margin:12px}.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.c{border:1px dashed #aaa;border-radius:12px;padding:14px;text-align:center;break-inside:avoid}.c img{width:170px;height:170px}.b{font-weight:600;font-size:13px}.t{font-size:26px;font-weight:700;margin-top:4px}.s{font-size:12px;color:#555}@media print{.c{border-color:#ccc}}</style><div class="g">' + ts.map(card).join('') + '</div><script>setTimeout(()=>print(),300)<\/script>');
   w.document.close();
 };
+/* one big QR code for the menu link — for the door, the counter or the bar */
+A.qrMenuPrint = async () => {
+  await ensureMenuKey();
+  try { await loadScript('https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'); } catch (e) { return toast(e.message, true); }
+  const q = qrcode(0, 'M'); q.addData(menuLink()); q.make(); const pickOn = menuOrdersOn() && S().pickTable !== false;
+  const w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print the QR code', true);
+  w.document.write('<!doctype html><meta charset="utf-8"><title>Menu QR</title><style>body{font-family:system-ui;margin:0;display:grid;place-items:center;min-height:100vh;text-align:center}.b{font-size:28px;font-weight:700}.s{font-size:18px;color:#444;margin-top:8px}img{width:320px;height:320px;margin-top:16px}.u{font-size:13px;color:#777;margin-top:8px}</style><div><div class="b">' + esc(S().businessName) + '</div><img src="' + q.createDataURL(8, 8) + '" alt=""><div class="s">' + (pickOn ? 'Scan to see the menu and order from your table' : 'Scan to see the menu') + '</div><div class="u">' + esc(menuLink()) + '</div></div><script>setTimeout(()=>print(),300)<\/script>');
+  w.document.close();
+};
 
 /* ================= MENU ================= */
 VIEWS.menu = {
@@ -517,7 +538,8 @@ A.venueSettings = () => {
   const D = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const sh = openSheet({ title: 'Venue settings', wide: true, body: '<div class="col">' +
     field('What do you run?', sel('venueType', KC.VENUE_TYPES, venue())) +
-    '<label class="toggle"><input type="checkbox" name="qrOn"' + (s.qrOn !== false ? ' checked' : '') + (has('qrOrders') ? '' : ' disabled') + '>Customers can order from the QR menu' + (has('qrOrders') ? '' : ' <span class="hint">(not in your plan)</span>') + '</label>' +
+    '<label class="toggle"><input type="checkbox" name="qrOn"' + (s.qrOn !== false ? ' checked' : '') + (has('qrOrders') ? '' : ' disabled') + '>Customers can order from their phone' + (has('qrOrders') ? '' : ' <span class="hint">(not in your plan)</span>') + '</label>' +
+    (has('qrOrders') ? '<label class="toggle"><input type="checkbox" name="pickTable"' + (s.pickTable !== false ? ' checked' : '') + '>On the menu link, customers choose their table <span class="hint">(off: only the QR code on each table)</span></label>' : '') +
     field('An order is late after (minutes)', inp('lateMins', s.lateMins || 15, 'inputmode="numeric"')) +
     (has('payFirst') ? '<label class="toggle"><input type="checkbox" name="payFirst"' + (s.payFirst ? ' checked' : '') + '>Pay-first counter (order and pay at the counter)</label>' : '') +
     (has('tabsPlus') ? field('Service charge (%)', inp('serviceCharge', s.serviceCharge || '', 'inputmode="decimal" placeholder="0 = none"')) : '') +
@@ -525,7 +547,7 @@ A.venueSettings = () => {
     (has('loyalty') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="loyaltyOn"' + (s.loyaltyOn ? ' checked' : '') + '><b>Loyalty points</b></label><div class="grid2 mt">' + field('1 point for every (' + baseSym() + ')', inp('loyaltyPer', s.loyaltyPer || 1000, 'inputmode="numeric"')) + field('1 point is worth (' + baseSym() + ')', inp('pointValue', s.pointValue || 10, 'inputmode="numeric"')) + '</div></div>' : '') +
     '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="vsGo">Save</button>' });
   $('#vsGo', sh).onclick = async () => {
-    const v = formVals(sh); const patch = { venueType: v.venueType, qrOn: !!v.qrOn, lateMins: Math.max(1, num(v.lateMins) || 15) };
+    const v = formVals(sh); const patch = { venueType: v.venueType, qrOn: !!v.qrOn, lateMins: Math.max(1, num(v.lateMins) || 15) }; if (has('qrOrders')) patch.pickTable = !!v.pickTable;
     if (has('payFirst')) patch.payFirst = !!v.payFirst;
     if (has('tabsPlus')) patch.serviceCharge = Math.max(0, Math.min(30, num(v.serviceCharge)));
     if (has('happyHour')) { const days = D.map((_, i) => i).filter((i) => v['hhd' + i]); patch.happyHour = { on: !!v.hhOn, from: v.hhFrom || '17:00', to: v.hhTo || '19:00', pct: Math.max(0, Math.min(90, num(v.hhPct))), days: days.length === 7 ? [] : days, cats: String(v.hhCats || '').split(',').map((x) => x.trim()).filter(Boolean) }; }
