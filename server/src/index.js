@@ -248,13 +248,14 @@ app.post('/api/support', auth, supportLimiter, wrap(async (req, res) => {
   res.json({ ok: true, replyTo: reply || '', ticket: tk.id, emailed: r.status }); // the ticket is saved even if the email failed
 }));
 billing.mountTenant(app, { auth, wrap, err, canU, tx, momo });
+billing.onVenue = (tid) => broadcast(tid, 'settings', 'main'); // a Bar & Resto plan changed the venue: open apps reload settings
 momo.mount(app, { auth, wrap, err, guard: (req, res, next) => (['owner', 'admin'].includes(req.user.role) || canU(req.user, 'settings') ? next() : err(res, 403, 'Only the owner or an admin can manage billing')) });
 app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enabled(), from: mailer.enabled() ? mailer.FROM() : '' }));
 app.get('/api/me', auth, wrap(async (req, res) => {
   const u = req.user; const sub = await billing.getSub(pool, u.tenant_id); const lim = await billing.limitsFor(pool, u.tenant_id);
   const pin = (await q('SELECT approval_pin_hash IS NOT NULL AS has FROM users WHERE id=$1', [u.id])).rows[0];
   res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u), approvalPin: !!(pin && pin.has) }, tenant: { id: u.tenant_id, name: u.tenant_name, edition: KC.editionOf(u.edition).key, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
-    subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
+    subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, planVenue: sub.plan_venue || null, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
     edition: lim.edition, limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null,
     businesses: u.supportView ? [] : await myBusinesses(u), canAddBusiness: !u.supportView && u.role === 'owner' });
 }));
@@ -653,6 +654,8 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       body.menuSlugsOld = (old.menuSlug && body.menuSlug !== old.menuSlug ? [old.menuSlug] : []).concat(Array.isArray(old.menuSlugsOld) ? old.menuSlugsOld : []).filter((x, i, a) => x && x !== body.menuSlug && a.indexOf(x) === i).slice(0, 5);
       if (old.menuKey && !body.menuKey) body.menuKey = old.menuKey; // printed table QR codes depend on it
       if (old.businessName && !String(body.businessName || '').trim()) body.businessName = old.businessName; // a business never loses its name to an early or partial save
+      // Bar & Resto: on a plan, the venue is the plan's (bar / restaurant / both) — it changes by choosing another plan
+      if (u.edition === 'resto') { const pv = (await c.query('SELECT p.venue FROM subscriptions s JOIN plans p ON p.id=s.plan_id WHERE s.tenant_id=$1', [u.tenant_id])).rows[0]; if (pv && pv.venue) body.venueType = pv.venue; }
     }
     if (col === 'bills') {
       // purchases: every bill has a transaction id; payments carry mode, txn id and MoMo charges (separate from amount)

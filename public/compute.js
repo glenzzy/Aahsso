@@ -1203,6 +1203,13 @@
    *   new → accepted (by the waiter) → ready (kitchen / bar) → served; or rejected.
    * Paying the tab writes a normal sale whose lines take their ingredients from stock. */
   const VENUE_TYPES = [['bar', 'Bar'], ['restaurant', 'Restaurant'], ['both', 'Bar & restaurant']];
+  const venueLabel = (v) => (VENUE_TYPES.find(([k]) => k === v) || VENUE_TYPES[2])[1];
+  // Bar & Resto plans are sold per venue: how each group of plans is named on Billing and in the admin
+  const VENUE_PLANS = [
+    { key: 'bar', label: 'Bar', plural: 'Bars', title: 'Plans for bars', what: 'Drinks, tables, QR orders, glasses and cocktails' },
+    { key: 'restaurant', label: 'Restaurant', plural: 'Restaurants', title: 'Plans for restaurants', what: 'Food, tables, QR orders and the kitchen' },
+    { key: 'both', label: 'Bar & restaurant', plural: 'Bars & restaurants', title: 'Plans for bars & restaurants', what: 'A bar and a kitchen under one roof' },
+  ];
   const venueStations = (vt) => (vt === 'bar' ? ['bar'] : vt === 'restaurant' ? ['kitchen'] : ['kitchen', 'bar']);
   const DRINK_CATS = ['Beers', 'Soft drinks', 'Wines', 'Spirits', 'Cocktails', 'Hot drinks', 'Drinks'];
   const MENU_CATS = { bar: ['Beers', 'Soft drinks', 'Wines', 'Spirits', 'Cocktails', 'Snacks'], restaurant: ['Starters', 'Mains', 'Grills', 'Sides', 'Desserts', 'Drinks'], both: ['Beers', 'Soft drinks', 'Wines', 'Spirits', 'Cocktails', 'Starters', 'Mains', 'Grills', 'Desserts'] };
@@ -1278,6 +1285,6 @@
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
     PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
-    RESTO_FEATURES, VENUE_TYPES, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
+    RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

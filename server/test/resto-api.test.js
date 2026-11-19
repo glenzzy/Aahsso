@@ -142,7 +142,8 @@ test('the platform admin controls it: a Resto plan without QR ordering or glasse
   assert.ok(ed.features.includes('qrOrders') && ed.features.includes('kds') && !ed.features.includes('ship'), 'the Bar & Resto tools are in its plan catalog');
   assert.ok(!pl.editions.find((e) => e.key === 'store').features.includes('tables'), 'and not in the Store one');
   assert.ok(pl.plans.some((p) => p.id === 'resto-starter' && p.edition === 'resto' && p.limits.maxTables === 10), 'seeded Resto Starter: 10 tables');
-  const r = await adm('POST', '/api/admin/plans', { edition: 'resto', name: 'Tiny Bar ' + rnd, price_monthly: 2000, active: true, public: false, limits: { maxTables: 1 }, modules: { qrOrders: false, portions: false }, features: [] });
+  assert.equal((await adm('POST', '/api/admin/plans', { edition: 'resto', name: 'No Venue ' + rnd, price_monthly: 2000, active: true, limits: {}, modules: {}, features: [] })).status, 400, 'a Bar & Resto plan must say which venue it is for');
+  const r = await adm('POST', '/api/admin/plans', { edition: 'resto', venue: 'bar', name: 'Tiny Bar ' + rnd, price_monthly: 2000, active: true, public: false, limits: { maxTables: 1 }, modules: { qrOrders: false, portions: false }, features: [] });
   assert.equal(r.status, 200, JSON.stringify(r.body)); const pid = (await adm('GET', '/api/admin/plans')).body.plans.find((p) => p.name === 'Tiny Bar ' + rnd).id;
   assert.equal((await adm('POST', '/api/admin/tenants/' + S.tid + '/subscription', { action: 'change_plan', planId: pid, reason: 'resto test' })).status, 200);
   const me = (await api('GET', '/api/me', S.o)).body; assert.equal(me.features.qrOrders, false); assert.equal(me.limits.maxTables, 1);
@@ -154,6 +155,35 @@ test('the platform admin controls it: a Resto plan without QR ordering or glasse
   // a per-business override switches QR ordering back on for this venue only
   await fresh(); const ov = await adm('POST', '/api/admin/tenants/' + S.tid + '/features', { modules: { qrOrders: true }, limits: {}, reason: 'pilot venue' });
   assert.equal(ov.status, 200, JSON.stringify(ov.body)); assert.notEqual((await api('GET', '/api/me', S.o)).body.features.qrOrders, false);
+});
+
+test('plans per venue: bars, restaurants, both — the venue follows the plan', async () => {
+  const pl = (await adm('GET', '/api/admin/plans')).body;
+  assert.deepEqual(pl.venues.map((v) => v.key), ['bar', 'restaurant', 'both']);
+  const seeded = Object.fromEntries(pl.plans.filter((p) => p.edition === 'resto').map((p) => [p.id, p.venue]));
+  assert.equal(seeded['bar-starter'], 'bar'); assert.equal(seeded['restaurant-business'], 'restaurant'); assert.equal(seeded['resto-starter'], 'both', 'the first plans are for bars & restaurants');
+  assert.ok(pl.plans.filter((p) => p.edition !== 'resto').every((p) => p.venue === null), 'Brocan and Store plans have no venue');
+  await fresh();
+  const mk = async (venue, name) => { const r = await adm('POST', '/api/admin/plans', { edition: 'resto', venue, name: name + ' ' + rnd, price_monthly: 3000, active: true, public: true, limits: {}, modules: {}, features: [] }); assert.equal(r.status, 200, JSON.stringify(r.body)); return (await adm('GET', '/api/admin/plans')).body.plans.find((p) => p.name === name + ' ' + rnd); };
+  const pub = await mk('bar', 'Pub Pro'); const kit = await mk('restaurant', 'Kitchen Pro'); const duo = await mk('both', 'Duo Pro');
+  // the business (a bar) sees every venue's plans, each marked, and knows its own venue
+  const b = (await api('GET', '/api/billing', S.o)).body; assert.equal(b.venue, 'bar');
+  for (const p of [pub, kit, duo]) assert.equal(b.plans.find((x) => x.id === p.id).venue, p.venue);
+  // it moves to a restaurant plan (paid, here set by the admin): the venue follows
+  assert.equal((await adm('POST', '/api/admin/tenants/' + S.tid + '/subscription', { action: 'change_plan', planId: kit.id, reason: 'venue test' })).status, 200);
+  const set = () => api('GET', '/api/data/settings', S.o).then((r) => r.body.docs.find((d) => d.id === 'main'));
+  assert.equal((await set()).venueType, 'restaurant', 'the plan made it a restaurant');
+  const me = (await api('GET', '/api/me', S.o)).body; assert.equal(me.subscription.planVenue, 'restaurant');
+  assert.equal((await api('GET', '/api/billing', S.o)).body.venue, 'restaurant');
+  // on a plan, the venue cannot be changed in the settings — only by choosing another plan
+  const st = await set(); assert.equal((await api('PUT', '/api/data/settings/main', S.o, Object.assign({}, st, { id: undefined, venueType: 'both' }))).status, 200);
+  assert.equal((await set()).venueType, 'restaurant', 'still the plan\'s venue');
+  // choosing a plan for another venue makes an invoice; the venue changes only when that plan starts
+  const ch = await api('POST', '/api/billing/choose', S.o, { planId: duo.id, cycle: 'monthly' }); assert.equal(ch.status, 200, JSON.stringify(ch.body)); assert.ok(ch.body.invoice);
+  assert.equal((await set()).venueType, 'restaurant', 'not before it is paid');
+  // a plan businesses use keeps its venue
+  await fresh(); const ed = await adm('PUT', '/api/admin/plans/' + kit.id, Object.assign({}, kit, { venue: 'bar' })); assert.equal(ed.status, 400); assert.match(ed.body.error, /stays a plan for restaurants/);
+  for (const p of [pub, kit, duo]) await adm('PUT', '/api/admin/plans/' + p.id, Object.assign({}, p, { public: false })); // keep the shared test database tidy
 });
 
 test('a Store or Brocan never gets the Bar & Resto tools', async () => {

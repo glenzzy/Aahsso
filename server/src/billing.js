@@ -36,7 +36,7 @@ const money = (n, cur) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3
 
 /* ---------- subscription state ---------- */
 async function getSub(c, tid) {
-  return (await c.query('SELECT s.*, p.name AS plan_name, p.limits, p.modules, p.price_monthly, p.price_yearly, p.active AS plan_active, p.edition AS plan_edition, t.edition FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id LEFT JOIN plans p ON p.id = s.plan_id WHERE s.tenant_id = $1', [tid])).rows[0] || null;
+  return (await c.query('SELECT s.*, p.name AS plan_name, p.limits, p.modules, p.price_monthly, p.price_yearly, p.active AS plan_active, p.edition AS plan_edition, p.venue AS plan_venue, t.edition FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id LEFT JOIN plans p ON p.id = s.plan_id WHERE s.tenant_id = $1', [tid])).rows[0] || null;
 }
 async function ensureSub(c, tid, trialEndsAt) {
   await c.query("INSERT INTO subscriptions (tenant_id, status, trial_ends_at) VALUES ($1, 'trialing', $2) ON CONFLICT (tenant_id) DO NOTHING", [tid, trialEndsAt]);
@@ -59,6 +59,18 @@ async function setSub(c, tid, patch) {
   const keys = Object.keys(patch); if (!keys.length) return;
   await c.query('UPDATE subscriptions SET ' + keys.map((k, i) => k + '=$' + (i + 2)).join(', ') + ', updated_at=now() WHERE tenant_id=$1', [tid].concat(keys.map((k) => patch[k])));
   await syncTenant(c, tid); invalidate(tid);
+  if (patch.plan_id) await venueFromPlan(c, tid, patch.plan_id);
+}
+/** Bar & Resto: plans are sold per venue (bar, restaurant, both) — the business's "What do you run?" follows its plan */
+async function venueFromPlan(c, tid, planId) {
+  const p = (await c.query("SELECT venue FROM plans WHERE id=$1 AND edition='resto'", [planId])).rows[0]; if (!p || !p.venue) return;
+  const r = await c.query("UPDATE documents SET data = jsonb_set(data, '{venueType}', to_jsonb($2::text)), updated_at=now() WHERE tenant_id=$1 AND collection='settings' AND id='main' AND coalesce(data->>'venueType', 'both') <> $2", [tid, p.venue]);
+  if (r.rowCount && typeof module.exports.onVenue === 'function') module.exports.onVenue(tid, p.venue); // the app reloads its settings
+}
+/** a business's venue (Bar & Resto), from its settings */
+async function venueOf(c, tid) {
+  const r = (await c.query("SELECT data->>'venueType' AS v FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [tid])).rows[0];
+  return KC.VENUE_TYPES.some(([k]) => k === (r && r.v)) ? r.v : 'both';
 }
 
 /* ---------- what a business is entitled to: features + limits ---------- */
@@ -204,12 +216,12 @@ async function daily(url) {
 function mountTenant(app, { auth, wrap, err, canU, tx, momo }) {
   const may = (u) => ['owner', 'admin'].includes(u.role) || canU(u, 'settings');
   const guard = (req, res, next) => (may(req.user) ? next() : err(res, 403, 'Only the owner or an admin can manage billing'));
-  const plansPublic = async (edition) => (await q('SELECT id, name, description, edition, price_monthly, price_yearly, currency, limits, modules, features FROM plans WHERE active AND public AND edition = $1 ORDER BY sort, name', [edition])).rows; // only the plans of this business's edition
+  const plansPublic = async (edition) => (await q('SELECT id, name, description, edition, venue, price_monthly, price_yearly, currency, limits, modules, features FROM plans WHERE active AND public AND edition = $1 ORDER BY sort, name', [edition])).rows; // only the plans of this business's edition
   // (no requireActive: an expired business must still be able to pay)
   app.get('/api/billing', auth, guard, wrap(async (req, res) => {
     const tid = req.user.tenant_id; const s = await getSub(pool, tid); const S = await platformSettings(); const ed = KC.editionOf(s && s.edition).key;
-    res.json({ edition: ed,
-      subscription: s && { planId: s.plan_id, planName: s.plan_name, status: s.status, statusLabel: STATUS_LABEL[s.status], cycle: s.cycle, price: s.price, currency: s.currency, trialEndsAt: s.trial_ends_at, periodEnd: s.current_period_end, graceDays: s.grace_days },
+    res.json({ edition: ed, venue: ed === 'resto' ? await venueOf(pool, tid) : null, // Bar & Resto: the plans for this venue come first
+      subscription: s && { planId: s.plan_id, planName: s.plan_name, planVenue: s.plan_venue || null, status: s.status, statusLabel: STATUS_LABEL[s.status], cycle: s.cycle, price: s.price, currency: s.currency, trialEndsAt: s.trial_ends_at, periodEnd: s.current_period_end, graceDays: s.grace_days },
       limits: (await limitsFor(pool, tid)).limits, features: (await limitsFor(pool, tid)).features, catalog: KC.featuresOf(ed), usage: await usage(pool, tid), plans: await plansPublic(ed),
       invoices: (await q('SELECT i.id, i.number, i.plan_id, p.name AS plan_name, i.cycle, i.period_start, i.period_end, i.amount, i.currency, i.status, i.due_date, i.issued_at, i.paid_at, i.created_by FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE i.tenant_id=$1 ORDER BY i.issued_at DESC LIMIT 36', [tid])).rows,
       payments: (await q('SELECT id, invoice_id, amount, currency, method, reference, paid_on, status, provider, network, phone, failure, created_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 36', [tid])).rows,
@@ -260,4 +272,4 @@ function mountTenant(app, { auth, wrap, err, canU, tx, momo }) {
   }));
 }
 
-module.exports = { FREE_TRIAL_DAYS, isFree, COUNT_LIMITS, FEATURES, LIMIT_KEYS, PAY_METHODS, STATUS_LABEL, DEFAULTS, platformSettings, addPeriod, dayStr, money, invalidate, checkFeature, getSub, ensureSub, syncTenant, setSub, limitsFor, usage, checkLimit, createInvoice, applyPayment, ownerOf, mailOwner, mailAdmins, invoiceMail, daily, mountTenant };
+module.exports = { venueFromPlan, venueOf, onVenue: null, FREE_TRIAL_DAYS, isFree, COUNT_LIMITS, FEATURES, LIMIT_KEYS, PAY_METHODS, STATUS_LABEL, DEFAULTS, platformSettings, addPeriod, dayStr, money, invalidate, checkFeature, getSub, ensureSub, syncTenant, setSub, limitsFor, usage, checkLimit, createInvoice, applyPayment, ownerOf, mailOwner, mailAdmins, invoiceMail, daily, mountTenant };

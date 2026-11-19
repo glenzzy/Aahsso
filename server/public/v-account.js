@@ -221,6 +221,7 @@ VIEWS.billing = {
     // current plan + usage
     const lim = b.limits || {}; const LBL = { maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: locW().Many };
     let html = '<div class="card pad2 mb bill-cur"><div class="row between wrap"><div><div class="hint">Current plan</div><h2>' + esc(!s.planName ? 'Free trial' : s.planName + (s.status === 'trialing' ? ' · free trial' : '')) + '</h2>' +
+      (s.planVenue ? '<div class="small muted">A plan for ' + esc(KC.VENUE_PLANS.find((x) => x.key === s.planVenue).plural.toLowerCase()) + '</div>' : '') +
       (s.price !== null && s.price !== undefined && s.status !== 'trialing' ? '<div class="small muted">' + money0(s.price, s.currency) + ' / ' + (s.cycle === 'yearly' ? 'year' : 'month') + '</div>' : '') + '</div><span class="badge ' + st.tone + '">' + esc(st.label) + '</span></div>' +
       '<div class="bill-rows mt">' + (s.status === 'trialing' && s.trialEndsAt ? '<div class="row between cl"><span>Trial ends</span><b>' + esc(fmtDate(String(s.trialEndsAt).slice(0, 10))) + '</b></div>' : '') +
         (s.status !== 'trialing' && s.periodEnd ? '<div class="row between cl"><span>' + (s.status === 'cancelled' ? 'Access until' : 'Paid until') + '</span><b>' + esc(fmtDate(String(s.periodEnd).slice(0, 10))) + '</b></div>' : '') + '</div>' +
@@ -257,6 +258,10 @@ VIEWS.billing = {
   },
 };
 A.billCycle = (el) => { K.ui.billCycle = el.dataset.v; render(true); };
+A.billVenue = (el) => { K.ui.billVenue = el.dataset.v; render(true); };
+if (!IP.glass) IP.glass = '<path d="M7 3h10l-1 7a4 4 0 0 1-8 0L7 3zM12 14v6M8 21h8"/>';
+if (!IP.lock) IP.lock = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
+if (!IP.info) IP.info = '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>';
 /* ---------- Pay modal: everything about paying one invoice, in one window ----------
  * Mobile Money (Fapshi): the payer types their number, gets a prompt on their phone and approves with their PIN.
  * "Other ways": transfer, bank or cash, then the payer sends us the reference. The modal follows the payment:
@@ -404,8 +409,22 @@ function momoWatch(id, first) {
 const isFreePlan = (p) => (p.price_monthly === null || p.price_monthly === undefined) && (p.price_yearly === null || p.price_yearly === undefined);
 const ALWAYS = 'Home, stock & prices, settings, team members, profile, billing and help';
 /** Plans side by side: limits and every feature, ticked when included. Used on Choose your plan and on Billing. */
+/** Bar & Resto: plans are sold per venue. Which venue's plans are shown: the one picked, else the business's own */
+function planVenue(b) {
+  if (b.edition !== 'resto') return null;
+  const v = K.ui.billVenue || b.venue || 'both'; return KC.VENUE_PLANS.some((x) => x.key === v) ? v : 'both';
+}
+function venueTabs(b) {
+  const v = planVenue(b); const own = b.venue || 'both'; const all = b.plans || []; const cur = KC.VENUE_PLANS.find((x) => x.key === v);
+  const tabs = '<div class="ven-tabs" role="tablist" aria-label="Plans for">' + KC.VENUE_PLANS.map((x) => { const n = all.filter((p) => p.venue === x.key).length;
+    return '<button type="button" role="tab" class="ven-tab' + (x.key === v ? ' on' : '') + '" aria-selected="' + (x.key === v) + '" data-a="billVenue" data-v="' + x.key + '">' + '<span class="ven-top">' + ic(x.key === 'bar' ? 'glass' : x.key === 'restaurant' ? 'chef' : 'table', 'sm') + '<span class="ven-t">' + esc(x.plural) + '</span></span>' + (x.key === own ? '<span class="ven-you">You</span>' : '') + '<span class="ven-n">' + n + ' plan' + (n === 1 ? '' : 's') + '</span></button>'; }).join('') + '</div>';
+  const other = v !== own ? '<div class="alert info ven-note">' + ic('info', 'sm') + '<span>You run ' + (own === 'both' ? 'a bar & restaurant' : 'a ' + own) + ' today. A plan for ' + esc(cur.plural.toLowerCase()) + ' changes your venue to <b>' + esc(cur.label) + '</b> when it starts: ' + esc(v === 'bar' ? 'the bar screen and drinks menu; no kitchen.' : v === 'restaurant' ? 'the kitchen screen and food menu; no bar screen.' : 'the kitchen and the bar screens, food and drinks.') + ' Your menu, tables and history stay as they are.</span></div>' : '';
+  return '<div class="ven-head">' + tabs + '<div class="ven-what"><b>' + esc(cur.title) + '</b> · ' + esc(cur.what) + '</div>' + other + '</div>';
+}
 function planTable(b) {
-  const plans = b.plans || []; const s = b.subscription || {}; const ended = ['expired', 'suspended'].includes(s.status);
+  const vv = planVenue(b); const allPlans = b.plans || [];
+  const plans = vv ? allPlans.filter((p) => p.venue === vv) : allPlans; const s = b.subscription || {}; const ended = ['expired', 'suspended'].includes(s.status);
+  if (vv && allPlans.length && !plans.length) return venueTabs(b) + '<div class="card pad2"><div class="small muted mb">Plans for ' + esc(KC.VENUE_PLANS.find((x) => x.key === vv).plural.toLowerCase()) + ' are not published yet. Contact the Aahsso team to subscribe.</div><div class="row wrap">' + supportLinks('Hello Aahsso team, I am ' + myName() + ' from ' + (S().businessName || '') + '. I would like a plan for ' + KC.venueLabel(vv).toLowerCase() + '.') + '</div></div>';
   if (!plans.length) return '<div class="card pad2"><div class="small muted mb">Plans are not published yet. Contact the Aahsso team to subscribe.</div><div class="row wrap">' + supportLinks('Hello Aahsso team, I am ' + myName() + ' from ' + (S().businessName || '') + '. I would like to subscribe.') + '</div></div>';
   const hasM = plans.some((p) => p.price_monthly !== null), hasY = plans.some((p) => p.price_yearly !== null);
   let cyc = K.ui.billCycle || (s.cycle === 'yearly' ? 'yearly' : 'monthly'); if (cyc === 'yearly' && !hasY) cyc = 'monthly'; if (cyc === 'monthly' && !hasM && hasY) cyc = 'yearly';
@@ -446,7 +465,7 @@ function planTable(b) {
   const toggle = hasM && hasY ? '<div class="bill-cycle pt-toggle" role="group" aria-label="Billing period"><button class="' + (cyc === 'monthly' ? 'on' : '') + '" data-a="billCycle" data-v="monthly" aria-pressed="' + (cyc === 'monthly') + '">Monthly</button><button class="' + (cyc === 'yearly' ? 'on' : '') + '" data-a="billCycle" data-v="yearly" aria-pressed="' + (cyc === 'yearly') + '">Yearly' + (save > 0 ? ' <span class="pt-save">save up to ' + save + '%</span>' : '') + '</button></div>' : '';
   const allOpen = ['Limits'].concat(Object.keys(groups), ['Always included']).every((g) => open[g]);
   const tools = '<div class="pt-tools">' + toggle + '<div class="pt-fold"><button type="button" class="btn sm" data-a="ptAll" data-v="1"' + (allOpen ? ' disabled' : '') + '>' + ic('down', 'sm') + 'Expand all</button><button type="button" class="btn sm" data-a="ptAll" data-v="0">' + ic('up', 'sm') + 'Collapse all</button></div></div>';
-  return tools + '<div class="pt-wrap" role="region" aria-label="Plans compared" tabindex="0"><table class="ptable"><thead><tr><th class="pt-feat pt-corner"><span class="pt-corner-t">Compare plans</span><span class="pt-fdesc">Limits and features of each plan</span></th>' + plans.map(head).join('') + '</tr></thead><tbody>' + body + '</tbody>' +
+  return (vv ? venueTabs(b) : '') + tools + '<div class="pt-wrap" role="region" aria-label="Plans compared" tabindex="0"><table class="ptable"><thead><tr><th class="pt-feat pt-corner"><span class="pt-corner-t">Compare plans</span><span class="pt-fdesc">Limits and features of each plan</span></th>' + plans.map(head).join('') + '</tr></thead><tbody>' + body + '</tbody>' +
     '<tfoot><tr><th class="pt-feat"></th>' + plans.map((p) => '<td class="pt-cell">' + cta(p) + '</td>').join('') + '</tr></tfoot></table></div>';
 }
 /* fold / unfold groups without redrawing the page (keeps the scroll position) */
@@ -478,13 +497,14 @@ async function refreshEntitlements() {
 A.billCopy = (el) => copyText(el.dataset.v);
 A.billChoose = async (el) => {
   const p = K._bill.plans.find((x) => x.id === el.dataset.id); const cyc = K.ui.billCycle || 'monthly';
+  const moves = p.venue && p.venue !== (K._bill.venue || 'both'); const venueNote = moves ? ' Your venue becomes ' + KC.venueLabel(p.venue) + (isFreePlan(p) ? ' straight away.' : ' when the plan starts.') : '';
   if (isFreePlan(p)) {
-    if (!(await confirmBox('Start your ' + (K._bill.trialDays || 5) + '-day free trial of ' + p.name + '? You get its features straight away — no payment needed.', 'Start free trial'))) return;
-    try { const r = await K.store.req('POST', '/api/billing/choose', { planId: p.id }); await refreshEntitlements(); K._bill = null; toast('Your free trial of ' + r.plan + ' has started'); location.hash = '#home'; render(true); }
+    if (!(await confirmBox('Start your ' + (K._bill.trialDays || 5) + '-day free trial of ' + p.name + '? You get its features straight away — no payment needed.' + venueNote, 'Start free trial'))) return;
+    try { const r = await K.store.req('POST', '/api/billing/choose', { planId: p.id }); await refreshEntitlements(); K._bill = null; K.ui.billVenue = null; toast('Your free trial of ' + r.plan + ' has started'); location.hash = '#home'; render(true); }
     catch (e) { toast(e.message, true); }
     return;
   }
-  if (!(await confirmBox('Choose ' + p.name + ' (' + money0(p['price_' + cyc], p.currency) + ' / ' + (cyc === 'yearly' ? 'year' : 'month') + ')? An invoice is created for you to pay.', 'Choose plan'))) return;
+  if (!(await confirmBox('Choose ' + p.name + ' (' + money0(p['price_' + cyc], p.currency) + ' / ' + (cyc === 'yearly' ? 'year' : 'month') + ')? An invoice is created for you to pay.' + venueNote, 'Choose plan'))) return;
   try {
     const r = await K.store.req('POST', '/api/billing/choose', { planId: p.id, cycle: cyc });
     if (K.route !== 'billing') location.hash = '#billing';

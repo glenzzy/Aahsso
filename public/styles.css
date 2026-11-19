@@ -1597,3 +1597,21 @@ label.f,.settings label.f .lbl{font-weight:500}
 #bellOn{white-space:nowrap;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + var(--safeB,0px));z-index:60;display:flex;align-items:center;gap:8px;max-width:calc(100vw - 32px);border:0;border-radius:99px;padding:12px 18px;background:var(--brand);color:#fff;font:inherit;font-size:14px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer;animation:bellOn 1.6s ease-in-out infinite}
 @keyframes bellOn{0%,100%{box-shadow:0 8px 24px rgba(0,0,0,.25)}50%{box-shadow:0 8px 24px rgba(0,0,0,.25),0 0 0 6px color-mix(in srgb,var(--brand) 25%,transparent)}}
 @media (prefers-reduced-motion:reduce){#bellOn{animation:none}}
+
+/* Billing (Bar & Resto): plans for bars, restaurants, or both */
+.ven-head{margin-bottom:14px}
+.ven-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ven-tab{position:relative;display:flex;flex-direction:column;justify-content:center;gap:2px;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:10px 14px;font:inherit;color:var(--ink);cursor:pointer;min-height:58px;min-width:0}
+.ven-tab .ven-top{display:flex;align-items:center;gap:7px;min-width:0}
+.ven-tab .ven-top .i{flex:none;color:var(--ink3)}
+.ven-tab .ven-t{font-weight:600;font-size:14px;line-height:1.25}
+.ven-tab .ven-n{font-size:12px;color:var(--ink3)}
+.ven-tab .ven-you{position:absolute;top:-8px;right:10px;background:var(--brand);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.02em;border-radius:99px;padding:2px 7px}
+.ven-tab.on{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset;background:color-mix(in srgb,var(--brand) 7%,var(--card))}
+.ven-tab.on .ven-top .i{color:var(--brand)}
+.ven-tab:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.ven-what{margin-top:10px;font-size:13px;color:var(--ink2)}
+.ven-note{display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:13px}
+.ven-lock{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;border:1px dashed var(--line);border-radius:10px;padding:10px 12px}
+.ven-lock .hint{flex-basis:100%}
+@media (max-width:560px){.ven-tabs{gap:6px}.ven-tab{padding:9px 10px}.ven-tab .ven-top .i{display:none}.ven-tab .ven-t{font-size:13px}}

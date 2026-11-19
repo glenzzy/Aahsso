@@ -599,11 +599,14 @@ A.bkEdit = (el) => {
 };
 
 /* ================= VENUE SETTINGS ================= */
+/** on a Bar & Resto plan, the venue (bar / restaurant / both) is the plan's: it changes by choosing another plan */
+const planVenueLock = () => !!(K.info && K.info.subscription && K.info.subscription.planVenue);
 A.venueSettings = () => {
   const s = S(); const hh = s.happyHour || { on: false, from: '17:00', to: '19:00', pct: 20, days: [], cats: [] };
   const D = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const sh = openSheet({ title: 'Venue settings', wide: true, body: '<div class="col">' +
-    field('What do you run?', sel('venueType', KC.VENUE_TYPES, venue())) +
+    (planVenueLock() ? field('What do you run?', '<div class="ven-lock">' + ic('lock', 'sm') + '<b>' + esc(KC.venueLabel(venue())) + '</b><span class="hint">Set by your plan. To change it, choose a plan for ' + (venue() === 'both' ? 'bars or restaurants' : 'another venue') + ' in <a href="#billing" data-a="sheetClose">Billing & subscription</a>.</span></div>')
+      : field('What do you run?', sel('venueType', KC.VENUE_TYPES, venue()))) +
     '<label class="toggle"><input type="checkbox" name="qrOn"' + (s.qrOn !== false ? ' checked' : '') + (has('qrOrders') ? '' : ' disabled') + '>Customers can order from their phone' + (has('qrOrders') ? '' : ' <span class="hint">(not in your plan)</span>') + '</label>' +
     (has('qrOrders') ? '<label class="toggle"><input type="checkbox" name="pickTable"' + (s.pickTable !== false ? ' checked' : '') + '>On the menu link, customers choose their table <span class="hint">(off: only the QR code on each table)</span></label>' : '') +
     field('An order is late after (minutes)', inp('lateMins', s.lateMins || 15, 'inputmode="numeric"')) +
@@ -613,7 +616,7 @@ A.venueSettings = () => {
     (has('loyalty') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="loyaltyOn"' + (s.loyaltyOn ? ' checked' : '') + '><b>Loyalty points</b></label><div class="grid2 mt">' + field('1 point for every (' + baseSym() + ')', inp('loyaltyPer', s.loyaltyPer || 1000, 'inputmode="numeric"')) + field('1 point is worth (' + baseSym() + ')', inp('pointValue', s.pointValue || 10, 'inputmode="numeric"')) + '</div></div>' : '') +
     '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="vsGo">Save</button>' });
   $('#vsGo', sh).onclick = async () => {
-    const v = formVals(sh); const patch = { venueType: v.venueType, qrOn: !!v.qrOn, lateMins: Math.max(1, num(v.lateMins) || 15) }; if (has('qrOrders')) patch.pickTable = !!v.pickTable;
+    const v = formVals(sh); if (planVenueLock() || !v.venueType) v.venueType = venue(); const patch = { venueType: v.venueType, qrOn: !!v.qrOn, lateMins: Math.max(1, num(v.lateMins) || 15) }; if (has('qrOrders')) patch.pickTable = !!v.pickTable;
     if (has('payFirst')) patch.payFirst = !!v.payFirst;
     if (has('tabsPlus')) patch.serviceCharge = Math.max(0, Math.min(30, num(v.serviceCharge)));
     if (has('happyHour')) { const days = D.map((_, i) => i).filter((i) => v['hhd' + i]); patch.happyHour = { on: !!v.hhOn, from: v.hhFrom || '17:00', to: v.hhTo || '19:00', pct: Math.max(0, Math.min(90, num(v.hhPct))), days: days.length === 7 ? [] : days, cats: String(v.hhCats || '').split(',').map((x) => x.trim()).filter(Boolean) }; }

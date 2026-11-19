@@ -603,12 +603,15 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   /* ---------- plans ---------- */
   A.get('/plans', need('plans.view'), wrap(async (req, res) => {
     res.json({ plans: (await q("SELECT p.*, (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id=p.id AND s.status IN ('active','past_due','cancelled')) AS subscribers, (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id=p.id) AS used FROM plans p ORDER BY sort, name")).rows, limitKeys: { counts: B.COUNT_LIMITS }, catalog: KC.FEATURES,
-      editions: KC.EDITION_KEYS.map((k) => { const e = KC.editionOf(k); return { key: k, label: e.label, short: e.short, features: KC.featuresOf(k).map((f) => f[0]) }; }) });
+      editions: KC.EDITION_KEYS.map((k) => { const e = KC.editionOf(k); return { key: k, label: e.label, short: e.short, features: KC.featuresOf(k).map((f) => f[0]) }; }), venues: KC.VENUE_PLANS });
   }));
+  const venuePl = (v) => ((KC.VENUE_PLANS.find((x) => x.key === v) || {}).plural || v).toLowerCase(); // bars, restaurants, bars & restaurants
   function cleanPlan(b) {
     const intOrNull = (v) => (v === '' || v === null || v === undefined ? null : Math.round(Number(v)));
     const p = { name: String(b.name || '').trim().slice(0, 40), description: String(b.description || '').trim().slice(0, 200), price_monthly: intOrNull(b.price_monthly), price_yearly: intOrNull(b.price_yearly), active: b.active !== false, public: !!b.public, sort: Math.round(Number(b.sort) || 0), features: (Array.isArray(b.features) ? b.features : []).map((f) => String(f).trim().slice(0, 80)).filter(Boolean).slice(0, 12), limits: {}, modules: {} };
     p.edition = String(b.edition || 'import'); if (!KC.EDITION_KEYS.includes(p.edition)) return { error: 'Choose which kind of business the plan is for' };
+    p.venue = null; // Bar & Resto plans are for bars, restaurants, or both
+    if (p.edition === 'resto') { p.venue = String(b.venue || ''); if (!KC.VENUE_TYPES.some(([k]) => k === p.venue)) return { error: 'Choose the venue: bars, restaurants, or bars & restaurants' }; }
     if (p.name.length < 2) return { error: 'Give the plan a name' };
     if ([p.price_monthly, p.price_yearly].some((v) => v !== null && !(v >= 0))) return { error: 'Prices must be 0 or more' };
     const L = b.limits || {};
@@ -626,16 +629,17 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       id = base.length < 2 ? 'plan-' + base : base; for (let n = 2; taken.has(id); n++) id = base + '-' + n;
     }
     if (!/^[a-z0-9][a-z0-9-]{1,29}$/.test(id) || id === 'trial') return bad(res, 'That plan code cannot be used');
-    try { await q('INSERT INTO plans (id, name, description, price_monthly, price_yearly, active, public, sort, features, limits, modules, edition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules), p.edition]); }
+    try { await q('INSERT INTO plans (id, name, description, price_monthly, price_yearly, active, public, sort, features, limits, modules, edition, venue) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)', [id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules), p.edition, p.venue]); }
     catch (e) { if (e.code === '23505') return bad(res, 'A plan with this code already exists', 409); throw e; }
     await audit(req, 'plan_created', { target: id, details: p }); res.json({ ok: true });
   }));
   A.put('/plans/:id', need('plans.write'), reauth, wrap(async (req, res) => {
     const old = (await q('SELECT * FROM plans WHERE id=$1', [req.params.id])).rows[0]; if (!old) return bad(res, 'Plan not found', 404);
-    const { p, error } = cleanPlan(Object.assign({ edition: old.edition }, req.body || {})); if (error) return bad(res, error);
+    const { p, error } = cleanPlan(Object.assign({ edition: old.edition, venue: old.venue }, req.body || {})); if (error) return bad(res, error);
+    if (old.edition === 'resto' && p.edition === 'resto' && p.venue !== old.venue && (await q('SELECT 1 FROM subscriptions WHERE plan_id=$1 UNION ALL SELECT 1 FROM invoices WHERE plan_id=$1 LIMIT 1', [old.id])).rowCount) return bad(res, 'Businesses already use this plan, so it stays a plan for ' + venuePl(old.venue) + ' — make a new plan for ' + venuePl(p.venue) + ' instead');
     if (p.edition !== old.edition && (await q('SELECT 1 FROM subscriptions WHERE plan_id=$1 UNION ALL SELECT 1 FROM invoices WHERE plan_id=$1 LIMIT 1', [old.id])).rowCount) return bad(res, 'Businesses already use this plan — make a new plan for ' + KC.editionOf(p.edition).label + ' instead');
-    await q('UPDATE plans SET name=$2, description=$3, price_monthly=$4, price_yearly=$5, active=$6, public=$7, sort=$8, features=$9, limits=$10, modules=$11, edition=$12, updated_at=now() WHERE id=$1', [old.id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules), p.edition]); B.invalidate();
-    await audit(req, 'plan_updated', { target: old.id, details: { before: { edition: old.edition, price_monthly: old.price_monthly, price_yearly: old.price_yearly, limits: old.limits, modules: old.modules, active: old.active, public: old.public }, after: p } });
+    await q('UPDATE plans SET name=$2, description=$3, price_monthly=$4, price_yearly=$5, active=$6, public=$7, sort=$8, features=$9, limits=$10, modules=$11, edition=$12, venue=$13, updated_at=now() WHERE id=$1', [old.id, p.name, p.description, p.price_monthly, p.price_yearly, p.active, p.public, p.sort, JSON.stringify(p.features), JSON.stringify(p.limits), JSON.stringify(p.modules), p.edition, p.venue]); B.invalidate();
+    await audit(req, 'plan_updated', { target: old.id, details: { before: { edition: old.edition, venue: old.venue, price_monthly: old.price_monthly, price_yearly: old.price_yearly, limits: old.limits, modules: old.modules, active: old.active, public: old.public }, after: p } });
     res.json({ ok: true });
   }));
 

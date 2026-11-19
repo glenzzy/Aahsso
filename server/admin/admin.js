@@ -338,7 +338,8 @@
   ].filter(Boolean), rows, { empty: 'No payments.' });
   const reasonField = (req) => field('Reason' + (req ? '' : ' (optional)') + ' — kept in the audit log', '<textarea class="inp" name="reason" rows="2" maxlength="300"></textarea>');
   async function subAction(body, okMsg) { await api('POST', '/tenants/' + S.t.tenant.id + '/subscription', body); closeModal(); toast(okMsg); route(); }
-  const planOpts = (ed) => S.plans.filter((p) => p.active && p.edition === (ed || S.t.tenant.edition)).map((p) => [p.id, p.name + (p.price_monthly !== null ? ' · ' + money(p.price_monthly) + '/mo' : '') + (p.price_yearly !== null ? ' · ' + money(p.price_yearly) + '/yr' : '')]);
+  const venName = (p) => (p.venue ? ' · ' + ({ bar: 'bars', restaurant: 'restaurants', both: 'bars & restaurants' }[p.venue] || p.venue) : '');
+  const planOpts = (ed) => S.plans.filter((p) => p.active && p.edition === (ed || S.t.tenant.edition)).map((p) => [p.id, p.name + venName(p) + (p.price_monthly !== null ? ' · ' + money(p.price_monthly) + '/mo' : '') + (p.price_yearly !== null ? ' · ' + money(p.price_yearly) + '/yr' : '')]);
   const ACT = {
     cgAll: (el) => { const fs = el.closest('fieldset'); const boxes = $$('input[type=checkbox]', fs); const all = boxes.every((b) => b.checked); boxes.forEach((b) => (b.checked = !all)); },
     tFeatures: () => {
@@ -550,19 +551,21 @@
 
   PAGES.plans = async (v) => {
     const d = await api('GET', '/plans'); S.plans = d.plans; S.limitKeys = d.limitKeys;
-    S.catalog = d.catalog; S.editions = d.editions;
+    S.catalog = d.catalog; S.editions = d.editions; S.venues = d.venues || [];
     const catOf = (ed) => { const e = d.editions.find((x) => x.key === ed) || d.editions[0]; return d.catalog.filter(([k]) => e.features.includes(k)); };
     const lim = (p) => { const L = p.limits || {}; const cat = catOf(p.edition); const off = cat.filter(([k]) => (p.modules || {})[k] === false).length; return Object.keys(d.limitKeys.counts).filter((k) => limFor(k, p.edition)).map((k) => (L[k] ? L[k] : '∞') + ' ' + limName(k, p.edition).toLowerCase()).join(' · ') + ' · ' + (cat.length - off) + '/' + cat.length + ' features'; };
     v.innerHTML = '<div class="page-intro"><p>Each plan is for one kind of business (Brocan, Store or Bar & Resto); price changes apply to new subscriptions only.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
       d.editions.map((e) => { const rows = d.plans.filter((p) => p.edition === e.key); return '<h2 class="mt2 mb row" style="gap:8px">' + edBadge(e.key) + esc(e.label) + ' plans <span class="small muted" style="font-weight:400">' + esc(edOf(e.key).what) + '</span></h2>' +
-      (rows.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No ' + esc(e.label) + ' plan is shown to businesses yet.</b> ' + esc(e.short) + ' businesses see an empty Plans page until you click <b>Publish</b> on one.</div>') +
-      '<div class="card mb2">' + table([
+      (e.key === 'resto' ? '<p class="small muted mb">Sold per venue: each business sees the plans for what it runs first — bars, restaurants, or both — and its venue follows the plan it is on.</p>' + S.venues.map((vn) => { const vr = rows.filter((p) => p.venue === vn.key); return '<h3 class="mt mb row" style="gap:8px">' + esc(vn.title) + ' <span class="small muted" style="font-weight:400">' + esc(vn.what) + '</span></h3>' +
+        (vr.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No plan for ' + esc(vn.plural.toLowerCase()) + ' is shown yet.</b> They see "not published yet" until you click <b>Publish</b> on one.</div>') + planRows(vr, vn.plural.toLowerCase()); }).join('')
+      : (rows.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No ' + esc(e.label) + ' plan is shown to businesses yet.</b> ' + esc(e.short) + ' businesses see an empty Plans page until you click <b>Publish</b> on one.</div>') + planRows(rows, esc(e.label))); }).join('');
+    function planRows(rows, what) { return '<div class="card mb2">' + table([
         { label: 'Plan', v: (p) => '<b>' + esc(p.name) + '</b> <span class="tiny faint mono">' + esc(p.id) + '</span><div class="tiny faint">' + esc(p.description) + '</div>' },
         { label: 'Monthly', num: true, v: (p) => (p.price_monthly === null && p.price_yearly === null ? badge('Free · trial', 'info') : esc(p.price_monthly === null ? '—' : money(p.price_monthly, p.currency))) }, { label: 'Yearly', num: true, v: (p) => esc(p.price_yearly === null ? '—' : money(p.price_yearly, p.currency)) },
         { label: 'Limits', v: (p) => '<span class="small">' + esc(lim(p)) + '</span>' }, { label: 'Subscribers', num: true, v: (p) => esc(p.subscribers) },
         { label: 'On the business Plans page', v: (p) => (!p.active ? badge('Retired', 'bad') : (p.public ? badge('Shown', 'ok') : badge('Hidden', 'warn')) + (can('plans.write') ? ' <button class="btn sm" data-act2="planPublish" data-id="' + esc(p.id) + '">' + (p.public ? 'Hide' : 'Publish') + '</button>' : '')) },
         { label: '', v: (p) => (can('plans.write') ? '<button class="btn sm" data-act2="planEdit" data-id="' + esc(p.id) + '">Edit</button>' : '') },
-      ], rows, { empty: 'No ' + esc(e.label) + ' plans yet.' }) + '</div>'; }).join('');
+      ], rows, { empty: 'No plans for ' + what + ' yet.' }) + '</div>'; }
   };
   function planModal(p) {
     const isNew = !p; p = p || { edition: '', limits: {}, modules: {}, features: [], active: true, public: false, sort: (S.plans || []).length + 1 }; const L = p.limits || {}; const Mo = p.modules || {};
@@ -570,6 +573,7 @@
     const locked = !isNew && p.used > 0; // businesses use it: its kind cannot change
     const box = modal({ title: isNew ? 'New plan' : 'Edit ' + p.name, wide: true, body: '<div class="col">' +
       field('For which businesses?', sel('edition', (isNew ? [['', 'Choose…']] : []).concat(Object.entries(ED).map(([k, x]) => [k, x.label + ' — ' + x.what])), p.edition, locked ? 'disabled' : '')) + (locked ? '<div class="tiny muted">Businesses use this plan, so it stays a ' + esc(edOf(p.edition).label) + ' plan. Make a new plan for the other kind.</div>' : '') +
+      '<div id="plVen">' + field('For which venue?', sel('venue', (isNew || !p.venue ? [['', 'Choose…']] : []).concat((S.venues || []).map((x) => [x.key, x.plural + ' — ' + x.what])), p.venue || '', locked ? 'disabled' : '')) + (locked ? '<div class="tiny muted">Businesses use this plan, so it stays a plan for ' + esc(((S.venues || []).find((x) => x.key === p.venue) || { plural: 'this venue' }).plural.toLowerCase()) + '. Make a new plan for another venue.</div>' : '<div class="tiny muted">Businesses on this plan run as this venue (bar screen, kitchen screen, menu sections).</div>') + '</div>' +
       field('Name', inp('name', p.name, isNew ? 'placeholder="e.g. Pro"' : '')) + field('Short description', inp('description', p.description)) +
       '<div class="grid3">' + field('Monthly price (FCFA)', inp('price_monthly', p.price_monthly, 'inputmode="numeric" placeholder="no price"')) + field('Yearly price (FCFA)', inp('price_yearly', p.price_yearly, 'inputmode="numeric" placeholder="no price"')) + '<div class="tiny muted" style="grid-column:1/-1">No price at all = a Free plan: businesses get a free trial on it.</div>' + field('Order', inp('sort', p.sort, 'inputmode="numeric"')) + '</div>' +
       '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.keys(S.limitKeys.counts).map((k) => field('', '<span data-limn="' + k + '" data-limk="' + k + '">' + esc(limName(k, p.edition)) + '</span>' + (LIM_HINT[k] ? '<span class="tiny muted" style="font-weight:400">' + LIM_HINT[k] + '</span>' : '') + inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
@@ -580,12 +584,14 @@
     const edSel = $('[name=edition]', box);
     const drawFeat = () => { const ed = edSel.value; $('#plFeat', box).innerHTML = ed ? checkGroups(catOf(ed), (k) => Mo[k] !== false, 'F_') + (ed === 'store' ? '<div class="tiny muted mt">Shipments and Receiving are never part of Aahsso Store.</div>' : ed === 'resto' ? '<div class="tiny muted mt">The Bar & Resto group decides what each plan gets: tables, QR ordering, kitchen screens, splits & tips, glasses, recipes, reservations, happy hour, loyalty, pay-first and waiter reports.</div>' : '') : '<div class="small muted">Choose who the plan is for to pick its features.</div>'; };
     const limShow = () => $$('[data-limk]', box).forEach((x) => { const f = x.closest('label'); if (f) f.style.display = limFor(x.dataset.limk, edSel.value) ? '' : 'none'; });
-    edSel.onchange = () => { $$('[data-limn]', box).forEach((x) => (x.textContent = limName(x.dataset.limn, edSel.value))); limShow(); $$('#plFeat input[type=checkbox]', box).forEach((c) => { const k = c.name.slice(2); if (!c.checked) Mo[k] = false; else delete Mo[k]; }); drawFeat(); limShow(); }; drawFeat(); limShow();
+    const venShow = () => { $('#plVen', box).style.display = edSel.value === 'resto' ? '' : 'none'; }; venShow();
+    edSel.onchange = () => { venShow(); $$('[data-limn]', box).forEach((x) => (x.textContent = limName(x.dataset.limn, edSel.value))); limShow(); $$('#plFeat input[type=checkbox]', box).forEach((c) => { const k = c.name.slice(2); if (!c.checked) Mo[k] = false; else delete Mo[k]; }); drawFeat(); limShow(); }; drawFeat(); limShow();
     $('#go', box).onclick = (e) => busy(e.target, async () => {
       const v = vals(box); const limits = {}; const ed = edSel.value; if (!ed) throw new Error('Choose which kind of business the plan is for');
+      const venue = ed === 'resto' ? ($('[name=venue]', box).value || '') : null; if (ed === 'resto' && !venue) throw new Error('Choose the venue: bars, restaurants, or bars & restaurants');
       Object.keys(S.limitKeys.counts).forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
       const modules = {}; catOf(ed).forEach(([k]) => { if (!v['F_' + k]) modules[k] = false; });
-      const body = { edition: ed, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };
+      const body = { edition: ed, venue, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };
       if (isNew) await api('POST', '/plans', body); else await api('PUT', '/plans/' + encodeURIComponent(p.id), body);
       closeModal(); toast('Plan saved'); S.plans = null; route();
     });
@@ -594,7 +600,7 @@
     planNew: () => planModal(null), planEdit: (el) => planModal(S.plans.find((p) => p.id === el.dataset.id)),
     planPublish: (el) => busy(el, async () => { // one click: show / hide a plan on the business side
       const p = S.plans.find((x) => x.id === el.dataset.id);
-      await api('PUT', '/plans/' + encodeURIComponent(p.id), { edition: p.edition, name: p.name, description: p.description, price_monthly: p.price_monthly, price_yearly: p.price_yearly, sort: p.sort, active: p.active, public: !p.public, limits: p.limits || {}, modules: p.modules || {}, features: p.features || [] });
+      await api('PUT', '/plans/' + encodeURIComponent(p.id), { edition: p.edition, venue: p.venue, name: p.name, description: p.description, price_monthly: p.price_monthly, price_yearly: p.price_yearly, sort: p.sort, active: p.active, public: !p.public, limits: p.limits || {}, modules: p.modules || {}, features: p.features || [] });
       toast(p.public ? p.name + ' is hidden from businesses' : p.name + ' is now shown to businesses'); S.plans = null; route();
     }),
   };
