@@ -100,6 +100,19 @@ function startSettings(edition, venueType) {
   const vt = KC.VENUE_TYPES.some(([k]) => k === venueType) ? venueType : 'both';
   return { mainLocationName: KC.editionOf('resto').loc.main, venueType: vt, menuCats: KC.MENU_CATS[vt].slice(), menuKey: crypto.randomBytes(6).toString('hex'), qrOn: true };
 }
+/* ---------- Aahsso Bar & Resto: the menu address /m/<name> (unique on the platform; the old /m/<key> still works) ---------- */
+async function menuSlugTaken(c, slug, tid) {
+  return (await c.query("SELECT 1 FROM documents WHERE collection='settings' AND id='main' AND tenant_id <> $2 AND (lower(data->>'menuSlug')=$1 OR data->>'menuKey'=$1 OR (data->'menuSlugsOld') ? $1) LIMIT 1", [slug, tid])).rowCount > 0;
+}
+/** the first free menu address like the one asked for: name, name-2, name-3… */
+async function freeMenuSlug(c, want, tid) {
+  let base = KC.shopSlugify(want); if (KC.shopSlugError(base)) base = KC.shopSlugify((base || 'my') + '-menu');
+  if (KC.shopSlugError(base)) base = 'menu-' + crypto.randomBytes(3).toString('hex');
+  if (!(await menuSlugTaken(c, base, tid))) return base;
+  const stem = base.slice(0, 36).replace(/-+$/, '');
+  for (let n = 2; n < 500; n++) { const cand = stem + '-' + n; if (!(await menuSlugTaken(c, cand, tid))) return cand; }
+  return stem + '-' + crypto.randomBytes(2).toString('hex');
+}
 /** Editions a new business can choose (the platform admin can close one for sign-ups). */
 async function signupEditions() { const S = await billing.platformSettings(); return KC.EDITION_KEYS.filter((k) => (S.signup || {})[k] !== false); }
 app.get('/api/signup-options', wrap(async (req, res) => {
@@ -121,7 +134,8 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
     const t = (await c.query("INSERT INTO tenants(name, trial_ends_at, edition) VALUES ($1, now() + ($2 || ' days')::interval, $3) RETURNING id, trial_ends_at", [businessName, String(days), edition])).rows[0];
     await billing.ensureSub(c, t.id, t.trial_ends_at); await billing.syncTenant(c, t.id);
     const u = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,email) VALUES ($1,$2,$3,$4,'owner',$5) RETURNING *", [t.id, name, l, await bcrypt.hash(String(password), 10), cleanEmail(email)])).rows[0];
-    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName }, startSettings(edition, venueType))), u.id]);
+    const st0 = startSettings(edition, venueType); if (edition === 'resto') st0.menuSlug = await freeMenuSlug(c, businessName, t.id);
+    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName }, st0)), u.id]);
     await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','register',$4)", [t.id, u.id, name, JSON.stringify({ edition })]);
     return u;
   });
@@ -296,7 +310,8 @@ app.post('/api/businesses', auth, bizLimiter, wrap(async (req, res) => {
     await billing.ensureSub(c, t.id, t.trial_ends_at); await billing.syncTenant(c, t.id);
     const x = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,email,person_id) VALUES ($1,$2,$3,$4,'owner',$5,$6) RETURNING *",
       [t.id, me.name, 'link:' + crypto.randomUUID(), await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10), mailer.emailOf(me), pid])).rows[0];
-    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName: name }, startSettings(edition, String(b.venueType || '')))), x.id]);
+    const st0 = startSettings(edition, String(b.venueType || '')); if (edition === 'resto') st0.menuSlug = await freeMenuSlug(c, name, t.id);
+    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName: name }, st0)), x.id]);
     await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','register',$4)", [t.id, x.id, me.name, JSON.stringify({ edition, addedFrom: u.tenant_id })]);
     await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','business_added',$4)", [u.tenant_id, u.id, u.name, JSON.stringify({ name, edition })]);
     return x;
@@ -626,6 +641,18 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
           if (await slugTaken(c, body.shopSlug, u.tenant_id)) return { status: 409, error: 'The address "' + body.shopSlug + '" is already used by another shop. Try ' + await freeSlug(c, body.shopSlug, u.tenant_id) };
         }
       } else body.shopSlug = '';
+      if (body.menuSlug === undefined) { if (old.menuSlug) body.menuSlug = old.menuSlug; }
+      else if (body.menuSlug) {
+        body.menuSlug = String(body.menuSlug).trim().toLowerCase();
+        if (body.menuSlug !== old.menuSlug) {
+          const bad = KC.shopSlugError(body.menuSlug); if (bad) return { status: 400, error: bad.replace('your shop', 'your menu') };
+          if (await menuSlugTaken(c, body.menuSlug, u.tenant_id)) return { status: 409, error: 'The menu address "' + body.menuSlug + '" is already used by another venue. Try ' + await freeMenuSlug(c, body.menuSlug, u.tenant_id) };
+        }
+      } else body.menuSlug = old.menuSlug || ''; // the menu keeps an address once it has one
+      // earlier addresses keep opening the menu (posters, links shared on WhatsApp) — the last 5
+      body.menuSlugsOld = (old.menuSlug && body.menuSlug !== old.menuSlug ? [old.menuSlug] : []).concat(Array.isArray(old.menuSlugsOld) ? old.menuSlugsOld : []).filter((x, i, a) => x && x !== body.menuSlug && a.indexOf(x) === i).slice(0, 5);
+      if (old.menuKey && !body.menuKey) body.menuKey = old.menuKey; // printed table QR codes depend on it
+      if (old.businessName && !String(body.businessName || '').trim()) body.businessName = old.businessName; // a business never loses its name to an early or partial save
     }
     if (col === 'bills') {
       // purchases: every bill has a transaction id; payments carry mode, txn id and MoMo charges (separate from amount)
@@ -1015,6 +1042,13 @@ async function freeSlug(c, slug, tid) {
   for (let n = 2; n < 500; n++) { const cand = base + '-' + n; if (!(await slugTaken(c, cand, tid))) return cand; }
   return base + '-' + crypto.randomBytes(2).toString('hex');
 }
+app.get('/api/menu-address', auth, wrap(async (req, res) => {
+  const slug = KC.shopSlugify(req.query.slug || '');
+  const bad = KC.shopSlugError(slug);
+  if (bad) return res.json({ slug, available: false, reason: bad.replace('your shop', 'your menu') });
+  const taken = await menuSlugTaken(pool, slug, req.user.tenant_id);
+  res.json({ slug, available: !taken, reason: taken ? 'Already used by another venue' : '', suggestion: taken ? await freeMenuSlug(pool, slug, req.user.tenant_id) : '' });
+}));
 app.get('/api/shop-address', auth, wrap(async (req, res) => {
   const slug = KC.shopSlugify(req.query.slug || '');
   const bad = KC.shopSlugError(slug);
@@ -1064,13 +1098,14 @@ app.post('/api/shop/:key/orders', shopOrderLimiter, wrap(async (req, res) => {
  * /t/<menuKey>/<tableToken> opens the menu with the table known; /m/<menuKey> is the venue's public menu, where the customer
  * picks their table (settings.pickTable, on by default) — or only browses when that is off.
  * Orders need the plan's QR ordering, the owner's switch (settings.qrOn) and a real table token. Prices come from the server. */
-const MENU_KEY_RE = /^[a-f0-9]{8,24}$/; const TABLE_TOKEN_RE = /^[A-Za-z0-9]{6,32}$/;
+/* MENU_KEY_RE: the menu address (sky-lounge) or the venue key (hex) */
+const MENU_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9-]{1,59}$/; const TABLE_TOKEN_RE = /^[A-Za-z0-9]{6,32}$/;
 const menuReadLimiter = rateLimit({ windowMs: 60 * 1000, max: 240, standardHeaders: true, legacyHeaders: false });
 const menuOrderLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(process.env.MENU_ORDERS_PER_10MIN || 30), standardHeaders: true, legacyHeaders: false, message: { error: 'Too many orders from this phone — please ask your waiter' } });
 const menuCallLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Please wait a moment — your waiter is on the way' } });
 async function menuTenant(key) {
   if (!MENU_KEY_RE.test(String(key || ''))) return null;
-  const r = (await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND d.data->>'menuKey'=$1 AND t.edition='resto' LIMIT 1", [key])).rows[0];
+  const r = (await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND (d.data->>'menuKey'=$1 OR lower(d.data->>'menuSlug')=lower($1) OR (d.data->'menuSlugsOld') ? lower($1)) AND t.edition='resto' ORDER BY (lower(d.data->>'menuSlug')=lower($1)) DESC LIMIT 1", [key])).rows[0];
   if (!r) return null; const ent = await billing.limitsFor(pool, r.tenant_id);
   if (!KC.anyOn(ent.features, ['tables', 'qrOrders', 'payFirst'])) return null; // no menu in the plan
   return { tid: r.tenant_id, settings: Object.assign({}, KC.DEFAULT_SETTINGS, r.data), features: ent.features };
@@ -1157,7 +1192,13 @@ app.post('/api/menu/:key/call', menuCallLimiter, wrap(async (req, res) => {
   broadcast(t.tid, 'tables', table.id); broadcast(t.tid, 'tabs', '');
   res.json({ ok: true });
 }));
-app.get(['/t/:key/:token', '/m/:key'], (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'menu.html')));
+app.get('/t/:key/:token', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'menu.html')));
+app.get('/m/:key', wrap(async (req, res) => {
+  // the old /m/<key> link and differently-cased addresses go to the menu's current address
+  const t = MENU_KEY_RE.test(req.params.key) ? await menuTenant(req.params.key) : null; const slug = t && t.settings.menuSlug;
+  if (slug && slug !== req.params.key) return res.redirect(301, '/m/' + encodeURIComponent(slug) + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
+  res.sendFile(path.join(__dirname, '..', 'public', 'menu.html'));
+}));
 
 // pretty shop link: /s/<key>
 app.get('/s/:key', wrap(async (req, res) => {

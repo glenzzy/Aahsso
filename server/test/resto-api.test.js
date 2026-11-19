@@ -89,6 +89,31 @@ test('the stock runs out: the QR menu shows it sold out', async () => {
   assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { t: S.tok, name: 'Ada', items: [{ menuId: 'm1', qty: 1 }] })).status, 400);
 });
 
+test('the menu address is the venue name: /m/k-rooftop-…; old links and earlier addresses keep working', async () => {
+  const set = () => api('GET', '/api/data/settings', S.o).then((r) => r.body.docs.find((d) => d.id === 'main'));
+  const st = await set(); S.slug = 'k-rooftop-' + rnd; assert.equal(st.menuSlug, S.slug, 'made from the business name at sign-up');
+  assert.equal((await api('GET', '/api/menu/' + S.slug)).status, 200, 'the API answers to the address');
+  const old = await fetch(B + '/m/' + S.key, { redirect: 'manual' }); assert.equal(old.status, 301); assert.equal(old.headers.get('location'), '/m/' + S.slug, 'the old /m/<key> link goes to the address');
+  assert.equal((await fetch(B + '/m/' + S.slug, { redirect: 'manual' })).status, 200);
+  // a second venue with the same name gets name-2; it cannot take the first one's address
+  const r2 = await api('POST', '/api/auth/register', null, { businessName: 'K Rooftop ' + rnd, name: 'Kofi', login: 'kofi' + rnd + '@resto.test', password: 'secret12', edition: 'resto' });
+  const st2 = (await api('GET', '/api/data/settings', r2.body.token)).body.docs.find((d) => d.id === 'main'); assert.equal(st2.menuSlug, S.slug + '-2');
+  const chk = (await api('GET', '/api/menu-address?slug=' + S.slug, r2.body.token)).body; assert.equal(chk.available, false); assert.equal(chk.suggestion, S.slug + '-2', 'its own address is free for it');
+  const steal = await api('PUT', '/api/data/settings/main', r2.body.token, Object.assign({}, st2, { id: undefined, menuSlug: S.slug })); assert.equal(steal.status, 409, 'taken by another venue');
+  assert.equal((await api('PUT', '/api/data/settings/main', S.o, Object.assign({}, st, { id: undefined, menuSlug: 'admin' }))).status, 400, 'reserved words refused');
+  // the owner renames it: the new address works, the earlier one still opens the menu, and nobody else can take it
+  const neu = 'sky-' + rnd; assert.equal((await api('PUT', '/api/data/settings/main', S.o, Object.assign({}, st, { id: undefined, menuSlug: neu }))).status, 200);
+  const st3 = await set(); assert.equal(st3.menuSlug, neu); assert.deepEqual(st3.menuSlugsOld, [S.slug]); assert.equal(st3.menuKey, S.key, 'the table QR codes keep their key');
+  assert.equal((await api('GET', '/api/menu/' + neu)).status, 200);
+  const prev = await fetch(B + '/m/' + S.slug, { redirect: 'manual' }); assert.equal(prev.status, 301); assert.equal(prev.headers.get('location'), '/m/' + neu, 'the earlier address goes to the new one');
+  assert.equal((await api('GET', '/api/menu-address?slug=' + S.slug, r2.body.token)).body.available, false, 'the earlier address stays with this venue');
+  assert.equal((await api('PUT', '/api/data/settings/main', S.o, Object.assign({}, st3, { id: undefined, menuSlug: undefined, menuSlugsOld: ['someone-else'] }))).status, 200);
+  const st4 = await set(); assert.equal(st4.menuSlug, neu, 'an older copy of the settings keeps the address'); assert.deepEqual(st4.menuSlugsOld, [S.slug], 'the list of earlier addresses cannot be written by the app');
+  // a save made before the app had the settings (defaults only) cannot wipe the venue
+  assert.equal((await api('PUT', '/api/data/settings/main', S.o, { businessName: '', menuKey: '' })).status, 200);
+  const st5 = await set(); assert.equal(st5.businessName, 'K Rooftop ' + rnd, 'the name stays'); assert.equal(st5.menuKey, S.key, 'the table QR key stays'); assert.equal(st5.menuSlug, neu, 'the address stays');
+});
+
 test('the public menu link: the customer picks their table; the owner can switch that off', async () => {
   assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { name: 'Cleo', device: 'dev3', items: [{ menuId: 'm2', qty: 1 }] })).status, 400, 'no table chosen');
   assert.equal((await api('POST', '/api/menu/' + S.key + '/orders', null, { table: 'nope', name: 'Cleo', device: 'dev3', items: [{ menuId: 'm2', qty: 1 }] })).status, 400, 'no such table');

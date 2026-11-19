@@ -5,9 +5,9 @@
  * Layout: one column on phones (basket in a bar + sheet); categories · dishes · your order side by side on wide screens. */
 (function () {
   'use strict';
-  const m = location.pathname.match(/^\/(t|m)\/([a-f0-9]+)(?:\/([A-Za-z0-9]+))?/) || [];
+  const m = location.pathname.match(/^\/(t|m)\/([A-Za-z0-9][A-Za-z0-9-]*)(?:\/([A-Za-z0-9]+))?/) || [];
   const KEY = m[2] || '', TOKEN = m[1] === 't' ? m[3] || '' : '';
-  const API = '/api/menu/' + KEY;
+  const API = '/api/menu/' + encodeURIComponent(KEY);
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
   const esc = (v) => String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

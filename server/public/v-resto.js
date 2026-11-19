@@ -27,13 +27,26 @@ const priceNow = (m) => KC.menuPrice(m, S(), new Date(), has('happyHour'));
 const hexId = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, '0')).join('');
 const tokenId = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 56]).join('');
 const tableLink = (t) => location.origin + '/t/' + S().menuKey + '/' + t.token;
-const menuLink = () => location.origin + '/m/' + S().menuKey;
+const menuLink = () => location.origin + '/m/' + (S().menuSlug || S().menuKey);
+const menuLinkShort = () => location.host + '/m/' + (S().menuSlug || S().menuKey);
 /** a ticket is for me: assigned to me, to my area, or to nobody yet */
 const forMe = (o) => o.waiterId === K.me.id || (!o.waiterId && (!(o.waiterIds || []).length || (o.waiterIds || []).includes(K.me.id)));
 const isWaiterOnly = () => can('serve') && !can('tables') && !can('salesAll');
 
 /* ---------- the QR menu needs a key; a venue switched in by the admin may not have one yet ---------- */
-async function ensureMenuKey() { if (!S().menuKey && can('settings')) await saveSettings({ menuKey: hexId(6) }); return S().menuKey; }
+let _slugAsked = false;
+/* settings are saved whole: never before the venue's own settings have arrived from the server,
+   or the defaults ("My Business", no menu key) would overwrite them */
+const settingsLoaded = () => K.sync === 'ok' && !!K.raw.settings && K.raw.settings.id === 'main';
+async function ensureMenuKey() {
+  if (!can('settings') || !settingsLoaded()) return S().menuKey;
+  if (!S().menuKey) await saveSettings({ menuKey: hexId(6) });
+  if (!S().menuSlug && !_slugAsked) { // venues made before menu addresses: one from the business name
+    _slugAsked = true;
+    try { const r = await K.store.req('GET', '/api/menu-address?slug=' + encodeURIComponent(S().businessName || 'menu')); const slug = r.available ? r.slug : r.suggestion; if (slug) await saveSettings({ menuSlug: slug }); } catch (e) { _slugAsked = false; }
+  }
+  return S().menuKey;
+}
 
 /* ================= live alerts: a new order, a call, a bill request ================= */
 const _seen = { ro: null, kds: null, calls: null };
@@ -99,7 +112,7 @@ function tableState(t) {
 const tabDue = (tab) => dueLines(tab).reduce((a, l) => a + l.qty * l.price, 0) + tabOwing(tab);
 VIEWS.floor = {
   render() {
-    if (!S().menuKey && can('settings')) setTimeout(ensureMenuKey, 0);
+    if ((!S().menuKey || !S().menuSlug) && can('settings') && settingsLoaded()) setTimeout(ensureMenuKey, 0);
     const areas = rAreas(); const cur = K.ui.floorArea || ''; let ts = rTables(); if (cur) ts = ts.filter((t) => t.areaId === cur);
     if (isWaiterOnly() && K.ui.floorMine !== false) { const mine = rTables().filter((t) => t.waiterId === K.me.id || (rAreas().find((a) => a.id === t.areaId) || { waiterIds: [] }).waiterIds.includes(K.me.id)); if (mine.length) ts = ts.filter((t) => mine.includes(t)); }
     const tops = '<div class="row wrap mb">' + (can('serve') ? '<button class="btn pri" data-a="rNewOrder">' + ic('plus') + 'New order</button>' : '') +
@@ -117,11 +130,42 @@ function menuCard() {
   if (!S().menuKey || !(can('tables') || can('settings') || can('menu'))) return '';
   const on = menuOrdersOn(); const pickOn = on && S().pickTable !== false; const link = menuLink();
   const lead = !on ? 'Customers can see your menu here. Ordering from the phone is off.' : pickOn ? 'Customers open this link, choose their table and order. You accept each order.' : 'Customers see the menu here; they order by scanning the QR code on their table.';
-  return '<div class="shop-link mb"><div class="lbl">Customer menu</div><div class="hint">' + lead + '</div><div class="shop-url">' + esc(link) + '</div><div class="shop-acts">' +
+  return '<div class="shop-link mb"><div class="lbl">Customer menu</div><div class="hint">' + lead + '</div><div class="shop-url">' + esc(menuLinkShort()) + '</div><div class="shop-acts">' +
     '<a class="btn sm" target="_blank" rel="noopener" href="' + esc(link) + '">Open menu</a><button class="btn sm" data-a="mnLink">' + ic('copy', 'sm') + 'Copy link</button>' +
     '<a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent('See our menu' + (pickOn ? ' and order from your table' : '') + ': ' + link) + '">' + ic('wa', 'sm') + 'Share</a>' +
-    '<button class="btn sm" data-a="qrMenuPrint">' + ic('dl', 'sm') + 'QR poster</button>' + (rTables().length && on ? '<button class="btn sm" data-a="qrPrint">' + ic('dl', 'sm') + 'Table QR codes</button>' : '') + '</div></div>';
+    '<button class="btn sm" data-a="qrMenuPrint">' + ic('dl', 'sm') + 'QR poster</button>' + (rTables().length && on ? '<button class="btn sm" data-a="qrPrint">' + ic('dl', 'sm') + 'Table QR codes</button>' : '') +
+    (can('settings') ? '<button class="btn sm ghost" data-a="menuSlugEdit">' + ic('edit', 'sm') + 'Change address</button>' : '') + '</div></div>';
 }
+/* the menu address: /m/sky-lounge — checked as you type; earlier addresses keep working */
+A.menuSlugEdit = () => {
+  const cur = S().menuSlug || KC.shopSlugify(S().businessName);
+  const sh = openSheet({ title: 'Menu address', body: '<div class="col">' +
+    '<label class="f"><span class="lbl">Your menu address</span><div class="slug-in"><span class="slug-pre">' + esc(location.host) + '/m/</span><input class="inp" id="menuSlug" value="' + esc(cur) + '" maxlength="40" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="your-venue-name"></div>' +
+    '<span class="hint slug-msg" id="mSlugMsg">Your venue name, easy to remember and share. Letters, numbers and dashes.</span></label>' +
+    '<p class="hint">Links and posters with your earlier address keep working. The QR codes on your tables do not change.</p></div>',
+    foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="msGo">Save</button>' });
+  const msg = (t, cls) => { const m = $('#mSlugMsg', sh); if (m) { m.textContent = t; m.className = 'hint slug-msg' + (cls ? ' ' + cls : ''); } };
+  let timer = null;
+  $('#menuSlug', sh).oninput = (e) => {
+    clearTimeout(timer); const slug = KC.shopSlugify(e.target.value); const bad = KC.shopSlugError(slug);
+    if (bad) return msg(bad.replace('your shop', 'your menu'), 'bad');
+    if (slug === S().menuSlug) return msg('✓ This is your current address', 'ok');
+    msg('Checking…');
+    timer = setTimeout(async () => {
+      try { const r = await K.store.req('GET', '/api/menu-address?slug=' + encodeURIComponent(slug)); if (KC.shopSlugify($('#menuSlug', sh).value) !== r.slug) return;
+        msg(r.available ? '✓ Available: ' + location.host + '/m/' + r.slug : (r.reason || 'Not available') + (r.suggestion ? ' — try ' + r.suggestion : ''), r.available ? 'ok' : 'bad'); }
+      catch (err) { msg('Could not check right now — it will be checked when you save.'); }
+    }, 400);
+  };
+  $('#menuSlug', sh).onblur = (e) => { const v = KC.shopSlugify(e.target.value); if (v) e.target.value = v; };
+  $('#msGo', sh).onclick = async () => {
+    const slug = KC.shopSlugify($('#menuSlug', sh).value); $('#menuSlug', sh).value = slug;
+    const bad = KC.shopSlugError(slug); if (bad) { msg(bad.replace('your shop', 'your menu'), 'bad'); return; }
+    if (slug === S().menuSlug) return closeSheet();
+    try { const r = await K.store.req('GET', '/api/menu-address?slug=' + encodeURIComponent(slug)); if (!r.available) { msg((r.reason || 'Not available') + (r.suggestion ? ' — try ' + r.suggestion : ''), 'bad'); return; } } catch (e) { }
+    if (await saveSettings({ menuSlug: slug })) { closeSheet(); render(true); toast('Your menu is now at ' + location.host + '/m/' + slug); }
+  };
+};
 A.floorArea = (el) => { K.ui.floorArea = el.dataset.v; render(true); };
 
 /* ---------- one table: its tickets, its bill ---------- */
