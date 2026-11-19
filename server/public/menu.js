@@ -96,7 +96,8 @@
       (st.billAsked ? '<div class="m-muted" style="color:var(--ok);margin-top:6px">Your waiter is bringing the bill.</div>' : '') + '</div>' + calls;
   }
 
-  /* ---------- the bell: tap = one ring, hold = it rings for as long as you hold (the waiter hears the same) ---------- */
+  /* ---------- calling staff: tap = one ring, hold = the staff bell rings for as long as you held (silent on the customer's phone) ---------- */
+  const RING_MIN = 650, RING_MAX = 8000; // the same as Bell.EVERY / Bell.MAX in bell.js (staff app)
   const CALLS = [['waiter', '🔔 Call the waiter'], ['bill', '🧾 Ask for the bill']];
   let hold = null; const callWait = {};
   function callsHtml() {
@@ -106,17 +107,16 @@
   const ringing = (k) => $$('[data-call]').forEach((b) => b.classList.toggle('ringing', b.dataset.call === k));
   function holdStart(b) {
     if (hold || b.disabled) return;
-    hold = { kind: b.dataset.call, t0: Date.now(), cap: setTimeout(() => holdEnd(), window.Bell ? Bell.MAX : 0) };
-    if (window.Bell) Bell.start(); ringing(hold.kind);
+    hold = { kind: b.dataset.call, t0: Date.now(), cap: setTimeout(() => holdEnd(), RING_MAX) };
+    ringing(hold.kind);
   }
   function holdEnd() {
     if (!hold) return; const h = hold; hold = null; clearTimeout(h.cap); ringing(null);
-    if (window.Bell) Bell.stop();
     callSend(h.kind, Date.now() - h.t0);
   }
   async function callSend(kind, ms) {
     callWait[kind] = Date.now() + 20000; drawMine(); setTimeout(drawMine, 20100);
-    const ring = window.Bell && ms >= Bell.EVERY ? Math.min(Bell.MAX, Math.round(ms)) : 0;
+    const ring = ms >= RING_MIN ? Math.min(RING_MAX, Math.round(ms)) : 0;
     try { await req('POST', '/call', { ...tbody(), kind, name: S.name, ring }); toast(kind === 'bill' ? 'Your waiter is bringing the bill' : 'Your waiter is coming'); }
     catch (err) { callWait[kind] = 0; drawMine(); toast(err.message); }
   }
@@ -193,7 +193,7 @@
     if (t.closest('[data-pick]')) { pickSheet(); return; }
     if (t.closest('[data-open]')) { sheet(cartHtml(true), 'basket'); return; }
     const sb = t.closest('[data-send]'); if (sb) { send(sb); return; }
-    const call = t.closest('[data-call]'); if (call) { if (e.detail === 0 && !call.disabled) { if (window.Bell) Bell.ring(0); callSend(call.dataset.call, 0); } return; } // keyboard; touch and mouse ring on press
+    const call = t.closest('[data-call]'); if (call) { if (e.detail === 0 && !call.disabled) callSend(call.dataset.call, 0); return; } // keyboard; touch and mouse ring on press
     const b = t.closest('[data-q]'); if (b) { const id = b.dataset.id; bump(id, b.dataset.q); const it = item(id); const card = $$('.m-main .m-item [data-id]').find((x) => x.dataset.id === id); if (it && card) card.closest('.m-item').outerHTML = row(it); drawSide(); }
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });

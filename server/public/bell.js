@@ -1,7 +1,9 @@
 /* The table bell (Bar & Resto): one ring for a tap, a ringing bell for as long as the button is held.
  *   Bell.start()  start ringing (keeps ringing until stop)     Bell.stop()  let the last ring fade out
  *   Bell.ring(ms) ring once (ms 0) or for ms milliseconds — the staff screen replays the customer's press
- * Shared by the customer menu (menu.html) and the staff app (index.html). */
+ *   Bell.on()     true once the browser lets this page play sound (it needs one tap after the page opens)
+ *   Bell.onchange called when that changes
+ * Staff app only (index.html): the customer menu stays silent. */
 (function () {
   const SRC = new URL('bell.mp3', (document.currentScript && document.currentScript.src) || location.href).href;
   const EVERY = 650; // a new strike while held: the rings overlap into one sustained sound
@@ -37,8 +39,15 @@
     });
   }
   const ring = (ms) => start(ms || 0);
-  // browsers only play sound after the person has touched the page once: wake the audio on the first touch
-  const wake = () => { ac(); load(); };
-  ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, wake, { once: true, capture: true }));
-  window.Bell = { start, stop, ring, MAX, EVERY };
+  // browsers only play sound after the person has touched the page: wake the audio on every touch until it runs
+  const isOn = () => !!ctx && ctx.state === 'running';
+  const tell = () => { if (typeof window.Bell.onchange === 'function') try { window.Bell.onchange(isOn()); } catch (e) { } };
+  const wake = () => {
+    if (isOn() && buf) return;
+    const c = ac(); load(); if (!c) return;
+    if (c.state === 'running') tell(); else c.resume().then(tell, () => {});
+    if (!c._watch) { c._watch = 1; c.onstatechange = tell; }
+  };
+  ['pointerdown', 'keydown', 'touchend'].forEach((ev) => document.addEventListener(ev, wake, { capture: true, passive: true }));
+  window.Bell = { start, stop, ring, MAX, EVERY, on: isOn, onchange: null };
 })();
