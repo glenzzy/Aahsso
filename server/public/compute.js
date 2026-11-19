@@ -290,7 +290,7 @@
    * Always included (not in this list): Home, stock list & prices, settings, team members, profile, billing, help. */
   const FEATURES = [
     ['buy', 'Purchases', 'Buying', 'Record what you buy, with costs and tax'],
-    ['ship', 'Shipments', 'Import flow', 'Group items into shipments and track them to Cameroon'],
+    ['ship', 'Shipments', 'Import flow', 'Group items into shipments and track them to your Destination'],
     ['receive', 'Receiving', 'Import flow', 'Arrival, customs and putting stock in the warehouse'],
     ['sell', 'Point of sale', 'Sales', 'Sales, receipts, payments, returns'],
     ['delivery', 'Deliveries', 'Sales', 'Delivery details, travel agencies, delivery status'],
