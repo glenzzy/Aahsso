@@ -16,7 +16,14 @@ const STORE_TOUR = [
   { r: 'stock', title: 'Stock', lead: 'See what you have, at a glance.', points: ['What you have and what it is worth', 'What is running low — also on your Home', 'Selling prices worked out from what you paid'] },
   { r: 'sales', title: 'Sell', lead: 'Sell at the till, by phone or on social media.', points: ['Tap New sale, then search or scan an item', 'Get paid by cash, MTN MoMo or Orange Money', 'Send the receipt by WhatsApp', 'See who owes you and remind them'], act: ['newSale', 'Make a sale', 'sell'] },
 ];
-const tourSteps = () => (isStore() ? STORE_TOUR : TOUR).filter((s) => !s.r || navOk(s.r));
+/* Aahsso Bar & Resto: tables & QR → orders → kitchen → bill */
+const RESTO_TOUR = [
+  { r: null, title: 'Welcome to Aahsso', lead: 'Your bar or restaurant in four steps: the menu, the tables, the orders, the bill. Aahsso keeps the stock and the money right.', intro: true },
+  { r: 'menu', title: 'Menu', lead: 'Add what you serve.', points: ['Price, category and photo', 'From stock: a bottle of beer takes one bottle', 'Sold out with one switch — it leaves the QR menu'] },
+  { r: 'floor', title: 'Tables', lead: 'Your tables, live.', points: ['Add areas and tables, print their QR codes', 'Colours show new orders, food ready, bill asked', 'Tap a table for its orders and its bill'] },
+  { r: 'tickets', title: 'Orders', lead: 'Customers order from their phone.', points: ['The waiter accepts, the kitchen and bar prepare', 'Mark it served when it reaches the table', 'Bill: cash or MoMo, the table is free again'] },
+];
+const tourSteps = () => (K.info && K.info.edition === 'resto' ? RESTO_TOUR : isStore() ? STORE_TOUR : TOUR).filter((s) => !s.r || navOk(s.r));
 const tourDone = () => { try { return localStorage.getItem(TOUR_KEY) === '1'; } catch (e) { return true; } };
 /** Ring the menu item of the current step (sidebar and phone bar); called again after every redraw. */
 function tourMark() {

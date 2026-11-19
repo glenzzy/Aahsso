@@ -431,11 +431,11 @@ test('delivery payment rules: collect = paid before pickup; our delivery = befor
 });
 
 test('editions: Aahsso Store never has Ship or Receive; everything else is up to the plan', () => {
-  assert.deepEqual(KC.EDITION_KEYS, ['import', 'store']);
+  assert.deepEqual(KC.EDITION_KEYS, ['import', 'store', 'resto']);
   assert.equal(KC.editionOf('nonsense').key, 'import', 'unknown → Import (every business before editions)');
   assert.equal(KC.editionHas('store', 'ship'), false); assert.equal(KC.editionHas('store', 'receive'), false);
   assert.equal(KC.editionHas('store', 'buy'), true); assert.equal(KC.editionHas('store', 'payroll'), true);
-  assert.equal(KC.featuresOf('import').length, KC.FEATURES.length);
+  assert.equal(KC.featuresOf('import').length, KC.FEATURES.length - KC.RESTO_FEATURES.length, 'everything but the Bar & Resto tools');
   assert.deepEqual(KC.featuresOf('import').map((f) => f[0]).filter((k) => !KC.featuresOf('store').some((f) => f[0] === k)), ['ship', 'receive']);
   // a Store business's staff never get the container permission, whatever their role says
   const P = KC.permsWithFeatures(KC.permsFor({ role: 'manager', active: true }, {}), { ship: false, receive: false });

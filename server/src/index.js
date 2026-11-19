@@ -33,7 +33,7 @@ const PORT = process.env.PORT || 8080;
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 16) { console.error('Set JWT_SECRET (16+ chars) in .env'); process.exit(1); }
 
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims', 'menu', 'areas', 'tables', 'tabs', 'rorders', 'reservations'];
 // Which permissions allow writing each collection (any one of them). Permission model lives in compute.js.
 const WRITE_PERMS = {
   settings: ['settings'], products: ['stockEdit', 'purchases'], lots: ['purchases', 'containers'], shipments: ['containers'],
@@ -46,8 +46,10 @@ const WRITE_PERMS = {
   losses: ['lossReport', 'stockEdit'], // staff report losses; a manager approves them (checked below)
   claims: ['suppliers', 'purchases', 'containers', 'stockEdit'], // returns to suppliers and claims: money owed back
   attendance: null, leaves: null, // everyone clocks in and asks for leave for themselves (checked below)
+  // Bar & Resto
+  menu: ['menu'], areas: ['tables'], tables: ['tables', 'serve', 'bills'], tabs: ['serve', 'bills'], rorders: ['serve', 'bills', 'kds'], reservations: ['reservations'],
 };
-const DELETE_PERMS = { products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'], promos: ['stockEdit'], staff: ['hr'], attendance: ['hr'], leaves: ['hr'], payroll: ['payroll'] };
+const DELETE_PERMS = { menu: ['menu'], areas: ['tables'], tables: ['tables'], reservations: ['reservations'], products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'], promos: ['stockEdit'], staff: ['hr'], attendance: ['hr'], leaves: ['hr'], payroll: ['payroll'] };
 const grp = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
 const perms = (u) => {
   const f = u.features || {};
@@ -90,6 +92,14 @@ const sign = (u) => jwt.sign({ uid: u.id, tid: u.tenant_id, role: u.role }, SECR
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: Number(process.env.AUTH_RATE) || 50 });
 app.use('/api/', rateLimit({ windowMs: 60 * 1000, max: Number(process.env.API_RATE_PER_MIN || 1200), standardHeaders: true, legacyHeaders: false }));
 
+/** What a new business starts with, by kind. A Bar & Resto gets its kind of venue, menu categories and the key of its QR menu. */
+const num0 = (v) => Number(v) || 0;
+function startSettings(edition, venueType) {
+  if (edition === 'store') return { mainLocationName: KC.editionOf('store').loc.main };
+  if (edition !== 'resto') return {};
+  const vt = KC.VENUE_TYPES.some(([k]) => k === venueType) ? venueType : 'both';
+  return { mainLocationName: KC.editionOf('resto').loc.main, venueType: vt, menuCats: KC.MENU_CATS[vt].slice(), menuKey: crypto.randomBytes(6).toString('hex'), qrOn: true };
+}
 /** Editions a new business can choose (the platform admin can close one for sign-ups). */
 async function signupEditions() { const S = await billing.platformSettings(); return KC.EDITION_KEYS.filter((k) => (S.signup || {})[k] !== false); }
 app.get('/api/signup-options', wrap(async (req, res) => {
@@ -97,7 +107,7 @@ app.get('/api/signup-options', wrap(async (req, res) => {
   res.json({ editions: open.map((k) => { const e = KC.editionOf(k); return { key: e.key, label: e.label, tag: e.tag, points: e.points }; }) });
 }));
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
-  const { businessName, name, login, password, email } = req.body || {};
+  const { businessName, name, login, password, email } = req.body || {}; const venueType = String((req.body || {}).venueType || '');
   if (!businessName || !name || !login || !password) return err(res, 400, 'Business name, your name, login and password are required');
   const open = await signupEditions();
   const asked = String((req.body || {}).edition || '');
@@ -111,7 +121,7 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
     const t = (await c.query("INSERT INTO tenants(name, trial_ends_at, edition) VALUES ($1, now() + ($2 || ' days')::interval, $3) RETURNING id, trial_ends_at", [businessName, String(days), edition])).rows[0];
     await billing.ensureSub(c, t.id, t.trial_ends_at); await billing.syncTenant(c, t.id);
     const u = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,email) VALUES ($1,$2,$3,$4,'owner',$5) RETURNING *", [t.id, name, l, await bcrypt.hash(String(password), 10), cleanEmail(email)])).rows[0];
-    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName })), u.id]);
+    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName }, startSettings(edition, venueType))), u.id]);
     await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','register',$4)", [t.id, u.id, name, JSON.stringify({ edition })]);
     return u;
   });
@@ -286,7 +296,7 @@ app.post('/api/businesses', auth, bizLimiter, wrap(async (req, res) => {
     await billing.ensureSub(c, t.id, t.trial_ends_at); await billing.syncTenant(c, t.id);
     const x = (await c.query("INSERT INTO users(tenant_id,name,login,password_hash,role,email,person_id) VALUES ($1,$2,$3,$4,'owner',$5,$6) RETURNING *",
       [t.id, me.name, 'link:' + crypto.randomUUID(), await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10), mailer.emailOf(me), pid])).rows[0];
-    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName: name }, edition === 'store' ? { mainLocationName: KC.editionOf('store').loc.main } : {})), x.id]);
+    await c.query("INSERT INTO documents(tenant_id,collection,id,data,updated_by) VALUES ($1,'settings','main',$2,$3)", [t.id, JSON.stringify(Object.assign({}, KC.DEFAULT_SETTINGS, { businessName: name }, startSettings(edition, String(b.venueType || '')))), x.id]);
     await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','register',$4)", [t.id, x.id, me.name, JSON.stringify({ edition, addedFrom: u.tenant_id })]);
     await c.query("INSERT INTO audit_log(tenant_id,user_id,user_name,location_id,action,after) VALUES ($1,$2,$3,'main','business_added',$4)", [u.tenant_id, u.id, u.name, JSON.stringify({ name, edition })]);
     return x;
@@ -459,6 +469,18 @@ async function planGuard(c, u, col, body, old) {
   if (col === 'sales' && body.delivery && body.delivery.mode && body.delivery.mode !== 'pickup' && !(old && old.delivery && old.delivery.mode === body.delivery.mode)) { const e = off(['delivery']); if (e) return e; }
   if (col === 'products' && body.image && body.image !== (old && old.image)) { const e = off(['photos']); if (e) return e; }
   if (col === 'settings' && JSON.stringify(body.roles || {}) !== JSON.stringify((old && old.roles) || {})) { const e = off(['customRoles']); if (e) return e; }
+  // Bar & Resto: each extra is a plan feature the platform admin switches on or off
+  if (col === 'menu' && body.kind === 'portion' && !(old && old.kind === 'portion')) { const e = off(['portions']); if (e) return e; }
+  if (col === 'menu' && body.kind === 'recipe' && !(old && old.kind === 'recipe')) { const e = off(['recipes']); if (e) return e; }
+  if (col === 'sales' && body.loyalty && !(old && old.loyalty)) { const e = off(['loyalty']); if (e) return e; }
+  if (col === 'sales' && body.tabId && (num0(body.tip) > 0 || body.split) && !(old && old.tabId)) { const e = off(['tabsPlus']); if (e) return e; }
+  if (col === 'settings') {
+    if (body.happyHour && body.happyHour.on && !(old && old.happyHour && old.happyHour.on)) { const e = off(['happyHour']); if (e) return e; }
+    if (body.payFirst && !(old && old.payFirst)) { const e = off(['payFirst']); if (e) return e; }
+    if (body.loyaltyOn && !(old && old.loyaltyOn)) { const e = off(['loyalty']); if (e) return e; }
+    if (num0(body.serviceCharge) > 0 && !(num0(old && old.serviceCharge) > 0)) { const e = off(['tabsPlus']); if (e) return e; }
+  }
+  if (col === 'tables' && (!old || old.archived) && !body.archived) return billing.checkLimit(c, u.tenant_id, 'maxTables');
   if (col === 'locations' && !old) return billing.checkLimit(c, u.tenant_id, 'maxLocations');
   if (col === 'products' && !old && !body.archived) return billing.checkLimit(c, u.tenant_id, 'maxProducts');
   if (col === 'products' && old && old.archived && !body.archived) return billing.checkLimit(c, u.tenant_id, 'maxProducts');
@@ -847,7 +869,7 @@ app.get('/api/team-names', auth, wrap(async (req, res) => {
 app.get('/api/users', auth, requirePerm('team'), wrap(async (req, res) => {
   res.json({ users: (await q('SELECT u.id,u.name,coalesce(p.login,u.login) AS login,u.email,u.role,u.perms,u.location_id AS "locationId",u.active,u.created_at,u.last_login_at FROM users u LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=$1 ORDER BY u.created_at', [req.user.tenant_id])).rows });
 }));
-const ROLE_OK_BASE = ['admin', 'manager', 'sales', 'viewer'];
+const ROLE_OK_BASE = ['admin', 'manager', 'sales', 'viewer', 'resto_waiter', 'resto_cashier', 'resto_kitchen'];
 const roleOk = (u, r) => r !== 'owner' && (ROLE_OK_BASE.includes(r) || (KC.featureOn(u.features, 'customRoles') && !!(u.customRoles && u.customRoles[r])));
 const cleanPerms = (p, u) => { const o = {}; if (u && !KC.featureOn(u.features, 'customRoles')) return o; if (p && typeof p === 'object') KC.PERMS.forEach(([k]) => { if (k in p) o[k] = !!p[k]; }); return o; };
 app.post('/api/users', auth, requireActive, requirePerm('team'), wrap(async (req, res) => {
@@ -1038,6 +1060,93 @@ app.post('/api/shop/:key/orders', shopOrderLimiter, wrap(async (req, res) => {
   }
   res.json({ ok: true, no, total: order.subtotal, whatsapp: st.whatsapp || st.phone || '', business: st.businessName });
 }));
+/* ---------- Aahsso Bar & Resto: the QR menu at each table ----------
+ * /t/<menuKey>/<tableToken> opens the menu with the table known; /m/<menuKey> shows the menu only.
+ * Orders need the plan's QR ordering, the owner's switch (settings.qrOn) and a real table token. Prices come from the server. */
+const MENU_KEY_RE = /^[a-f0-9]{8,24}$/; const TABLE_TOKEN_RE = /^[A-Za-z0-9]{6,32}$/;
+const menuReadLimiter = rateLimit({ windowMs: 60 * 1000, max: 240, standardHeaders: true, legacyHeaders: false });
+const menuOrderLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(process.env.MENU_ORDERS_PER_10MIN || 30), standardHeaders: true, legacyHeaders: false, message: { error: 'Too many orders from this phone — please ask your waiter' } });
+const menuCallLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Please wait a moment — your waiter is on the way' } });
+async function menuTenant(key) {
+  if (!MENU_KEY_RE.test(String(key || ''))) return null;
+  const r = (await q("SELECT d.tenant_id, d.data FROM documents d JOIN tenants t ON t.id=d.tenant_id WHERE d.collection='settings' AND d.id='main' AND d.data->>'menuKey'=$1 AND t.edition='resto' LIMIT 1", [key])).rows[0];
+  if (!r) return null; const ent = await billing.limitsFor(pool, r.tenant_id);
+  if (!KC.anyOn(ent.features, ['tables', 'qrOrders', 'payFirst'])) return null; // no menu in the plan
+  return { tid: r.tenant_id, settings: Object.assign({}, KC.DEFAULT_SETTINGS, r.data), features: ent.features };
+}
+async function loadCols(c, tid, cols) {
+  const out = {}; cols.forEach((k) => (out[k] = []));
+  (await c.query('SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection = ANY($2)', [tid, cols])).rows.forEach((x) => out[x.collection].push(Object.assign({}, x.data, { id: x.id })));
+  return out;
+}
+/** the live menu: prices now (happy hour), sold out by hand or by stock */
+async function liveMenu(t) {
+  const raw = await loadAll(pool, t.tid); const C = KC.computeAll(raw); const st = t.settings; const R = await loadCols(pool, t.tid, ['menu', 'tables', 'areas']);
+  const hh = KC.featureOn(t.features, 'happyHour'); const now = new Date(); const vt = st.venueType || 'both';
+  const items = R.menu.filter((m) => m.active !== false && m.name).map((m) => ({ id: m.id, name: m.name, category: m.category || 'Other', desc: m.desc || '', photo: m.photo || '', price: Number(m.price) || 0,
+    priceNow: KC.menuPrice(m, st, now, hh), station: KC.stationOf(m, vt), soldOut: !!m.soldOut || KC.menuUnits(C, m, 'main') < 1, sort: Number(m.sort) || 0 }))
+    .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+  return { st, items, tables: R.tables.filter((x) => !x.archived), areas: R.areas, hhOn: hh && KC.hhActive(st, now) };
+}
+const menuTable = (L, token) => (TABLE_TOKEN_RE.test(String(token || '')) ? L.tables.find((x) => x.token === token) : null) || null;
+async function putDoc(c, tid, col, id, data, who) {
+  await c.query('INSERT INTO documents(tenant_id,collection,id,data) VALUES ($1,$2,$3,$4) ON CONFLICT (tenant_id,collection,id) DO UPDATE SET data=EXCLUDED.data, updated_at=now()', [tid, col, id, JSON.stringify(data)]);
+  await c.query("INSERT INTO audit_log(tenant_id,user_name,location_id,action,collection,doc_id,after) VALUES ($1,$2,'main','update',$3,$4,$5)", [tid, who, col, id, JSON.stringify(data)]);
+}
+app.get('/api/menu/:key', menuReadLimiter, wrap(async (req, res) => {
+  const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
+  const L = await liveMenu(t); const st = L.st; const table = menuTable(L, req.query.t); const area = table && L.areas.find((a) => a.id === table.areaId);
+  const cats = (st.menuCats || []).filter((c) => L.items.some((i) => i.category === c)).concat([...new Set(L.items.map((i) => i.category))].filter((c) => !(st.menuCats || []).includes(c)));
+  res.set('Cache-Control', 'no-store').json({
+    business: { name: st.businessName, tagline: st.tagline || '', logo: st.logo || '', symbol: KC.currencySymbolOf(st), venueType: st.venueType || 'both', phone: st.whatsapp || st.phone || '' },
+    table: table ? { label: table.label, area: area ? area.name : '' } : null,
+    canOrder: !!table && st.qrOn !== false && KC.featureOn(t.features, 'qrOrders'),
+    happyHour: L.hhOn ? { pct: Number(st.happyHour.pct) || 0, to: st.happyHour.to || '' } : null,
+    cats, items: L.items.map((i) => ({ id: i.id, name: i.name, category: i.category, desc: i.desc, photo: i.photo, price: i.price, priceNow: i.priceNow, soldOut: i.soldOut })) });
+}));
+app.post('/api/menu/:key/orders', menuOrderLimiter, wrap(async (req, res) => {
+  const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
+  if (t.settings.qrOn === false || !KC.featureOn(t.features, 'qrOrders')) return err(res, 403, 'Ordering from the menu is off — please call your waiter');
+  const L = await liveMenu(t); const table = menuTable(L, (req.body || {}).t); if (!table) return err(res, 400, 'Scan the QR code on your table to order');
+  const r = KC.validateMenuOrder(req.body, L.items, L.st); if (r.error) return err(res, 400, r.error);
+  const device = String((req.body || {}).device || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 40);
+  const area = L.areas.find((a) => a.id === table.areaId) || {};
+  const waiters = table.waiterId ? [table.waiterId] : (area.waiterIds || []);
+  const now = new Date().toISOString(); let tabId, orderId = 'ro_' + crypto.randomBytes(8).toString('hex'); const no = String(Math.floor(100 + Math.random() * 900));
+  await tx(async (c) => {
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [t.tid + ':' + table.id]); // two phones at one table: one tab
+    const open = (await c.query("SELECT id, data FROM documents WHERE tenant_id=$1 AND collection='tabs' AND data->>'tableId'=$2 AND data->>'status'='open' LIMIT 1", [t.tid, table.id])).rows[0];
+    if (open) tabId = open.id;
+    else { tabId = 'tb_' + crypto.randomBytes(8).toString('hex'); await putDoc(c, t.tid, 'tabs', tabId, { tableId: table.id, tableLabel: table.label, status: 'open', openedAt: now, customerName: r.name, waiterId: waiters.length === 1 ? waiters[0] : '', source: 'qr' }, 'QR menu'); }
+    await putDoc(c, t.tid, 'rorders', orderId, { no, tabId, tableId: table.id, tableLabel: table.label, areaId: table.areaId || '', source: 'qr', customerName: r.name, note: r.note, device, waiterIds: waiters, waiterId: waiters.length === 1 ? waiters[0] : '', status: 'new', lines: r.lines, createdAt: now }, 'QR menu · ' + r.name);
+  });
+  broadcast(t.tid, 'tabs', tabId); broadcast(t.tid, 'rorders', orderId);
+  res.json({ ok: true, no, orderId, total: r.lines.reduce((a, l) => a + l.qty * l.price, 0) });
+}));
+/** what this phone ordered at this table, and the bill so far */
+app.get('/api/menu/:key/status', menuReadLimiter, wrap(async (req, res) => {
+  const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
+  const R = await loadCols(pool, t.tid, ['tables', 'tabs', 'rorders']); const table = TABLE_TOKEN_RE.test(String(req.query.t || '')) && R.tables.find((x) => x.token === req.query.t);
+  if (!table) return res.json({ orders: [], total: 0 });
+  const tab = R.tabs.find((x) => x.tableId === table.id && x.status === 'open'); const device = String(req.query.d || '');
+  const mine = tab ? R.rorders.filter((o) => o.tabId === tab.id && device && o.device === device).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')) : [];
+  const total = tab ? KC.tabLines(tab, R.rorders).reduce((a, l) => a + l.qty * l.price, 0) : 0;
+  res.set('Cache-Control', 'no-store').json({ orders: mine.map((o) => ({ no: o.no, status: o.status, reason: o.rejectReason || '', at: o.createdAt, lines: (o.lines || []).map((l) => ({ name: l.name, qty: l.qty })) })), total, billAsked: !!(tab && tab.billAskedAt), open: !!tab });
+}));
+app.post('/api/menu/:key/call', menuCallLimiter, wrap(async (req, res) => {
+  const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
+  const R = await loadCols(pool, t.tid, ['tables', 'tabs']); const b = req.body || {}; const table = TABLE_TOKEN_RE.test(String(b.t || '')) && R.tables.find((x) => x.token === b.t);
+  if (!table) return err(res, 400, 'Scan the QR code on your table');
+  const kind = b.kind === 'bill' ? 'bill' : 'waiter'; const now = new Date().toISOString();
+  await tx(async (c) => {
+    await putDoc(c, t.tid, 'tables', table.id, Object.assign({}, table, { id: undefined, call: { kind, at: now, name: String(b.name || '').slice(0, 60) } }), 'QR menu');
+    const tab = R.tabs.find((x) => x.tableId === table.id && x.status === 'open'); if (tab && kind === 'bill') await putDoc(c, t.tid, 'tabs', tab.id, Object.assign({}, tab, { id: undefined, billAskedAt: now }), 'QR menu');
+  });
+  broadcast(t.tid, 'tables', table.id); broadcast(t.tid, 'tabs', '');
+  res.json({ ok: true });
+}));
+app.get(['/t/:key/:token', '/m/:key'], (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'menu.html')));
+
 // pretty shop link: /s/<key>
 app.get('/s/:key', wrap(async (req, res) => {
   // old links (random key) and differently-cased addresses go to the shop's current address

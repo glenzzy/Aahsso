@@ -42,12 +42,12 @@ test('setup: a Super Admin', async () => {
   S.c = c;
   await fresh(); // both kinds open for sign-up (an earlier run may have closed one)
   const st = (await c.call('GET', '/api/admin/settings')).body.settings;
-  assert.equal((await c.call('PUT', '/api/admin/settings', Object.assign({}, st, { signup: { import: true, store: true } }))).status, 200);
+  assert.equal((await c.call('PUT', '/api/admin/settings', Object.assign({}, st, { signup: { import: true, store: true, resto: true } }))).status, 200);
 });
 
 test('sign-up: a new business chooses Import or Store; an old app that sends nothing gets Import', async () => {
   const o = (await api('GET', '/api/signup-options')).body.editions;
-  assert.deepEqual(o.map((e) => e.key), ['import', 'store']); assert.equal(o[1].label, 'Aahsso Store');
+  assert.deepEqual(o.map((e) => e.key), ['import', 'store', 'resto']); assert.equal(o[1].label, 'Aahsso Store');
   assert.equal((await reg({ login: 'bad' + rnd, edition: 'nonsense' })).status, 400);
   const st = await reg({ login: 'st' + rnd, edition: 'store' }); assert.equal(st.status, 200); S.st = st.body.token;
   const me = (await api('GET', '/api/me', S.st)).body;
@@ -120,10 +120,10 @@ test('the platform admin switches a business between Store and Import — data k
 test('sign-up can be closed for one kind; at least one stays open', async () => {
   await fresh();
   const st = (await S.c.call('GET', '/api/admin/settings')).body.settings;
-  assert.equal((await S.c.call('PUT', '/api/admin/settings', Object.assign({}, st, { signup: { import: false, store: false } }))).status, 400);
-  assert.equal((await S.c.call('PUT', '/api/admin/settings', Object.assign({}, st, { signup: { import: false, store: true } }))).status, 200);
+  assert.equal((await S.c.call('PUT', '/api/admin/settings', Object.assign({}, st, { signup: { import: false, store: false, resto: false } }))).status, 400);
+  assert.equal((await S.c.call('PUT', '/api/admin/settings', Object.assign({}, st, { signup: { import: false, store: true, resto: false } }))).status, 200);
   assert.deepEqual((await api('GET', '/api/signup-options')).body.editions.map((e) => e.key), ['store']);
   assert.equal((await reg({ login: 'cl' + rnd, edition: 'import' })).status, 400, 'Import is closed');
   const r = await reg({ login: 'cs' + rnd }); assert.equal(r.status, 200); assert.equal((await api('GET', '/api/me', r.body.token)).body.edition, 'store', 'nothing sent: the only open kind');
-  await fresh(); assert.equal((await S.c.call('PUT', '/api/admin/settings', Object.assign({}, st, { signup: { import: true, store: true } }))).status, 200);
+  await fresh(); assert.equal((await S.c.call('PUT', '/api/admin/settings', Object.assign({}, st, { signup: { import: true, store: true, resto: true } }))).status, 200);
 });

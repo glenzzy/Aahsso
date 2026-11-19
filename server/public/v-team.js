@@ -2,7 +2,9 @@
 /** permissions of features this business has (Aahsso Store has no containers; a plan can switch features off) */
 const teamPerms = () => KC.PERMS.filter(([k]) => KC.permFeatureOn(K.info && K.info.features, k));
 const ROLES_NOW = () => KC.rolesWith(S().roles);
-const ROLE_OPTS = () => Object.entries(has('customRoles') ? ROLES_NOW() : KC.ROLES).filter(([k]) => k !== 'owner').map(([k, r]) => [k, r.label]); // custom roles only in plans that include them
+const RESTO_ROLES = ['resto_waiter', 'resto_cashier', 'resto_kitchen'];
+const roleFits = (k) => !RESTO_ROLES.includes(k) || (K.info && K.info.edition === 'resto');
+const ROLE_OPTS = () => Object.entries(has('customRoles') ? ROLES_NOW() : KC.ROLES).filter(([k]) => k !== 'owner' && roleFits(k)).map(([k, r]) => [k, r.label]); // custom roles only in plans that include them
 const ROLE_HELP = {
   admin: 'Everything, including settings and team.',
   manager: 'Runs the business day to day: purchases, containers, stock, prices, reports, expenses. No team or settings.',
@@ -27,7 +29,7 @@ VIEWS.team = {
   },
 };
 function roleTable() {
-  const roles = Object.entries(ROLES_NOW()).filter(([k]) => k !== 'owner');
+  const roles = Object.entries(ROLES_NOW()).filter(([k]) => k !== 'owner' && roleFits(k));
   return '<h2 class="mb mt2">What each role can do</h2><div class="card tw"><table class="t"><thead><tr><th>Permission</th>' + roles.map(([, r]) => '<th class="center">' + esc(r.label.split(' ')[0]) + '</th>').join('') + '</tr></thead><tbody>' +
     teamPerms().map(([k, l]) => '<tr><td>' + esc(l) + '</td>' + roles.map(([, r]) => '<td class="center">' + (r.perms.includes(k) ? '<span style="color:var(--ok)">✓</span>' : '<span class="faint">—</span>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div><div class="tiny muted mt">Change what a whole role can do with <b>Edit roles</b>, or switch a permission on/off for one person by tapping their name.</div>' +
     (can('team') && can('settings') ? '<div class="row wrap mt"><button class="btn" data-a="roleEdit">' + ic('plus') + 'New role</button>' + roles.map(([k, r]) => '<button class="btn sm" data-a="roleEdit" data-k="' + k + '">' + ic('edit', 'sm') + esc(r.label) + '</button>').join('') + '</div>' : '');

@@ -2,7 +2,7 @@
 const { num } = KC;
 const K = {
   store: null, info: { role: 'admin' }, me: { id: 'local', name: '' }, member: { role: 'owner' }, perms: {}, route: 'home', pending: false, sheets: [],
-  raw: { audits: [], settings: {}, products: [], lots: [], shipments: [], customers: [], sales: [], adjustments: [], expenses: [], members: [], requests: [], locations: [], transfers: [], handovers: [], suppliers: [], bills: [], reminders: [], assets: [], staff: [], attendance: [], leaves: [], payroll: [], tills: [], losses: [], claims: [] },
+  raw: { audits: [], settings: {}, products: [], lots: [], shipments: [], customers: [], sales: [], adjustments: [], expenses: [], members: [], requests: [], locations: [], transfers: [], handovers: [], suppliers: [], bills: [], reminders: [], assets: [], staff: [], attendance: [], leaves: [], payroll: [], tills: [], losses: [], claims: [], menu: [], areas: [], tables: [], tabs: [], rorders: [], reservations: [] },
   outbox: [], failed: [], loc: 'main',
   loaded: {}, C: null, sync: 'loading',
   ui: { stockFilter: 'all', stockCat: '', stockQ: '', salesRange: 'today', salesStatus: 'all', salesQ: '', posQ: '', posCat: '', buyQ: '', custQ: '', repTab: 'daily', repDate: '', repMonth: '', expanded: {} },
@@ -76,7 +76,8 @@ const can = (p) => !!K.perms[p];
 const has = (f) => KC.featureOn(K.info && K.info.features, f);
 const hasAny = (...fs) => KC.anyOn(K.info && K.info.features, fs);
 /** Aahsso Store (buy locally, sell, manage stock) — or Aahsso Brocan (buy abroad, ship, receive, sell). Set at sign-up. */
-const isStore = () => !!K.info && K.info.edition === 'store';
+// Aahsso Bar & Resto buys locally like a Store and gets the same simple, compact app
+const isStore = () => !!K.info && (K.info.edition === 'store' || K.info.edition === 'resto');
 const edition = () => KC.editionOf(K.info && K.info.edition);
 /** what an item cost you: "landed cost" for importers (goods + freight + customs), plain "cost" in a store */
 /** a count limit of the plan (null = unlimited) */
@@ -85,7 +86,7 @@ const planMax = (k) => { const v = K.info && K.info.limits && K.info.limits[k]; 
 const locW = () => edition().loc;
 const costWord = (cap) => (isStore() ? (cap ? 'Cost' : 'cost') : (cap ? 'Landed cost' : 'landed cost'));
 /** page classes nf-<feature> for each feature that is off — the stylesheet hides those features' buttons */
-function featureClasses() { const f = (K.info && K.info.features) || {}; KC.FEATURE_KEYS.forEach((k) => document.body.classList.toggle('nf-' + k, f[k] === false)); document.body.classList.toggle('ed-store', isStore()); }
+function featureClasses() { const f = (K.info && K.info.features) || {}; KC.FEATURE_KEYS.forEach((k) => document.body.classList.toggle('nf-' + k, f[k] === false)); document.body.classList.toggle('ed-store', isStore()); document.body.classList.toggle('ed-resto', !!K.info && K.info.edition === 'resto'); }
 const isAdmin = () => can('settings') || can('team');
 const seeCost = () => can('costs');
 const roleLabel = () => (KC.rolesWith(S().roles)[(K.member || {}).role] || { label: 'Custom' }).label;
@@ -130,6 +131,8 @@ const IP = {
   chart: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
   wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 010-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 014 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 010 4h-.1a1.6 1.6 0 00-1.5 1z"/>',
+  table: '<path d="M3 8h18M5 8v12M19 8v12M8 8V5h8v3"/>', bell: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4l2-2z"/><path d="M10 20a2 2 0 004 0"/>',
+  chef: '<path d="M7 14a4 4 0 01-.5-8 5 5 0 019-1 4 4 0 011 8"/><path d="M7 14h10v6H7z"/>', cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', x: '<path d="M18 6L6 18M6 6l12 12"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>', chev: '<path d="M9 6l6 6-6 6"/>', down: '<path d="M6 9l6 6 6-6"/>',
@@ -355,6 +358,13 @@ const NAV = [
   ['employees', 'Employees', 'users', () => can('hr') || can('payroll')],
   ['profile', 'My profile', 'user', () => true], ['billing', 'Billing & subscription', 'card', () => K.info.mode === 'saas' && canBilling()], ['plans', 'Choose your plan', 'card', () => K.info.mode === 'saas' && canBilling()], ['help', 'Help & support', 'help', () => true],
   ['tools', 'More tools', 'more', () => isStore() && storeTools().length > 0],
+  // Aahsso Bar & Resto
+  ['floor', 'Tables', 'table', () => isResto() && (can('serve') || can('bills') || can('tables'))],
+  ['tickets', 'Orders', 'bell', () => isResto() && (can('serve') || can('bills')), () => (K.raw.rorders || []).filter((o) => o.status === 'new' && (typeof forMe !== 'function' || forMe(o) || can('tables'))).length],
+  ['kds', 'Kitchen screen', 'chef', () => isResto() && can('kds')],
+  ['menu', 'Menu', 'tag', () => isResto() && (can('menu') || can('serve'))],
+  ['bookings', 'Reservations', 'cal', () => isResto() && can('reservations')],
+  ['rstats', 'Waiters & tables', 'chart', () => isResto() && can('reports') && has('waiterStats')],
   ['team', 'Team & access', 'key', () => can('team')], ['settings', 'Settings', 'gear', () => can('settings') || can('export')],
 ];
 const navOk = (r) => { if (!KC.routeFeatureOn(K.info && K.info.features, r)) return false; const n = NAV.find((x) => x[0] === r); return !n || n[3](); }; // pages of features outside the plan do not exist
@@ -383,10 +393,24 @@ const STORE_SECTIONS = [
   ['tools', 'More tools', 'more', ['tools', 'orders', 'promos', 'audit', 'losses', 'transfers', 'reminders', 'cash', 'claims', 'assets', 'staff', 'leave', 'payroll', 'employees', 'activity']],
   ['settings', 'Settings', 'gear', ['settings', 'team']],
 ];
-const sections = () => (isStore() ? STORE_SECTIONS : SECTIONS);
+/* Aahsso Bar & Resto: the floor first */
+const RESTO_SECTIONS = [
+  ['home', 'Home', 'home', ['home']],
+  ['floor', 'Tables', 'table', ['floor', 'bookings']],
+  ['tickets', 'Orders', 'bell', ['tickets', 'kds']],
+  ['menu', 'Menu', 'tag', ['menu']],
+  ['stock', 'Stock', 'stock', ['stock']],
+  ['buy', 'Buy', 'buy', ['buy']],
+  ['suppliers', 'Suppliers', 'truck', ['suppliers']],
+  ['customers', 'Customers', 'users', ['customers']],
+  ['records', 'Records', 'wallet', ['sales', 'expenses', 'reports', 'rstats']],
+  ['tools', 'More tools', 'more', STORE_SECTIONS.find((x) => x[0] === 'tools')[3]],
+  ['settings', 'Settings', 'gear', ['settings', 'team']],
+];
+const sections = () => (K.info && K.info.edition === 'resto' ? RESTO_SECTIONS : isStore() ? STORE_SECTIONS : SECTIONS);
 /** the extra tools a Store business has (from its plan and permissions) */
 const storeTools = () => STORE_SECTIONS.find((x) => x[0] === 'tools')[3].slice(1).filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
-const TAB_LABEL = { sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', losses: 'Losses', claims: 'Returns & claims', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
+const TAB_LABEL = { floor: 'Tables', bookings: 'Reservations', tickets: 'Orders', kds: 'Kitchen screen', rstats: 'Waiters & tables', sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', losses: 'Losses', claims: 'Returns & claims', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
 /** Routes of a section this person can open (transfers only when there is more than one branch). */
 const secRoutes = (sec) => sec[0] === 'tools' ? (storeTools().length ? ['tools'].concat(storeTools()) : []) : sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
 const secOf = (r) => sections().find((x) => x[3].includes(r)) || sections()[0];
@@ -426,12 +450,15 @@ function shell() {
     '<div class="sp"></div><div class="who">' + esc(K.me.name || K.info.userLabel || '') + ' · ' + esc(roleLabel()) + '</div>';
   drawAvatar();
   if (!K.member) { $('#bnav').innerHTML = ''; $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div class="bn">' + esc(s.businessName) + '</div></div>'; $('#title').textContent = 'Access'; $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"'); return; }
-  const bn = [['home', 'Home', 'home'], ['buy', 'Buy', 'buy'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']].filter((n) => n[0] === 'more' || navOk(n[0]));
+  const resto = K.info && K.info.edition === 'resto';
+  const bn = (resto ? [['home', 'Home', 'home'], ['floor', 'Tables', 'table'], navOk('tickets') ? ['tickets', 'Orders', 'bell'] : ['kds', 'Kitchen', 'chef'], ['menu', 'Menu', 'tag'], ['more', 'More', 'more']]
+    : [['home', 'Home', 'home'], ['buy', 'Buy', 'buy'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']]).filter((n) => n[0] === 'more' || navOk(n[0]));
+  const mid = resto ? (navOk('tickets') ? 'tickets' : 'kds') : 'sell'; const bnMain = resto ? ['home', 'floor', 'tickets', 'kds', 'menu'] : ['home', 'buy', 'sell', 'stock'];
   const inSec = sections().some((x) => x[3].includes(K.route)); // account pages (profile, billing, help) belong to no section
-  const cur = inSec ? secOf(K.route)[0] : ''; const moreOn = inSec && !['home', 'buy', 'sell', 'stock'].includes(cur);
+  const cur = inSec ? secOf(K.route)[0] : ''; const moreOn = inSec && !bnMain.includes(cur) && !(resto && K.route === 'kds');
   $('#bnav').innerHTML = bn.map((n) => n[0] === 'more'
     ? '<a href="#" data-a="moreMenu" class="' + (moreOn ? 'on' : '') + '">' + ic('more') + '<span>More</span></a>'
-    : '<a href="#' + n[0] + '" class="' + (n[0] === 'sell' ? 'sell ' : '') + (cur === n[0] ? 'on' : '') + '"><div class="ic">' + ic(n[2]) + '</div><span>' + n[1] + '</span></a>').join('');
+    : '<a href="#' + n[0] + '" class="' + (n[0] === mid ? 'sell ' : '') + (cur === n[0] || K.route === n[0] ? 'on' : '') + '"><div class="ic">' + ic(n[2]) + (n[0] === 'tickets' ? navCount(NAV.find((x) => x[0] === 'tickets')) : '') + '</div><span>' + n[1] + '</span></a>').join('');
   $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"' + (sw ? ' data-a="bizSheet" role="button" title="Switch or add a business"' : ''));
   $('#title').textContent = (secOf(K.route)[1] === 'Home' && K.route !== 'home') || (secOf(K.route)[0] === 'tools' && K.route !== 'tools') ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
   shellSync();
@@ -520,7 +547,8 @@ A.sheetClose = () => closeSheet();
 A.go = (el) => { closeSheet(); go(el.dataset.r); };
 A.toggleX = (el) => { const k = el.dataset.k; K.ui.expanded[k] = !K.ui.expanded[k]; render(true); };
 A.moreMenu = () => {
-  const list = sections().filter((sec) => !['home', 'buy', 'sell', 'stock'].includes(sec[0]) && secRoutes(sec).length);
+  const main = K.info && K.info.edition === 'resto' ? ['home', 'floor', 'tickets', 'menu'] : ['home', 'buy', 'sell', 'stock'];
+  const list = sections().filter((sec) => !main.includes(sec[0]) && secRoutes(sec).length);
   openSheet({ title: 'More', body: '<div class="card list">' + list.map((sec) => { const c = secCount(sec); return '<div class="li" data-a="go" data-r="' + secRoutes(sec)[0] + '"><div class="av ink">' + ic(sec[2]) + '</div><div class="grow t">' + sec[1] + '</div>' + (c ? '<span class="nav-count">' + c + '</span>' : '') + ic('chev', 'sm') + '</div>'; }).join('') + '</div>' });
 };
 const VIEWS = {};

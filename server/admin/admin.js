@@ -22,12 +22,14 @@
   const PAY_L = { pending: 'to check', processing: 'waiting for the payer', failed: 'failed' };
   const isAuto = (p) => p.provider && p.provider !== 'manual'; // paid through Fapshi, not reported by hand
   const badge = (t, cls) => '<span class="badge ' + (cls || '') + '">' + esc(t) + '</span>';
-  /* the two kinds of business: Aahsso Brocan and Aahsso Store */
-  const ED = { import: { label: 'Aahsso Brocan', short: 'Brocan', cls: 'info', what: 'buy abroad, ship, receive and sell' }, store: { label: 'Aahsso Store', short: 'Store', cls: 'ok', what: 'buy locally, sell and manage stock' } };
+  /* the kinds of business: Aahsso Brocan, Aahsso Store and Aahsso Bar & Resto */
+  const ED = { import: { label: 'Aahsso Brocan', short: 'Brocan', cls: 'info', what: 'buy abroad, ship, receive and sell' }, store: { label: 'Aahsso Store', short: 'Store', cls: 'ok', what: 'buy locally, sell and manage stock' }, resto: { label: 'Aahsso Bar & Resto', short: 'Resto', cls: 'warn', what: 'tables, QR menu, waiters and kitchen' } };
   const edOf = (e) => ED[e] || ED.import;
   /** plan limit names: the branch limit is Warehouses for Brocan, Stores for Aahsso Store */
-  const limName = (k, ed) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: ed === 'store' ? 'Stores' : ed === 'import' ? 'Warehouses' : 'Stores / warehouses' })[k] || k;
-  const LIM_HINT = { maxBusinesses: 'how many businesses of this kind the owner can have', maxLocations: 'inside one business, including the main one' };
+  const limName = (k, ed) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: ed === 'store' ? 'Stores' : ed === 'import' ? 'Warehouses' : ed === 'resto' ? 'Venues' : 'Stores / warehouses / venues', maxTables: 'Tables' })[k] || k;
+  /** limits that mean something for this kind (tables only in a Bar & Resto) */
+  const limFor = (k, ed) => k !== 'maxTables' || !ed || ed === 'resto';
+  const LIM_HINT = { maxBusinesses: 'how many businesses of this kind the owner can have', maxLocations: 'inside one business, including the main one', maxTables: 'labelled tables with a QR code' };
   const edBadge = (e) => badge(edOf(e).short, edOf(e).cls);
   const METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
 
@@ -275,7 +277,7 @@
     if (id) return tenantPage(v, id);
     const f = S.tf || (S.tf = { q: '', status: '', plan: '', edition: '' }); await plans();
     v.innerHTML = '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search businesses</span>' + ic('search', 'sm') + '<input class="inp" id="tq" type="search" placeholder="Search business, owner, login or email" value="' + esc(f.q) + '"></label>' +
-      sel('te', [['', 'Brocan & Store']].concat(Object.entries(ED).map(([k, x]) => [k, x.label])), f.edition, 'id="te" style="width:auto"') +
+      sel('te', [['', 'All kinds']].concat(Object.entries(ED).map(([k, x]) => [k, x.label])), f.edition, 'id="te" style="width:auto"') +
       sel('ts', [['', 'All statuses']].concat(Object.entries(STATUS).map(([k, x]) => [k, x[0]])), f.status, 'id="ts" style="width:auto"') +
       sel('tp', [['', 'All plans']].concat(S.plans.filter((p) => !f.edition || p.edition === f.edition).map((p) => [p.id, p.name + ' · ' + edOf(p.edition).short])), f.plan, 'id="tp" style="width:auto"') +
       '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" data-act="dl" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
@@ -306,7 +308,7 @@
     $('#title').textContent = t.name;
     const end = s.status === 'trialing' ? s.trial_ends_at : s.current_period_end; const n = daysLeft(end);
     const A = (act, label, cls, perm) => (can(perm) ? '<button class="btn sm ' + (cls || '') + '" data-act="' + act + '">' + label + '</button>' : '');
-    const lim = d.limits || {}; const LBL = { maxUsers: limName('maxUsers'), maxLocations: limName('maxLocations'), maxProducts: limName('maxProducts'), maxBusinesses: limName('maxBusinesses', t.edition) };
+    const lim = d.limits || {}; const LBL = { maxUsers: limName('maxUsers'), maxLocations: limName('maxLocations'), maxProducts: limName('maxProducts'), maxBusinesses: limName('maxBusinesses', t.edition) }; if (t.edition === 'resto') LBL.maxTables = limName('maxTables');
     v.innerHTML = '<div class="row between mb"><div class="row"><a class="btn sm" href="#/tenants">← Businesses</a>' + stBadge(s.status) + (s.suspended_reason ? '<span class="small muted">' + esc(s.suspended_reason) + '</span>' : '') + '</div>' +
       '<div class="row">' + A('tViewAs', 'View as owner', '', 'tenants.impersonate') + A('tResetPw', 'Reset owner password', '', 'tenants.resetOwner') + (can('users.view') ? '<button class="btn sm" data-act5="uForTenant">' + ic('users', 'sm') + 'Users</button>' : '') + '</div></div>' +
       '<div class="grid2 mb2"><section class="card pad2"><div class="row between mb"><h2>Subscription</h2><div class="row">' + A('tPlan', 'Change plan', '', 'subs.write') + A('tExtend', 'Extend', '', 'subs.write') + '</div></div>' +
@@ -344,12 +346,12 @@
       const g = {}; d.catalog.forEach(([k, l, grp]) => (g[grp] = g[grp] || []).push([k, l]));
       const box = modal({ title: 'Features for ' + d.tenant.name, wide: true, body: '<p class="small muted" style="margin-top:0">Start from the plan' + (s.plan_name ? ' (' + esc(s.plan_name) + ')' : '') + ', then give or take away single features for this business only.</p>' +
         '<div class="cgroups">' + Object.entries(g).map(([grp, items]) => '<fieldset class="cgroup"><legend>' + esc(grp) + '</legend>' + items.map(([k, l]) => '<div class="frow"><span class="grow">' + esc(l) + ' <span class="tiny faint">plan: ' + (pm[k] === false ? 'off' : 'on') + '</span></span>' + sel('M_' + k, [['', 'As plan'], ['on', 'On'], ['off', 'Off']], om[k] === true ? 'on' : om[k] === false ? 'off' : '', 'style="width:auto;min-height:34px;padding:4px 8px"') + '</div>').join('') + '</fieldset>').join('') + '</div>' +
-        '<h3 class="mt">Limits</h3><div class="grid3">' + ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses'].map((k) => [k, limName(k, d.tenant.edition)]).map(([k, l]) => field(l + ' (plan: ' + (pl[k] || '∞') + ')', inp('L_' + k, ol[k] || '', 'inputmode="numeric" placeholder="as plan"'))).join('') + '</div>' +
+        '<h3 class="mt">Limits</h3><div class="grid3">' + ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses', 'maxTables'].filter((k) => limFor(k, d.tenant.edition)).map((k) => [k, limName(k, d.tenant.edition)]).map(([k, l]) => field(l + ' (plan: ' + (pl[k] || '∞') + ')', inp('L_' + k, ol[k] || '', 'inputmode="numeric" placeholder="as plan"'))).join('') + '</div>' +
         reasonField(false), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => {
         const v = vals(box); const modules = {}, limits = {};
         d.catalog.forEach(([k]) => { if (v['M_' + k] === 'on') modules[k] = true; if (v['M_' + k] === 'off') modules[k] = false; });
-        ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses'].forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
+        ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses', 'maxTables'].forEach((k) => { if (v['L_' + k] !== undefined && v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
         await api('POST', '/tenants/' + d.tenant.id + '/features', { modules, limits, reason: v.reason }); closeModal(); toast('Saved — the business sees the change within seconds'); route();
       });
     },
@@ -550,8 +552,8 @@
     const d = await api('GET', '/plans'); S.plans = d.plans; S.limitKeys = d.limitKeys;
     S.catalog = d.catalog; S.editions = d.editions;
     const catOf = (ed) => { const e = d.editions.find((x) => x.key === ed) || d.editions[0]; return d.catalog.filter(([k]) => e.features.includes(k)); };
-    const lim = (p) => { const L = p.limits || {}; const cat = catOf(p.edition); const off = cat.filter(([k]) => (p.modules || {})[k] === false).length; return Object.keys(d.limitKeys.counts).map((k) => (L[k] ? L[k] : '∞') + ' ' + limName(k, p.edition).toLowerCase()).join(' · ') + ' · ' + (cat.length - off) + '/' + cat.length + ' features'; };
-    v.innerHTML = '<div class="page-intro"><p>Each plan is for Aahsso Brocan or Aahsso Store; price changes apply to new subscriptions only.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
+    const lim = (p) => { const L = p.limits || {}; const cat = catOf(p.edition); const off = cat.filter(([k]) => (p.modules || {})[k] === false).length; return Object.keys(d.limitKeys.counts).filter((k) => limFor(k, p.edition)).map((k) => (L[k] ? L[k] : '∞') + ' ' + limName(k, p.edition).toLowerCase()).join(' · ') + ' · ' + (cat.length - off) + '/' + cat.length + ' features'; };
+    v.innerHTML = '<div class="page-intro"><p>Each plan is for one kind of business (Brocan, Store or Bar & Resto); price changes apply to new subscriptions only.</p>' + (can('plans.write') ? '<button class="btn pri" data-act2="planNew">New plan</button>' : '') + '</div>' +
       d.editions.map((e) => { const rows = d.plans.filter((p) => p.edition === e.key); return '<h2 class="mt2 mb row" style="gap:8px">' + edBadge(e.key) + esc(e.label) + ' plans <span class="small muted" style="font-weight:400">' + esc(edOf(e.key).what) + '</span></h2>' +
       (rows.some((p) => p.public && p.active) ? '' : '<div class="alert warn mb"><b>No ' + esc(e.label) + ' plan is shown to businesses yet.</b> ' + esc(e.short) + ' businesses see an empty Plans page until you click <b>Publish</b> on one.</div>') +
       '<div class="card mb2">' + table([
@@ -570,16 +572,17 @@
       field('For which businesses?', sel('edition', (isNew ? [['', 'Choose…']] : []).concat(Object.entries(ED).map(([k, x]) => [k, x.label + ' — ' + x.what])), p.edition, locked ? 'disabled' : '')) + (locked ? '<div class="tiny muted">Businesses use this plan, so it stays a ' + esc(edOf(p.edition).label) + ' plan. Make a new plan for the other kind.</div>' : '') +
       field('Name', inp('name', p.name, isNew ? 'placeholder="e.g. Pro"' : '')) + field('Short description', inp('description', p.description)) +
       '<div class="grid3">' + field('Monthly price (FCFA)', inp('price_monthly', p.price_monthly, 'inputmode="numeric" placeholder="no price"')) + field('Yearly price (FCFA)', inp('price_yearly', p.price_yearly, 'inputmode="numeric" placeholder="no price"')) + '<div class="tiny muted" style="grid-column:1/-1">No price at all = a Free plan: businesses get a free trial on it.</div>' + field('Order', inp('sort', p.sort, 'inputmode="numeric"')) + '</div>' +
-      '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.keys(S.limitKeys.counts).map((k) => field('', '<span data-limn="' + k + '">' + esc(limName(k, p.edition)) + '</span>' + (LIM_HINT[k] ? '<span class="tiny muted" style="font-weight:400">' + LIM_HINT[k] + '</span>' : '') + inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
+      '<h3>Limits <span class="tiny faint">(empty = unlimited)</span></h3><div class="grid3">' + Object.keys(S.limitKeys.counts).map((k) => field('', '<span data-limn="' + k + '" data-limk="' + k + '">' + esc(limName(k, p.edition)) + '</span>' + (LIM_HINT[k] ? '<span class="tiny muted" style="font-weight:400">' + LIM_HINT[k] + '</span>' : '') + inp('L_' + k, L[k] || '', 'inputmode="numeric" placeholder="unlimited"'))).join('') + '</div>' +
       '<h3>Features in this plan <span class="tiny faint">(unticked = hidden from the business)</span></h3><div id="plFeat"></div>' +
       field('Lines on the plan card (one per line)', '<textarea class="inp" name="features" rows="4">' + esc((p.features || []).join('\n')) + '</textarea>') +
       '<div class="row"><label class="check"><input type="checkbox" name="active"' + (p.active ? ' checked' : '') + '> Can be chosen</label><label class="check"><input type="checkbox" name="public"' + (p.public ? ' checked' : '') + '> Show on the business Plans page (published)</label></div></div>',
       foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">' + (isNew ? 'Create plan' : 'Save plan') + '</button>' });
     const edSel = $('[name=edition]', box);
-    const drawFeat = () => { const ed = edSel.value; $('#plFeat', box).innerHTML = ed ? checkGroups(catOf(ed), (k) => Mo[k] !== false, 'F_') + (ed === 'store' ? '<div class="tiny muted mt">Shipments and Receiving are never part of Aahsso Store.</div>' : '') : '<div class="small muted">Choose who the plan is for to pick its features.</div>'; };
-    edSel.onchange = () => { $$('[data-limn]', box).forEach((x) => (x.textContent = limName(x.dataset.limn, edSel.value))); $$('#plFeat input[type=checkbox]', box).forEach((c) => { const k = c.name.slice(2); if (!c.checked) Mo[k] = false; else delete Mo[k]; }); drawFeat(); }; drawFeat();
+    const drawFeat = () => { const ed = edSel.value; $('#plFeat', box).innerHTML = ed ? checkGroups(catOf(ed), (k) => Mo[k] !== false, 'F_') + (ed === 'store' ? '<div class="tiny muted mt">Shipments and Receiving are never part of Aahsso Store.</div>' : ed === 'resto' ? '<div class="tiny muted mt">The Bar & Resto group decides what each plan gets: tables, QR ordering, kitchen screens, splits & tips, glasses, recipes, reservations, happy hour, loyalty, pay-first and waiter reports.</div>' : '') : '<div class="small muted">Choose who the plan is for to pick its features.</div>'; };
+    const limShow = () => $$('[data-limk]', box).forEach((x) => { const f = x.closest('label'); if (f) f.style.display = limFor(x.dataset.limk, edSel.value) ? '' : 'none'; });
+    edSel.onchange = () => { $$('[data-limn]', box).forEach((x) => (x.textContent = limName(x.dataset.limn, edSel.value))); limShow(); $$('#plFeat input[type=checkbox]', box).forEach((c) => { const k = c.name.slice(2); if (!c.checked) Mo[k] = false; else delete Mo[k]; }); drawFeat(); limShow(); }; drawFeat(); limShow();
     $('#go', box).onclick = (e) => busy(e.target, async () => {
-      const v = vals(box); const limits = {}; const ed = edSel.value; if (!ed) throw new Error('Choose who the plan is for: Aahsso Brocan or Aahsso Store');
+      const v = vals(box); const limits = {}; const ed = edSel.value; if (!ed) throw new Error('Choose which kind of business the plan is for');
       Object.keys(S.limitKeys.counts).forEach((k) => { if (v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
       const modules = {}; catOf(ed).forEach(([k]) => { if (!v['F_' + k]) modules[k] = false; });
       const body = { edition: ed, name: v.name, description: v.description, price_monthly: v.price_monthly, price_yearly: v.price_yearly, sort: v.sort, active: v.active, public: v.public, limits, modules, features: v.features.split('\n') };

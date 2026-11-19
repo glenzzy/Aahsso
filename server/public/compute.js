@@ -318,6 +318,17 @@
     ['customRoles', 'Custom roles', 'Team', 'Your own roles and per-person permissions'],
     ['activity', 'Activity log', 'Team', 'Who did what, and when'],
     ['excel', 'Excel & backup', 'Team', 'Download Excel files and full backups'],
+    ['tables', 'Tables & floor plan', 'Bar & Resto', 'Areas, labelled tables, QR codes and table bills'],
+    ['qrOrders', 'QR menu ordering', 'Bar & Resto', 'Customers scan the table QR code, see the menu and order'],
+    ['kds', 'Kitchen & bar screens', 'Bar & Resto', 'Order tickets on a screen in the kitchen and at the bar'],
+    ['tabsPlus', 'Split, merge, tips & service', 'Bar & Resto', 'Split or merge bills, move tables, tips and a service charge'],
+    ['portions', 'Glasses & shots', 'Bar & Resto', 'Sell a bottle by the glass or shot; stock stays in bottles'],
+    ['recipes', 'Recipes', 'Bar & Resto', 'Dishes use ingredients from stock'],
+    ['reservations', 'Reservations', 'Bar & Resto', 'Book tables and areas for a time, with a deposit'],
+    ['happyHour', 'Happy hour', 'Bar & Resto', 'Lower prices at set hours'],
+    ['loyalty', 'Loyalty points', 'Bar & Resto', 'Customers earn points and spend them on their bill'],
+    ['payFirst', 'Pay-first counter', 'Bar & Resto', 'Order and pay at the counter, no table bill'],
+    ['waiterStats', 'Waiter & table reports', 'Bar & Resto', 'Sales, tips and serving time per waiter; table turnover'],
   ];
   const FEATURE_KEYS = FEATURES.map((f) => f[0]);
   /* ================= EDITIONS (the kind of business) =================
@@ -327,17 +338,22 @@
   const EDITIONS = {
     import: { key: 'import', label: 'Aahsso Brocan', short: 'Brocan', tag: 'Buy abroad, ship, receive and sell', points: ['Buy in dollars or any currency', 'Containers, freight and customs', 'Landed cost on every item'], off: [] },
     store: { key: 'store', label: 'Aahsso Store', short: 'Store', tag: 'Buy locally, sell and manage your stock', points: ['Buy from local suppliers', 'Sell at the till, track stock', 'Simple and quick to learn'], off: ['ship', 'receive'] },
+    resto: { key: 'resto', label: 'Aahsso Bar & Resto', short: 'Resto', tag: 'Tables, QR menu, waiters and kitchen', points: ['Customers order from a QR code at their table', 'Waiters serve, the kitchen and bar prepare', 'Table bills, stock of drinks and dishes'], off: ['ship', 'receive', 'onlineShop', 'delivery'] },
   };
+  // the Bar & Resto tools exist only in Aahsso Bar & Resto
+  const RESTO_FEATURES = ['tables', 'qrOrders', 'kds', 'tabsPlus', 'portions', 'recipes', 'reservations', 'happyHour', 'loyalty', 'payFirst', 'waiterStats'];
+  EDITIONS.import.off = EDITIONS.import.off.concat(RESTO_FEATURES); EDITIONS.store.off = EDITIONS.store.off.concat(RESTO_FEATURES);
   // where a business keeps its stock: an importer has warehouses, a shop owner has stores (the plan limit maxLocations counts them)
   EDITIONS.import.loc = { one: 'warehouse', many: 'warehouses', One: 'Warehouse', Many: 'Warehouses', main: 'Main warehouse' };
   EDITIONS.store.loc = { one: 'store', many: 'stores', One: 'Store', Many: 'Stores', main: 'Main store' };
+  EDITIONS.resto.loc = { one: 'venue', many: 'venues', One: 'Venue', Many: 'Venues', main: 'Main room' };
   const EDITION_KEYS = Object.keys(EDITIONS);
   const editionOf = (k) => EDITIONS[k] || EDITIONS.import;
   /** "warehouses" / "stores" for an edition; with n: "1 warehouse", "3 stores" */
   const locWord = (ed, n, cap) => { const L = editionOf(ed).loc; const w = n === 1 ? (cap ? L.One : L.one) : (cap ? L.Many : L.many); return n === undefined ? w : n + ' ' + w; };
   /** a plan limit's name for an edition. maxBusinesses = how many businesses of this kind the owner may have:
    *  "Stores" on an Aahsso Store plan, "Warehouses" on an Aahsso Brocan plan. maxLocations = branches inside one business. */
-  const limitLabel = (ed, key) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: editionOf(ed).loc.Many })[key] || key;
+  const limitLabel = (ed, key) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: editionOf(ed).loc.Many, maxTables: 'Tables' })[key] || key;
   /** does this edition have this feature at all (before the plan is applied) */
   const editionHas = (ed, key) => !editionOf(ed).off.includes(key);
   /** the plan catalog for one edition */
@@ -349,19 +365,22 @@
   const PERM_FEATURE = { purchases: ['buy'], containers: ['ship', 'receive'], transfers: ['transfers'], audit: ['stockCount'], credit: ['credit'], reminders: ['reminders'],
     expenses: ['expenses'], handover: ['cashHandover'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'], payroll: ['payroll'], hr: ['attendance', 'leave', 'payroll'],
     activity: ['activity'], export: ['excel'], allLocations: ['branches'], sell: ['sell'], payments: ['sell'], returns: ['sell'], cancel: ['sell'], discount: ['sell'],
-    customers: ['customers'], orders: ['onlineShop'], promos: ['promos'] };
+    customers: ['customers'], orders: ['onlineShop'], promos: ['promos'],
+    tables: ['tables'], menu: ['tables', 'payFirst', 'qrOrders'], serve: ['tables', 'payFirst', 'qrOrders'], bills: ['tables', 'payFirst'], kds: ['kds'], reservations: ['reservations'] };
   const permFeatureOn = (features, perm) => !PERM_FEATURE[perm] || anyOn(features, PERM_FEATURE[perm]);
   // which feature each page (route) belongs to
   const ROUTE_FEATURE = { buy: ['buy'], ship: ['ship'], receive: ['receive'], sales: ['sell'], sell: ['sell'], orders: ['onlineShop'], customers: ['customers'], reminders: ['reminders'],
     promos: ['promos'], audit: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], cash: ['cashHandover', 'tills'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'],
-    staff: ['attendance'], leave: ['leave'], payroll: ['payroll'], employees: ['attendance', 'leave', 'payroll'], activity: ['activity'] };
+    staff: ['attendance'], leave: ['leave'], payroll: ['payroll'], employees: ['attendance', 'leave', 'payroll'], activity: ['activity'],
+    floor: ['tables'], kds: ['kds'], bookings: ['reservations'], menu: ['tables', 'payFirst', 'qrOrders'], tickets: ['tables', 'payFirst', 'qrOrders'] };
   const routeFeatureOn = (features, route) => !ROUTE_FEATURE[route] || anyOn(features, ROUTE_FEATURE[route]);
   // which feature each kind of record belongs to (writes are refused when all of them are off)
   const COLLECTION_FEATURE = { lots: ['buy', 'ship', 'receive'], shipments: ['ship', 'receive'], sales: ['sell'], customers: ['customers'], orders: ['onlineShop'], promos: ['promos'],
     audits: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], handovers: ['cashHandover'], tills: ['tills'], suppliers: ['suppliers'], bills: ['suppliers'], assets: ['assets'],
-    attendance: ['attendance'], leaves: ['leave'], payroll: ['payroll'], staff: ['attendance', 'leave', 'payroll'], reminders: ['reminders'] };
+    attendance: ['attendance'], leaves: ['leave'], payroll: ['payroll'], staff: ['attendance', 'leave', 'payroll'], reminders: ['reminders'],
+    tables: ['tables'], areas: ['tables'], reservations: ['reservations'], menu: ['tables', 'payFirst', 'qrOrders'], tabs: ['tables', 'payFirst', 'qrOrders'], rorders: ['tables', 'payFirst', 'qrOrders'] };
   // records hidden entirely when their feature is off (the core ones — items, stock, sales — are still needed to compute stock)
-  const HIDDEN_WHEN_OFF = ['orders', 'promos', 'audits', 'transfers', 'expenses', 'handovers', 'tills', 'suppliers', 'bills', 'assets', 'attendance', 'leaves', 'payroll', 'staff', 'reminders'];
+  const HIDDEN_WHEN_OFF = ['orders', 'promos', 'audits', 'transfers', 'expenses', 'handovers', 'tills', 'suppliers', 'bills', 'assets', 'attendance', 'leaves', 'payroll', 'staff', 'reminders', 'reservations'];
   /** permissions after the plan: a permission whose feature is off is false */
   function permsWithFeatures(perms, features) { const out = Object.assign({}, perms); Object.keys(out).forEach((p) => { if (out[p] && !permFeatureOn(features, p)) out[p] = false; }); return out; }
 
@@ -502,7 +521,8 @@
       let cogs = 0; const sloc = s.locationId || 'main';
       if (t.status !== 'cancelled') {
         (s.lines || []).forEach((ln) => {
-          const netUnit = num(ln.unitPrice) * t.factor;
+          let netUnit = num(ln.unitPrice) * t.factor;
+          if (ln.menuId) { const lineCost = (ln.alloc || []).reduce((c, a) => c + num(a.qty) * ((lotX[a.lotId] || {}).landedUnit || 0), 0); const lineRev = netUnit * num(ln.qty); const q = (ln.alloc || []).reduce((c, a) => c + num(a.qty), 0); netUnit = 0; (ln.alloc || []).forEach((a) => { const x = lotX[a.lotId]; if (!x) return; const share = lineCost > 0 ? num(a.qty) * x.landedUnit / lineCost : q > 0 ? num(a.qty) / q : 0; x.revenue += lineRev * share; }); }
           (ln.alloc || []).forEach((a) => {
             const x = lotX[a.lotId]; if (!x) return;
             x.out += num(a.qty); mv(x, sloc, -num(a.qty)); x.sold += num(a.qty); x.revenue += num(a.qty) * netUnit;
@@ -621,6 +641,8 @@
     ['stockView', 'See stock list', 'Stock'], ['stockEdit', 'Adjust stock, set prices, photos & labels', 'Stock'],
     ['purchases', 'Record purchases', 'Stock'], ['containers', 'Containers & shipping costs', 'Stock'], ['transfers', 'Move stock between branches', 'Stock'], ['audit', 'Do stock counts (inventory audit)', 'Stock'], ['lossReport', 'Report losses (theft, damage, pests…)', 'Stock'], ['allLocations', 'Work at all locations (off = only their own)', 'Stock'],
     ['costs', 'See costs, margins & profit', 'Money'], ['reports', 'See reports & analytics', 'Money'], ['expenses', 'Record expenses', 'Money'], ['handover', 'Confirm staff cash handovers', 'Money'], ['payroll', 'Payroll: salaries, advances & payslips', 'Money'], ['suppliers', 'Suppliers & bills to pay', 'Money'], ['assets', 'Business assets (equipment, vehicles…)', 'Money'],
+    ['tables', 'Set up areas, tables & QR codes', 'Bar & Resto'], ['menu', 'Edit the menu & mark items sold out', 'Bar & Resto'], ['serve', 'Take & serve table orders', 'Bar & Resto'],
+    ['bills', 'Close table bills & take payment', 'Bar & Resto'], ['kds', 'Use the kitchen / bar screen', 'Bar & Resto'], ['reservations', 'Manage reservations', 'Bar & Resto'],
     ['approve', 'Approve risky actions for others on the spot (with a PIN)', 'Admin'], ['export', 'Download Excel & backups', 'Admin'], ['activity', 'See the activity log (who did what)', 'Admin'], ['settings', 'Change business settings', 'Admin'], ['team', 'Manage team & permissions', 'Admin'], ['hr', 'Staff: attendance, leave approval & employee files', 'Admin'],
   ];
   const ALL = PERMS.map((p) => p[0]);
@@ -630,6 +652,10 @@
     manager: { label: 'Manager', perms: ALL.filter((p) => !['team', 'settings', 'payroll'].includes(p)) },
     sales: { label: 'Sales rep', perms: ['sell', 'payments', 'returns', 'customers', 'stockView', 'orders', 'lossReport'] },
     viewer: { label: 'Viewer (read only)', perms: ['stockView', 'reports', 'salesAll', 'allLocations'] },
+    // Bar & Resto
+    resto_waiter: { label: 'Waiter', perms: ['serve', 'bills', 'sell', 'payments', 'customers', 'reservations'] },
+    resto_cashier: { label: 'Cashier', perms: ['serve', 'bills', 'sell', 'payments', 'customers', 'salesAll', 'reservations', 'handover'] },
+    resto_kitchen: { label: 'Kitchen / bartender', perms: ['kds', 'stockView', 'lossReport'] },
   };
   /** member: {role, perms:{perm: true|false overrides}, active} → {perm: bool} */
   /** Role list with the business's own edits (settings.roles) applied. Owner can never be restricted. */
@@ -715,7 +741,7 @@
         const revenue = q * num(ln.unitPrice) * t.factor;
         const client = (ln.alloc || []).some((a) => (C.lotById[a.lotId] || {}).reservedFor);
         out.push({ client, saleId: s.id, date, hour, weekday: localDate(date).getDay(), sellerId: s.createdById || '', seller: s.createdBy || '', customerId: s.customerId || '', customer: s.customerName || '',
-          productId: ln.productId, name: p.name || ln.name, category: p.category || 'Other', subcategory: p.subcategory || '', qty: q, revenue, cogs, profit: revenue - cogs });
+          productId: ln.productId, name: p.name || ln.name, category: p.category || ln.category || 'Other', subcategory: p.subcategory || '', qty: q, revenue, cogs, profit: revenue - cogs });
       });
     });
     return out;
@@ -1170,11 +1196,88 @@
     return rows;
   }
 
+  /* ================= Aahsso Bar & Resto =================
+   * menu items (a dish, a drink by the bottle, a glass / shot of a bottle) are separate from stock items:
+   *   uses: [{productId, qty}] — what one serving takes from stock (a bottle: 1; a shot: 1/25; a dish: its ingredients)
+   * tables in areas; a table has one open tab (bill) at a time; each round of ordering is a ticket (rorders):
+   *   new → accepted (by the waiter) → ready (kitchen / bar) → served; or rejected.
+   * Paying the tab writes a normal sale whose lines take their ingredients from stock. */
+  const VENUE_TYPES = [['bar', 'Bar'], ['restaurant', 'Restaurant'], ['both', 'Bar & restaurant']];
+  const venueStations = (vt) => (vt === 'bar' ? ['bar'] : vt === 'restaurant' ? ['kitchen'] : ['kitchen', 'bar']);
+  const DRINK_CATS = ['Beers', 'Soft drinks', 'Wines', 'Spirits', 'Cocktails', 'Hot drinks', 'Drinks'];
+  const MENU_CATS = { bar: ['Beers', 'Soft drinks', 'Wines', 'Spirits', 'Cocktails', 'Snacks'], restaurant: ['Starters', 'Mains', 'Grills', 'Sides', 'Desserts', 'Drinks'], both: ['Beers', 'Soft drinks', 'Wines', 'Spirits', 'Cocktails', 'Starters', 'Mains', 'Grills', 'Desserts'] };
+  /** where an item is prepared: its own choice, else drinks at the bar and food in the kitchen (only stations the venue has) */
+  function stationOf(item, vt) { const st = venueStations(vt || 'both'); if (item && st.includes(item.station)) return item.station; if (st.length === 1) return st[0]; return DRINK_CATS.includes(item && item.category) ? 'bar' : 'kitchen'; }
+  const menuKind = (m) => (m && m.kind) || ((m && m.uses && m.uses.length > 1) ? 'recipe' : (m && m.uses && m.uses.length === 1 && num(m.uses[0].qty) < 1) ? 'portion' : (m && m.uses && m.uses.length) ? 'stock' : 'plain');
+  /** happy hour now? settings.happyHour = {on, from:'17:00', to:'19:00', days:[0..6], pct, cats:[]} */
+  function hhActive(S, d) {
+    const h = S && S.happyHour; if (!h || !h.on || !(num(h.pct) > 0)) return false; d = d || new Date();
+    if (Array.isArray(h.days) && h.days.length && !h.days.includes(d.getDay())) return false;
+    const hm = (s) => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
+    const a = hm(h.from), b = hm(h.to), n = d.getHours() * 60 + d.getMinutes(); if (a === null || b === null) return false;
+    return a <= b ? n >= a && n < b : n >= a || n < b; // 22:00 → 02:00 crosses midnight
+  }
+  /** the price now (happy hour applied when on, `hh` true and the item's category is covered) */
+  function menuPrice(m, S, d, hh) {
+    const p = num(m && m.price); if (!hh || !hhActive(S, d)) return p;
+    const cats = (S.happyHour && S.happyHour.cats) || []; if (cats.length && !cats.includes(m.category)) return p;
+    return Math.round(p * (1 - num(S.happyHour.pct) / 100));
+  }
+  /** how many servings stock allows (Infinity when the item takes nothing from stock) */
+  function menuUnits(C, m, loc) {
+    let n = Infinity; (m.uses || []).forEach((u) => { const q = num(u.qty); if (!(q > 0)) return; const px = C.prodX[u.productId]; const av = px ? (loc && px.byLoc ? (px.byLoc[loc] !== undefined ? px.byLoc[loc] : px.available) : px.available) : 0; n = Math.min(n, Math.floor(av / q + 1e-9)); });
+    return n;
+  }
+  /** take up to qty of a product from stock (oldest first); never fails — what is missing stays unallocated */
+  function allocUpTo(C, lots, productId, qty, loc) {
+    let need = num(qty); const out = [];
+    lots.filter((l) => l.productId === productId && C.lotX[l.id] && !l.reservedFor).map((l) => ({ l, av: lotCap(C, l, null, loc) })).filter((c) => c.av > 1e-9)
+      .sort((a, b) => ((a.l.expiry || '9999') < (b.l.expiry || '9999') ? -1 : (a.l.expiry || '9999') > (b.l.expiry || '9999') ? 1 : (a.l.purchaseDate || '') < (b.l.purchaseDate || '') ? -1 : 1))
+      .forEach((c) => { if (need <= 1e-9) return; const take = Math.min(need, c.av); out.push({ lotId: c.l.id, qty: Math.round(take * 10000) / 10000 }); need -= take; });
+    return out;
+  }
+  /** stock taken by qty servings of a menu item */
+  function allocMenu(C, lots, m, qty, loc) { const out = []; (m.uses || []).forEach((u) => { if (num(u.qty) > 0) allocUpTo(C, lots, u.productId, num(u.qty) * num(qty), loc).forEach((a) => out.push(a)); }); return out; }
+  /** a tab's lines: every ticket that was not rejected, the same item at the same price merged */
+  function tabLines(tab, orders) {
+    const m = new Map();
+    (orders || []).filter((o) => o.tabId === tab.id && o.status !== 'rejected').forEach((o) => (o.lines || []).forEach((l) => {
+      const k = l.menuId + '|' + num(l.price); const x = m.get(k) || { menuId: l.menuId, name: l.name, price: num(l.price), qty: 0, category: l.category || '', station: l.station || '' };
+      x.qty += num(l.qty); m.set(k, x);
+    }));
+    return [...m.values()].filter((x) => x.qty > 0);
+  }
+  /** one ticket's state for people: what to do next and how late it is */
+  function orderState(o, now) {
+    const t0 = new Date(o.createdAt || 0).getTime(); const mins = Math.max(0, Math.round(((now || Date.now()) - t0) / 60000));
+    return { mins, late: ['new', 'accepted'].includes(o.status) && mins >= 15, label: ({ new: 'New', accepted: 'Preparing', ready: 'Ready', served: 'Served', rejected: 'Rejected' })[o.status] || o.status };
+  }
+  /** a customer's order from the QR menu: checked against the live menu (prices from the server, never the phone) */
+  function validateMenuOrder(body, menu, S, now) {
+    const b = body && typeof body === 'object' ? body : {};
+    const name = cut(b.name, 60); if (name.length < 2) return { error: 'Please type your name' };
+    const items = Array.isArray(b.items) ? b.items : []; if (!items.length) return { error: 'Your order is empty' };
+    if (items.length > 30) return { error: 'Too many different items in one order' };
+    const byId = new Map(menu.map((m) => [m.id, m])); const lines = [];
+    for (const it of items) {
+      const m = byId.get(it && it.menuId); const qty = Math.floor(num(it && it.qty));
+      if (!m) return { error: 'An item is no longer on the menu — please refresh' };
+      if (m.soldOut) return { error: m.name + ' is sold out' };
+      if (!(qty >= 1 && qty <= 50)) return { error: 'Check the quantity of ' + m.name };
+      lines.push({ menuId: m.id, name: m.name, qty, price: m.priceNow !== undefined ? m.priceNow : num(m.price), category: m.category || '', station: m.station || '', note: cut(it.note, 120) });
+    }
+    return { name, note: cut(b.note, 200), lines };
+  }
+  /** loyalty points of a customer: earned on paid bills minus spent */
+  function loyaltyPoints(raw, customerId) { return (raw.sales || []).filter((s) => s.customerId === customerId && s.status !== 'cancelled' && s.loyalty).reduce((a, s) => a + num(s.loyalty.earn) - num(s.loyalty.spend), 0); }
+  const RESV_STATUSES = [['booked', 'Booked'], ['seated', 'Seated'], ['done', 'Done'], ['cancelled', 'Cancelled'], ['noshow', 'No-show']];
+
   /** What a customer owes across open sales. */
   function customerBalance(raw, C, customerId) { return (raw.sales || []).reduce((a, s) => { const x = C.saleX[s.id]; return a + (s.customerId === customerId && x && x.status !== 'cancelled' ? Math.max(0, x.balance) : 0); }, 0); }
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
     PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    RESTO_FEATURES, VENUE_TYPES, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

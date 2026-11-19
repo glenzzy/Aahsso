@@ -41,7 +41,7 @@ test('setup: a Super Admin, a business on a paid plan', async () => {
   S.sa = await signIn('sa' + rnd + '@aahsso.test', out.match(/\(shown once\):\s+(\S+)/)[1], 'Super-Pass-' + rnd);
   const r = await api('POST', '/api/auth/register', null, { businessName: 'Feat ' + rnd, name: 'Fola', login: 'fola' + rnd, password: 'secret1' }); S.biz = r.body.token;
   S.tid = (await db.query('SELECT tenant_id FROM users WHERE login=$1', ['fola' + rnd])).rows[0].tenant_id;
-  const trial = (await api('GET', '/api/me', S.biz)).body; assert.deepEqual(trial.features, {}, 'free trial: everything on');
+  const trial = (await api('GET', '/api/me', S.biz)).body; assert.deepEqual(Object.keys(trial.features).filter((k) => !require('../public/compute.js').RESTO_FEATURES.includes(k)), [], 'free trial: everything on (the Bar & Resto tools belong to Bar & Resto only)');
   await fresh();
   const plan = { id: 'mini' + rnd, name: 'Mini ' + rnd, price_monthly: 5000, active: true, public: false, limits: {},
     modules: { payroll: false, expenses: false, onlineShop: false, delivery: false, photos: false, customRoles: false, attendance: false, leave: false, activity: false, excel: false } };
@@ -135,7 +135,7 @@ test('a plan without a price is Free: it starts the 5-day trial with that plan\'
   assert.equal(bill.subscription.status, 'trialing'); assert.equal(bill.subscription.planId, null); assert.equal(bill.trialAvailable, true); assert.equal(bill.trialDays, 5);
   const days = (new Date(bill.subscription.trialEndsAt) - Date.now()) / 864e5; assert.ok(days > 4.9 && days <= 5.01, 'sign-up trial is 5 days: ' + days);
   assert.ok(bill.plans.some((p) => p.id === free.id && p.price_monthly === null));
-  assert.deepEqual((await api('GET', '/api/me', tok)).body.features, {}, 'before choosing: everything open');
+  assert.deepEqual(Object.keys((await api('GET', '/api/me', tok)).body.features).filter((k) => !require('../public/compute.js').RESTO_FEATURES.includes(k)), [], 'before choosing: everything open');
   const c = await api('POST', '/api/billing/choose', tok, { planId: free.id }); assert.equal(c.status, 200, JSON.stringify(c.body)); assert.equal(c.body.trial, true);
   bill = (await api('GET', '/api/billing', tok)).body; assert.equal(bill.subscription.planId, free.id); assert.equal(bill.subscription.status, 'trialing');
   assert.equal(new Date(bill.subscription.trialEndsAt).getTime(), new Date(c.body.trialEndsAt).getTime(), 'trial end kept, not restarted');

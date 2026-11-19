@@ -1558,3 +1558,37 @@ label.f,.settings label.f .lbl{font-weight:500}
 .biz-opt.full{opacity:.75;cursor:not-allowed;background:var(--line2)}
 .biz-cnt{display:block;font-size:11.5px;color:var(--ink3);margin-top:3px}
 .biz-why{display:block;font-size:12px;color:var(--warn);margin-top:4px}
+
+/* ================= Aahsso Bar & Resto ================= */
+.floor{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.floor-sm{grid-template-columns:repeat(auto-fill,minmax(84px,1fr))}
+.tbl{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:84px;padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card);font:inherit;text-align:left;cursor:pointer;box-shadow:var(--shadow)}
+.tbl-l{font-size:18px;font-weight:650;color:var(--ink)} .tbl-s{font-size:11.5px;color:var(--ink2)} .tbl-m{font-size:11px;color:var(--ink3);margin-top:auto}
+.tbl-new{background:var(--accentSoft);border-color:var(--accent);animation:tblPulse 1.6s infinite} .tbl-prep{background:var(--infoSoft);border-color:#b9d0ec}
+.tbl-ready{background:var(--okSoft);border-color:#a7d8b9} .tbl-served{background:var(--brandSoft);border-color:#bcd9d6} .tbl-call{background:var(--badSoft);border-color:#efc1b8}
+.tbl-booked{background:#f1ecfa;border-color:#d6c8ef}
+@keyframes tblPulse{50%{box-shadow:0 0 0 4px rgba(232,163,61,.25)}}
+.tbl-key{display:flex;flex-wrap:wrap;gap:10px} .tbl-key span{display:inline-flex;align-items:center;gap:5px}
+.tbl-dot{display:inline-block;width:10px;height:10px;border-radius:3px;border:1px solid var(--line)}
+.tk{padding:10px 12px;margin-bottom:8px} .tk-late{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad) inset}
+.tk-lines{margin:6px 0;font-size:13.5px;display:flex;flex-direction:column;gap:2px} .tk-st{font-size:10.5px;padding:0 6px;border-radius:99px;background:var(--line2);color:var(--ink2)}
+.tk-acts{justify-content:flex-end;flex-wrap:wrap} .bad-t{color:var(--bad)}
+.tk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px} .tk-grid .tk{margin:0}
+.kds{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.kd{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.kd.go{border-color:var(--info)} .kd.late{border-color:var(--bad);background:#fff7f5}
+.kd-h{display:flex;justify-content:space-between;font-size:16px} .kd-h span{color:var(--ink3);font-size:13px}
+.kd-l{font-size:17px;display:flex;flex-direction:column;gap:4px} .kd-l i{display:block;font-size:13px;color:var(--warn);font-style:normal}
+.kd-a{display:flex;gap:8px;margin-top:auto} .kd-a .btn{flex:1;min-height:44px}
+.co-i.off{opacity:.5} .co-q{min-width:24px;text-align:center;font-weight:600}
+.co-l{gap:8px} .co-note{max-width:55%;min-height:30px!important;padding:4px 8px!important;font-size:13px!important}
+.stepper.sm button{width:26px;height:26px;font-size:15px} .stepper.sm span{display:inline-block;min-width:34px;text-align:center;font-size:12.5px}
+.bl-l{padding:3px 0} .bl-t{border-top:1px solid var(--line2);margin-top:6px;padding-top:6px;display:flex;flex-direction:column;gap:2px}
+.mn-i.off{opacity:.55} .mn-ph{width:36px;height:36px;border-radius:9px;object-fit:cover;flex:none}
+.sw{position:relative;display:inline-block;width:38px;height:22px;flex:none;margin-left:6px} .sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:#d6d3cc;border-radius:99px;transition:.2s;cursor:pointer} .sw span::before{content:'';position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+span{background:var(--ok)} .sw input:checked+span::before{transform:translateX(16px)} .sw input:disabled+span{opacity:.5}
+.hours .hr{display:grid;grid-template-columns:36px 1fr auto;gap:8px;align-items:center;font-size:12px;margin:3px 0} .hours i{display:block;height:10px;border-radius:5px;background:var(--brand)}
+.auth-vt{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;padding-left:24px} .auth-vtl{font-size:12.5px;color:var(--ink2);width:100%}
+.auth-vtc{border:1px solid var(--line);border-radius:99px;padding:5px 12px;font-size:13px;background:#fff;cursor:pointer} .auth-vtc.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.bnav .ic{position:relative} .bnav .ic .nav-count{position:absolute;top:-4px;right:-10px}

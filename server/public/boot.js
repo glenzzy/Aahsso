@@ -24,11 +24,13 @@ function renderLogin() {
   const apiBase = () => (window.AAHSSO_CONFIG.api || location.origin).replace(/\/$/, '');
   /** Aahsso Brocan / Aahsso Store: the ones the platform has open for sign-up */
   const loadEds = async () => { if (eds) return eds; try { const r = await fetch(apiBase() + '/api/signup-options'); if (r.ok) eds = (await r.json()).editions || []; } catch (e) { } return eds; };
+  let vtPick = 'both'; // Aahsso Bar & Resto: a bar, a restaurant or both
   const drawEds = () => {
     $('#fEd').innerHTML = (eds || []).map((e) => '<button type="button" class="auth-edc' + (edPick === e.key ? ' on' : '') + '" role="radio" aria-checked="' + (edPick === e.key) + '" data-ed="' + esc(e.key) + '">' +
-      '<span class="auth-edt"><b>' + esc(e.label) + '</b><span>' + esc(e.tag) + '</span></span><ul>' + (e.points || []).map((p) => '<li>' + esc(p) + '</li>').join('') + '</ul></button>').join('') +
+      '<span class="auth-edt"><b>' + esc(e.label) + '</b><span>' + esc(e.tag) + '</span></span><ul>' + (e.points || []).map((p) => '<li>' + esc(p) + '</li>').join('') + '</ul>' +
+      (e.key === 'resto' && edPick === 'resto' ? '<span class="auth-vt" role="radiogroup" aria-label="What do you run?"><span class="auth-vtl">What do you run?</span>' + [['bar', 'Bar'], ['restaurant', 'Restaurant'], ['both', 'Both']].map(([k, l]) => '<span role="radio" tabindex="0" aria-checked="' + (vtPick === k) + '" class="auth-vtc' + (vtPick === k ? ' on' : '') + '" data-vt="' + k + '">' + l + '</span>').join('') + '</span>' : '') + '</button>').join('') +
       '<p class="auth-edn">If your business changes later, our team can switch it for you.</p><button type="button" class="auth-link" id="edBack">← Back to your details</button>';
-    $$('#fEd [data-ed]').forEach((b) => (b.onclick = () => { edPick = b.dataset.ed; err(''); drawEds(); const c = $('#fEd [data-ed].on'); if (c) c.focus(); }));
+    $$('#fEd [data-ed]').forEach((b) => (b.onclick = (ev) => { const vt = ev.target.closest('[data-vt]'); if (vt) vtPick = vt.dataset.vt; edPick = b.dataset.ed; err(''); drawEds(); const c = $('#fEd [data-ed].on'); if (c) c.focus(); }));
     $('#edBack').onclick = () => goStep(1);
   };
   /** sign-up: 1 = your details, 2 = what you will use Aahsso for */
@@ -64,7 +66,7 @@ function renderLogin() {
     if (reg) {
       if (step === 1 && String(v.password).length < 6) { err('Use at least 6 characters for the password.'); $('[name=password]').focus(); return; }
       await loadEds();
-      if (eds && eds.length > 1) { if (step === 1) return goStep(2); if (!edPick) { err('Choose one to continue.'); return; } v.edition = edPick; }
+      if (eds && eds.length > 1) { if (step === 1) return goStep(2); if (!edPick) { err('Choose one to continue.'); return; } v.edition = edPick; if (edPick === 'resto') v.venueType = vtPick; }
       else if (eds && eds.length === 1) v.edition = eds[0].key;
     }
     try {
@@ -161,6 +163,7 @@ A.reqAccess = async () => {
   let lastAccess = null;
   cols.forEach((col) => store.subscribe(col, (docs) => {
     docs = applyOutbox(col, docs);
+    if (typeof restoWatch === 'function') restoWatch(col, docs); // Bar & Resto: ring for new orders and calls
     if (col === 'settings') K.raw.settings = docs.find((d) => d.id === 'main') || {};
     else K.raw[col] = docs;
     waiting.delete(col);

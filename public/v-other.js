@@ -87,6 +87,7 @@ VIEWS.home = {
     const todos = homeTodos();
     const empty = !K.raw.products.length && can('purchases');
     const byMode = Object.entries(d.byMethod).filter(([, v]) => v).map(([k, v]) => k.replace('Orange Money', 'OM').replace('MTN MoMo', 'MoMo') + ' ' + fmt(v)).join(' · ');
+    if (typeof isResto === 'function' && isResto()) return restoHome(hello);
     if (empty) return homeWelcome(hello);
     if (isStore()) return storeHome(hello, t, d, todos, recent);
     return '<div class="home-head"><div><div class="hint">' + fmtDate(t) + (can('salesAll') ? '' : ' · your sales') + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div><div class="row gap6"><button class="btn tour-btn" data-a="tourStart"><span class="tour-q" aria-hidden="true">?</span>How Aahsso works</button>' + (can('sell') ? '<a class="btn pri lg desk-only" href="#sell">' + ic('sell') + 'New sale</a>' : '') + '</div></div>' + phaseHead('', true) +

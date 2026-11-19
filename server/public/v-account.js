@@ -124,12 +124,14 @@ A.bizAdd = async () => {
   const count = (e) => { const r = room[e.key] || {}; const L = KC.editionOf(e.key).loc; return r.ok ? (r.max ? 'You have ' + r.used + ' of ' + r.max + ' ' + L.many : r.used ? 'You have ' + r.used + ' · no limit' : '') : ''; };
   const sh = openSheet({ title: 'Add a business', body: '<div class="col">' + field('Business name', inp('bizName', '', 'placeholder="e.g. ' + (other.key === 'store' ? 'Chez Mama Store' : 'Mama Imports') + '" autocomplete="organization"')) +
       '<div class="lbl-t">What is it for?</div><div class="biz-pick">' + eds.map((e) => { const r = room[e.key] || {}; return '<label class="biz-opt' + (r.ok ? '' : ' full') + '"><input type="radio" name="bizEd" value="' + esc(e.key) + '"' + (other && e.key === other.key ? ' checked' : '') + (r.ok ? '' : ' disabled') + '><span><b>' + esc(e.label) + '</b><span class="hint">' + esc(e.tag) + '</span>' + (r.ok ? (count(e) ? '<span class="biz-cnt">' + esc(count(e)) + '</span>' : '') : '<span class="biz-why">' + esc(r.why || 'Not available') + '</span>') + '</span></label>'; }).join('') + '</div>' +
+      '<div id="bizVt" class="' + (other && other.key === 'resto' ? '' : 'hide') + '">' + field('What do you run?', sel('bizVt', KC.VENUE_TYPES, 'both')) + '</div>' +
       '<p class="hint">Starts with a ' + 5 + '-day free trial and its own plan. You sign in the same way and switch from your account menu.</p></div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="bizGo"' + (free.length ? '' : ' disabled') + '>' + ic('plus') + 'Create and open</button>' });
+  sh.querySelectorAll('[name=bizEd]').forEach((r) => (r.onchange = () => $('#bizVt', sh).classList.toggle('hide', r.value !== 'resto' || !r.checked)));
   $('#bizGo', sh).onclick = async () => {
     const v = formVals(sh); const name = (v.bizName || '').trim(); if (name.length < 2) return toast('Type the name of the business', true); if (!v.bizEd) return toast('Choose what it is for', true);
     if (K.outbox.length) { await flushOutbox(); if (K.outbox.length) return toast('Some changes are still waiting to upload. Connect to the internet first.', true); }
-    try { const r = await K.store.req('POST', '/api/businesses', { businessName: name, edition: v.bizEd }); await bizEnter(r.token, name); } catch (e) { toast(e.message, true); }
+    try { const r = await K.store.req('POST', '/api/businesses', { businessName: name, edition: v.bizEd, venueType: v.bizVt }); await bizEnter(r.token, name); } catch (e) { toast(e.message, true); }
   };
 };
 // just switched: say where you are
