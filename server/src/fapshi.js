@@ -257,6 +257,7 @@ function mount(app, { auth, wrap, err, guard }) {
     try {
       r = await directPay(Object.assign({ phone, medium: net.medium, name: req.user.name }, common));
     } catch (e) {
+      console.warn('[fapshi] direct-pay not started', e.status || '', e.code || '', String(e.message || '').slice(0, 120));
       if (e.code === 'NETWORK' || e.code === 'SERVER') { // outcome unknown: the sweep finds it by our id
         return res.status(202).json({ payment: view(p), message: 'We are waiting for Fapshi. If your phone asks for your PIN, approve the payment.' });
       }

@@ -293,7 +293,7 @@ function payState(id) {
   const tab = mm.enabled ? K.ui.payTab || (rej ? 'other' : 'momo') : 'other';
   return { k: 'form', i, tab };
 }
-const payKey = (s) => s.k + '|' + (s.p ? s.p.id + s.p.status : '') + '|' + (s.tab || '') + '|' + (s.i ? s.i.status : '');
+const payKey = (s) => s.k + '|' + (s.p ? s.p.id + s.p.status : '') + '|' + (s.tab || '') + '|' + (s.i ? s.i.status : '') + '|' + (K.ui.momoBusy || '') + '|' + (K.ui.momoErr ? K.ui.momoErr.at : '');
 
 function paySummary(i) {
   const b = K._bill; const paid = b.payments.filter((p) => p.invoice_id === i.id && p.status === 'confirmed').reduce((a, p) => a + p.amount, 0);
@@ -327,8 +327,15 @@ function payView(s) {
     '<button type="button" role="tab" aria-selected="' + (s.tab === 'momo') + '" class="pay-tab' + (s.tab === 'momo' ? ' on' : '') + '" data-a="payTab" data-v="momo"><span class="pay-tab-ic">' + momoDots + '</span><span><b>Mobile Money</b><small>MTN MoMo · Orange Money</small></span></button>' +
     '<button type="button" role="tab" aria-selected="' + (s.tab === 'other') + '" class="pay-tab' + (s.tab === 'other' ? ' on' : '') + '" data-a="payTab" data-v="other"><span class="pay-tab-ic">' + ic('bank') + '</span><span><b>Other ways</b><small>Transfer, bank or cash</small></span></button></div>' : '';
   if (s.tab === 'momo') {
+    if (K.ui.momoBusy === i.id) {
+      const d = momoDigits(K.ui.momoPhone || ''); const net = (mm.networks || []).find((n) => n.code === momoGuess(d));
+      return { body: paySummary(i) + '<div class="pay-state" role="status" aria-live="polite"><div class="pay-phone" aria-hidden="true">' + ic('phone') + '<span class="pay-pulse"></span></div><h3>Sending the request to your phone…</h3>' +
+        '<p class="small">' + (net ? esc(net.label) + ' · ' : '') + (d ? '+237 ' + esc(momoPretty(d)) : '') + '</p><p class="small muted" data-momo-slow hidden>' + esc(net ? net.label : 'The network') + ' is slow to answer. Keep this open — it can take up to 30 seconds.</p></div>',
+        foot: '<button class="btn grow" disabled>' + ic('clock', 'sm') + 'Please wait…</button>' };
+    }
+    const err = K.ui.momoErr && K.ui.momoErr.id === i.id ? '<div class="alert bad mb" role="alert"><b>The payment was not started — no money was taken.</b> ' + esc(K.ui.momoErr.msg) + '</div>' : '';
     const last = b.payments.find((p) => p.invoice_id === i.id && p.provider === 'fapshi');
-    const failed = last && last.status === 'failed' ? '<div class="alert bad mb" role="alert"><b>Not paid — no money was taken.</b> ' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '';
+    const failed = err ? err : last && last.status === 'failed' ? '<div class="alert bad mb" role="alert"><b>Not paid — no money was taken.</b> ' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '';
     const phone = K.ui.momoPhone !== undefined ? K.ui.momoPhone : momoSaved();
     const left = payLeft(i); const cur = !i.currency || i.currency === 'XAF' ? 'FCFA' : i.currency;
     return { body: paySummary(i) + tabs + failed +
@@ -364,7 +371,7 @@ function openPay(id) {
   return el;
 }
 const payRefresh = () => { const s = K.sheets.find((x) => x._pay); if (s) s._refresh(); };
-A.payOpen = (el) => { openPay(el.dataset.id); };
+A.payOpen = (el) => { K.ui.momoErr = null; openPay(el.dataset.id); };
 A.payTab = (el) => { const s = K.sheets.find((x) => x._pay); const ref = s && $('[name^="pr_"]', s); if (ref) K.ui.payRef = ref.value; K.ui.payTab = el.dataset.v; if (s) s._refresh(); };
 /* show the network (MTN MoMo / Orange Money) as the number is typed */
 const momoPretty = (d) => String(d).replace(/^(\d)(\d{2})(\d{2})(\d{2})(\d{2})$/, '$1 $2 $3 $4 $5');
@@ -374,14 +381,20 @@ document.addEventListener('input', (e) => {
   K.ui.momoPhone = e.target.value; const t = e.target.parentNode.querySelector('[data-momo-tag]'); if (t) t.innerHTML = momoTag(e.target.value);
 });
 A.momoPay = async (el) => {
-  const id = el.dataset.id;
+  const id = el.dataset.id; if (K.ui.momoBusy) return; // one request at a time
   const box = $('[name="mp_' + id + '"]'); const phone = box ? box.value.trim() : ''; const d = momoDigits(phone);
   if (!/^6\d{8}$/.test(d) || !momoGuess(d)) { toast('Type your MTN MoMo or Orange Money number, e.g. 6 77 12 34 56', true); if (box) box.focus(); return; }
   K.ui.momoPhone = phone; try { localStorage.setItem(MOMO_KEY, phone); } catch (e) { }
-  const label = el.innerHTML; el.textContent = 'Sending…';
-  try { const r = await K.store.req('POST', '/api/billing/invoices/' + id + '/momo', { phone: d }); if (r.message) toast(r.message); }
-  catch (e) { toast(e.message, true); el.innerHTML = label; }
-  await loadBilling();
+  K.ui.momoErr = null; K.ui.momoBusy = id; payRefresh();
+  const slow = setTimeout(() => { const s = document.querySelector('[data-momo-slow]'); if (s) s.hidden = false; }, 8000);
+  try {
+    // the server waits for Fapshi up to 20 s, then answers "waiting"; never leave the payer looking at a spinner
+    const r = await Promise.race([K.store.req('POST', '/api/billing/invoices/' + id + '/momo', { phone: d }), new Promise((res) => setTimeout(() => res({ late: true }), 35000))]);
+    if (r.message) toast(r.message);
+  } catch (e) {
+    K.ui.momoErr = { id, msg: e.message || 'The payment could not be started. Try again, or use another way to pay.', at: Date.now() };
+  } finally { clearTimeout(slow); K.ui.momoBusy = null; }
+  await loadBilling(); payRefresh();
 };
 A.momoCheck = (el) => { if (K._mmw) clearTimeout(K._mmw.t); K._mmw = null; momoWatch(el.dataset.id, 0); return new Promise((r) => setTimeout(r, 1200)); };
 /** check a waiting payment at once: Fapshi told the server (live message), or the payer came back from their phone */
