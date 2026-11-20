@@ -318,7 +318,8 @@ function payView(s) {
     const p = s.p; const net = (mm.networks || []).find((n) => n.code === p.network) || { label: p.method };
     return { body: paySummary(i) + '<div class="pay-state" role="status" aria-live="polite"><div class="pay-phone" aria-hidden="true">' + ic('phone') + '<span class="pay-pulse"></span></div><h3>Check your phone</h3>' +
       '<p class="small">Approve <b>' + money0(p.amount, p.currency) + '</b> with your <b>' + esc(net.label) + '</b> PIN' + (p.phone ? ' on <b>+237 ' + esc(momoPretty(p.phone)) + '</b>' : '') + '.</p>' +
-      (DIAL[net.code] ? '<p class="small muted">No message? Dial <b>' + DIAL[net.code] + '</b></p>' : '') + '</div>',
+      (DIAL[net.code] ? '<p class="small muted">No message? Dial <b>' + DIAL[net.code] + '</b> to see it.</p>' : '') +
+      '<p class="small muted">Changed your mind? Decline it on your phone — this window updates by itself.</p></div>',
       foot: close + '<button class="btn pri grow" data-a="momoCheck" data-id="' + esc(p.id) + '">I approved — check now</button>' };
   }
   // the form: choose how to pay
@@ -327,7 +328,7 @@ function payView(s) {
     '<button type="button" role="tab" aria-selected="' + (s.tab === 'other') + '" class="pay-tab' + (s.tab === 'other' ? ' on' : '') + '" data-a="payTab" data-v="other"><span class="pay-tab-ic">' + ic('bank') + '</span><span><b>Other ways</b><small>Transfer, bank or cash</small></span></button></div>' : '';
   if (s.tab === 'momo') {
     const last = b.payments.find((p) => p.invoice_id === i.id && p.provider === 'fapshi');
-    const failed = last && last.status === 'failed' ? '<div class="alert bad mb">' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '';
+    const failed = last && last.status === 'failed' ? '<div class="alert bad mb" role="alert"><b>Not paid — no money was taken.</b> ' + esc(last.failure || 'The last mobile money payment did not go through. You can try again.') + '</div>' : '';
     const phone = K.ui.momoPhone !== undefined ? K.ui.momoPhone : momoSaved();
     const left = payLeft(i); const cur = !i.currency || i.currency === 'XAF' ? 'FCFA' : i.currency;
     return { body: paySummary(i) + tabs + failed +
@@ -383,8 +384,18 @@ A.momoPay = async (el) => {
   await loadBilling();
 };
 A.momoCheck = (el) => { if (K._mmw) clearTimeout(K._mmw.t); K._mmw = null; momoWatch(el.dataset.id, 0); return new Promise((r) => setTimeout(r, 1200)); };
+/** check a waiting payment at once: Fapshi told the server (live message), or the payer came back from their phone */
+function momoNow() { if (K._mmw) momoWatch(K._mmw.id, 0); }
+let momoHooked = false;
+function momoHook() {
+  if (momoHooked || !K.store || !K.store.on) return; momoHooked = true;
+  K.store.on('billing', () => { if (K._mmw) momoNow(); else if (K.route === 'billing' && K._bill) loadBilling(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') momoNow(); });
+  window.addEventListener('focus', momoNow);
+}
 /** ask the server until the payment is settled: every 5 s for 3 minutes, then every 15 s while Billing is open */
 function momoWatch(id, first) {
+  momoHook();
   if (K._mmw && K._mmw.id === id) { if (first !== undefined) { clearTimeout(K._mmw.t); K._mmw.t = setTimeout(K._mmw.tick, first); } return; }
   if (K._mmw) clearTimeout(K._mmw.t);
   const w = K._mmw = { id, start: Date.now() };

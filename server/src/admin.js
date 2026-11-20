@@ -706,7 +706,10 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       (SELECT coalesce(json_object_agg(status, n), '{}') FROM (SELECT status, count(*)::int AS n FROM email_log WHERE created_at > now() - interval '7 days' GROUP BY status) x) AS emails7d,
       (SELECT coalesce(json_agg(x ORDER BY x.created_at DESC), '[]') FROM (SELECT created_at, kind, to_addr, error FROM email_log WHERE status='failed' ORDER BY created_at DESC LIMIT 10) x) AS "emailFailures",
       (SELECT coalesce(json_agg(x ORDER BY x.at DESC), '[]') FROM (SELECT r.run_date, r.sent, t.name, r.at FROM reminder_runs r JOIN tenants t ON t.id=r.tenant_id ORDER BY r.at DESC LIMIT 10) x) AS "reminderRuns"`)).rows[0];
-    res.json(Object.assign({ uptimeS: Math.round(process.uptime()), node: process.version, security: securityChecks() }, d));
+    const wh = ((await q("SELECT value FROM platform_settings WHERE key='fapshiWebhook'")).rows[0] || {}).value || {};
+    const momoWh = { on: !!(process.env.FAPSHI_API_USER && process.env.FAPSHI_API_KEY), url: String(process.env.APP_URL || '').replace(/\/+$/, '') + '/api/fapshi/webhook', lastOkAt: wh.lastOkAt || null, lastRefusedAt: wh.lastRefusedAt || null, lastRefusedWhy: wh.lastRefusedWhy || null,
+      waiting: (await q("SELECT count(*)::int AS n FROM payments WHERE provider='fapshi' AND status='processing' AND created_at < now() - interval '15 minutes'")).rows[0].n };
+    res.json(Object.assign({ uptimeS: Math.round(process.uptime()), node: process.version, security: securityChecks(), momoWebhook: momoWh }, d));
   }));
 
   /* ---------- admins, sessions, audit ---------- */

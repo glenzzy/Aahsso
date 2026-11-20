@@ -190,3 +190,28 @@ test('a payment left open on the old Fapshi page is closed before paying by phon
   assert.equal(txns.get(tr).status, 'EXPIRED', 'old page closed at Fapshi'); assert.equal((await row(old)).status, 'failed');
   assert.equal(r.body.payment.network, 'mtn');
 });
+
+test('cancelled on the phone → the webhook fails it at once and the open app is told live; the Health page sees the webhook', async () => {
+  const me = await business('cancel'); const inv = await newInvoice('monthly', me.t);
+  // the business's open app listens to the live stream
+  const ac = new AbortController(); const heard = [];
+  const stream = await fetch(B + '/api/stream?token=' + encodeURIComponent(me.t), { signal: ac.signal });
+  const reading = (async () => { const rd = stream.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    try { for (;;) { const { value, done } = await rd.read(); if (done) break; buf += dec.decode(value); let i; while ((i = buf.indexOf('\n\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 2); if (line.startsWith('data: ')) heard.push(JSON.parse(line.slice(6))); } } } catch (e) { /* aborted */ } })();
+  const r = await pay(inv, { phone: '677123456' }, me.t); assert.equal(r.status, 200, JSON.stringify(r.body));
+  const pid = r.body.payment.id; const tr = (await row(pid)).provider_ref;
+  // a webhook with the wrong secret is refused and noted for the admin
+  assert.equal((await webhook({ transId: tr }, 'wrong')).status, 401);
+  let wh = (await db.query("SELECT value FROM platform_settings WHERE key='fapshiWebhook'")).rows[0].value; assert.match(wh.lastRefusedWhy, /does not match/);
+  // the payer declines on their phone: Fapshi marks it FAILED and sends one webhook
+  set(tr, { status: 'FAILED' });
+  assert.equal((await webhook(Object.assign({}, txns.get(tr)))).status, 200);
+  const p = await row(pid); assert.equal(p.status, 'failed', 'failed straight from the webhook, without the page asking'); assert.match(p.failure, /did not go through/);
+  for (let k = 0; k < 20 && !heard.some((m) => m.col === 'billing' && m.id === pid); k++) await new Promise((res) => setTimeout(res, 50));
+  assert.ok(heard.some((m) => m.col === 'billing' && m.id === pid), 'the open app is told at once');
+  ac.abort(); await reading;
+  wh = (await db.query("SELECT value FROM platform_settings WHERE key='fapshiWebhook'")).rows[0].value; assert.ok(wh.lastOkAt > wh.lastRefusedAt, 'the last good webhook is noted');
+  // the page shows it as failed, and paying again works straight away
+  const st = (await api('GET', '/api/billing/momo/' + pid, me.t)).body.payment; assert.equal(st.status, 'failed');
+  const again = await pay(inv, { phone: '677123456' }, me.t); assert.equal(again.status, 200); assert.notEqual(again.body.payment.id, pid);
+});

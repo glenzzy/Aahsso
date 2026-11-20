@@ -248,7 +248,8 @@ app.post('/api/support', auth, supportLimiter, wrap(async (req, res) => {
   res.json({ ok: true, replyTo: reply || '', ticket: tk.id, emailed: r.status }); // the ticket is saved even if the email failed
 }));
 billing.mountTenant(app, { auth, wrap, err, canU, tx, momo });
-billing.onVenue = (tid) => broadcast(tid, 'settings', 'main'); // a Bar & Resto plan changed the venue: open apps reload settings
+billing.onVenue = (tid) => broadcast(tid, 'settings', 'main');
+momo.onSettled = (tid, p) => broadcast(tid, 'billing', p.id); // a mobile money payment was approved / declined: the Pay window updates at once // a Bar & Resto plan changed the venue: open apps reload settings
 momo.mount(app, { auth, wrap, err, guard: (req, res, next) => (['owner', 'admin'].includes(req.user.role) || canU(req.user, 'settings') ? next() : err(res, 403, 'Only the owner or an admin can manage billing')) });
 app.get('/api/email/status', auth, (req, res) => res.json({ enabled: mailer.enabled(), from: mailer.enabled() ? mailer.FROM() : '' }));
 app.get('/api/me', auth, wrap(async (req, res) => {

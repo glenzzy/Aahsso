@@ -118,12 +118,18 @@ function verifyWebhook(headers) {
 const PAY_COLS = 'id, tenant_id, invoice_id, amount, currency, method, status, provider, provider_ref, network, phone, failure, created_at, decided_at';
 const reload = async (id) => (await q('SELECT ' + PAY_COLS + ' FROM payments WHERE id=$1', [id])).rows[0];
 const fail = (p, msg) => q("UPDATE payments SET status='failed', decided_at=now(), failure=$2 WHERE id=$1 AND status='processing'", [p.id, msg]);
+/** tell the business's open apps that a payment moved on (set by the server: the live stream) — the Pay window updates at once */
+const settled = (p, after) => { if (after && after.status !== 'processing' && typeof module.exports.onSettled === 'function') { try { module.exports.onSettled(p.tenant_id, after); } catch (e) { /* never block a payment */ } } return after; };
+/** the last webhook Fapshi sent us, for the admin's Health page (is the webhook URL set and the secret right?) */
+const noteWebhook = (ok, why) => q("INSERT INTO platform_settings (key, value) VALUES ('fapshiWebhook', $1) ON CONFLICT (key) DO UPDATE SET value = platform_settings.value || EXCLUDED.value, updated_at=now()",
+  [JSON.stringify(ok ? { lastOkAt: new Date().toISOString() } : { lastRefusedAt: new Date().toISOString(), lastRefusedWhy: why })]).catch(() => {});
 
 /**
  * Bring one local payment in line with Fapshi's transaction. Every change is "only from processing",
  * so the webhook, the page asking and the sweep can race safely: the subscription is extended once.
  */
-async function apply(p, t) {
+async function apply(p, t) { return settled(p, await applyOne(p, t)); }
+async function applyOne(p, t) {
   if (!p || p.status !== 'processing') return p;
   if (!t) {
     if (Date.now() - new Date(p.created_at).getTime() > 30 * 60e3) await fail(p, MSG.NOT_FOUND);
@@ -193,7 +199,8 @@ function mount(app, { auth, wrap, err, guard }) {
   // Fapshi → us when a transaction becomes SUCCESSFUL, FAILED or EXPIRED. Sent once, never retried:
   // answer 200 quickly; the status is always asked again before anything changes.
   app.post('/api/fapshi/webhook', wrap(async (req, res) => {
-    if (!verifyWebhook(req.headers)) { console.warn('[fapshi] webhook refused: bad secret'); return res.status(401).json({ error: 'Unauthorized' }); }
+    if (!verifyWebhook(req.headers)) { console.warn('[fapshi] webhook refused: bad secret'); await noteWebhook(false, req.headers['x-wh-secret'] ? 'The secret Fapshi sent does not match FAPSHI_WEBHOOK_SECRET' : 'Fapshi sent no secret: set the same secret on the Fapshi dashboard, or remove FAPSHI_WEBHOOK_SECRET'); return res.status(401).json({ error: 'Unauthorized' }); }
+    await noteWebhook(true);
     const b = req.body || {}; const transId = typeof b.transId === 'string' ? b.transId : '';
     if (!/^[A-Za-z0-9_-]{4,64}$/.test(transId)) return res.status(400).json({ error: 'Invalid payload' });
     let p = (await q('SELECT ' + PAY_COLS + " FROM payments WHERE provider='fapshi' AND provider_ref=$1", [transId])).rows[0];
@@ -271,4 +278,4 @@ const view = (p) => p && { id: p.id, invoiceId: p.invoice_id, amount: p.amount, 
 /** what the Billing page needs to show the mobile money form */
 const publicInfo = () => { const c = cfg(); return { enabled: enabled(), sandbox: enabled() && c.sandbox, networks: NETWORKS.map(({ code, label }) => ({ code, label })), prefix: PREFIX, min: MIN_AMOUNT }; };
 
-module.exports = { enabled, cfg, NETWORKS, normalizePhone, guessNetwork, friendly, verifyWebhook, directPay, getStatus, findByExternalId, expirePay, apply, refresh, sweep, startSweeper, mount, publicInfo, FapshiError, MSG };
+module.exports = { onSettled: null, enabled, cfg, NETWORKS, normalizePhone, guessNetwork, friendly, verifyWebhook, directPay, getStatus, findByExternalId, expirePay, apply, refresh, sweep, startSweeper, mount, publicInfo, FapshiError, MSG };
