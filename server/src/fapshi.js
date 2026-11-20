@@ -85,7 +85,8 @@ async function call(method, path, body) {
   const text = await r.text(); let j = null; try { j = text ? JSON.parse(text) : null; } catch (e) { /* not JSON */ }
   if (!r.ok) {
     const m = j && typeof j.message === 'string' ? j.message : '';
-    console.error('[fapshi]', method, path.replace(/\/[A-Za-z0-9_-]{6,}$/, '/:id'), r.status, m.slice(0, 120)); // no phone numbers or keys in logs
+    console.error('[fapshi]', method, path.replace(/^(\/(?:payment-status|transaction)\/).+$/, '$1:id'), r.status, m.slice(0, 120)); // no phone numbers or keys in logs
+    if (r.status === 403 && path === '/direct-pay') console.error('[fapshi] Direct Pay is not activated on this Fapshi account (' + (c.sandbox ? 'sandbox' : 'live') + '). Ask Fapshi to activate it: https://www.fapshi.com/en/help-and-support/how-to-activate-direct-pay-for-your-fapshi-api');
     throw new FapshiError(r.status >= 500 ? MSG.DOWN : friendly(r.status, m), r.status, r.status >= 500 ? 'SERVER' : 'HTTP_' + r.status);
   }
   return j;
