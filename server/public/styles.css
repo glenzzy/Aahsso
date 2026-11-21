@@ -1773,3 +1773,7 @@ label.f,.settings label.f .lbl{font-weight:500}
 .mv-bill{font-size:11.5px;font-weight:600;margin-top:3px}
 .mv-bill.np{color:#8a4b08}
 .mv-bill.ok{color:var(--ok)}
+
+/* Kitchen screen / Bar screen header */
+.kds-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.kds-ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--brandSoft);color:var(--brand)}

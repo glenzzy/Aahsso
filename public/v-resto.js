@@ -96,7 +96,7 @@ function restoWatch(col, docs) {
   if (col === 'rorders') {
     const nw = docs.filter((o) => o.status === 'new'); const acc = docs.filter((o) => o.status === 'accepted');
     if (_seen.ro && (can('serve') || can('bills'))) { const f = nw.filter((o) => !_seen.ro.has(o.id) && (forMe(o) || can('tables'))); if (f.length) ding('New order · ' + (f[0].tableLabel || 'Counter') + (f[0].customerName ? ' · ' + f[0].customerName : '')); }
-    if (_seen.kds && can('kds') && !can('serve')) { const f = acc.filter((o) => !_seen.kds.has(o.id)); if (f.length) ding('New ticket · ' + (f[0].tableLabel || 'Counter')); }
+    if (_seen.kds && can('kds') && !can('serve')) { const at = K.route === 'barscreen' ? 'bar' : K.route === 'kds' ? 'kitchen' : ''; const f = acc.filter((o) => !_seen.kds.has(o.id) && (!at || (o.lines || []).some((l) => (l.station || 'kitchen') === at))); if (f.length) ding((at === 'bar' ? 'New drinks · ' : at === 'kitchen' ? 'New food · ' : 'New ticket · ') + (f[0].tableLabel || 'Counter')); }
     _seen.ro = new Set(nw.map((o) => o.id)); _seen.kds = new Set(acc.map((o) => o.id));
   }
   if (col === 'sales' && can('bills') && !K._tabSweep) { K._tabSweep = setTimeout(() => { K._tabSweep = null; (K.raw.tabs || []).filter((t) => t.status === 'open' && (t.saleIds || []).length && !dueLines(t).length && tabOwing(t) < 0.5).forEach((t) => save('tabs', Object.assign({}, t, { status: 'paid', closedAt: new Date().toISOString(), closedBy: K.me.name || '' }))); }, 1500); }
@@ -108,7 +108,7 @@ function restoWatch(col, docs) {
   }
 }
 // minutes on tickets move on their own
-setInterval(() => { if (isResto() && ['tickets', 'kds', 'floor', 'home'].includes(K.route) && !K.sheets.length) scheduleRender(); }, 30000);
+setInterval(() => { if (isResto() && ['tickets', 'kds', 'barscreen', 'floor', 'home'].includes(K.route) && !K.sheets.length) scheduleRender(); }, 30000);
 
 /* ================= HOME: tonight ================= */
 function restoHome(hello) {
@@ -121,7 +121,7 @@ function restoHome(hello) {
   const best = {}; visibleSales().filter((s) => saleDate(s) === t && s.status !== 'cancelled').forEach((s) => (s.lines || []).forEach((l) => { if (l.menuId) best[l.name] = (best[l.name] || 0) + num(l.qty); }));
   const top = Object.entries(best).sort((a, b) => b[1] - a[1]).slice(0, 5);
   return '<div class="sh-head"><div><div class="hint">' + fmtDate(t) + ' · ' + esc(KC.VENUE_TYPES.find((v) => v[0] === venue())[1]) + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div><button class="icon-btn sh-help" data-a="tourStart" title="How Aahsso works" aria-label="How Aahsso works">' + ic('help') + '</button></div>' +
-    '<div class="sh-acts">' + (navOk('floor') ? act('floor', 'table', 'Tables', ' pri') : '') + (navOk('tickets') ? act('tickets', 'bell', 'Orders' + (waiting.length ? ' · ' + waiting.length : '')) : '') + (navOk('kds') ? act('kds', 'chef', 'Kitchen') : navOk('menu') ? act('menu', 'tag', 'Menu') : '') + '</div>' +
+    '<div class="sh-acts">' + (navOk('floor') ? act('floor', 'table', 'Tables', ' pri') : '') + (navOk('tickets') ? act('tickets', 'bell', 'Orders' + (waiting.length ? ' · ' + waiting.length : '')) : '') + (navOk('kds') ? act('kds', 'chef', 'Kitchen') : '') + (navOk('barscreen') ? act('barscreen', 'glass', 'Bar') : '') + (!navOk('kds') && !navOk('barscreen') && navOk('menu') ? act('menu', 'tag', 'Menu') : '') + '</div>' +
     '<div class="sh-ks">' + tile('Sold today', fmt(d.revenue)) + tile('Open tables', fmt(tabs.length)) + tile('Orders waiting', fmt(waiting.length), waiting.length ? 'warn' : '') + (unpaidBills().length ? tile('Served, not paid', fmt(unpaidBills().reduce((a, x) => a + x.due, 0)), 'warn') : '') + (seeCost() ? tile('Profit today', fmt(d.profit), 'ok') : tile('Cash in today', fmt(d.collected))) + '</div>' +
     (calls.length || late.length || unpaidBills().length ? '<section class="card sh-sec"><div class="sh-sh"><h2>Needs you now</h2></div>' +
       unpaidBills().slice(0, 5).map((x) => '<div class="sh-row todo warn" data-a="' + (x.tab.tableId ? 'tableOpen' : 'tabPay') + '" data-id="' + esc(x.tab.tableId || x.tab.id) + '" role="button"><span class="todo-ic">' + ic('wallet', 'sm') + '</span><div class="grow ellipsis">' + esc(x.tab.tableLabel && x.tab.tableLabel !== 'Counter' ? 'Table ' + x.tab.tableLabel : 'Counter') + ' · served, not paid <span class="faint">' + rAgo(x.orders[x.orders.length - 1].servedAt || x.tab.openedAt) + '</span></div><b class="money">' + fmt(x.due) + '</b>' + ic('chev', 'sm') + '</div>').join('') +
@@ -280,20 +280,23 @@ A.tkTab = (el) => { K.ui.tkTab = el.dataset.v; render(true); };
 CH.tkMine = (el) => { K.ui.tkMine = el.checked; render(true); };
 
 /* ================= KITCHEN & BAR SCREEN ================= */
-VIEWS.kds = {
-  render() {
-    const sts = stations(); const st = sts.includes(K.ui.kdsSt) ? K.ui.kdsSt : sts[0];
+/* ================= KITCHEN SCREEN (food) and BAR SCREEN (drinks) =================
+   A bar & restaurant has both; a restaurant only the kitchen screen; a bar only the bar screen. */
+const hasStation = (k) => isResto() && stations().includes(k);
+VIEWS.kds = { render() { return stationScreen('kitchen'); } };
+VIEWS.barscreen = { render() { return stationScreen('bar'); } };
+function stationScreen(st) {
     const live = (K.raw.rorders || []).filter((o) => o.status === 'accepted' && (o.lines || []).some((l) => (l.station || 'kitchen') === st) && !((o.st || {})[st] && o.st[st].s === 'ready')).sort((a, b) => String(a.acceptedAt || a.createdAt).localeCompare(String(b.acceptedAt || b.createdAt)));
     const done = (K.raw.rorders || []).filter((o) => (o.st || {})[st] && o.st[st].s === 'ready' && String(o.st[st].at || '').slice(0, 10) === todayStr()).sort((a, b) => String(b.st[st].at).localeCompare(String(a.st[st].at))).slice(0, 6);
-    return (sts.length > 1 ? '<div class="chips mb">' + sts.map((k) => '<button class="chip' + (k === st ? ' on' : '') + '" data-a="kdsSt" data-v="' + k + '">' + STATION[k] + '</button>').join('') + '</div>' : '') +
+    if (!hasStation(st)) return '<div class="card empty"><div class="big">' + (st === 'bar' ? '🍸' : '👨‍🍳') + '</div>' + esc(KC.venueLabel(venue())) + ' venues have no ' + STATION[st].toLowerCase() + ' screen.</div>';
+    const head = '<div class="kds-head"><span class="kds-ic">' + ic(st === 'bar' ? 'glass' : 'chef') + '</span><div><b>' + (st === 'bar' ? 'Bar screen' : 'Kitchen screen') + '</b><div class="hint">' + (st === 'bar' ? 'Drinks to prepare' : 'Food to prepare') + ' · ' + live.length + ' ticket' + (live.length === 1 ? '' : 's') + '</div></div></div>';
+    return head +
       (live.length ? '<div class="kds">' + live.map((o) => { const s = (o.st || {})[st] || {}; const m = mins(o.acceptedAt || o.createdAt); return '<div class="kd' + (m >= lateMins() ? ' late' : s.s === 'started' ? ' go' : '') + '"><div class="kd-h"><b>' + esc(o.tableLabel || 'Counter') + '</b><span>' + m + ' min</span></div><div class="kd-l">' +
         (o.lines || []).filter((l) => (l.station || 'kitchen') === st).map((l) => '<div><b>' + fmt(l.qty) + '</b> ' + esc(l.name) + (l.note ? '<i>' + esc(l.note) + '</i>' : '') + '</div>').join('') + '</div>' +
         '<div class="kd-a">' + (s.s !== 'started' ? '<button class="btn" data-a="kdsGo" data-id="' + o.id + '" data-s="' + st + '" data-v="started">Start</button>' : '') + '<button class="btn pri" data-a="kdsGo" data-id="' + o.id + '" data-s="' + st + '" data-v="ready">' + ic('check') + 'Ready</button></div></div>'; }).join('') + '</div>'
-        : '<div class="card empty"><div class="big">👨‍🍳</div>Nothing to prepare at the ' + STATION[st].toLowerCase() + '.</div>') +
+        : '<div class="card empty"><div class="big">' + (st === 'bar' ? '🍸' : '👨‍🍳') + '</div>' + (st === 'bar' ? 'No drinks to prepare.' : 'Nothing to cook right now.') + '</div>') +
       (done.length ? '<h3 class="mt2 mb">Ready</h3><div class="card list">' + done.map((o) => '<div class="li" style="cursor:default"><div class="grow">' + esc(o.tableLabel || 'Counter') + ' <span class="faint">#' + esc(o.no || '') + '</span></div><span class="hint">' + rAgo(o.st[st].at) + ' ago</span></div>').join('') + '</div>' : '');
-  },
-};
-A.kdsSt = (el) => { K.ui.kdsSt = el.dataset.v; render(true); };
+}
 A.kdsGo = async (el) => {
   const o = rOrder(el.dataset.id); if (!o) return; const k = el.dataset.s; const now = new Date().toISOString();
   const st = Object.assign({}, o.st || {}, { [k]: { s: el.dataset.v, at: now, by: K.me.name || '' } });

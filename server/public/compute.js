@@ -372,7 +372,7 @@
   const ROUTE_FEATURE = { buy: ['buy'], ship: ['ship'], receive: ['receive'], sales: ['sell'], sell: ['sell'], orders: ['onlineShop'], customers: ['customers'], reminders: ['reminders'],
     promos: ['promos'], audit: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], cash: ['cashHandover', 'tills'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'],
     staff: ['attendance'], leave: ['leave'], payroll: ['payroll'], employees: ['attendance', 'leave', 'payroll'], activity: ['activity'],
-    floor: ['tables'], kds: ['kds'], bookings: ['reservations'], menu: ['tables', 'payFirst', 'qrOrders'], tickets: ['tables', 'payFirst', 'qrOrders'] };
+    floor: ['tables'], kds: ['kds'], barscreen: ['kds'], bookings: ['reservations'], menu: ['tables', 'payFirst', 'qrOrders'], tickets: ['tables', 'payFirst', 'qrOrders'] };
   const routeFeatureOn = (features, route) => !ROUTE_FEATURE[route] || anyOn(features, ROUTE_FEATURE[route]);
   // which feature each kind of record belongs to (writes are refused when all of them are off)
   const COLLECTION_FEATURE = { lots: ['buy', 'ship', 'receive'], shipments: ['ship', 'receive'], sales: ['sell'], customers: ['customers'], orders: ['onlineShop'], promos: ['promos'],

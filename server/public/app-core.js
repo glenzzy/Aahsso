@@ -361,7 +361,8 @@ const NAV = [
   // Aahsso Bar & Resto
   ['floor', 'Tables', 'table', () => isResto() && (can('serve') || can('bills') || can('tables'))],
   ['tickets', 'Orders', 'bell', () => isResto() && (can('serve') || can('bills')), () => (K.raw.rorders || []).filter((o) => o.status === 'new' && (typeof forMe !== 'function' || forMe(o) || can('tables'))).length],
-  ['kds', 'Kitchen screen', 'chef', () => isResto() && can('kds')],
+  ['kds', 'Kitchen screen', 'chef', () => isResto() && can('kds') && hasStation('kitchen')],
+  ['barscreen', 'Bar screen', 'glass', () => isResto() && can('kds') && hasStation('bar')],
   ['menu', 'Menu', 'tag', () => isResto() && (can('menu') || can('serve'))],
   ['bookings', 'Reservations', 'cal', () => isResto() && can('reservations')],
   ['rstats', 'Waiters & tables', 'chart', () => isResto() && can('reports') && has('waiterStats')],
@@ -397,7 +398,7 @@ const STORE_SECTIONS = [
 const RESTO_SECTIONS = [
   ['home', 'Home', 'home', ['home']],
   ['floor', 'Tables', 'table', ['floor', 'bookings']],
-  ['tickets', 'Orders', 'bell', ['tickets', 'kds']],
+  ['tickets', 'Orders', 'bell', ['tickets', 'kds', 'barscreen']],
   ['menu', 'Menu', 'tag', ['menu']],
   ['stock', 'Stock', 'stock', ['stock']],
   ['buy', 'Buy', 'buy', ['buy']],
@@ -410,7 +411,7 @@ const RESTO_SECTIONS = [
 const sections = () => (K.info && K.info.edition === 'resto' ? RESTO_SECTIONS : isStore() ? STORE_SECTIONS : SECTIONS);
 /** the extra tools a Store business has (from its plan and permissions) */
 const storeTools = () => STORE_SECTIONS.find((x) => x[0] === 'tools')[3].slice(1).filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
-const TAB_LABEL = { floor: 'Tables', bookings: 'Reservations', tickets: 'Orders', kds: 'Kitchen screen', rstats: 'Waiters & tables', sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', losses: 'Losses', claims: 'Returns & claims', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
+const TAB_LABEL = { floor: 'Tables', bookings: 'Reservations', tickets: 'Orders', kds: 'Kitchen screen', barscreen: 'Bar screen', rstats: 'Waiters & tables', sales: 'Sales', orders: 'Online orders', stock: 'Stock & prices', promos: 'Promotions', transfers: 'Branch transfers', audit: 'Stock count', losses: 'Losses', claims: 'Returns & claims', customers: 'Customers', reminders: 'Debt reminders', expenses: 'Expenses', cash: 'Cash handover', suppliers: 'Bills to pay', reports: 'Reports', assets: 'Assets', settings: 'Business', team: 'Team', activity: 'Activity log', staff: 'Attendance', leave: 'Leave', payroll: 'Payroll', employees: 'Employees' };
 /** Routes of a section this person can open (transfers only when there is more than one branch). */
 const secRoutes = (sec) => sec[0] === 'tools' ? (storeTools().length ? ['tools'].concat(storeTools()) : []) : sec[3].filter((r) => navOk(r) && (r !== 'transfers' || allLocs().length > 1));
 const secOf = (r) => sections().find((x) => x[3].includes(r)) || sections()[0];
@@ -451,11 +452,11 @@ function shell() {
   drawAvatar();
   if (!K.member) { $('#bnav').innerHTML = ''; $('#side').innerHTML = '<div class="brandbox">' + logoHTML() + '<div class="bn">' + esc(s.businessName) + '</div></div>'; $('#title').textContent = 'Access'; $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"'); return; }
   const resto = K.info && K.info.edition === 'resto';
-  const bn = (resto ? [['home', 'Home', 'home'], ['floor', 'Tables', 'table'], navOk('tickets') ? ['tickets', 'Orders', 'bell'] : ['kds', 'Kitchen', 'chef'], ['menu', 'Menu', 'tag'], ['more', 'More', 'more']]
+  const bn = (resto ? [['home', 'Home', 'home'], ['floor', 'Tables', 'table'], navOk('tickets') ? ['tickets', 'Orders', 'bell'] : navOk('kds') ? ['kds', 'Kitchen', 'chef'] : ['barscreen', 'Bar', 'glass'], ['menu', 'Menu', 'tag'], ['more', 'More', 'more']]
     : [['home', 'Home', 'home'], ['buy', 'Buy', 'buy'], ['sell', 'Sell', 'sell'], ['stock', 'Stock', 'stock'], ['more', 'More', 'more']]).filter((n) => n[0] === 'more' || navOk(n[0]));
-  const mid = resto ? (navOk('tickets') ? 'tickets' : 'kds') : 'sell'; const bnMain = resto ? ['home', 'floor', 'tickets', 'kds', 'menu'] : ['home', 'buy', 'sell', 'stock'];
+  const mid = resto ? (navOk('tickets') ? 'tickets' : navOk('kds') ? 'kds' : 'barscreen') : 'sell'; const bnMain = resto ? ['home', 'floor', 'tickets', 'kds', 'barscreen', 'menu'] : ['home', 'buy', 'sell', 'stock'];
   const inSec = sections().some((x) => x[3].includes(K.route)); // account pages (profile, billing, help) belong to no section
-  const cur = inSec ? secOf(K.route)[0] : ''; const moreOn = inSec && !bnMain.includes(cur) && !(resto && K.route === 'kds');
+  const cur = inSec ? secOf(K.route)[0] : ''; const moreOn = inSec && !bnMain.includes(cur) && !(resto && ['kds', 'barscreen'].includes(K.route));
   $('#bnav').innerHTML = bn.map((n) => n[0] === 'more'
     ? '<a href="#" data-a="moreMenu" class="' + (moreOn ? 'on' : '') + '">' + ic('more') + '<span>More</span></a>'
     : '<a href="#' + n[0] + '" class="' + (n[0] === mid ? 'sell ' : '') + (cur === n[0] || K.route === n[0] ? 'on' : '') + '"><div class="ic">' + ic(n[2]) + (n[0] === 'tickets' ? navCount(NAV.find((x) => x[0] === 'tickets')) : '') + '</div><span>' + n[1] + '</span></a>').join('');
