@@ -27,7 +27,7 @@ VIEWS.stock = {
     const list = stockList();
     const tot = K.raw.products.reduce((a, p) => { const x = K.C.prodX[p.id]; a.u += x.available; a.c += x.stockValue; a.r += x.retailValue; a.t += x.transit + x.us; return a; }, { u: 0, c: 0, r: 0, t: 0 });
     return (seeCost() && isStore() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), '', true) + kpi('Worth (at cost)', F(tot.c), 'sells for ' + fmt(tot.r)) + '</div>' : seeCost() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), fmt(tot.t) + ' incoming', true) + kpi('Stock at cost', F(tot.c)) + kpi('Stock at selling price', F(tot.r)) + kpi('Potential profit', F(tot.r - tot.c), tot.c ? pct((tot.r - tot.c) / tot.c * 100) + ' markup' : '') + '</div>' : '') +
-      '<div class="row wrap mb">' + (can('stockEdit') ? '<button class="btn pri" data-a="pricing">' + ic('tag') + (isStore() ? 'Set prices' : 'Set prices / markup') + '</button><button class="btn" data-a="labels">' + ic('barcode') + 'Barcode labels</button>' : '') + (can('export') ? '<button class="btn" data-a="exportStock">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
+      '<div class="row wrap mb">' + (can('stockEdit') && typeof isResto === 'function' && isResto() ? '<button class="btn pri" data-a="dkStock">' + ic('glass') + 'Add drinks</button>' : '') + (can('stockEdit') ? '<button class="btn' + (typeof isResto === 'function' && isResto() ? '' : ' pri') + '" data-a="pricing">' + ic('tag') + (isStore() ? 'Set prices' : 'Set prices / markup') + '</button><button class="btn" data-a="labels">' + ic('barcode') + 'Barcode labels</button>' : '') + (can('export') ? '<button class="btn" data-a="exportStock">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + F_.map(([k, l]) => '<button class="chip' + (K.ui.stockFilter === k ? ' on' : '') + '" data-a="stockFilter" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="row mb"><div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search item or barcode" value="' + esc(K.ui.stockQ) + '" data-i="stockQ"></div><select class="inp" style="width:auto;max-width:44%" data-c="stockCat"><option value="">All categories</option>' + catOpts().map((c) => '<option' + (K.ui.stockCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>' +
       stockRows(list);
@@ -92,6 +92,25 @@ A.exportStock = () => {
 
 /* ---------- product edit ---------- */
 A.editProduct = (el) => editProduct(el.dataset.id);
+/* Bar & Resto: pick the drinks you sell from the Cameroon drinks catalog — they become stock items (quantities come from purchases and counts) */
+A.dkStock = () => Drinks.picker({
+  title: 'Add drinks to your stock', many: true, prices: ['bar', 'lounge', 'none'],
+  taken: (d) => (Drinks.productOf(d) ? 'Already in your stock' : null),
+  action: (n) => (n ? 'Add ' + n + ' to stock' : 'Choose drinks'),
+  onOwn: (q) => dkOwnProduct(q),
+  onPick: async (list, o) => {
+    await Drinks.addStockCats(list); let n = 0;
+    for (const d of list) { if (Drinks.productOf(d)) continue; if (await save('products', Drinks.toProduct(d, o.priceOf(d)))) n++; }
+    scheduleRender(); toast(n === 1 ? list[0].name + ' added to your stock' : n + ' drinks added to your stock' + (o.price === 'none' ? '' : ' — prices can be changed any time'));
+  },
+});
+/** a drink that is not in the catalog: the owner names it, then completes it */
+async function dkOwnProduct(q) {
+  const name = String(q || '').trim(); if (!name) return toast('Type the name of the drink in the search, then add it', true);
+  const same = K.raw.products.find((p) => !p.archived && Drinks.norm(p.name) === Drinks.norm(name)); if (same) { editProduct(same.id); return toast(same.name + ' is already in your stock'); }
+  const p = { id: uid('pr_'), name, category: 'Other', subcategory: '', condition: 'New', barcode: '', markup: null, minMarkup: null, priceMax: null, priceMin: null, unit: 'bottle', size: null, sizeUnit: '', packs: [] };
+  if (await save('products', p)) { scheduleRender(); editProduct(p.id); toast(name + ' added — set its category, size and price'); }
+}
 function editProduct(id) {
   const p = byId('products', id); const x = K.C.prodX[id];
   const sh = openSheet({
@@ -330,6 +349,8 @@ async function savePurchaseLines(h, lines) {
   for (const l of lines) {
     const r = findOrCreateProduct(l.name, l.category, l.subcategory, l.condition, l.barcode);
     if (r.isNew) Object.assign(r.p, { unit: l.unit || 'piece', size: l.size || null, sizeUnit: l.sizeUnit || '' });
+    const dk = r.isNew && typeof isResto === 'function' && isResto() && Drinks.ready() ? Drinks.byName(l.name) : null; // a drink from the catalog: its category, size, crate…
+    if (dk) { const fromCat = Drinks.toProduct(dk, null); r.p = Object.assign(fromCat, { id: r.p.id, name: dk.name, barcode: r.p.barcode || '' }); await Drinks.addStockCats([dk]); }
     if (num(l.pack) > 1 && !KC.packsOf(r.p).some((k) => k.size === num(l.pack))) { r.p = Object.assign({}, r.p, { packs: ((r.p.packs || []).concat([{ name: 'pack', size: Math.floor(num(l.pack)), price: null }])).slice(0, 3) }); r.changed = true; } // bought by the pack: sell by the pack too
     else if (!r.p.size && l.size) { r.p = Object.assign({}, r.p, { size: l.size, sizeUnit: l.sizeUnit, unit: r.p.unit || l.unit }); r.changed = true; }
     if (l.photo) { try { r.p = Object.assign({}, r.p, { image: await storePhoto(l.photo) }); r.changed = true; } catch (e) { toast('Photo not saved: ' + e.message, true); } }

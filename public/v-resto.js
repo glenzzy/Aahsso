@@ -516,14 +516,14 @@ VIEWS.menu = {
     const items = rMenu(); const cats = [...new Set((S().menuCats || []).concat(items.map((m) => m.category || 'Other')))]; const cur = K.ui.mnCat || ''; const q = (K.ui.mnQ || '').toLowerCase();
     const list = items.filter((m) => (!cur || (m.category || 'Other') === cur) && (!q || m.name.toLowerCase().includes(q))).sort((a, b) => cats.indexOf(a.category) - cats.indexOf(b.category) || a.name.localeCompare(b.name));
     const kind = { plain: '', stock: 'From stock', portion: 'Glass / shot', recipe: 'Recipe' };
-    return '<div class="row wrap mb">' + (can('menu') ? '<button class="btn pri" data-a="mnEdit">' + ic('plus') + 'New item</button><button class="btn" data-a="mnCats">' + ic('tag') + 'Categories</button>' : '') + (S().menuKey ? '<button class="btn ghost" data-a="mnLink">' + ic('copy') + 'Menu link</button>' : '') + '</div>' +
+    return '<div class="row wrap mb">' + (can('menu') ? '<button class="btn pri" data-a="mnEdit">' + ic('plus') + 'New item</button><button class="btn" data-a="dkMenu">' + ic('glass') + 'Add drinks</button><button class="btn" data-a="mnCats">' + ic('tag') + 'Categories</button>' : '') + (S().menuKey ? '<button class="btn ghost" data-a="mnLink">' + ic('copy') + 'Menu link</button>' : '') + '</div>' +
       (hhLive() ? '<div class="alert ok mb">Happy hour now: −' + num(S().happyHour.pct) + '% until ' + esc(S().happyHour.to) + '</div>' : '') +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search the menu" value="' + esc(K.ui.mnQ || '') + '" data-c="mnQ"></div>' +
       '<div class="chips mb">' + [['', 'All']].concat(cats.map((c) => [c, c])).map(([k, l]) => '<button class="chip' + (cur === k ? ' on' : '') + '" data-a="mnCat" data-v="' + esc(k) + '">' + esc(l) + '</button>').join('') + '</div>' +
       (list.length ? '<div class="card list">' + list.map((m) => { const u = m.uses && m.uses.length ? KC.menuUnits(K.C, m, K.loc) : null; const out = m.soldOut || u === 0; return '<div class="li mn-i' + (m.active === false ? ' off' : '') + '"' + (can('menu') ? ' data-a="mnEdit" data-id="' + m.id + '"' : '') + '>' + (m.photo ? '<img class="mn-ph" src="' + esc(imgSrc(m.photo)) + '" alt="">' : '<div class="av">' + esc(initials(m.name)) + '</div>') +
         '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(m.name) + '</div><div class="tiny muted">' + [esc(m.category || 'Other'), stations().length > 1 ? STATION[KC.stationOf(m, venue())] : '', kind[KC.menuKind(m)], u !== null && u !== Infinity ? (u === 0 ? 'no stock' : u + ' left') : '', m.active === false ? 'hidden' : ''].filter(Boolean).join(' · ') + '</div></div>' +
         '<b class="money">' + fmt(m.price) + '</b>' + (can('menu') || can('serve') ? '<label class="sw" title="Sold out" data-stop><input type="checkbox" data-c="mnOut" data-id="' + m.id + '"' + (out ? '' : ' checked') + (u === 0 ? ' disabled' : '') + '><span></span></label>' : '') + '</div>'; }).join('') + '</div>'
-        : '<div class="card empty"><div class="big">🍹</div>' + (items.length ? 'Nothing here.' : 'Your menu is empty.') + (can('menu') && !items.length ? '<div class="mt"><button class="btn pri" data-a="mnEdit">' + ic('plus') + 'Add the first item</button></div>' : '') + '</div>') +
+        : '<div class="card empty"><div class="big">🍹</div>' + (items.length ? 'Nothing here.' : 'Your menu is empty.') + (can('menu') && !items.length ? '<div class="mt row wrap" style="justify-content:center"><button class="btn pri" data-a="dkMenu">' + ic('glass') + 'Add drinks from the list</button><button class="btn" data-a="mnEdit">' + ic('plus') + 'Add your own item</button></div><div class="hint mt">341 drinks sold in Cameroon — beers, spirits, wines, soft drinks — with suggested prices.</div>' : '') + '</div>') +
       '<p class="hint mt">The switch on each item: on = served, off = sold out (hidden from the QR menu).</p>';
   },
 };
@@ -538,23 +538,61 @@ A.mnCats = () => {
   const sh = openSheet({ title: 'Menu categories', body: '<p class="hint">In the order customers see them. One per line.</p><textarea class="inp" id="mcT" rows="10">' + esc(cats.join('\n')) + '</textarea>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="mcGo">Save</button>' });
   $('#mcGo', sh).onclick = async () => { const v = [...new Set($('#mcT', sh).value.split('\n').map((x) => x.trim()).filter(Boolean))].slice(0, 40); if (await saveSettings({ menuCats: v })) { closeSheet(); render(true); } };
 };
+/** a menu item made from a catalog drink: its stock item (made if needed), price and category */
+function dkMenuItem(d, price, prod) {
+  const cats = S().menuCats || []; const served = d.pack === 'Served';
+  return { id: uid('mn_'), name: d.name, price: num(price) || num(d.priceBar), category: Drinks.menuCat(d, cats), desc: [Drinks.size(d.ml), d.abv ? d.abv + '%' : '', d.country && d.country !== 'Cameroon' ? d.country : ''].filter(Boolean).join(' · '),
+    kind: served || !prod ? 'plain' : 'stock', uses: served || !prod ? [] : [{ productId: prod.id, qty: 1 }], active: true, drink: d.sku };
+}
+const onMenu = (d) => rMenu().find((m) => m.drink === d.sku || Drinks.norm(m.name) === Drinks.norm(d.name));
+A.dkMenu = () => Drinks.picker({
+  title: 'Add drinks to your menu', many: true, prices: ['bar', 'lounge'],
+  taken: (d) => (onMenu(d) ? 'On your menu' : null),
+  action: (n) => (n ? 'Add ' + n + ' to the menu' : 'Choose drinks'),
+  onOwn: (q) => { K.ui.mnPrefill = { name: q }; A.mnEdit({ dataset: {} }); },
+  onPick: async (list, o) => {
+    const need = list.filter((d) => d.pack !== 'Served' && !Drinks.productOf(d)); if (need.length) await Drinks.addStockCats(need);
+    const cats = (S().menuCats || []).slice(); let n = 0;
+    for (const d of list) {
+      if (onMenu(d)) continue;
+      let prod = d.pack === 'Served' ? null : Drinks.productOf(d);
+      if (d.pack !== 'Served' && !prod) { prod = Drinks.toProduct(d, o.priceOf(d)); if (!(await save('products', prod))) prod = null; }
+      const m = dkMenuItem(d, o.priceOf(d), prod); if (!cats.includes(m.category)) cats.push(m.category);
+      if (await save('menu', m)) n++;
+    }
+    if (cats.length !== (S().menuCats || []).length) await saveSettings({ menuCats: cats });
+    render(true); toast(n === 1 ? list[0].name + ' is on your menu' : n + ' drinks added to your menu — tap one to change its price');
+  },
+});
 A.mnEdit = (el) => {
-  const id = el.dataset.id; const m0 = id ? menuById(id) : { kind: 'plain', category: K.ui.mnCat || (S().menuCats || [])[0] || 'Other', uses: [], active: true }; const m = JSON.parse(JSON.stringify(m0));
+  const id = el.dataset.id; const pre = !id && K.ui.mnPrefill; K.ui.mnPrefill = null;
+  const m0 = id ? menuById(id) : Object.assign({ kind: 'plain', category: K.ui.mnCat || (S().menuCats || [])[0] || 'Other', uses: [], active: true }, pre || {}); const m = JSON.parse(JSON.stringify(m0));
   m.kind = KC.menuKind(m); const prods = K.raw.products.filter((p) => !p.archived).sort((a, b) => a.name.localeCompare(b.name));
+  let newProd = null; // a catalog drink not in stock yet: its stock item is made when the menu item is saved
   const kinds = [['plain', 'Simple', 'No stock to follow (e.g. a dish you do not cost)'], ['stock', 'From stock', 'One stock item per serving (a bottle of beer, a can)']].concat(has('portions') ? [['portion', 'Glass / shot', 'Part of a bottle (e.g. 25 shots per bottle)']] : []).concat(has('recipes') ? [['recipe', 'Recipe', 'Made from ingredients in stock']] : []);
-  const pOpts = [['', 'Choose a stock item…']].concat(prods.map((p) => [p.id, p.name]));
+  const pOpts0 = [['', 'Choose a stock item…']].concat(prods.map((p) => [p.id, p.name]));
   const sh = openSheet({ title: id ? 'Edit ' + m.name : 'New menu item', wide: true, body: '' });
   const draw = () => {
-    const per = m.kind === 'portion' && m.uses[0] ? Math.round(1 / num(m.uses[0].qty)) : 25;
-    setSheetBody(sh, '<div class="col"><div class="grid2">' + field('Name', inp('name', m.name, 'placeholder="e.g. Grilled fish, 33 Export, Glass of red"')) + field('Price (' + baseSym() + ')', inp('price', m.price, 'inputmode="numeric"')) + '</div>' +
-      '<div class="grid2">' + field('Category', sel('category', [...new Set((S().menuCats || []).concat([m.category || 'Other']))], m.category)) + (stations().length > 1 ? field('Prepared at', sel('station', [['', 'Automatic']].concat(stations().map((k) => [k, STATION[k]])), m.station || '')) : '<span></span>') + '</div>' +
+    const pOpts = newProd ? pOpts0.concat([['__new', newProd.name + ' — new stock item']]) : pOpts0;
+    const dk = m.drink && Drinks.ready() ? Drinks.bySku(m.drink) : null;
+    const per = m.kind === 'portion' && m.uses[0] ? Math.round(1 / num(m.uses[0].qty)) : (dk && dk.pours ? Math.floor(dk.pours) : 25);
+    setSheetBody(sh, '<div class="col">' + (isResto() ? '<button type="button" class="dk-fill" id="dkFill">' + ic('glass', 'sm') + '<span><b>' + (dk ? esc(dk.name) : 'Choose from the drinks list') + '</b><span class="hint">' + (dk ? esc(Drinks.metaLine(dk)) + ' · tap to choose another' : 'Name, price, category and stock item filled in for you') + '</span></span>' + ic('chev', 'sm') + '</button>' : '') +
+      '<div class="grid2">' + field('Name', inp('name', m.name, 'placeholder="e.g. Grilled fish, 33 Export, Glass of red"')) + field('Price (' + baseSym() + ')', inp('price', m.price, 'inputmode="numeric"')) + '</div>' +
+      '<div class="grid2">' + field('Category', sel('category', [...new Set((S().menuCats || []).concat([m.category || 'Other']))], m.category || 'Other')) + (stations().length > 1 ? field('Prepared at', sel('station', [['', 'Automatic']].concat(stations().map((k) => [k, STATION[k]])), m.station || '')) : '<span></span>') + '</div>' +
       field('Description (optional)', inp('desc', m.desc, 'placeholder="What is in it, size…"')) +
       '<div class="lbl-t">Stock</div><div class="biz-pick">' + kinds.map(([k, l, h]) => '<label class="biz-opt"><input type="radio" name="kind" value="' + k + '"' + (m.kind === k ? ' checked' : '') + '><span><b>' + l + '</b><span class="hint">' + h + '</span></span></label>').join('') + '</div>' +
       (m.kind === 'stock' ? field('Stock item', sel('p0', pOpts, (m.uses[0] || {}).productId || '')) : '') +
       (m.kind === 'portion' ? '<div class="grid2">' + field('Bottle (stock item)', sel('p0', pOpts, (m.uses[0] || {}).productId || '')) + field('Servings per bottle', inp('per', per, 'inputmode="numeric"')) + '</div>' : '') +
       (m.kind === 'recipe' ? '<div id="rcp">' + (m.uses.length ? m.uses : [{ productId: '', qty: '' }]).map((u, i) => '<div class="grid2 rcp-r">' + field(i ? '' : 'Ingredient', sel('rp' + i, pOpts, u.productId || '')) + field(i ? '' : 'Quantity per serving', inp('rq' + i, u.qty, 'inputmode="decimal" placeholder="e.g. 0.25"')) + '</div>').join('') + '</div><button type="button" class="btn sm" id="rcAdd">' + ic('plus', 'sm') + 'Add ingredient</button><p class="hint">Quantities are in each stock item\'s unit (kg, piece, bottle…).</p>' : '') +
       '<div class="row wrap">' + (has('photos') ? '<button type="button" class="btn sm" id="mnPh">' + ic('cam', 'sm') + (m.photo ? 'Change photo' : 'Add photo') + '</button>' : '') + '<label class="toggle"><input type="checkbox" name="active"' + (m.active !== false ? ' checked' : '') + '>On the menu</label></div></div>');
-    sh.querySelectorAll('[name=kind]').forEach((r) => (r.onchange = () => { keep(); m.kind = r.value; m.uses = []; draw(); }));
+    sh.querySelectorAll('[name=kind]').forEach((r) => (r.onchange = () => { keep(); const pid = (m.uses[0] || {}).productId; m.kind = r.value; m.uses = pid && ['stock', 'portion'].includes(r.value) ? [{ productId: pid, qty: r.value === 'stock' ? 1 : 1 / Math.max(1, (dk && dk.pours) || 25) }] : []; draw(); }));
+    if ($('#dkFill', sh)) $('#dkFill', sh).onclick = () => Drinks.picker({ title: 'Choose a drink', prices: ['bar', 'lounge'], onOwn: (q) => { if (q) { keep(); m.name = q; draw(); } }, onPick: ([d], o) => {
+      keep(); m.name = d.name; m.price = o.price || d.priceBar || m.price; m.drink = d.sku; m.category = Drinks.menuCat(d, S().menuCats || []);
+      m.desc = m.desc || [Drinks.size(d.ml), d.abv ? d.abv + '%' : ''].filter(Boolean).join(' · ');
+      if (d.pack === 'Served') { m.kind = 'plain'; m.uses = []; newProd = null; }
+      else { const p = Drinks.productOf(d); newProd = p ? null : Drinks.toProduct(d, m.price); if (m.kind !== 'portion') m.kind = 'stock'; m.uses = [{ productId: p ? p.id : '__new', qty: m.kind === 'portion' ? 1 / Math.max(1, Math.floor(d.pours || 25)) : 1 }]; }
+      draw(); toast(d.name + ' filled in — check the price');
+    } });
     if ($('#rcAdd', sh)) $('#rcAdd', sh).onclick = () => { keep(); m.uses.push({ productId: '', qty: '' }); draw(); };
     if ($('#mnPh', sh)) $('#mnPh', sh).onclick = async () => { const f = await photoPicker(); if (!f) return; keep(); m.photo = await storePhoto(f); draw(); toast('Photo added'); };
   };
@@ -567,7 +605,14 @@ A.mnEdit = (el) => {
   $('.sf', sh).innerHTML = (id ? '<button class="btn danger" id="mnDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="mnGo">Save</button>';
   draw();
   $('#mnGo', sh).onclick = async () => { keep(); m.name = (m.name || '').trim(); if (!m.name) return toast('Type the name', true); if (!(num(m.price) > 0)) return toast('Type the price', true); if (['stock', 'portion'].includes(m.kind) && !m.uses.length) return toast('Choose the stock item', true); if (m.kind === 'recipe' && !m.uses.length) return toast('Add at least one ingredient', true);
-    m.price = num(m.price); if (await save('menu', Object.assign(m, { id: id || uid('mn_') }))) { closeSheet(); render(true); toast(id ? 'Saved' : m.name + ' added to the menu'); } };
+    m.price = num(m.price);
+    if (m.uses.some((u) => u.productId === '__new')) { // the drink's stock item is made now
+      if (!newProd) return toast('Choose the stock item', true);
+      const dk = Drinks.bySku(m.drink); if (dk) await Drinks.addStockCats([dk]); if (!(await save('products', newProd))) return;
+      m.uses = m.uses.map((u) => (u.productId === '__new' ? Object.assign({}, u, { productId: newProd.id }) : u));
+    }
+    if (m.category && !(S().menuCats || []).includes(m.category)) await saveSettings({ menuCats: (S().menuCats || []).concat([m.category]) });
+    if (await save('menu', Object.assign(m, { id: id || uid('mn_') }))) { closeSheet(); render(true); toast(id ? 'Saved' : m.name + ' added to the menu'); } };
   if (id) $('#mnDel', sh).onclick = async () => { if (await confirmBox('Delete ' + m.name + ' from the menu?', 'Delete', true)) { await remove('menu', id); closeSheet(); render(true); } };
 };
 

@@ -84,6 +84,8 @@ function puSellers(where) {
 }
 function purchaseForm() {
   const names = [...new Set(K.raw.products.map((p) => p.name))];
+  // Bar & Resto: drinks from the catalog are suggested too (added to the list once it has loaded)
+  if (typeof isResto === 'function' && isResto()) Drinks.load().then((d) => { const dl = document.getElementById('dlNames'); if (!dl) return; const have = new Set(names.map(Drinks.norm)); dl.insertAdjacentHTML('beforeend', d.items.filter((x) => !have.has(x._n)).map((x) => '<option value="' + esc(x.name) + '">' + esc(Drinks.metaLine(x)) + '</option>').join('')); }).catch(() => {});
   const usd = num((S().fxRates || {}).USD) || num(S().fxRate) || 0;
   const whereCard = (w, flag, title, sub) => '<button type="button" class="pu-wc' + (w === 'abroad' ? ' on' : '') + '" data-a="puWhere" data-v="' + w + '" aria-pressed="' + (w === 'abroad') + '"><span class="pu-flag" aria-hidden="true">' + flag + '</span><span><b>' + title + '</b><span>' + sub + '</span></span></button>';
   const st = isStore(); const who = st ? 'supplier' : 'seller'; const Who = st ? 'Supplier' : 'Seller'; // Aahsso Store: bought locally, in your money, straight to stock
