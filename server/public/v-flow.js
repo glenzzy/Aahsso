@@ -115,13 +115,13 @@ function puSellers(where) {
 function purchaseForm(pre) {
   const names = [...new Set(K.raw.products.map((p) => p.name))];
   // Bar & Resto: drinks from the catalog are suggested too (added to the list once it has loaded)
-  if (typeof isResto === 'function' && isResto()) Drinks.load().then((d) => { const dl = document.getElementById('dlNames'); if (!dl) return; const have = new Set(names.map(Drinks.norm)); dl.insertAdjacentHTML('beforeend', d.items.filter((x) => !have.has(x._n)).map((x) => '<option value="' + esc(x.name) + '">' + esc(Drinks.metaLine(x)) + '</option>').join('')); }).catch(() => {});
+  if (typeof isResto === 'function' && isResto()) Drinks.load().catch(() => {}); // the drinks list, for the item suggestions
   const usd = num((S().fxRates || {}).USD) || num(S().fxRate) || 0;
   const whereCard = (w, flag, title, sub) => '<button type="button" class="pu-wc' + (w === 'abroad' ? ' on' : '') + '" data-a="puWhere" data-v="' + w + '" aria-pressed="' + (w === 'abroad') + '"><span class="pu-flag" aria-hidden="true">' + flag + '</span><span><b>' + title + '</b><span>' + sub + '</span></span></button>';
   const st = isStore(); const who = st ? 'supplier' : 'seller'; const Who = st ? 'Supplier' : 'Seller'; // Aahsso Store: bought locally, in your money, straight to stock
   const sh = openSheet({
     title: 'New purchase', wide: true,
-    body: '<datalist id="dlNames">' + names.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
+    body: '' +
       // where & seller
       '<section class="pu-sec" id="puHead">' +
         (st ? '' : '<div class="pu-where2" role="group" aria-label="Where did you buy?">' + whereCard('abroad', '🇺🇸', 'Bought abroad', 'Prices in US dollars ($)') + whereCard('local', '🇨🇲', 'Bought in Cameroon', 'Prices in ' + esc(baseSym()) + ' · goes straight to stock') + '</div>') +
@@ -172,11 +172,12 @@ function purchaseForm(pre) {
     $('#puSave', sh).textContent = s.total ? (short ? 'Review · ' : 'Review purchase · ') + m(s.total) : 'Review purchase';
     const pa = $('#payAmount', sh); if (pa) { pa.dataset.def = s.total; pa.placeholder = s.total ? fmt(s.total) : 'Total of the receipt'; if (sh._paid === 'paid') pa.value = ''; syncPayCharges(sh); }
   };
+  const rs = typeof isResto === 'function' && isResto(); // Bar & Resto: drinks — no condition, working, shelf price or client
   const byPack = (r) => !!r.perCase && num(r.packOf) > 1;
   const byHtml = (r, i) => !r.perCase ? '' : '<div class="pu-by"><div class="seg sm" role="group" aria-label="Bought by"><button type="button"' + (byPack(r) ? ' class="on"' : '') + ' data-a="puBy" data-i="' + i + '" data-v="pack" aria-pressed="' + byPack(r) + '">' + esc(r.packName[0].toUpperCase() + r.packName.slice(1)) + 's of ' + r.perCase + '</button><button type="button"' + (byPack(r) ? '' : ' class="on"') + ' data-a="puBy" data-i="' + i + '" data-v="unit" aria-pressed="' + !byPack(r) + '">' + esc(r.unitName[0].toUpperCase() + r.unitName.slice(1)) + 's</button></div><span class="pu-units" data-out="units"></span></div>';
   const qtyL = (r) => (r.perCase ? (byPack(r) ? r.packName[0].toUpperCase() + r.packName.slice(1) + 's' : r.unitName[0].toUpperCase() + r.unitName.slice(1) + 's') : 'Qty');
   const priceL = (r) => (r.perCase ? 'Price per ' + (byPack(r) ? r.packName : r.unitName) : 'Price each');
-  const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" list="dlNames" value="' + esc(r.name) + '" placeholder="Item name" autocomplete="off" aria-label="Item">' + byHtml(r, i) + '</td>' +
+  const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" value="' + esc(r.name) + '" placeholder="' + (typeof isResto === 'function' && isResto() ? 'Search a drink or item' : 'Item name') + '" autocomplete="off" autocapitalize="words" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-label="Item">' + byHtml(r, i) + '</td>' +
     '<td data-l="' + qtyL(r) + '"><input class="inp r" data-f="qty" inputmode="numeric" value="' + esc(r.qty) + '" placeholder="' + (r.perCase ? '0' : '') + '" aria-label="' + qtyL(r) + '"></td>' +
     (st ? '' : '<td data-l="Weight each"><div class="in-unit"><input class="inp r" data-f="weight" inputmode="decimal" value="' + esc(r.weight) + '" placeholder="0" aria-label="Weight of one item in kg"><span>kg</span></div></td>') +
     '<td data-l="' + priceL(r) + '"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="' + esc(r.hint || '0') + '" aria-label="' + priceL(r) + '"><span data-unit>' + esc(curSym(cur())) + '</span></div></td>' +
@@ -184,10 +185,10 @@ function purchaseForm(pre) {
     '<td class="nowrap r"><button type="button" class="icon-btn' + (r.open ? ' on' : '') + '" data-a="puMore" data-i="' + i + '" title="Category, condition, expiry, barcode, photo…" aria-label="Item details">' + ic('more', 'sm') + '</button><button type="button" class="icon-btn" data-a="puRm" data-i="' + i + '" aria-label="Remove item">' + ic('x', 'sm') + '</button></td></tr>' +
     '<tr class="pu-cost" data-c="' + i + '"><td colspan="' + (st ? 5 : 6) + '"><div class="pu-cb" data-out="cost"></div></td></tr>' +
     (r.open ? '<tr class="pu-more" data-m="' + i + '"><td colspan="' + (st ? 5 : 6) + '"><div class="grid4">' +
-      field('Category', sel('cat_' + i, catOpts(), r.category, 'data-f="category"')) + field('Condition', sel('cond_' + i, KC.CONDITIONS, r.condition, 'data-f="condition"')) + (st ? '' : field('Working?', sel('work_' + i, KC.WORKING, r.working, 'data-f="working"'))) +
-      field('Pack of', '<input class="inp" data-f="packOf" inputmode="numeric" value="' + esc(r.packOf) + '" title="Units you will sell for each one bought">') +
-      field('Shelf price each', '<input class="inp" data-f="regularPrice" inputmode="decimal" value="' + esc(r.regularPrice) + '" placeholder="Optional">') + field('Expiry date', '<input class="inp" type="date" data-f="expiry" value="' + esc(r.expiry) + '">') + field('Barcode', '<input class="inp" data-f="barcode" value="' + esc(r.barcode) + '" placeholder="Optional">') +
-      field('Bought for a client?', sel('res_' + i, custOpts(), r.reservedFor, 'data-f="reservedFor"')) +
+      field('Category', sel('cat_' + i, catOpts().includes(r.category) || !r.category ? catOpts() : [r.category].concat(catOpts()), r.category, 'data-f="category"')) + (rs ? '' : field('Condition', sel('cond_' + i, KC.CONDITIONS, r.condition, 'data-f="condition"'))) + (st ? '' : field('Working?', sel('work_' + i, KC.WORKING, r.working, 'data-f="working"'))) +
+      (r.perCase ? '' : field('Pack of', '<input class="inp" data-f="packOf" inputmode="numeric" value="' + esc(r.packOf) + '" title="Units you will sell for each one bought">')) +
+      (rs ? '' : field('Shelf price each', '<input class="inp" data-f="regularPrice" inputmode="decimal" value="' + esc(r.regularPrice) + '" placeholder="Optional">')) + field('Expiry date', '<input class="inp" type="date" data-f="expiry" value="' + esc(r.expiry) + '">') + field('Barcode', '<input class="inp" data-f="barcode" value="' + esc(r.barcode) + '" placeholder="Optional">') +
+      (rs ? '' : field('Bought for a client?', sel('res_' + i, custOpts(), r.reservedFor, 'data-f="reservedFor"'))) +
       '</div><div class="row mt wrap"><button type="button" class="btn sm" data-a="puPhoto" data-i="' + i + '">' + ic('cam', 'sm') + (r.photo ? 'Change photo' : 'Add photo') + '</button>' + (r.photo ? '<img class="pu-ph" src="' + URL.createObjectURL(r.photo) + '" alt="">' : '') + '<input class="inp grow" data-f="notes" value="' + esc(r.notes) + '" placeholder="Notes (optional)" aria-label="Notes"></div></td></tr>' : '');
   sh._draw = () => { $('#puRows', sh).innerHTML = sh._rows.map(rowHtml).join(''); totals(); };
   // seller dropdown: sellers used before + "+ New seller"
@@ -235,8 +236,9 @@ function purchaseForm(pre) {
     totals();
   };
   sh.addEventListener('input', onField); sh.addEventListener('change', onField);
+  itemSuggest(sh);
   sh.addEventListener('keydown', (e) => { // Enter in a price → next item
-    if (e.key !== 'Enter' || !e.target.matches || !e.target.matches('[data-f=unitCost],[data-f=qty]')) return;
+    if (e.defaultPrevented || e.key !== 'Enter' || !e.target.matches || !e.target.matches('[data-f=unitCost],[data-f=qty]')) return;
     e.preventDefault(); const i = +e.target.closest('tr').dataset.r;
     if (i === sh._rows.length - 1) { sh._rows.push(puRow()); sh._draw(); }
     const ins = $$('#puRows [data-f=name]', sh); if (ins[i + 1]) ins[i + 1].focus();
@@ -292,7 +294,71 @@ A.puPaid = (el) => {
   $('#payBox > .grid2', sh).classList.toggle('hide', v !== 'part');
   const a = $('#payAmount', sh); if (a) { a.value = ''; if (v === 'part') a.focus(); } syncPayCharges(sh);
 };
-A.puAdd = (el) => { const sh = puSheet(el); sh._rows.push(puRow()); sh._draw(); const ins = $$('[data-f=name]', sh); ins[ins.length - 1].focus(); };
+/* ----- item suggestions under the name of a purchase line: your stock first, then (Bar & Resto) the drinks list ----- */
+function itemSuggest(sh) {
+  const pop = document.createElement('div'); pop.className = 'ac-pop'; pop.setAttribute('role', 'listbox'); pop.hidden = true; sh.appendChild(pop); // inside the window: closes with it
+  let inp = null, opts = [], hi = -1;
+  const N = (s) => (typeof Drinks !== 'undefined' ? Drinks.norm(s) : String(s || '').toLowerCase());
+  const left = (p) => Math.max(0, Math.floor((K.C.prodX[p.id] || {}).available || 0));
+  function build(q) {
+    const words = N(q).split(' ').filter(Boolean); const hit = (t) => words.every((w) => t.includes(w));
+    const mine = K.raw.products.filter((p) => !p.archived && hit(N(p.name + ' ' + (p.category || '')))).sort((a, b) => (left(b) > 0) - (left(a) > 0) || a.name.localeCompare(b.name)).slice(0, words.length ? 6 : 8)
+      .map((p) => ({ name: p.name, sub: [p.category, p.subcategory].filter(Boolean).join(' · '), right: left(p) ? left(p) + ' in stock' : 'none in stock', mine: true }));
+    const have = new Set(K.raw.products.map((p) => N(p.name)));
+    const cat = typeof isResto === 'function' && isResto() && Drinks.ready() && words.length ? Drinks.find(q).filter((d) => !have.has(d._n)).slice(0, 8)
+      .map((d) => ({ name: d.name, sub: Drinks.metaLine(d), right: d.perCase > 1 ? (d.returnable ? 'crate' : 'case') + ' of ' + d.perCase : '' })) : [];
+    const out = [];
+    if (mine.length) out.push({ head: 'In your stock' }, ...mine);
+    if (cat.length) out.push({ head: 'Drinks list' }, ...cat);
+    const exact = words.length && [...mine, ...cat].some((o) => N(o.name) === N(q));
+    if (words.length && !exact) out.push({ own: true, name: q.trim() });
+    if (!words.length && typeof isResto === 'function' && isResto()) out.push({ tip: 'Type to search ' + (Drinks.ready() ? Drinks.ready().items.length + ' drinks' : 'the drinks list') + ' — e.g. Castel, 33 Export, Hennessy' });
+    return out;
+  }
+  function place() {
+    if (!inp || pop.hidden) return; const r = inp.getBoundingClientRect(); const vh = window.innerHeight; const below = vh - r.bottom; const up = below < 260 && r.top > below;
+    Object.assign(pop.style, { left: Math.max(8, r.left) + 'px', width: Math.min(Math.max(r.width, 300), window.innerWidth - 16) + 'px', top: up ? '' : r.bottom + 4 + 'px', bottom: up ? vh - r.top + 4 + 'px' : '', maxHeight: Math.max(160, Math.min(380, (up ? r.top : below) - 16)) + 'px' });
+  }
+  function draw() {
+    opts = build(inp.value); const pick = opts.filter((o) => o.name !== undefined);
+    if (!pick.length && !opts.some((o) => o.tip)) return close();
+    hi = Math.min(hi, pick.length - 1);
+    let k = -1;
+    pop.innerHTML = opts.map((o) => {
+      if (o.head) return '<div class="ac-h">' + esc(o.head) + '</div>';
+      if (o.tip) return '<div class="ac-tip">' + esc(o.tip) + '</div>';
+      k++; const on = k === hi;
+      if (o.own) return '<div class="ac-o ac-own' + (on ? ' on' : '') + '" role="option" data-k="' + k + '" aria-selected="' + on + '">' + ic('plus', 'sm') + '<span>Add “<b>' + esc(o.name) + '</b>” as a new item</span></div>';
+      return '<div class="ac-o' + (on ? ' on' : '') + '" role="option" data-k="' + k + '" aria-selected="' + on + '"><div class="ac-m"><div class="ac-n">' + esc(o.name) + '</div>' + (o.sub ? '<div class="ac-s">' + esc(o.sub) + '</div>' : '') + '</div>' + (o.right ? '<span class="ac-r' + (o.mine && /none/.test(o.right) ? ' out' : '') + '">' + esc(o.right) + '</span>' : '') + '</div>';
+    }).join('');
+    pop.hidden = false; inp.setAttribute('aria-expanded', 'true'); place();
+    const cur = pop.querySelector('.ac-o.on'); if (cur) cur.scrollIntoView({ block: 'nearest' });
+  }
+  function close() { pop.hidden = true; hi = -1; if (inp) inp.setAttribute('aria-expanded', 'false'); }
+  function choose(k) {
+    const o = opts.filter((x) => x.name !== undefined)[k]; if (!o || !inp) return close();
+    const tr = inp.closest('tr[data-r]'); const i = tr ? +tr.dataset.r : -1; close();
+    inp.value = o.name; inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true }));
+    if (i >= 0) setTimeout(() => { const q = sh.querySelectorAll('#puRows tr[data-r]')[i]; const f = q && q.querySelector('[data-f=qty]'); if (f) { f.focus(); f.select && f.select(); } }, 30); // next: how many
+  }
+  const open = (el) => { inp = el; hi = -1; draw(); };
+  sh._suggest = open; // Add item opens it on the new line
+  sh.addEventListener('focusin', (e) => { if (e.target.matches && e.target.matches('#puRows [data-f=name]')) open(e.target); });
+  sh.addEventListener('click', (e) => { if (e.target.matches && e.target.matches('#puRows [data-f=name]') && pop.hidden) open(e.target); }); // tapped again after closing
+  sh.addEventListener('input', (e) => { if (e.target === inp) { hi = 0; draw(); } });
+  sh.addEventListener('focusout', (e) => { if (e.target === inp) setTimeout(() => { if (document.activeElement !== inp) close(); }, 120); });
+  sh.addEventListener('keydown', (e) => {
+    if (e.target !== inp || pop.hidden) return; const n = opts.filter((o) => o.name !== undefined).length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); hi = (hi + 1) % n; draw(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); hi = (hi - 1 + n) % n; draw(); }
+    else if (e.key === 'Enter' && hi >= 0) { e.preventDefault(); choose(hi); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'Tab') close();
+  }, true);
+  pop.addEventListener('pointerdown', (e) => { e.preventDefault(); const o = e.target.closest('.ac-o'); if (o) choose(+o.dataset.k); }); // keeps the focus in the field
+  $('.sb', sh).addEventListener('scroll', place, { passive: true }); window.addEventListener('resize', place);
+}
+A.puAdd = (el) => { const sh = puSheet(el); sh._rows.push(puRow()); sh._draw(); const ins = $$('[data-f=name]', sh); const n = ins[ins.length - 1]; n.focus(); if (sh._suggest) sh._suggest(n); };
 A.puRm = (el) => { const sh = puSheet(el); sh._rows.splice(+el.dataset.i, 1); if (!sh._rows.length) sh._rows.push(puRow()); sh._draw(); };
 A.puMore = (el) => { const sh = puSheet(el); const r = sh._rows[+el.dataset.i]; r.open = !r.open; sh._draw(); };
 A.puPhoto = async (el) => { const sh = puSheet(el); const f = await photoPicker(); if (!f) return; sh._rows[+el.dataset.i].photo = f; sh._draw(); };
