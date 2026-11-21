@@ -1806,3 +1806,10 @@ label.f,.settings label.f .lbl{font-weight:500}
 
 .kd-no{font-weight:600;color:var(--ink3);margin-left:4px}
 .tk-no{font-variant-numeric:tabular-nums}
+
+/* Review purchase: payment, one fact per line */
+.pv-pl{display:flex;justify-content:space-between;gap:16px;max-width:300px;padding:3px 0}
+.pv-pl span{color:var(--ink2)}
+.pv-pl b{font-weight:600;font-variant-numeric:tabular-nums}
+.pv-pl.due b{color:var(--bad)}
+.pv-pl.ok b{color:var(--ok)}

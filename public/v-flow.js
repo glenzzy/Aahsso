@@ -506,8 +506,11 @@ function puPreview(d, go) {
   const m = (v) => money(v, cur); const loc = (v) => foreign ? '<span class="pv-loc">' + F(v * fx) + '</span>' : '';
   const wt = lines.reduce((a, l) => a + num(l.weightEach) * num(l.boughtQty), 0); const st = isStore();
   const kv = (k, v) => v ? '<div class="pv-kv"><span>' + k + '</span><b>' + v + '</b></div>' : '';
-  const payTxt = credit ? 'Not paid yet · pay by ' + fmtDate(d.payBy)
-    : pay ? esc(pay.method) + ' · ' + m(pay.amount) + (pay.fee ? ' + ' + m(pay.fee) + ' charges' : '') + (pay.ref ? ' · ref ' + esc(pay.ref) : '') + (pay.amount < s.total - 0.005 ? ' · rest ' + m(s.total - pay.amount) + ' by ' + fmtDate(d.payBy) : '') : '—';
+  // one fact per line: how it was paid, what is left, when it is due
+  const pl = (k, v, cls) => '<div class="pv-pl' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + v + '</b></div>';
+  const payTxt = credit ? pl('Paid', m(0)) + pl('Balance', m(s.total), 'due') + pl('Due', fmtDate(d.payBy))
+    : pay ? pl(esc(pay.method), m(pay.amount)) + (pay.fee ? pl('Charges', m(pay.fee)) : '') + (pay.ref ? pl('Reference', esc(pay.ref)) : '') +
+      (pay.amount < s.total - 0.005 ? pl('Balance', m(s.total - pay.amount), 'due') + pl('Due', fmtDate(d.payBy)) : pl('Balance', m(0), 'ok')) : '—';
   const body = '<div class="pv">' +
     '<div class="pv-head">' + (st ? '' : kv('Bought', h.where === 'local' ? '🇨🇲 In Cameroon' : '🇺🇸 Abroad')) + kv(st ? 'Supplier' : 'Seller', esc(h.vendor) + (h.sourceType && !st ? ' <span class="hint">' + esc(h.sourceType) + '</span>' : '')) + kv('Phone', esc(h.vendorPhone || '')) + kv('Date', fmtDate(h.purchaseDate)) + kv('Receipt no.', esc(h.poNumber || '')) + kv('Currency', foreign ? curSym(cur) + ' · 1 ' + curSym(cur) + ' = ' + fmt(fx) + ' ' + esc(baseSym()) : esc(baseSym())) + kv('Collected', h.puCollected === 'no' ? 'No — pick up later' : 'Yes') + '</div>' +
     '<div class="pv-tw"><table class="pv-t"><thead><tr><th class="w-it">Item</th><th class="r">Qty</th>' + (st ? '' : '<th class="r">Weight</th>') + '<th class="r">Each</th><th class="r">Tax each</th><th class="r">Each with tax</th><th class="r">Line total</th></tr></thead><tbody>' +
