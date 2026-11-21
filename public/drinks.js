@@ -41,6 +41,10 @@ const Drinks = (() => {
     return has(want) || (['Soft drinks', 'Juices'].includes(want) && has('Drinks')) || (want === 'Champagne' && has('Wines')) || has(d.cat) || has('Drinks') || want;
   }
   /** the stock item already made from this drink (same catalog code, else same name) */
+  /** units of this drink in stock now (0 when it was never bought) */
+  const inStock = (d) => { const p = productOf(d); return p ? Math.max(0, Math.floor((K.C.prodX[p.id] || {}).available || 0)) : 0; };
+  /** on the menu only what can be served: drinks in stock, and what is prepared to order (fresh juice, palm wine) */
+  const servable = (d) => d.pack === 'Served' || inStock(d) > 0;
   const productOf = (d) => K.raw.products.find((p) => !p.archived && p.drink && p.drink.sku === d.sku) || K.raw.products.find((p) => !p.archived && norm(p.name) === d._n) || null;
   /** add the drinks' categories to the business's stock categories (so filters and the item editor know them) */
   async function addStockCats(list) {
@@ -77,6 +81,7 @@ const Drinks = (() => {
   }
   /**
    * opt: { title, many (pick several), prices: ['bar','lounge','none'], taken(d) → label when already added, action(n) → button text,
+   *        only(d) → show only these drinks, lead(shown, total) → html above the list, empty → html when \`only\` leaves nothing, note(d) → a line under the name,
    *        onPick(list, { price }) (return false to keep the window open), onOwn(text) — "not in the list? add it yourself" }
    */
   async function picker(opt) {
@@ -89,7 +94,8 @@ const Drinks = (() => {
       '<div class="chips dk-cats" id="dkCats"></div></div><div id="dkList" class="dk-list" role="list"></div>');
     const foot = document.createElement('div'); foot.className = 'sf dk-foot'; sh.querySelector('.sheet').appendChild(foot);
     const listEl = $('#dkList', sh), catsEl = $('#dkCats', sh), qEl = $('#dkQ', sh);
-    const drawCats = () => { const all = find(st.q, ''); catsEl.innerHTML = [['', 'All', all.length]].concat(data.categories.map((c) => [c.name, c.name, all.filter((x) => x.cat === c.name).length])).filter((c) => c[0] === '' || c[2] || c[0] === st.cat)
+    const pool = (q, cat) => find(q, cat).filter((d) => !opt.only || opt.only(d));
+    const drawCats = () => { const all = pool(st.q, ''); catsEl.innerHTML = [['', 'All', all.length]].concat(data.categories.map((c) => [c.name, c.name, all.filter((x) => x.cat === c.name).length])).filter((c) => c[0] === '' || c[2] || c[0] === st.cat)
       .map(([k, l, n]) => '<button type="button" class="chip' + (st.cat === k ? ' on' : '') + '" data-dk-cat="' + esc(k) + '">' + esc(l) + ' <span class="dk-n">' + n + '</span></button>').join(''); };
     const drawFoot = () => {
       const n = st.sel.size;
@@ -101,18 +107,25 @@ const Drinks = (() => {
       if ($('#dkGo', foot)) $('#dkGo', foot).onclick = go;
     };
     const drawList = () => {
-      const all = find(st.q, st.cat); const show = all.slice(0, st.limit);
+      const all = pool(st.q, st.cat); const show = all.slice(0, st.limit);
+      const lead = opt.lead ? opt.lead(pool('', '').length, data.items.length) : '';
+      if (!all.length && opt.only && !pool('', '').length && opt.empty) { listEl.innerHTML = opt.empty; return; }
+      const notBought = !all.length && opt.only && st.q ? find(st.q, st.cat) : [];
+      if (notBought.length) { // in the drinks list, but not in stock: buy it first (never "add it yourself" around the stock)
+        listEl.innerHTML = lead + '<div class="empty dk-empty"><div class="big">📦</div><b>Not in your stock yet</b><p class="small muted">' + esc(notBought.slice(0, 3).map((x) => x.name).join(', ') + (notBought.length > 3 ? ' and ' + (notBought.length - 3) + ' more' : '')) + (notBought.length === 1 ? ' is' : ' are') + ' in the drinks list but not in your stock. Buy ' + (notBought.length === 1 ? 'it' : 'them') + ' first, then add ' + (notBought.length === 1 ? 'it' : 'them') + ' here.</p>' + (opt.lead ? '<div class="mt"><button type="button" class="btn pri" data-a="dkBuy">' + ic('buy', 'sm') + 'Buy drinks</button></div>' : '') + '</div>';
+        return;
+      }
       if (!all.length) {
-        listEl.innerHTML = '<div class="empty dk-empty"><div class="big">🍾</div>' + (st.q ? 'No drink matches “' + esc(st.q) + '”.' : 'Nothing here.') + (opt.onOwn && st.q ? '<div class="mt"><button type="button" class="btn pri" id="dkOwn">' + ic('plus', 'sm') + 'Add “' + esc(st.q) + '” yourself</button></div><div class="hint mt">Not every drink is in the list — add yours with your own name and price.</div>' : '') + '</div>';
+        listEl.innerHTML = lead + '<div class="empty dk-empty"><div class="big">🍾</div>' + (st.q ? 'No drink matches “' + esc(st.q) + '”.' : 'Nothing here.') + (opt.onOwn && st.q ? '<div class="mt"><button type="button" class="btn pri" id="dkOwn">' + ic('plus', 'sm') + 'Add “' + esc(st.q) + '” yourself</button></div><div class="hint mt">Not every drink is in the list — add yours with your own name and price.</div>' : '') + '</div>';
         if ($('#dkOwn', listEl)) $('#dkOwn', listEl).onclick = () => { const q = qEl.value.trim(); closeSheet(); opt.onOwn(q); };
         return;
       }
-      listEl.innerHTML = show.map((d) => {
+      listEl.innerHTML = lead + show.map((d) => {
         const taken = opt.taken ? opt.taken(d) : null; const on = st.sel.has(d.sku); const p = priceOf(d);
         return '<div class="dk-row' + (on ? ' on' : '') + (taken ? ' taken' : '') + '" role="listitem" data-sku="' + esc(d.sku) + '">' +
           (opt.many ? '<span class="dk-check" aria-hidden="true">' + (taken ? ic('check', 'sm') : on ? ic('check', 'sm') : '') + '</span>' : '') +
           '<div class="grow dk-main"><div class="dk-name">' + esc(d.name) + (d.confidence === 'Verify' ? ' <span class="dk-tag" title="Check this drink before selling it">to check</span>' : '') + '</div><div class="dk-meta">' + esc(metaLine(d)) + '</div>' +
-          (taken ? '<div class="dk-taken">' + esc(taken) + '</div>' : '') + '</div>' +
+          (taken ? '<div class="dk-taken">' + esc(taken) + '</div>' : opt.note && opt.note(d) ? '<div class="dk-stock">' + esc(opt.note(d)) + '</div>' : '') + '</div>' +
           '<div class="dk-side">' + (p ? '<b class="money">' + fmt(p) + '</b>' : '') + '<button type="button" class="icon-btn dk-info" data-dk-info aria-label="Details" aria-expanded="' + (st.open === d.sku) + '">' + ic('info', 'sm') + '</button></div>' +
           (st.open === d.sku ? detail(d) : '') + '</div>';
       }).join('') + (all.length > show.length ? '<button type="button" class="btn ghost dk-more" id="dkMore">Show ' + Math.min(60, all.length - show.length) + ' more of ' + (all.length - show.length) + '</button>' : '') +
@@ -138,5 +151,5 @@ const Drinks = (() => {
     drawCats(); drawList(); drawFoot(); setTimeout(() => qEl.focus(), 50);
     return sh;
   }
-  return { load, ready, find, byName, bySku, norm, size, packLabel, metaLine, toProduct, menuCat, productOf, addStockCats, picker, about };
+  return { load, ready, find, byName, bySku, norm, size, packLabel, metaLine, toProduct, menuCat, productOf, inStock, servable, addStockCats, picker, about };
 })();

@@ -62,9 +62,11 @@ VIEWS.buy = {
 
 /* ----- New purchase: seller, items (with tax shared over them), payment ----- */
 const defCat = () => (catOpts().includes('Food & Snacks') ? 'Food & Snacks' : catOpts()[0] || 'Other');
-const puRow = (o) => Object.assign({ name: '', category: defCat(), subcategory: '', qty: '1', unitCost: '', weight: '', condition: 'New', working: 'Working', regularPrice: '', packOf: '1', expiry: '', barcode: '', reservedFor: '', notes: '', unit: '', size: null, sizeUnit: '', photo: null, open: false }, o || {});
+const puRow = (o) => Object.assign({ hint: '', name: '', category: defCat(), subcategory: '', qty: '1', unitCost: '', weight: '', condition: 'New', working: 'Working', regularPrice: '', packOf: '1', expiry: '', barcode: '', reservedFor: '', notes: '', unit: '', size: null, sizeUnit: '', photo: null, open: false }, o || {});
 const SELLER_SUP_TYPE = { Store: 'Store / wholesaler', Online: 'Store / wholesaler', Auction: 'Auction (B-Stock…)', 'Local (Cameroon)': 'Store / wholesaler' };
 A.newPurchase = () => purchaseForm();
+/** Bar & Resto: buy from the drinks list (Stock → Buy drinks) */
+A.dkBuy = () => { closeSheet(); setTimeout(A.dkStock, 0); };
 /* Where it was bought decides the money: abroad = US dollars, in Cameroon = local currency (FCFA). */
 const PU_WHERE = {
   abroad: { cur: () => 'USD', methods: ['Cash', 'Credit card', 'Bank transfer', 'Zelle / US bank', 'Other'] },
@@ -82,7 +84,7 @@ function puSellers(where) {
   const all = [...m.values()]; const fits = (v) => (where === 'local') === v.local;
   return all.filter(fits).concat(all.filter((v) => !fits(v)));
 }
-function purchaseForm() {
+function purchaseForm(pre) {
   const names = [...new Set(K.raw.products.map((p) => p.name))];
   // Bar & Resto: drinks from the catalog are suggested too (added to the list once it has loaded)
   if (typeof isResto === 'function' && isResto()) Drinks.load().then((d) => { const dl = document.getElementById('dlNames'); if (!dl) return; const have = new Set(names.map(Drinks.norm)); dl.insertAdjacentHTML('beforeend', d.items.filter((x) => !have.has(x._n)).map((x) => '<option value="' + esc(x.name) + '">' + esc(Drinks.metaLine(x)) + '</option>').join('')); }).catch(() => {});
@@ -116,7 +118,7 @@ function purchaseForm() {
         '<div id="puPay"></div></section>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="puSave">Review purchase</button>',
   });
-  sh._rows = [puRow()]; sh._taxMode = 'pct'; sh._paid = 'paid'; sh._where = 'abroad';
+  sh._rows = pre && pre.rows && pre.rows.length ? pre.rows.map((r) => puRow(r)) : [puRow()]; sh._taxMode = 'pct'; sh._paid = 'paid'; sh._where = 'abroad';
   const cur = () => $('#puCur', sh).value;
   const lineVal = (r) => num(r.qty) * num(r.unitCost);
   const sums = () => {
@@ -145,7 +147,7 @@ function purchaseForm() {
   const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" list="dlNames" value="' + esc(r.name) + '" placeholder="Item name" autocomplete="off" aria-label="Item"></td>' +
     '<td data-l="Qty"><input class="inp r" data-f="qty" inputmode="numeric" value="' + esc(r.qty) + '" aria-label="Quantity"></td>' +
     (st ? '' : '<td data-l="Weight each"><div class="in-unit"><input class="inp r" data-f="weight" inputmode="decimal" value="' + esc(r.weight) + '" placeholder="0" aria-label="Weight of one item in kg"><span>kg</span></div></td>') +
-    '<td data-l="Price each"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="0" aria-label="Price each"><span data-unit>' + esc(curSym(cur())) + '</span></div></td>' +
+    '<td data-l="Price each"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="' + esc(r.hint || '0') + '" aria-label="Price each"><span data-unit>' + esc(curSym(cur())) + '</span></div></td>' +
     '<td class="r pu-ltot" data-l="Total"><b class="money" data-out="total">—</b><span class="pu-tx" data-out="tax"></span></td>' +
     '<td class="nowrap r"><button type="button" class="icon-btn' + (r.open ? ' on' : '') + '" data-a="puMore" data-i="' + i + '" title="Category, condition, expiry, barcode, photo…" aria-label="Item details">' + ic('more', 'sm') + '</button><button type="button" class="icon-btn" data-a="puRm" data-i="' + i + '" aria-label="Remove item">' + ic('x', 'sm') + '</button></td></tr>' +
     '<tr class="pu-cost" data-c="' + i + '"><td colspan="' + (st ? 5 : 6) + '"><div class="pu-cb" data-out="cost"></div></td></tr>' +
