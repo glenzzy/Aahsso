@@ -58,7 +58,7 @@ function stockRows(list) {
       { k: 'size', label: 'Size', v: (p) => KC.sizeLabel(p) || '' },
       { k: 'unit', label: 'Unit', v: (p) => p.unit || '', cls: 'mut' },
       { k: 'barcode', label: 'Barcode', v: (p) => p.barcode || '', cls: 'mut' },
-      { k: 'qty', label: multi ? 'In stock here' : 'In stock', core: true, num: true, cls: 'b', v: here, html: (p) => fmt(here(p)) + (KC.packText(p, here(p)) ? '<div class="tiny muted pk-t">' + esc(KC.packText(p, here(p))) + '</div>' : ''), total: (rows) => fmt(dtSum(rows, here)) },
+      { k: 'qty', label: multi ? 'In stock here' : 'In stock', core: true, num: true, cls: 'b', v: here, html: (p) => fmt(here(p)) + (X(p).inService > 0 ? '<div class="tiny np-t" title="Served on open bills: already out of the shelf, not paid yet">' + fmt(Math.round(X(p).inService * 100) / 100) + ' served · not paid</div>' : '') + (KC.packText(p, here(p)) ? '<div class="tiny muted pk-t">' + esc(KC.packText(p, here(p))) + '</div>' : ''), total: (rows) => fmt(dtSum(rows, here)) },
       multi ? { k: 'all', label: 'All branches', num: true, v: (p) => X(p).available } : null,
       { k: 'inc', label: 'Incoming', core: !isStore(), num: true, v: (p) => X(p).transit + X(p).us || '', total: (rows) => fmt(dtSum(rows, (p) => X(p).transit + X(p).us)) },
       { k: 'held', label: 'Held for clients', num: true, v: (p) => X(p).reserved || '' },
@@ -125,7 +125,7 @@ function movesView() {
       show.map((r) => { const p = byId('products', r.productId) || { name: '?' };
         return '<tr class="mv-' + r.type + '"><td class="nowrap" data-l="Date">' + esc(fmtDate(r.date)) + (r.time ? '<div class="tiny muted">' + esc(new Date(r.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) + '</div>' : '') + '</td>' +
           '<td class="mv-item" data-l="Item"><button type="button" class="linkish mv-name" data-a="itemHistory" data-id="' + esc(r.productId) + '">' + esc(p.name) + '</button></td>' +
-          '<td data-l="Movement"><span class="mv-chip mv-c-' + r.type + '">' + esc(mvLabel(r)) + '</span></td>' +
+          '<td data-l="Movement"><span class="mv-chip mv-c-' + r.type + '">' + esc(mvLabel(r)) + '</span>' + (r.type === 'served' ? (r.bill === 'open' ? '<div class="mv-bill np">Bill not paid</div>' : r.bill === 'paid' ? '<div class="mv-bill ok">Paid</div>' : '') : '') + '</td>' +
           '<td class="r tnum" data-l="Before">' + mvQty(r.before) + '</td>' +
           '<td class="r tnum mv-q ' + (r.dir > 0 ? 'in' : 'out') + '" data-l="Moved">' + (r.dir > 0 ? '+' : '−') + mvQty(r.qty) + ' <span class="tiny muted">' + esc(mvUnit(r.productId, r.qty)) + '</span></td>' +
           '<td class="r tnum b" data-l="After" data-before="' + mvQty(r.before) + '">' + mvQty(r.after) + '</td>' +
@@ -144,7 +144,7 @@ CH.mvType = (el) => { const st = mvState(); st.type = el.value; st.page = 0; ren
 CH.mvFrom = (el) => { const st = mvState(); st.from = el.value; st.page = 0; render(true); };
 CH.mvTo = (el) => { const st = mvState(); st.to = el.value; st.page = 0; render(true); };
 A.mvXlsx = () => { const c = seeCost(); xlsxDownload('Stock-movements-' + todayStr() + '.xlsx', { Movements: mvRows().slice().reverse().map((r) => Object.assign({ Date: r.date, Time: r.time ? new Date(r.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '', Item: (byId('products', r.productId) || {}).name || '', Movement: mvLabel(r), Before: r.before, Moved: r.dir * r.qty, After: r.after, Unit: (byId('products', r.productId) || {}).unit || 'piece' },
-  c ? { ['Unit cost (' + baseSym() + ')']: Math.round(r.unitCost || 0), ['Value (' + baseSym() + ')']: Math.round(r.dir * (r.value || 0)) } : {}, { Location: locName(r.loc) + (r.to ? ' → ' + locName(r.to) : ''), By: r.by, Reference: r.ref, Notes: r.notes })) }); };
+  c ? { ['Unit cost (' + baseSym() + ')']: Math.round(r.unitCost || 0), ['Value (' + baseSym() + ')']: Math.round(r.dir * (r.value || 0)) } : {}, { Location: locName(r.loc) + (r.to ? ' → ' + locName(r.to) : ''), By: r.by, Reference: r.ref, Bill: r.type === 'served' ? (r.bill === 'open' ? 'Not paid yet' : r.bill === 'paid' ? 'Paid' : '') : '', Notes: r.notes })) }); };
 /** Record a movement: each kind opens the flow that already handles it (loss with approval, count, transfer, purchase) */
 A.mvRecord = () => {
   const opt = (a, icon, t, h, ok) => (ok ? '<button type="button" class="mv-opt" data-a="' + a + '">' + ic(icon) + '<span><b>' + t + '</b><span class="hint">' + h + '</span></span>' + ic('chev', 'sm') + '</button>' : '');

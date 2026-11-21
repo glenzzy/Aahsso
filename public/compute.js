@@ -652,7 +652,7 @@
     (raw.rorders || []).forEach((o) => {
       if (o.status !== 'served' || !o.servedAt) return; const t = at(null, o.servedAt); const tab = tabs.get(o.tabId) || {};
       const by = {}; (o.lines || []).forEach((l) => { const m = menu.get(l.menuId); (m && m.uses || []).forEach((u) => { if (num(u.qty) > 0) { const x = (by[u.productId] = by[u.productId] || { q: 0, what: [] }); x.q += num(u.qty) * num(l.qty); x.what.push(num(l.qty) + ' × ' + (l.name || m.name)); } }); });
-      Object.entries(by).forEach(([pid, x]) => push(Object.assign({}, t, { id: 'srv:' + o.id + ':' + pid, type: 'served', dir: -1, productId: pid, qty: Math.round(x.q * 10000) / 10000, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: o.servedLoc || tab.locationId || 'main', by: o.servedBy || '', ref: [o.tableLabel ? (o.tableLabel === 'Counter' ? 'Counter' : 'Table ' + o.tableLabel) : '', o.no ? 'ticket #' + o.no : ''].filter(Boolean).join(' · '), refId: o.id, notes: x.what.join(', ') })));
+      Object.entries(by).forEach(([pid, x]) => push(Object.assign({}, t, { id: 'srv:' + o.id + ':' + pid, type: 'served', dir: -1, productId: pid, qty: Math.round(x.q * 10000) / 10000, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: o.servedLoc || tab.locationId || 'main', by: o.servedBy || '', ref: [o.tableLabel ? (o.tableLabel === 'Counter' ? 'Counter' : 'Table ' + o.tableLabel) : '', o.no ? 'ticket #' + o.no : ''].filter(Boolean).join(' · '), refId: o.id, notes: x.what.join(', '), bill: o.paid || tab.status === 'paid' ? 'paid' : tab.status === 'open' ? 'open' : '' })));
     });
     // corrections and losses
     (raw.adjustments || []).forEach((a) => {

@@ -15,6 +15,19 @@ const rMenu = () => (K.raw.menu || []).filter((m) => m.name);
 const rAreas = () => (K.raw.areas || []).slice().sort((a, b) => num(a.sort) - num(b.sort) || String(a.name).localeCompare(b.name));
 const rTables = () => (K.raw.tables || []).filter((t) => !t.archived).sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), undefined, { numeric: true }));
 const openTab = (tableId) => (K.raw.tabs || []).find((t) => t.tableId === tableId && t.status === 'open');
+/** served, not paid yet: the order was served (its stock is out) and its bill is still open with money due */
+const tabById = (id) => (K.raw.tabs || []).find((t) => t.id === id);
+function orderPay(o) {
+  const tab = tabById(o.tabId); if (o.paid || (tab && tab.status === 'paid')) return 'paid';
+  if (o.status === 'served' && tab && tab.status === 'open' && tabDue(tab) > 0.5) return 'unpaid';
+  return '';
+}
+const unpaidOrders = () => (K.raw.rorders || []).filter((o) => orderPay(o) === 'unpaid');
+/** open bills with something served and not paid: [{tab, due, orders}] */
+function unpaidBills() {
+  const m = new Map(); unpaidOrders().forEach((o) => { const tab = tabById(o.tabId); const x = m.get(tab.id) || { tab, due: tabDue(tab), orders: [] }; x.orders.push(o); m.set(tab.id, x); });
+  return [...m.values()].sort((a, b) => String(a.tab.openedAt).localeCompare(String(b.tab.openedAt)));
+}
 const tabOrders = (tab) => (K.raw.rorders || []).filter((o) => o.tabId === tab.id).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 const menuById = (id) => (K.raw.menu || []).find((m) => m.id === id);
 const areaName = (id) => (rAreas().find((a) => a.id === id) || {}).name || '';
@@ -109,8 +122,9 @@ function restoHome(hello) {
   const top = Object.entries(best).sort((a, b) => b[1] - a[1]).slice(0, 5);
   return '<div class="sh-head"><div><div class="hint">' + fmtDate(t) + ' · ' + esc(KC.VENUE_TYPES.find((v) => v[0] === venue())[1]) + '</div><h1>' + hello + (K.me.name ? ', ' + esc(K.me.name.split(' ')[0]) : '') + '</h1></div><button class="icon-btn sh-help" data-a="tourStart" title="How Aahsso works" aria-label="How Aahsso works">' + ic('help') + '</button></div>' +
     '<div class="sh-acts">' + (navOk('floor') ? act('floor', 'table', 'Tables', ' pri') : '') + (navOk('tickets') ? act('tickets', 'bell', 'Orders' + (waiting.length ? ' · ' + waiting.length : '')) : '') + (navOk('kds') ? act('kds', 'chef', 'Kitchen') : navOk('menu') ? act('menu', 'tag', 'Menu') : '') + '</div>' +
-    '<div class="sh-ks">' + tile('Sold today', fmt(d.revenue)) + tile('Open tables', fmt(tabs.length)) + tile('Orders waiting', fmt(waiting.length), waiting.length ? 'warn' : '') + (seeCost() ? tile('Profit today', fmt(d.profit), 'ok') : tile('Cash in today', fmt(d.collected))) + '</div>' +
-    (calls.length || late.length ? '<section class="card sh-sec"><div class="sh-sh"><h2>Needs you now</h2></div>' +
+    '<div class="sh-ks">' + tile('Sold today', fmt(d.revenue)) + tile('Open tables', fmt(tabs.length)) + tile('Orders waiting', fmt(waiting.length), waiting.length ? 'warn' : '') + (unpaidBills().length ? tile('Served, not paid', fmt(unpaidBills().reduce((a, x) => a + x.due, 0)), 'warn') : '') + (seeCost() ? tile('Profit today', fmt(d.profit), 'ok') : tile('Cash in today', fmt(d.collected))) + '</div>' +
+    (calls.length || late.length || unpaidBills().length ? '<section class="card sh-sec"><div class="sh-sh"><h2>Needs you now</h2></div>' +
+      unpaidBills().slice(0, 5).map((x) => '<div class="sh-row todo warn" data-a="' + (x.tab.tableId ? 'tableOpen' : 'tabPay') + '" data-id="' + esc(x.tab.tableId || x.tab.id) + '" role="button"><span class="todo-ic">' + ic('wallet', 'sm') + '</span><div class="grow ellipsis">' + esc(x.tab.tableLabel && x.tab.tableLabel !== 'Counter' ? 'Table ' + x.tab.tableLabel : 'Counter') + ' · served, not paid <span class="faint">' + rAgo(x.orders[x.orders.length - 1].servedAt || x.tab.openedAt) + '</span></div><b class="money">' + fmt(x.due) + '</b>' + ic('chev', 'sm') + '</div>').join('') +
       calls.map((x) => '<div class="sh-row todo warn" data-a="tableOpen" data-id="' + x.id + '" role="button"><span class="todo-ic">' + ic('bell', 'sm') + '</span><div class="grow ellipsis">' + esc(x.label) + (x.call.kind === 'bill' ? ' asks for the bill' : ' is calling') + ' <span class="faint">· ' + rAgo(x.call.at) + '</span></div>' + ic('chev', 'sm') + '</div>').join('') +
       late.slice(0, 5).map((o) => '<div class="sh-row todo bad" data-a="go" data-r="tickets" role="button"><span class="todo-ic">' + ic('clock', 'sm') + '</span><div class="grow ellipsis">' + esc(o.tableLabel || 'Counter') + ' · waiting ' + rAgo(o.createdAt) + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</section>' : '') +
     (rMenu().length && can('settings') ? menuCard() : '') +
@@ -129,7 +143,7 @@ function tableState(t) {
   if (os.some((o) => o.status === 'new')) return { k: 'new', l: 'New order', tab };
   if (os.some((o) => o.status === 'ready')) return { k: 'ready', l: 'Ready to serve', tab };
   if (os.some((o) => o.status === 'accepted')) return { k: 'prep', l: 'Preparing', tab };
-  return { k: 'served', l: 'Served', tab };
+  return tabDue(tab) > 0.5 ? { k: 'unpaid', l: 'Served · not paid', tab } : { k: 'served', l: 'Served', tab };
 }
 const tabDue = (tab) => dueLines(tab).reduce((a, l) => a + l.qty * l.price, 0) + tabOwing(tab);
 VIEWS.floor = {
@@ -143,7 +157,7 @@ VIEWS.floor = {
     const chips = menuCard() + (areas.length ? '<div class="chips mb">' + [['', 'All']].concat(areas.map((a) => [a.id, a.name])).map(([k, l]) => '<button class="chip' + (cur === k ? ' on' : '') + '" data-a="floorArea" data-v="' + esc(k) + '">' + esc(l) + '</button>').join('') + '</div>' : '');
     if (!rTables().length) return tops + menuCard() + '<div class="card empty"><div class="big">🍽️</div>No tables yet.' + (can('tables') ? '<div class="mt"><button class="btn pri" data-a="floorSetup">' + ic('plus') + 'Add your tables</button></div>' : '') + '</div>';
     return tops + chips + '<div class="floor">' + ts.map((t) => { const st = tableState(t); const due = st.tab ? tabDue(st.tab) : 0; return '<button type="button" class="tbl tbl-' + st.k + '" data-a="tableOpen" data-id="' + t.id + '"><span class="tbl-l">' + esc(t.label) + '</span><span class="tbl-s">' + esc(st.l) + '</span>' + (st.tab ? '<span class="tbl-m">' + fmt(due) + ' · ' + rAgo(st.tab.openedAt) + '</span>' : '<span class="tbl-m">' + fmt(num(t.seats) || 0) + ' seats</span>') + '</button>'; }).join('') + '</div>' +
-      '<div class="tbl-key hint mt">' + [['free', 'Free'], ['new', 'New order'], ['prep', 'Preparing'], ['ready', 'Ready'], ['served', 'Served'], ['call', 'Calling / bill']].map(([k, l]) => '<span><i class="tbl-dot tbl-' + k + '"></i>' + l + '</span>').join('') + '</div>';
+      '<div class="tbl-key hint mt">' + [['free', 'Free'], ['new', 'New order'], ['prep', 'Preparing'], ['ready', 'Ready'], ['unpaid', 'Served · not paid'], ['served', 'Served · paid'], ['call', 'Calling / bill']].map(([k, l]) => '<span><i class="tbl-dot tbl-' + k + '"></i>' + l + '</span>').join('') + '</div>';
   },
 };
 /* the venue's public menu link: customers open it (or scan its QR poster), pick their table and order */
@@ -219,12 +233,13 @@ A.callDone = async (el) => { const t = (K.raw.tables || []).find((x) => x.id ===
 /* ---------- tickets: one round of ordering ---------- */
 function ticketCard(o) {
   const late = ['new', 'accepted'].includes(o.status) && mins(o.createdAt) >= lateMins();
-  const badge = { new: '<span class="badge warn">New</span>', accepted: '<span class="badge info">Preparing</span>', ready: '<span class="badge ok">Ready</span>', served: '<span class="badge">Served</span>', rejected: '<span class="badge bad">Rejected</span>' }[o.status] || '';
+  const badge = { new: '<span class="badge warn">New</span>', accepted: '<span class="badge info">Preparing</span>', ready: '<span class="badge ok">Ready</span>', served: orderPay(o) === 'unpaid' ? '<span class="badge warn">Served · not paid</span>' : orderPay(o) === 'paid' ? '<span class="badge ok">Served · paid</span>' : '<span class="badge">Served</span>', rejected: '<span class="badge bad">Rejected</span>' }[o.status] || '';
   const acts = [];
   if (o.status === 'new' && can('serve')) acts.push('<button class="btn sm" data-a="tkReject" data-id="' + o.id + '">Reject</button><button class="btn sm pri" data-a="tkAccept" data-id="' + o.id + '">' + ic('check', 'sm') + 'Accept</button>');
   if (o.status === 'accepted' && (can('serve') || can('kds')) && (!has('kds') || can('tables'))) acts.push('<button class="btn sm" data-a="tkReady" data-id="' + o.id + '">Ready</button>');
+  if (orderPay(o) === 'unpaid' && can('bills')) { const tb = tabById(o.tabId); acts.push('<span class="tk-due">' + ic('wallet', 'sm') + 'Bill open · <b class="money">' + fmt(tabDue(tb)) + '</b></span><button class="btn sm pri" data-a="tabPay" data-id="' + esc(tb.id) + '">Take payment</button>'); }
   if (['accepted', 'ready'].includes(o.status) && can('serve')) acts.push('<button class="btn sm pri" data-a="tkServed" data-id="' + o.id + '">' + ic('check', 'sm') + 'Served</button>');
-  return '<div class="card tk' + (late ? ' tk-late' : '') + '"><div class="row between"><div><b>' + esc(o.tableLabel || 'Counter') + '</b> <span class="faint small">#' + esc(o.no || '') + (o.customerName ? ' · ' + esc(o.customerName) : '') + (o.source === 'qr' ? ' · QR' : '') + '</span></div><div class="row gap6">' + badge + '<span class="small ' + (late ? 'bad-t' : 'faint') + '">' + rAgo(o.createdAt) + '</span></div></div>' +
+  return '<div class="card tk' + (late ? ' tk-late' : '') + (orderPay(o) === 'unpaid' ? ' tk-unpaid' : '') + '"><div class="row between"><div><b>' + esc(o.tableLabel || 'Counter') + '</b> <span class="faint small">#' + esc(o.no || '') + (o.customerName ? ' · ' + esc(o.customerName) : '') + (o.source === 'qr' ? ' · QR' : '') + '</span></div><div class="row gap6">' + badge + '<span class="small ' + (late ? 'bad-t' : 'faint') + '">' + rAgo(o.createdAt) + '</span></div></div>' +
     '<div class="tk-lines">' + (o.lines || []).map((l) => '<div><b>' + fmt(l.qty) + '×</b> ' + esc(l.name) + (l.note ? ' <span class="faint">— ' + esc(l.note) + '</span>' : '') + (stations().length > 1 ? ' <span class="tk-st">' + esc(STATION[l.station] || '') + '</span>' : '') + '</div>').join('') + (o.note ? '<div class="faint small">' + esc(o.note) + '</div>' : '') + (o.rejectReason ? '<div class="small bad-t">' + esc(o.rejectReason) + '</div>' : '') + '</div>' +
     (acts.length ? '<div class="row gap6 tk-acts">' + acts.join('') + '</div>' : '') + '</div>';
 }
@@ -250,12 +265,15 @@ VIEWS.tickets = {
   render() {
     const tab = K.ui.tkTab || 'live'; const mine = K.ui.tkMine !== undefined ? K.ui.tkMine : isWaiterOnly();
     let list = (K.raw.rorders || []).slice(); if (mine) list = list.filter(forMe);
-    const t = todayStr(); const by = { live: (o) => ['new', 'accepted', 'ready'].includes(o.status), new: (o) => o.status === 'new', ready: (o) => o.status === 'ready', done: (o) => ['served', 'rejected'].includes(o.status) && String(o.createdAt).slice(0, 10) === t };
-    const n = (k) => list.filter(by[k]).length;
+    const t = todayStr(); const by = { live: (o) => ['new', 'accepted', 'ready'].includes(o.status), new: (o) => o.status === 'new', ready: (o) => o.status === 'ready', unpaid: (o) => orderPay(o) === 'unpaid', done: (o) => ['served', 'rejected'].includes(o.status) && String(o.createdAt).slice(0, 10) === t };
+    const every = list; const n = (k) => every.filter(by[k]).length; // counts over all orders, not only the tab shown
     list = list.filter(by[tab]).sort((a, b) => (tab === 'done' ? String(b.createdAt).localeCompare(String(a.createdAt)) : String(a.createdAt).localeCompare(String(b.createdAt))));
-    return '<div class="row wrap between mb"><div class="chips">' + [['live', 'Open'], ['new', 'New'], ['ready', 'Ready'], ['done', 'Done today']].map(([k, l]) => '<button class="chip' + (tab === k ? ' on' : '') + '" data-a="tkTab" data-v="' + k + '">' + l + (k !== 'done' && n(k) ? ' · ' + n(k) : '') + '</button>').join('') + '</div>' +
+    return '<div class="row wrap between mb"><div class="chips">' + [['live', 'Open'], ['new', 'New'], ['ready', 'Ready'], ['unpaid', 'Not paid'], ['done', 'Done today']].map(([k, l]) => '<button class="chip' + (tab === k ? ' on' : '') + (k === 'unpaid' && n(k) ? ' chip-warn' : '') + '" data-a="tkTab" data-v="' + k + '">' + l + (k !== 'done' && n(k) ? ' · ' + n(k) : '') + '</button>').join('') + '</div>' +
       '<div class="row gap6">' + (can('serve') && can('tables') ? '<label class="toggle small"><input type="checkbox" data-c="tkMine"' + (mine ? ' checked' : '') + '>Only mine</label>' : '') + (can('serve') ? '<button class="btn pri" data-a="rNewOrder">' + ic('plus') + 'New order</button>' : '') + '</div></div>' +
-      (list.length ? '<div class="tk-grid">' + list.map(ticketCard).join('') + '</div>' : '<div class="card empty"><div class="big">🔔</div>' + (tab === 'done' ? 'Nothing served yet today.' : 'No orders waiting.') + '</div>');
+      (() => { const ub = unpaidBills(); if (!ub.length || tab === 'unpaid') return ''; const due = ub.reduce((a, x) => a + x.due, 0);
+        return '<div class="alert warn mb np-bar" role="status">' + ic('wallet', 'sm') + '<span><b>Served, not paid yet:</b> ' + ub.length + ' bill' + (ub.length === 1 ? '' : 's') + ' · <b class="money">' + F(due) + '</b> — ' + esc(ub.slice(0, 4).map((x) => x.tab.tableLabel === 'Counter' || !x.tab.tableLabel ? 'Counter' : 'Table ' + x.tab.tableLabel).join(', ')) + (ub.length > 4 ? '…' : '') + '. The stock is already out; it closes when the bill is paid.</span><button class="btn sm" data-a="tkTab" data-v="unpaid">See them</button></div>'; })() +
+      (tab === 'unpaid' && list.length ? '<p class="hint mb">Served and still on an open bill. Their stock is already out of the shelf; everything closes when the bill is paid.</p>' : '') +
+      (list.length ? '<div class="tk-grid">' + list.map(ticketCard).join('') + '</div>' : '<div class="card empty"><div class="big">' + (tab === 'unpaid' ? '✅' : '🔔') + '</div>' + (tab === 'done' ? 'Nothing served yet today.' : tab === 'unpaid' ? 'Every served order is paid.' : 'No orders waiting.') + '</div>');
   },
 };
 A.tkTab = (el) => { K.ui.tkTab = el.dataset.v; render(true); };
