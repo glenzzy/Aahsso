@@ -117,7 +117,7 @@ async function freeMenuSlug(c, want, tid) {
 async function signupEditions() { const S = await billing.platformSettings(); return KC.EDITION_KEYS.filter((k) => (S.signup || {})[k] !== false); }
 app.get('/api/signup-options', wrap(async (req, res) => {
   const open = await signupEditions();
-  res.json({ editions: open.map((k) => { const e = KC.editionOf(k); return { key: e.key, label: e.label, tag: e.tag, points: e.points }; }) });
+  res.json({ editions: open.map((k) => { const e = KC.editionOf(k); return { key: e.key, label: e.label, name: e.name, who: e.who, pitch: e.pitch, icon: e.icon, tag: e.tag }; }) });
 }));
 app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const { businessName, name, login, password, email } = req.body || {}; const venueType = String((req.body || {}).venueType || '');

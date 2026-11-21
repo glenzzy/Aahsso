@@ -11,7 +11,7 @@ function renderLogin() {
       '<h1 id="aTitle">Welcome back</h1><p class="auth-sub" id="aSub">Sign in to your business account.</p>' +
       '<div id="fReg" class="auth-fields hide">' + field('Business name', inp('businessName', '', 'autocomplete="organization"')) + field('Your name', inp('name', '', 'autocomplete="name"')) + '</div>' +
       '<div class="auth-fields" id="fCore">' + field('Email or phone', inp('login', '', 'autocomplete="username" autocapitalize="off" spellcheck="false"')) + field('Password', pw('password', 'current-password')) + '</div>' +
-      '<div id="fEd" class="auth-ed hide" role="radiogroup" aria-label="What will you use Aahsso for?"></div>' +
+      '<div id="fEd" class="auth-ed hide" role="radiogroup" aria-label="What do you run?"></div>' +
       '<div class="auth-forgot" id="fgRow"><button type="button" class="auth-link" id="tForgot">Forgot password?</button></div>' +
       '<div class="auth-err hide" id="err" role="alert"></div>' +
       '<button type="submit" class="btn pri lg block auth-go" id="go">Sign in</button>' +
@@ -26,10 +26,14 @@ function renderLogin() {
   const loadEds = async () => { if (eds) return eds; try { const r = await fetch(apiBase() + '/api/signup-options'); if (r.ok) eds = (await r.json()).editions || []; } catch (e) { } return eds; };
   let vtPick = 'both'; // Aahsso Bar & Resto: a bar, a restaurant or both
   const drawEds = () => {
-    $('#fEd').innerHTML = (eds || []).map((e) => '<button type="button" class="auth-edc' + (edPick === e.key ? ' on' : '') + '" role="radio" aria-checked="' + (edPick === e.key) + '" data-ed="' + esc(e.key) + '">' +
-      '<span class="auth-edt"><b>' + esc(e.label) + '</b><span>' + esc(e.tag) + '</span></span><ul>' + (e.points || []).map((p) => '<li>' + esc(p) + '</li>').join('') + '</ul>' +
-      (e.key === 'resto' && edPick === 'resto' ? '<span class="auth-vt" role="radiogroup" aria-label="What do you run?"><span class="auth-vtl">What do you run?</span>' + [['bar', 'Bar'], ['restaurant', 'Restaurant'], ['both', 'Both']].map(([k, l]) => '<span role="radio" tabindex="0" aria-checked="' + (vtPick === k) + '" class="auth-vtc' + (vtPick === k ? ' on' : '') + '" data-vt="' + k + '">' + l + '</span>').join('') + '</span>' : '') + '</button>').join('') +
-      '<p class="auth-edn">If your business changes later, our team can switch it for you.</p><button type="button" class="auth-link" id="edBack">← Back to your details</button>';
+    const ICON = { ship: 'ship', sell: 'sell', glass: 'glass' };
+    $('#fEd').innerHTML = (eds || []).map((e) => { const on = edPick === e.key; const kc = KC.editionOf(e.key) || {}; const name = e.name || kc.name || e.label, pitch = e.pitch || kc.pitch || e.tag, who = e.who || kc.who || '';
+      return '<button type="button" class="auth-edc ed-' + esc(e.key) + (on ? ' on' : '') + '" role="radio" aria-checked="' + on + '" data-ed="' + esc(e.key) + '">' +
+        '<span class="auth-edi" aria-hidden="true">' + ic(ICON[e.icon || kc.icon] || 'stock') + '</span>' +
+        '<span class="auth-edt"><b>' + esc(name) + '</b><span class="auth-edp">' + esc(pitch) + '</span>' + (who ? '<span class="auth-edw">' + esc(who) + '</span>' : '') + '</span>' +
+        '<span class="auth-edk" aria-hidden="true">' + (on ? ic('check', 'sm') : '') + '</span>' +
+        (e.key === 'resto' && on ? '<span class="auth-vt" role="radiogroup" aria-label="What do you run?">' + [['bar', 'Bar', 'glass'], ['restaurant', 'Restaurant', 'chef'], ['both', 'Both', 'table']].map(([k, l, i]) => '<span role="radio" tabindex="0" aria-checked="' + (vtPick === k) + '" class="auth-vtc' + (vtPick === k ? ' on' : '') + '" data-vt="' + k + '">' + ic(i, 'sm') + l + '</span>').join('') + '</span>' : '') + '</button>'; }).join('') +
+      '<p class="auth-edn">' + ic('check', 'sm') + '5-day free trial · no payment needed</p><button type="button" class="auth-link" id="edBack">← Back to your details</button>';
     $$('#fEd [data-ed]').forEach((b) => (b.onclick = (ev) => { const vt = ev.target.closest('[data-vt]'); if (vt) vtPick = vt.dataset.vt; edPick = b.dataset.ed; err(''); drawEds(); const c = $('#fEd [data-ed].on'); if (c) c.focus(); }));
     $('#edBack').onclick = () => goStep(1);
   };
@@ -37,8 +41,9 @@ function renderLogin() {
   const goStep = (n) => {
     step = n; err(''); const two = n === 2;
     ['#fReg', '#fCore'].forEach((s) => $(s).classList.toggle('hide', two)); $('#fEd').classList.toggle('hide', !two);
-    $('#aTitle').textContent = two ? 'What will you use Aahsso for?' : 'Create your business';
-    $('#aSub').textContent = two ? '' : 'Takes a minute. You will be the owner.'; $('#aSub').classList.toggle('hide', two);
+    $('#aTitle').textContent = two ? 'What do you run?' : 'Create your business';
+    $('#aSub').textContent = two ? 'Pick one — we set Aahsso up for it.' : 'Takes a minute. You will be the owner.'; $('#aSub').classList.remove('hide');
+    $('#aForm').classList.toggle('auth-wide', two);
     $('#go').textContent = two ? 'Create account' : (eds && eds.length > 1 ? 'Continue' : 'Create account');
     if (two) { drawEds(); const f = $('#fEd [data-ed]'); if (f) f.focus(); } else $('[name=businessName]').focus();
   };

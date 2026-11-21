@@ -1777,3 +1777,29 @@ label.f,.settings label.f .lbl{font-weight:500}
 /* Kitchen screen / Bar screen header */
 .kds-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .kds-ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--brandSoft);color:var(--brand)}
+
+/* Sign-up: what do you run? */
+.auth-in:has(.auth-wide){max-width:460px}
+.auth-ed{gap:10px}
+.auth-edc{position:relative;display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:4px 14px;padding:16px;border:1.5px solid var(--line);border-radius:16px;background:var(--card);transition:border-color .15s,background .15s,box-shadow .15s,transform .15s}
+.auth-edc:hover{border-color:var(--ink3);box-shadow:0 6px 18px rgba(20,32,46,.08);transform:translateY(-1px)}
+.auth-edc.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 6%,#fff);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 14%,transparent)}
+.auth-edi{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;grid-row:1/3}
+.auth-edi .ic,.auth-edi svg{width:24px;height:24px}
+.ed-import .auth-edi{background:#e6effa;color:#1f5fa8}
+.ed-store .auth-edi{background:#e6f4ec;color:#167344}
+.ed-resto .auth-edi{background:#fdf0e1;color:#b2620d}
+.auth-edt{gap:3px;min-width:0}
+.auth-edt b{font-size:16px;font-weight:650;letter-spacing:-.01em}
+.auth-edt b::before{content:none}
+.auth-edt .auth-edp{padding:0;color:var(--ink2);font-size:13.5px;line-height:1.45}
+.auth-edt .auth-edw{padding:0;color:var(--ink3);font-size:12px;font-weight:500;margin-top:2px}
+.auth-edk{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;color:#fff;margin-top:2px}
+.auth-edc.on .auth-edk{background:var(--brand);border-color:var(--brand)}
+.auth-edc .auth-vt{grid-column:2/-1;padding:0;margin-top:8px;gap:6px}
+.auth-vtc{display:inline-flex;align-items:center;gap:5px;padding:6px 12px}
+.auth-vtc .ic{width:15px;height:15px}
+.auth-edn{display:flex;align-items:center;justify-content:center;gap:6px;color:var(--ok);font-weight:600;font-size:13px;margin-top:4px}
+@media (max-width:420px){.auth-edc{padding:14px;gap:4px 12px}.auth-edi{width:40px;height:40px;border-radius:12px}}
+.auth-edc .auth-edi svg.i{width:24px;height:24px}
+.auth-vtc svg.i{width:15px;height:15px}

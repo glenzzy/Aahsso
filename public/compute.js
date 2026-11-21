@@ -336,9 +336,9 @@
    * Chosen at sign-up; only the platform admin changes it. Features an edition does not have are off whatever the plan says,
    * and the server refuses them. Plans are made for one edition. */
   const EDITIONS = {
-    import: { key: 'import', label: 'Aahsso Brocan', short: 'Brocan', tag: 'Buy abroad, ship, receive and sell', points: ['Buy in dollars or any currency', 'Containers, freight and customs', 'Landed cost on every item'], off: [] },
-    store: { key: 'store', label: 'Aahsso Store', short: 'Store', tag: 'Buy locally, sell and manage your stock', points: ['Buy from local suppliers', 'Sell at the till, track stock', 'Simple and quick to learn'], off: ['ship', 'receive'] },
-    resto: { key: 'resto', label: 'Aahsso Bar & Resto', short: 'Resto', tag: 'Tables, QR menu, waiters and kitchen', points: ['Customers order from a QR code at their table', 'Waiters serve, the kitchen and bar prepare', 'Table bills, stock of drinks and dishes'], off: ['ship', 'receive', 'onlineShop', 'delivery'] },
+    import: { key: 'import', label: 'Aahsso Brocan', short: 'Brocan', name: 'Import & resell', who: 'For importers and resellers', pitch: 'Buy abroad, ship home, sell for profit — with your true cost on every item.', icon: 'ship', tag: 'Buy abroad, ship, receive and sell', points: ['Buy in dollars or any currency', 'Containers, freight and customs', 'Landed cost on every item'], off: [] },
+    store: { key: 'store', label: 'Aahsso Store', short: 'Store', name: 'Shop or store', who: 'For shops, boutiques and supermarkets', pitch: 'Sell faster at the till and never run out of what sells.', icon: 'sell', tag: 'Buy locally, sell and manage your stock', points: ['Buy from local suppliers', 'Sell at the till, track stock', 'Simple and quick to learn'], off: ['ship', 'receive'] },
+    resto: { key: 'resto', label: 'Aahsso Bar & Resto', short: 'Resto', name: 'Bar or restaurant', who: 'For bars, lounges and restaurants', pitch: 'Guests order from a QR code, the bar and kitchen get it at once, every bill adds up.', icon: 'glass', tag: 'Tables, QR menu, waiters and kitchen', points: ['Customers order from a QR code at their table', 'Waiters serve, the kitchen and bar prepare', 'Table bills, stock of drinks and dishes'], off: ['ship', 'receive', 'onlineShop', 'delivery'] },
   };
   // the Bar & Resto tools exist only in Aahsso Bar & Resto
   const RESTO_FEATURES = ['tables', 'qrOrders', 'kds', 'tabsPlus', 'portions', 'recipes', 'reservations', 'happyHour', 'loyalty', 'payFirst', 'waiterStats'];
