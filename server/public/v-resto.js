@@ -108,7 +108,7 @@ function restoWatch(col, docs) {
   }
 }
 // minutes on tickets move on their own
-setInterval(() => { if (isResto() && ['tickets', 'kds', 'barscreen', 'floor', 'home'].includes(K.route) && !K.sheets.length) scheduleRender(); }, 30000);
+setInterval(() => { if (isResto() && ['tickets', 'kds', 'barscreen', 'floor', 'home', 'bookings'].includes(K.route) && !K.sheets.length) scheduleRender(); }, 30000);
 
 /* ================= HOME: tonight ================= */
 function restoHome(hello) {
@@ -637,24 +637,36 @@ A.mnEdit = (el) => {
 };
 
 /* ================= RESERVATIONS ================= */
-const bookingFor = (tableId) => { if (!has('reservations')) return null; const t = todayStr(); const now = new Date(); const hm = now.getHours() * 60 + now.getMinutes(); return (K.raw.reservations || []).find((r) => r.tableId === tableId && r.date === t && r.status === 'booked' && (() => { const [h, m] = String(r.time || '0:0').split(':').map(Number); const x = h * 60 + m; return x >= hm - 30 && x <= hm + 180; })()); };
+const vClock = () => KC.venueClock(S()) || { date: todayStr(), time: '00:00', mins: 0, city: '', zone: '' };
+const bookingFor = (tableId) => { if (!has('reservations')) return null; const vc = vClock(); const t = vc.date; const hm = vc.mins; return (K.raw.reservations || []).find((r) => r.tableId === tableId && r.date === t && r.status === 'booked' && (() => { const [h, m] = String(r.time || '0:0').split(':').map(Number); const x = h * 60 + m; return x >= hm - 30 && x <= hm + 180; })()); };
 VIEWS.bookings = {
   render() {
-    const d = K.ui.bkDate || todayStr(); const list = (K.raw.reservations || []).filter((r) => r.date === d).sort((a, b) => String(a.time).localeCompare(String(b.time)));
+    const vc = vClock(); const d = K.ui.bkDate || vc.date; const list = (K.raw.reservations || []).filter((r) => r.date === d).sort((a, b) => String(a.time).localeCompare(String(b.time)));
     const badge = { booked: 'info', seated: 'ok', done: '', cancelled: 'bad', noshow: 'warn' };
-    return '<div class="row wrap mb"><input type="date" class="inp" style="width:auto" value="' + d + '" data-c="bkDate">' + (can('reservations') ? '<button class="btn pri" data-a="bkEdit">' + ic('plus') + 'New reservation</button>' : '') + '</div>' +
-      (list.length ? '<div class="card list">' + list.map((r) => '<div class="li" data-a="bkEdit" data-id="' + r.id + '"><div class="av">' + esc(r.time || '') + '</div><div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(r.name) + ' · ' + fmt(num(r.people)) + ' people</div><div class="tiny muted">' + [r.tableId ? ((K.raw.tables || []).find((t) => t.id === r.tableId) || {}).label : areaName(r.areaId), r.phone, num(r.deposit) ? 'deposit ' + fmt(r.deposit) : ''].filter(Boolean).map(esc).join(' · ') + '</div></div><span class="badge ' + (badge[r.status] || '') + '">' + esc((KC.RESV_STATUSES.find((x) => x[0] === r.status) || [0, r.status])[1]) + '</span></div>').join('') + '</div>'
+    const ph = new Date(); const phone = String(ph.getHours()).padStart(2, '0') + ':' + String(ph.getMinutes()).padStart(2, '0');
+    const clock = '<div class="bk-clock" role="status">' + ic('clock') + '<div class="grow"><div><b class="bk-now">' + esc(vc.time) + '</b> at the venue · ' + esc(vc.weekday) + ' ' + esc(fmtDate(vc.date)) + '</div><div class="hint">' + esc(vc.city) + (vc.zone ? ' (' + esc(vc.zone) + ')' : '') + (phone !== vc.time ? ' · your phone shows ' + phone : '') + (can('settings') ? ' · <button type="button" class="linkish" data-a="venueSettings">change time zone</button>' : '') + '</div></div>' + (d !== vc.date ? '<button class="btn sm" data-a="bkToday">Today</button>' : '') + '</div>';
+    const soon = (r) => { if (r.status !== 'booked' || r.date !== vc.date) return ''; const [h, m] = String(r.time || '0:0').split(':').map(Number); const diff = h * 60 + m - vc.mins;
+      return diff < -5 ? '<span class="badge warn">late ' + rDur(-diff) + '</span>' : diff <= 60 ? '<span class="badge info">' + (diff <= 0 ? 'now' : 'in ' + rDur(diff)) + '</span>' : ''; };
+    return clock + '<div class="row wrap mb"><input type="date" class="inp" style="width:auto" value="' + d + '" data-c="bkDate">' + (can('reservations') ? '<button class="btn pri" data-a="bkEdit">' + ic('plus') + 'New reservation</button>' : '') + '</div>' +
+      (list.length ? '<div class="card list">' + list.map((r) => '<div class="li" data-a="bkEdit" data-id="' + r.id + '"><div class="av">' + esc(r.time || '') + '</div><div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(r.name) + ' · ' + fmt(num(r.people)) + ' people ' + soon(r) + '</div><div class="tiny muted">' + [r.tableId ? ((K.raw.tables || []).find((t) => t.id === r.tableId) || {}).label : areaName(r.areaId), r.phone, num(r.deposit) ? 'deposit ' + fmt(r.deposit) : ''].filter(Boolean).map(esc).join(' · ') + '</div></div><span class="badge ' + (badge[r.status] || '') + '">' + esc((KC.RESV_STATUSES.find((x) => x[0] === r.status) || [0, r.status])[1]) + '</span></div>').join('') + '</div>'
         : '<div class="card empty"><div class="big">📅</div>No reservations on ' + fmtDate(d) + '.</div>');
   },
 };
 CH.bkDate = (el) => { K.ui.bkDate = el.value; render(true); };
+A.bkToday = () => { K.ui.bkDate = ''; render(true); };
+const rDur = (mins) => (mins >= 60 ? Math.floor(mins / 60) + ' h' + (mins % 60 ? ' ' + (mins % 60) + ' min' : '') : mins + ' min');
+/** the next quarter hour by the venue's clock (new reservations start there) */
+const nextQuarter = () => { const vc = vClock(); const q = Math.ceil((vc.mins + 1) / 15) * 15; if (q >= 24 * 60) return { date: KC.addDays(vc.date, 1), time: '00:00' }; return { date: vc.date, time: String(Math.floor(q / 60)).padStart(2, '0') + ':' + String(q % 60).padStart(2, '0') }; };
 A.bkEdit = (el) => {
-  const id = el.dataset.id; const r = id ? (K.raw.reservations || []).find((x) => x.id === id) : { date: K.ui.bkDate || todayStr(), time: '20:00', people: 2, status: 'booked', depositMethod: 'Cash' };
-  const sh = openSheet({ title: id ? r.name : 'New reservation', body: '<div class="col"><div class="grid2">' + field('Name', inp('name', r.name)) + field('Phone', inp('phone', r.phone, 'inputmode="tel"')) + field('Date', inp('date', r.date, 'type="date"')) + field('Time', inp('time', r.time, 'type="time"')) + field('People', inp('people', r.people, 'inputmode="numeric"')) +
+  const nq = nextQuarter(); const vc = vClock();
+  const id = el.dataset.id; const r = id ? (K.raw.reservations || []).find((x) => x.id === id) : { date: K.ui.bkDate && K.ui.bkDate > nq.date ? K.ui.bkDate : nq.date, time: K.ui.bkDate && K.ui.bkDate > nq.date ? '20:00' : nq.time, people: 2, status: 'booked', depositMethod: 'Cash' };
+  const sh = openSheet({ title: id ? r.name : 'New reservation', body: '<div class="col"><div class="grid2">' + field('Name', inp('name', r.name)) + field('Phone', inp('phone', r.phone, 'inputmode="tel"')) + field('Date', inp('date', r.date, 'type="date"')) + field('Time <span class="hint">(venue time · now ' + esc(vc.time) + ')</span>', inp('time', r.time, 'type="time"')) + field('People', inp('people', r.people, 'inputmode="numeric"')) +
       field('Table', sel('tableId', [['', 'Any']].concat(rTables().map((t) => [t.id, t.label])), r.tableId || '')) + field('Deposit (' + baseSym() + ')', inp('deposit', r.deposit || '', 'inputmode="numeric" placeholder="0"')) + field('Paid by', sel('depositMethod', KC.PAY_METHODS, r.depositMethod || 'Cash')) + '</div>' + field('Note', inp('note', r.note, 'placeholder="Birthday, VIP, no smoking…"')) +
       (id ? field('Status', sel('status', KC.RESV_STATUSES, r.status)) : '') + '</div>',
     foot: (id && r.status === 'booked' && r.tableId && can('serve') ? '<button class="btn" id="bkSeat">' + ic('table') + 'Seat now</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="bkGo">Save</button>' });
-  $('#bkGo', sh).onclick = async () => { const v = formVals(sh); if (!(v.name || '').trim()) return toast('Type the name', true); if (await save('reservations', Object.assign({}, r, v, { id: id || uid('rv_'), people: num(v.people), deposit: num(v.deposit), by: r.by || K.me.name || '' }))) { closeSheet(); render(true); } };
+  $('#bkGo', sh).onclick = async () => { const v = formVals(sh); if (!(v.name || '').trim()) return toast('Type the name', true);
+    const now = vClock(); if ((v.status || r.status) === 'booked' && (v.date < now.date || (v.date === now.date && String(v.time) < now.time)) && !(id && v.date === r.date && v.time === r.time) && !(await confirmBox('That time has passed at the venue (it is ' + now.time + ' on ' + fmtDate(now.date) + '). Save it anyway?', 'Save anyway'))) return;
+    v.tz = now.tz; if (await save('reservations', Object.assign({}, r, v, { id: id || uid('rv_'), people: num(v.people), deposit: num(v.deposit), by: r.by || K.me.name || '' }))) { closeSheet(); render(true); } };
   if ($('#bkSeat', sh)) $('#bkSeat', sh).onclick = async () => {
     const t = (K.raw.tables || []).find((x) => x.id === r.tableId); if (!t) return; if (openTab(t.id)) return toast(t.label + ' is busy', true);
     const tab = { id: uid('tb_'), tableId: t.id, tableLabel: t.label, status: 'open', openedAt: new Date().toISOString(), customerName: r.name, waiterId: K.me.id, source: 'reservation', reservationId: r.id };
@@ -674,6 +686,8 @@ A.venueSettings = () => {
       : field('What do you run?', sel('venueType', KC.VENUE_TYPES, venue()))) +
     '<label class="toggle"><input type="checkbox" name="qrOn"' + (s.qrOn !== false ? ' checked' : '') + (has('qrOrders') ? '' : ' disabled') + '>Customers can order from their phone' + (has('qrOrders') ? '' : ' <span class="hint">(not in your plan)</span>') + '</label>' +
     (has('qrOrders') ? '<label class="toggle"><input type="checkbox" name="pickTable"' + (s.pickTable !== false ? ' checked' : '') + '>On the menu link, customers choose their table <span class="hint">(off: only the QR code on each table)</span></label>' : '') +
+    field('Time zone', (() => { const cur = s.timezone || 'Africa/Douala'; let all = []; try { all = Intl.supportedValuesOf('timeZone'); } catch (e) { } if (!all.length) all = ['Africa/Douala', 'Africa/Lagos', 'Africa/Abidjan', 'Africa/Accra', 'Africa/Kinshasa', 'Africa/Nairobi', 'Africa/Johannesburg', 'Europe/Paris', 'Europe/London', 'America/New_York'];
+      if (!all.includes(cur)) all = [cur].concat(all); return sel('timezone', all.map((z) => [z, z.replace(/_/g, ' ')]), cur); })() + '<div class="tiny muted">Reservations, “late” and today\'s times follow this clock. Cameroon: Africa/Douala.</div>') +
     field('An order is late after (minutes)', inp('lateMins', s.lateMins || 15, 'inputmode="numeric"')) +
     (has('payFirst') ? '<label class="toggle"><input type="checkbox" name="payFirst"' + (s.payFirst ? ' checked' : '') + '>Pay-first counter (order and pay at the counter)</label>' : '') +
     (has('tabsPlus') ? field('Service charge (%)', inp('serviceCharge', s.serviceCharge || '', 'inputmode="decimal" placeholder="0 = none"')) : '') +
@@ -681,7 +695,7 @@ A.venueSettings = () => {
     (has('loyalty') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="loyaltyOn"' + (s.loyaltyOn ? ' checked' : '') + '><b>Loyalty points</b></label><div class="grid2 mt">' + field('1 point for every (' + baseSym() + ')', inp('loyaltyPer', s.loyaltyPer || 1000, 'inputmode="numeric"')) + field('1 point is worth (' + baseSym() + ')', inp('pointValue', s.pointValue || 10, 'inputmode="numeric"')) + '</div></div>' : '') +
     '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="vsGo">Save</button>' });
   $('#vsGo', sh).onclick = async () => {
-    const v = formVals(sh); if (planVenueLock() || !v.venueType) v.venueType = venue(); const patch = { venueType: v.venueType, qrOn: !!v.qrOn, lateMins: Math.max(1, num(v.lateMins) || 15) }; if (has('qrOrders')) patch.pickTable = !!v.pickTable;
+    const v = formVals(sh); if (planVenueLock() || !v.venueType) v.venueType = venue(); const patch = { venueType: v.venueType, qrOn: !!v.qrOn, lateMins: Math.max(1, num(v.lateMins) || 15), timezone: v.timezone || s.timezone || 'Africa/Douala' }; if (has('qrOrders')) patch.pickTable = !!v.pickTable;
     if (has('payFirst')) patch.payFirst = !!v.payFirst;
     if (has('tabsPlus')) patch.serviceCharge = Math.max(0, Math.min(30, num(v.serviceCharge)));
     if (has('happyHour')) { const days = D.map((_, i) => i).filter((i) => v['hhd' + i]); patch.happyHour = { on: !!v.hhOn, from: v.hhFrom || '17:00', to: v.hhTo || '19:00', pct: Math.max(0, Math.min(90, num(v.hhPct))), days: days.length === 7 ? [] : days, cats: String(v.hhCats || '').split(',').map((x) => x.trim()).filter(Boolean) }; }

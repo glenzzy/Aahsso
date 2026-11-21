@@ -487,3 +487,10 @@ test('stock movements: purchase, served, correction, wastage — with before / a
   const r3 = KC.stockMovements(raw, KC.computeAll(raw)).filter((r) => r.productId === 'beer'); const last = r3[r3.length - 1];
   assert.deepEqual([last.type, last.qty, last.before, last.after, last.by], ['sale', 6, 32, 26, 'Dee']);
 });
+
+test('venue clock: the venue\'s time zone, whatever the phone says', () => {
+  const at = new Date('2026-11-21T22:50:00.000Z'); // 23:50 in Douala (UTC+1)
+  const d = KC.venueClock({}, at); assert.deepEqual([d.tz, d.date, d.time, d.mins, d.city], ['Africa/Douala', '2026-11-21', '23:50', 23 * 60 + 50, 'Douala']);
+  const t = KC.venueClock({ timezone: 'Asia/Tokyo' }, at); assert.deepEqual([t.date, t.time], ['2026-11-22', '07:50'], 'Tokyo is already the next day');
+  assert.equal(KC.venueClock({ timezone: 'Not/AZone' }, at).tz, 'Africa/Douala', 'an unknown zone falls back to Douala');
+});

@@ -675,6 +675,15 @@
     const bal = {}; rows.forEach((r) => { r.before = bal[r.productId] || 0; r.after = Math.round((r.before + r.dir * num(r.qty)) * 10000) / 10000; bal[r.productId] = r.after; r.value = num(r.qty) * num(r.unitCost); });
     return rows;
   }
+  /** the venue's own clock (its time zone, Douala by default), whatever the phone's clock says: {tz, date, time, mins, weekday, city, zone} */
+  function venueClock(S, d) {
+    const tz = (S && S.timezone) || 'Africa/Douala'; d = d || new Date(); let p;
+    try { p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short' }).formatToParts(d).map((x) => [x.type, x.value])); }
+    catch (e) { return tz === 'Africa/Douala' ? null : venueClock({ timezone: 'Africa/Douala' }, d); }
+    let zone = ''; try { zone = (new Intl.DateTimeFormat('en-GB', { timeZone: tz, timeZoneName: 'short' }).formatToParts(d).find((x) => x.type === 'timeZoneName') || {}).value || ''; } catch (e) { }
+    const hh = p.hour === '24' ? '00' : p.hour;
+    return { tz, date: p.year + '-' + p.month + '-' + p.day, time: hh + ':' + p.minute, mins: +hh * 60 + +p.minute, weekday: p.weekday, city: tz.split('/').pop().replace(/_/g, ' '), zone };
+  }
   /** an order's number for people: one station "#004"; both "Bar #004 · Kitchen #002"; for one station's screen, its own number */
   function orderNoText(o, st) {
     const n = (o && o.nos) || {}; const ks = ['bar', 'kitchen'].filter((k) => n[k]);
@@ -1381,6 +1390,6 @@
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
     PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
-    servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
+    servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

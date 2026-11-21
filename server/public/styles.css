@@ -1813,3 +1813,8 @@ label.f,.settings label.f .lbl{font-weight:500}
 .pv-pl b{font-weight:600;font-variant-numeric:tabular-nums}
 .pv-pl.due b{color:var(--bad)}
 .pv-pl.ok b{color:var(--ok)}
+
+/* Reservations: the venue's clock */
+.bk-clock{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+.bk-clock>.ic,.bk-clock>svg{color:var(--brand);flex:none}
+.bk-now{font-size:20px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
