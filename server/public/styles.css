@@ -1803,3 +1803,6 @@ label.f,.settings label.f .lbl{font-weight:500}
 @media (max-width:420px){.auth-edc{padding:14px;gap:4px 12px}.auth-edi{width:40px;height:40px;border-radius:12px}}
 .auth-edc .auth-edi svg.i{width:24px;height:24px}
 .auth-vtc svg.i{width:15px;height:15px}
+
+.kd-no{font-weight:600;color:var(--ink3);margin-left:4px}
+.tk-no{font-variant-numeric:tabular-nums}

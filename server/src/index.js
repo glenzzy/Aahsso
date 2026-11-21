@@ -100,6 +100,15 @@ function startSettings(edition, venueType) {
   const vt = KC.VENUE_TYPES.some(([k]) => k === venueType) ? venueType : 'both';
   return { mainLocationName: KC.editionOf('resto').loc.main, venueType: vt, menuCats: KC.MENU_CATS[vt].slice(), menuKey: crypto.randomBytes(6).toString('hex'), qrOn: true };
 }
+/* ---------- Aahsso Bar & Resto: order numbers — per business, from 001; drinks (bar) and food (kitchen) count separately ---------- */
+async function orderNos(c, tid, lines) {
+  const sts = ['bar', 'kitchen'].filter((s) => (lines || []).some((l) => (l.station || 'kitchen') === s)); const nos = {};
+  for (const s of sts) {
+    const r = await c.query('INSERT INTO order_counters (tenant_id, key, n) VALUES ($1,$2,1) ON CONFLICT (tenant_id, key) DO UPDATE SET n = order_counters.n + 1, updated_at = now() RETURNING n', [tid, s]);
+    nos[s] = String(r.rows[0].n).padStart(3, '0');
+  }
+  return { nos, no: nos[sts[0]] || '' };
+}
 /* ---------- Aahsso Bar & Resto: the menu address /m/<name> (unique on the platform; the old /m/<key> still works) ---------- */
 async function menuSlugTaken(c, slug, tid) {
   return (await c.query("SELECT 1 FROM documents WHERE collection='settings' AND id='main' AND tenant_id <> $2 AND (lower(data->>'menuSlug')=$1 OR data->>'menuKey'=$1 OR (data->'menuSlugsOld') ? $1) LIMIT 1", [slug, tid])).rowCount > 0;
@@ -657,6 +666,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       if (!P.handover) { if (body.userId !== u.id) return { status: 403, error: 'You can only submit your own handover' }; if (body.status === 'confirmed' || (prev && prev.data.status === 'confirmed')) return { status: 403, error: 'Only a manager can confirm a handover' }; }
       body.expectedTotal = KC.collectedBy(await loadAllSales(c, u.tenant_id), body.userId, body.date).total; // never trust the client's own total
     }
+    if (col === 'rorders') { if (prev && prev.data.nos) { body.no = prev.data.no; body.nos = prev.data.nos; } else if (!prev) Object.assign(body, await orderNos(c, u.tenant_id, body.lines)); }
     if (col === 'audits') { const why = auditRules(u, P, body, prev ? prev.data : null); if (why) return why; }
     if (col === 'losses') { const why = lossRules(u, P, body, prev ? prev.data : null); if (why) return why; }
     if (col === 'claims') {
@@ -1200,16 +1210,18 @@ app.post('/api/menu/:key/orders', menuOrderLimiter, wrap(async (req, res) => {
   const device = String((req.body || {}).device || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 40);
   const area = L.areas.find((a) => a.id === table.areaId) || {};
   const waiters = table.waiterId ? [table.waiterId] : (area.waiterIds || []);
-  const now = new Date().toISOString(); let tabId, orderId = 'ro_' + crypto.randomBytes(8).toString('hex'); const no = String(Math.floor(100 + Math.random() * 900));
+  const now = new Date().toISOString(); let tabId, orderId = 'ro_' + crypto.randomBytes(8).toString('hex'); let num = { no: '', nos: {} };
+  r.lines.forEach((l) => { const m = L.items.find((i) => i.id === l.menuId); l.station = KC.stationOf(m || { station: l.station, category: l.category }, (L.st || {}).venueType || 'both'); }); // drinks to the bar, food to the kitchen
   await tx(async (c) => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [t.tid + ':' + table.id]); // two phones at one table: one tab
     const open = (await c.query("SELECT id, data FROM documents WHERE tenant_id=$1 AND collection='tabs' AND data->>'tableId'=$2 AND data->>'status'='open' LIMIT 1", [t.tid, table.id])).rows[0];
     if (open) tabId = open.id;
     else { tabId = 'tb_' + crypto.randomBytes(8).toString('hex'); await putDoc(c, t.tid, 'tabs', tabId, { tableId: table.id, tableLabel: table.label, status: 'open', openedAt: now, customerName: r.name, waiterId: waiters.length === 1 ? waiters[0] : '', source: 'qr' }, 'QR menu'); }
-    await putDoc(c, t.tid, 'rorders', orderId, { no, tabId, tableId: table.id, tableLabel: table.label, areaId: table.areaId || '', source: 'qr', customerName: r.name, note: r.note, device, waiterIds: waiters, waiterId: waiters.length === 1 ? waiters[0] : '', status: 'new', lines: r.lines, createdAt: now }, 'QR menu · ' + r.name);
+    num = await orderNos(c, t.tid, r.lines);
+    await putDoc(c, t.tid, 'rorders', orderId, { no: num.no, nos: num.nos, tabId, tableId: table.id, tableLabel: table.label, areaId: table.areaId || '', source: 'qr', customerName: r.name, note: r.note, device, waiterIds: waiters, waiterId: waiters.length === 1 ? waiters[0] : '', status: 'new', lines: r.lines, createdAt: now }, 'QR menu · ' + r.name);
   });
   broadcast(t.tid, 'tabs', tabId); broadcast(t.tid, 'rorders', orderId);
-  res.json({ ok: true, no, orderId, total: r.lines.reduce((a, l) => a + l.qty * l.price, 0) });
+  res.json({ ok: true, no: KC.orderNoText(num), orderId, total: r.lines.reduce((a, l) => a + l.qty * l.price, 0) });
 }));
 /** what this phone ordered at this table, and the bill so far */
 app.get('/api/menu/:key/status', menuReadLimiter, wrap(async (req, res) => {
@@ -1219,7 +1231,7 @@ app.get('/api/menu/:key/status', menuReadLimiter, wrap(async (req, res) => {
   const tab = R.tabs.find((x) => x.tableId === table.id && x.status === 'open'); const device = String(req.query.d || '');
   const mine = tab ? R.rorders.filter((o) => o.tabId === tab.id && device && o.device === device).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')) : [];
   const total = tab ? KC.tabLines(tab, R.rorders).reduce((a, l) => a + l.qty * l.price, 0) : 0;
-  res.set('Cache-Control', 'no-store').json({ orders: mine.map((o) => ({ no: o.no, status: o.status, reason: o.rejectReason || '', at: o.createdAt, lines: (o.lines || []).map((l) => ({ name: l.name, qty: l.qty })) })), total, billAsked: !!(tab && tab.billAskedAt), open: !!tab });
+  res.set('Cache-Control', 'no-store').json({ orders: mine.map((o) => ({ no: KC.orderNoText(o), status: o.status, reason: o.rejectReason || '', at: o.createdAt, lines: (o.lines || []).map((l) => ({ name: l.name, qty: l.qty })) })), total, billAsked: !!(tab && tab.billAskedAt), open: !!tab });
 }));
 app.post('/api/menu/:key/call', menuCallLimiter, wrap(async (req, res) => {
   const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');

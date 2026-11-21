@@ -476,7 +476,7 @@ test('stock movements: purchase, served, correction, wastage — with before / a
   raw.adjustments.push({ id: 'A2', lotId: 'L1', productId: 'beer', qty: 1, date: '2026-11-21', createdAt: '2026-11-21T21:00:00.000Z', reason: 'Found / extra', by: 'Cee' });
   const C = KC.computeAll(raw); const rows = KC.stockMovements(raw, C).filter((r) => r.productId === 'beer');
   assert.deepEqual(rows.map((r) => [r.type, r.dir * r.qty, r.before, r.after]), [['purchase', 36, 0, 36], ['served', -3, 36, 33], ['wastage', -2, 33, 31], ['correction', 1, 31, 32]]);
-  assert.equal(rows[0].by, 'Ama'); assert.match(rows[1].ref, /Table 4 · ticket #12/); assert.equal(rows[1].by, 'Bea'); assert.equal(rows[2].ref, 'Damaged in store');
+  assert.equal(rows[0].by, 'Ama'); assert.match(rows[1].ref, /Table 4 · order #12/); assert.equal(rows[1].by, 'Bea'); assert.equal(rows[2].ref, 'Damaged in store');
   assert.equal(rows[rows.length - 1].after, C.prodX.beer.available, 'the last balance is what is in stock');
   // paying the bill adds no second movement
   raw.sales.push({ id: 'S1', no: '7', date: '2026-11-21', status: 'open', source: 'resto', tabId: 'T1', lines: [{ productId: 'm:m33', menuId: 'm33', qty: 3, unitPrice: 1000, alloc: [{ lotId: 'L1', qty: 3 }] }] });

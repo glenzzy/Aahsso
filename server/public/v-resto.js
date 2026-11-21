@@ -239,7 +239,7 @@ function ticketCard(o) {
   if (o.status === 'accepted' && (can('serve') || can('kds')) && (!has('kds') || can('tables'))) acts.push('<button class="btn sm" data-a="tkReady" data-id="' + o.id + '">Ready</button>');
   if (orderPay(o) === 'unpaid' && can('bills')) { const tb = tabById(o.tabId); acts.push('<span class="tk-due">' + ic('wallet', 'sm') + 'Bill open · <b class="money">' + fmt(tabDue(tb)) + '</b></span><button class="btn sm pri" data-a="tabPay" data-id="' + esc(tb.id) + '">Take payment</button>'); }
   if (['accepted', 'ready'].includes(o.status) && can('serve')) acts.push('<button class="btn sm pri" data-a="tkServed" data-id="' + o.id + '">' + ic('check', 'sm') + 'Served</button>');
-  return '<div class="card tk' + (late ? ' tk-late' : '') + (orderPay(o) === 'unpaid' ? ' tk-unpaid' : '') + '"><div class="row between"><div><b>' + esc(o.tableLabel || 'Counter') + '</b> <span class="faint small">#' + esc(o.no || '') + (o.customerName ? ' · ' + esc(o.customerName) : '') + (o.source === 'qr' ? ' · QR' : '') + '</span></div><div class="row gap6">' + badge + '<span class="small ' + (late ? 'bad-t' : 'faint') + '">' + rAgo(o.createdAt) + '</span></div></div>' +
+  return '<div class="card tk' + (late ? ' tk-late' : '') + (orderPay(o) === 'unpaid' ? ' tk-unpaid' : '') + '"><div class="row between"><div><b>' + esc(o.tableLabel || 'Counter') + '</b> <span class="faint small tk-no">' + esc(tkNo(o)) + (o.customerName ? ' · ' + esc(o.customerName) : '') + (o.source === 'qr' ? ' · QR' : '') + '</span></div><div class="row gap6">' + badge + '<span class="small ' + (late ? 'bad-t' : 'faint') + '">' + rAgo(o.createdAt) + '</span></div></div>' +
     '<div class="tk-lines">' + (o.lines || []).map((l) => '<div><b>' + fmt(l.qty) + '×</b> ' + esc(l.name) + (l.note ? ' <span class="faint">— ' + esc(l.note) + '</span>' : '') + (stations().length > 1 ? ' <span class="tk-st">' + esc(STATION[l.station] || '') + '</span>' : '') + '</div>').join('') + (o.note ? '<div class="faint small">' + esc(o.note) + '</div>' : '') + (o.rejectReason ? '<div class="small bad-t">' + esc(o.rejectReason) + '</div>' : '') + '</div>' +
     (acts.length ? '<div class="row gap6 tk-acts">' + acts.join('') + '</div>' : '') + '</div>';
 }
@@ -291,11 +291,11 @@ function stationScreen(st) {
     if (!hasStation(st)) return '<div class="card empty"><div class="big">' + (st === 'bar' ? '🍸' : '👨‍🍳') + '</div>' + esc(KC.venueLabel(venue())) + ' venues have no ' + STATION[st].toLowerCase() + ' screen.</div>';
     const head = '<div class="kds-head"><span class="kds-ic">' + ic(st === 'bar' ? 'glass' : 'chef') + '</span><div><b>' + (st === 'bar' ? 'Bar screen' : 'Kitchen screen') + '</b><div class="hint">' + (st === 'bar' ? 'Drinks to prepare' : 'Food to prepare') + ' · ' + live.length + ' ticket' + (live.length === 1 ? '' : 's') + '</div></div></div>';
     return head +
-      (live.length ? '<div class="kds">' + live.map((o) => { const s = (o.st || {})[st] || {}; const m = mins(o.acceptedAt || o.createdAt); return '<div class="kd' + (m >= lateMins() ? ' late' : s.s === 'started' ? ' go' : '') + '"><div class="kd-h"><b>' + esc(o.tableLabel || 'Counter') + '</b><span>' + m + ' min</span></div><div class="kd-l">' +
+      (live.length ? '<div class="kds">' + live.map((o) => { const s = (o.st || {})[st] || {}; const m = mins(o.acceptedAt || o.createdAt); return '<div class="kd' + (m >= lateMins() ? ' late' : s.s === 'started' ? ' go' : '') + '"><div class="kd-h"><b>' + esc(o.tableLabel || 'Counter') + ' <span class="kd-no">' + esc(tkNo(o, st)) + '</span></b><span>' + m + ' min</span></div><div class="kd-l">' +
         (o.lines || []).filter((l) => (l.station || 'kitchen') === st).map((l) => '<div><b>' + fmt(l.qty) + '</b> ' + esc(l.name) + (l.note ? '<i>' + esc(l.note) + '</i>' : '') + '</div>').join('') + '</div>' +
         '<div class="kd-a">' + (s.s !== 'started' ? '<button class="btn" data-a="kdsGo" data-id="' + o.id + '" data-s="' + st + '" data-v="started">Start</button>' : '') + '<button class="btn pri" data-a="kdsGo" data-id="' + o.id + '" data-s="' + st + '" data-v="ready">' + ic('check') + 'Ready</button></div></div>'; }).join('') + '</div>'
         : '<div class="card empty"><div class="big">' + (st === 'bar' ? '🍸' : '👨‍🍳') + '</div>' + (st === 'bar' ? 'No drinks to prepare.' : 'Nothing to cook right now.') + '</div>') +
-      (done.length ? '<h3 class="mt2 mb">Ready</h3><div class="card list">' + done.map((o) => '<div class="li" style="cursor:default"><div class="grow">' + esc(o.tableLabel || 'Counter') + ' <span class="faint">#' + esc(o.no || '') + '</span></div><span class="hint">' + rAgo(o.st[st].at) + ' ago</span></div>').join('') + '</div>' : '');
+      (done.length ? '<h3 class="mt2 mb">Ready</h3><div class="card list">' + done.map((o) => '<div class="li" style="cursor:default"><div class="grow">' + esc(o.tableLabel || 'Counter') + ' <span class="faint">' + esc(tkNo(o, st)) + '</span></div><span class="hint">' + rAgo(o.st[st].at) + ' ago</span></div>').join('') + '</div>' : '');
 }
 A.kdsGo = async (el) => {
   const o = rOrder(el.dataset.id); if (!o) return; const k = el.dataset.s; const now = new Date().toISOString();
@@ -342,7 +342,8 @@ function composeOrder(opt) {
   draw();
 }
 const ticketLines = (cart) => Object.values(cart).map((c) => ({ menuId: c.m.id, name: c.m.name, qty: c.qty, price: priceNow(c.m), category: c.m.category || '', station: KC.stationOf(c.m, venue()), note: (c.note || '').slice(0, 120) }));
-const shortNo = () => String(Math.floor(100 + Math.random() * 900));
+const shortNo = () => ''; // the server gives the number (per business, from 001; bar and kitchen apart)
+const tkNo = (o, st) => KC.orderNoText(o, st) || '…';
 async function sendOrder(t, cart, sh) {
   const now = new Date().toISOString(); let tab = openTab(t.id);
   if (!tab) { tab = { id: uid('tb_'), tableId: t.id, tableLabel: t.label, status: 'open', openedAt: now, customerName: (K.ui.coName || '').trim(), waiterId: K.me.id, source: 'staff' }; if (!(await save('tabs', tab))) return; K.ui.coName = ''; }
@@ -452,7 +453,7 @@ function payCounter(cart, sh0) {
     if (typeof applySaleTxnId === 'function') applySaleTxnId(sale, true);
     if (!(await save('sales', sale))) return;
     await save('tabs', Object.assign({}, tab, { saleIds: [sale.id], status: 'paid', closedAt: now }));
-    while (K.sheets.length) closeSheet(); toast('Paid · ticket #' + o.no + ' sent'); scheduleRender();
+    while (K.sheets.length) closeSheet(); toast('Paid · order sent to the ' + (stations().length === 1 ? STATION[stations()[0]].toLowerCase() : 'bar and kitchen')); scheduleRender();
   };
 }
 

@@ -56,6 +56,9 @@ test('a customer scans the table: menu with server prices; orders by name only',
   const o = await api('POST', '/api/menu/' + S.key + '/orders', null, { t: S.tok, name: 'Ada', device: 'dev1', items: [{ menuId: 'm1', qty: 2, price: 1 }, { menuId: 'm2', qty: 1 }] });
   assert.equal(o.status, 200, JSON.stringify(o.body)); assert.equal(o.body.total, 2 * 1000 + 1500, 'prices come from the server, not the phone');
   const o2 = await api('POST', '/api/menu/' + S.key + '/orders', null, { t: S.tok, name: 'Ben', device: 'dev2', items: [{ menuId: 'm1', qty: 1 }] }); assert.equal(o2.status, 200);
+  assert.equal(o.body.no, '#001', 'a new bar: its first order is #001'); assert.equal(o2.body.no, '#002');
+  const qr = (await db.query("SELECT data FROM documents WHERE tenant_id=$1 AND collection='rorders' AND id=$2", [S.tid, o.body.orderId])).rows[0].data;
+  assert.deepEqual(qr.nos, { bar: '001' }); assert.ok(qr.lines.every((l) => l.station === 'bar'), 'a bar: QR drinks go to the bar screen');
   const st = (await api('GET', '/api/menu/' + S.key + '/status?t=' + S.tok + '&d=dev1')).body;
   assert.equal(st.orders.length, 1, 'each phone sees its own orders'); assert.equal(st.orders[0].status, 'new'); assert.equal(st.total, 4500, 'the bill so far: the whole table');
   assert.equal((await api('POST', '/api/menu/' + S.key + '/call', null, { t: S.tok, kind: 'bill', name: 'Ada' })).status, 200);
@@ -191,4 +194,20 @@ test('a Store or Brocan never gets the Bar & Resto tools', async () => {
   const me = (await api('GET', '/api/me', r.body.token)).body; assert.equal(me.features.tables, false); assert.equal(me.features.qrOrders, false);
   assert.equal((await api('PUT', '/api/data/menu/x', r.body.token, { name: 'Beer', price: 1 })).status, 402);
   assert.equal((await api('PUT', '/api/data/tables/x', r.body.token, { label: 'T1' })).status, 402);
+});
+
+test('order numbers: per business from 001, drinks and food counted apart, never changed', async () => {
+  const r = await api('POST', '/api/auth/register', null, { businessName: 'Num House ' + rnd, name: 'Nora', login: 'nora' + rnd + '@resto.test', password: 'secret12', edition: 'resto', venueType: 'both' });
+  const T = r.body.token; const P = (id, body) => api('PUT', '/api/data/rorders/' + id, T, body); const get = async (id) => (await api('GET', '/api/data/rorders', T)).body.docs.find((d) => d.id === id);
+  const beer = { menuId: 'mb', name: 'Beer', qty: 2, price: 1000, station: 'bar' }, fish = { menuId: 'mf', name: 'Fish', qty: 1, price: 6000, station: 'kitchen' };
+  assert.equal((await P('n1', { tabId: 'x', status: 'new', no: '451', lines: [beer, fish] })).status, 200);
+  let o = await get('n1'); assert.deepEqual(o.nos, { bar: '001', kitchen: '001' }, 'drinks #001 and food #001 — the phone\'s number is ignored');
+  assert.equal(KC.orderNoText(o), 'Bar #001 · Kitchen #001'); assert.equal(KC.orderNoText(o, 'bar'), '#001'); assert.equal(KC.orderNoText(o, 'kitchen'), '#001');
+  await P('n2', { tabId: 'x', status: 'new', lines: [fish] }); await P('n3', { tabId: 'x', status: 'new', lines: [beer] });
+  assert.deepEqual((await get('n2')).nos, { kitchen: '002' }, 'food only: the next food number'); assert.deepEqual((await get('n3')).nos, { bar: '002' }, 'drinks only: the next drinks number');
+  await P('n1', Object.assign({}, o, { status: 'accepted', nos: { bar: '999' }, no: '999' })); o = await get('n1');
+  assert.deepEqual(o.nos, { bar: '001', kitchen: '001' }, 'saving the order again never changes its numbers'); assert.equal(o.status, 'accepted');
+  // the first business (a bar) kept counting on its own
+  const mine = (await api('GET', '/api/data/rorders', S.o)).body.docs.filter((d) => d.nos && d.nos.bar).map((d) => d.nos.bar).sort();
+  assert.ok(mine.includes('001') && !mine.some((n) => n > '010'), 'each business has its own numbers: ' + mine.join(','));
 });

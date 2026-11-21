@@ -652,7 +652,7 @@
     (raw.rorders || []).forEach((o) => {
       if (o.status !== 'served' || !o.servedAt) return; const t = at(null, o.servedAt); const tab = tabs.get(o.tabId) || {};
       const by = {}; (o.lines || []).forEach((l) => { const m = menu.get(l.menuId); (m && m.uses || []).forEach((u) => { if (num(u.qty) > 0) { const x = (by[u.productId] = by[u.productId] || { q: 0, what: [] }); x.q += num(u.qty) * num(l.qty); x.what.push(num(l.qty) + ' × ' + (l.name || m.name)); } }); });
-      Object.entries(by).forEach(([pid, x]) => push(Object.assign({}, t, { id: 'srv:' + o.id + ':' + pid, type: 'served', dir: -1, productId: pid, qty: Math.round(x.q * 10000) / 10000, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: o.servedLoc || tab.locationId || 'main', by: o.servedBy || '', ref: [o.tableLabel ? (o.tableLabel === 'Counter' ? 'Counter' : 'Table ' + o.tableLabel) : '', o.no ? 'ticket #' + o.no : ''].filter(Boolean).join(' · '), refId: o.id, notes: x.what.join(', '), bill: o.paid || tab.status === 'paid' ? 'paid' : tab.status === 'open' ? 'open' : '' })));
+      Object.entries(by).forEach(([pid, x]) => push(Object.assign({}, t, { id: 'srv:' + o.id + ':' + pid, type: 'served', dir: -1, productId: pid, qty: Math.round(x.q * 10000) / 10000, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: o.servedLoc || tab.locationId || 'main', by: o.servedBy || '', ref: [o.tableLabel ? (o.tableLabel === 'Counter' ? 'Counter' : 'Table ' + o.tableLabel) : '', orderNoText(o) ? 'order ' + orderNoText(o) : ''].filter(Boolean).join(' · '), refId: o.id, notes: x.what.join(', '), bill: o.paid || tab.status === 'paid' ? 'paid' : tab.status === 'open' ? 'open' : '' })));
     });
     // corrections and losses
     (raw.adjustments || []).forEach((a) => {
@@ -674,6 +674,14 @@
     rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : (ORDER[a.type] - ORDER[b.type]) || (a.id < b.id ? -1 : 1)));
     const bal = {}; rows.forEach((r) => { r.before = bal[r.productId] || 0; r.after = Math.round((r.before + r.dir * num(r.qty)) * 10000) / 10000; bal[r.productId] = r.after; r.value = num(r.qty) * num(r.unitCost); });
     return rows;
+  }
+  /** an order's number for people: one station "#004"; both "Bar #004 · Kitchen #002"; for one station's screen, its own number */
+  function orderNoText(o, st) {
+    const n = (o && o.nos) || {}; const ks = ['bar', 'kitchen'].filter((k) => n[k]);
+    if (st) return n[st] ? '#' + n[st] : o && o.no ? '#' + o.no : '';
+    if (!ks.length) return o && o.no ? '#' + o.no : '';
+    if (ks.length === 1) return '#' + n[ks[0]];
+    return ks.map((k) => (k === 'bar' ? 'Bar' : 'Kitchen') + ' #' + n[k]).join(' · ');
   }
   const MOVE_TYPES = [
     { k: 'purchase', label: 'Purchase', dir: 1 }, { k: 'served', label: 'Served', dir: -1 }, { k: 'sale', label: 'Sale', dir: -1 }, { k: 'return', label: 'Return (in)', dir: 1 },
@@ -1373,6 +1381,6 @@
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
     PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
-    servedUnpaid, stockMovements, MOVE_TYPES, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
+    servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

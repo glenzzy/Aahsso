@@ -92,7 +92,7 @@
     const st = S.status; const calls = callsHtml();
     if (!st || !st.orders || !st.orders.length) return st && st.open ? calls : '';
     return '<div class="m-card"><div class="m-ln" style="padding-top:0"><h2 style="margin:0">Your orders</h2>' + (st.total ? '<span class="m-muted">Bill so far: <b style="color:var(--ink)">' + money(st.total) + '</b></span>' : '') + '</div>' +
-      st.orders.map((o) => '<div class="m-ln"><div class="grow"><div>' + o.lines.map((l) => l.qty + '× ' + esc(l.name)).join(', ') + '</div><div class="m-muted">#' + esc(o.no) + (o.reason ? ' · <span style="color:var(--bad)">' + esc(o.reason) + '</span>' : '') + '</div></div><span class="m-st ' + esc(o.status) + '">' + esc(LBL[o.status] || o.status) + '</span></div>').join('') +
+      st.orders.map((o) => '<div class="m-ln"><div class="grow"><div>' + o.lines.map((l) => l.qty + '× ' + esc(l.name)).join(', ') + '</div><div class="m-muted">' + esc(o.no) + (o.reason ? ' · <span style="color:var(--bad)">' + esc(o.reason) + '</span>' : '') + '</div></div><span class="m-st ' + esc(o.status) + '">' + esc(LBL[o.status] || o.status) + '</span></div>').join('') +
       (st.billAsked ? '<div class="m-muted" style="color:var(--ok);margin-top:6px">Your waiter is bringing the bill.</div>' : '') + '</div>' + calls;
   }
 
@@ -171,7 +171,7 @@
     store.set('aahsso-menu-name', name); S.sending = true; btn.disabled = true; btn.textContent = 'Sending…';
     try {
       const r = await req('POST', '/orders', { ...tbody(), name, note: S.note, device: DEV, items: lines().map((l) => ({ menuId: l.it.id, qty: l.q })) });
-      S.cart = {}; S.note = ''; save(); S.sending = false; closeSheets(); toast('Order #' + r.no + ' sent — your waiter is on it');
+      S.cart = {}; S.note = ''; save(); S.sending = false; closeSheets(); toast('Order ' + (r.no || '') + ' sent — your waiter is on it');
       S.status = await status().catch(() => S.status); draw(); if (!wide()) window.scrollTo(0, 0);
     } catch (e) { S.sending = false; btn.disabled = false; btn.textContent = 'Send order · ' + money(total()); err(e.message); }
   }
