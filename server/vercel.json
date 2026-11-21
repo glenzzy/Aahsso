@@ -6,7 +6,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 60,
-      "includeFiles": "{public/compute.js,admin/**}",
+      "includeFiles": "{public/compute.js,admin/**,data/**}",
       "excludeFiles": "{.env,.env.*,.vercel/**,test/**}"
     }
   },

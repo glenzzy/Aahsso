@@ -251,9 +251,17 @@ billing.mountTenant(app, { auth, wrap, err, canU, tx, momo });
 
 /* ---------- Aahsso Bar & Resto: the drinks catalog (seeded by `npm run seed:drinks`, migration 028) ---------- */
 let drinksCache = null; // { at, etag, body } — the list changes only when it is seeded again
+let drinksSeeding = null;
+/** a new database (local, Neon, a fresh deploy) has an empty catalog: fill it once from server/data/drinks-cm.json */
+async function drinksEnsure(market) {
+  if ((await pool.query('SELECT 1 FROM drinks_catalog WHERE market=$1 LIMIT 1', [market])).rowCount) return;
+  if (!drinksSeeding) drinksSeeding = require('./drinks-seed').seedDrinks({ log: (m) => console.log('[drinks]', m) }).finally(() => { drinksSeeding = null; });
+  await drinksSeeding;
+}
 app.get('/api/drinks', auth, wrap(async (req, res) => {
   const market = 'CM';
   if (!drinksCache || Date.now() - drinksCache.at > 10 * 60e3) {
+    try { await drinksEnsure(market); } catch (e) { console.error('[drinks] could not fill the catalog:', e.message); }
     const [rows, meta] = await Promise.all([
       pool.query('SELECT * FROM drinks_catalog WHERE market=$1 AND active ORDER BY sort, name', [market]),
       pool.query('SELECT key, value, updated_at FROM drinks_catalog_meta WHERE market=$1', [market]),
@@ -270,7 +278,8 @@ app.get('/api/drinks', auth, wrap(async (req, res) => {
     const categories = cats.map((c) => ({ name: c, subs: [...new Set(items.filter((i) => i.cat === c && i.sub).map((i) => i.sub))], count: items.filter((i) => i.cat === c).length })).filter((c) => c.count);
     const body = JSON.stringify({ title: m.title || 'Drinks catalog', country: market, currency: m.currency || 'XAF', version: m.version || null, notes: m.notes || [], categories, packaging: m.packaging || [], priceTiers: m.priceTiers || [], sweetness: m.sweetness || [], confidence: m.confidence || [], suppliers: m.suppliers || [], items });
     const last = [rows.rows.reduce((a, r) => Math.max(a, +new Date(r.updated_at)), 0), meta.rows.reduce((a, r) => Math.max(a, +new Date(r.updated_at)), 0)].join('-');
-    drinksCache = { at: Date.now(), etag: '"dk-' + items.length + '-' + last + '"', body };
+    drinksCache = { at: items.length ? Date.now() : 0, // an empty list is asked again next time
+      etag: '"dk-' + items.length + '-' + last + '"', body };
   }
   res.set('Cache-Control', 'private, no-cache'); res.set('ETag', drinksCache.etag);
   if (req.headers['if-none-match'] === drinksCache.etag) return res.status(304).end();
