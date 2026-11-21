@@ -248,6 +248,34 @@ app.post('/api/support', auth, supportLimiter, wrap(async (req, res) => {
   res.json({ ok: true, replyTo: reply || '', ticket: tk.id, emailed: r.status }); // the ticket is saved even if the email failed
 }));
 billing.mountTenant(app, { auth, wrap, err, canU, tx, momo });
+
+/* ---------- Aahsso Bar & Resto: the drinks catalog (seeded by `npm run seed:drinks`, migration 028) ---------- */
+let drinksCache = null; // { at, etag, body } — the list changes only when it is seeded again
+app.get('/api/drinks', auth, wrap(async (req, res) => {
+  const market = 'CM';
+  if (!drinksCache || Date.now() - drinksCache.at > 10 * 60e3) {
+    const [rows, meta] = await Promise.all([
+      pool.query('SELECT * FROM drinks_catalog WHERE market=$1 AND active ORDER BY sort, name', [market]),
+      pool.query('SELECT key, value, updated_at FROM drinks_catalog_meta WHERE market=$1', [market]),
+    ]);
+    const m = Object.fromEntries(meta.rows.map((r) => [r.key, r.value]));
+    const n = (v) => (v === null || v === undefined ? undefined : Number(v));
+    const items = rows.rows.map((r) => {
+      const x = { sku: r.sku, name: r.name, cat: r.category, sub: r.subcategory, brand: r.brand, variant: r.variant, ml: r.volume_ml, pack: r.packaging, returnable: r.returnable || undefined, perCase: r.units_per_case, abv: n(r.abv),
+        country: r.origin_country, region: r.region, grape: r.grape_style, sweetness: r.sweetness, producer: r.producer, supplier: r.supplier, tier: r.price_tier, cost: r.cost_xaf, priceBar: r.price_bar_xaf, priceLounge: r.price_lounge_xaf,
+        byGlass: r.by_glass || undefined, pourMl: r.pour_ml, pours: n(r.pours_per_unit), barcode: r.barcode, confidence: r.confidence, notes: r.notes };
+      Object.keys(x).forEach((k) => (x[k] === null || x[k] === undefined) && delete x[k]); return x;
+    });
+    const cats = (m.categories || []).map((c) => c.name).concat([...new Set(items.map((i) => i.cat))].filter((c) => !(m.categories || []).some((x) => x.name === c)));
+    const categories = cats.map((c) => ({ name: c, subs: [...new Set(items.filter((i) => i.cat === c && i.sub).map((i) => i.sub))], count: items.filter((i) => i.cat === c).length })).filter((c) => c.count);
+    const body = JSON.stringify({ title: m.title || 'Drinks catalog', country: market, currency: m.currency || 'XAF', version: m.version || null, notes: m.notes || [], categories, packaging: m.packaging || [], priceTiers: m.priceTiers || [], sweetness: m.sweetness || [], confidence: m.confidence || [], suppliers: m.suppliers || [], items });
+    const last = [rows.rows.reduce((a, r) => Math.max(a, +new Date(r.updated_at)), 0), meta.rows.reduce((a, r) => Math.max(a, +new Date(r.updated_at)), 0)].join('-');
+    drinksCache = { at: Date.now(), etag: '"dk-' + items.length + '-' + last + '"', body };
+  }
+  res.set('Cache-Control', 'private, no-cache'); res.set('ETag', drinksCache.etag);
+  if (req.headers['if-none-match'] === drinksCache.etag) return res.status(304).end();
+  res.type('json').send(drinksCache.body);
+}));
 billing.onVenue = (tid) => broadcast(tid, 'settings', 'main');
 momo.onSettled = (tid, p) => broadcast(tid, 'billing', p.id); // a mobile money payment was approved / declined: the Pay window updates at once // a Bar & Resto plan changed the venue: open apps reload settings
 momo.mount(app, { auth, wrap, err, guard: (req, res, next) => (['owner', 'admin'].includes(req.user.role) || canU(req.user, 'settings') ? next() : err(res, 403, 'Only the owner or an admin can manage billing')) });

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Builds public/drinks-cm.json (the Bar & Resto drinks catalog) from docs/aahsso_beverage_catalog_cameroon.xlsx.
+"""Builds server/data/drinks-cm.json (the Bar & Resto drinks catalog) from docs/aahsso_beverage_catalog_cameroon.xlsx.
 Standard library only. RGB (returnable glass bottle) becomes "Bottle", PET becomes "Plastic".
-  python3 server/scripts/build-drinks-catalog.py            then: cd server && npm run sync-public
+  python3 server/scripts/build-drinks-catalog.py            then: cd server && npm run seed:drinks
 """
 import zipfile, re, sys, json, xml.etree.ElementTree as ET
 N={'m':'http://schemas.openxmlformats.org/spreadsheetml/2006/main','r':'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
@@ -31,7 +31,7 @@ def read(path):
 import os
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
 src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'docs', 'aahsso_beverage_catalog_cameroon.xlsx')
-out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, 'public', 'drinks-cm.json')
+out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, 'server', 'data', 'drinks-cm.json')
 d = read(src)
 PACK = {'RGB': 'Bottle', 'PET': 'Plastic'}
 def fix(t):  # RGB = returnable glass bottle → Bottle, PET = plastic → Plastic

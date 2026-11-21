@@ -1,13 +1,16 @@
-/* Aahsso Bar & Resto — the drinks catalog (Cameroon): 341 beers, spirits, wines, soft drinks… with their details.
- * Data: drinks-cm.json (made from docs/aahsso_beverage_catalog_cameroon.xlsx). Bars pick from it in Stock, Menu and
+/* Aahsso Bar & Resto — the drinks catalog (Cameroon): beers, spirits, wines, soft drinks… with their details.
+ * Data: the server's drinks_catalog table (GET /api/drinks; seeded with `npm run seed:drinks`), kept on the phone for offline use. Bars pick from it in Stock, Menu and
  * New purchase; anything missing they type themselves. Prices in it are suggestions only — each bar sets its own. */
 const Drinks = (() => {
   let data = null, loading = null;
   const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); // Mützig = mutzig, D'USSÉ = d usse
   async function load() {
     if (data) return data;
-    if (!loading) loading = fetch('drinks-cm.json').then((r) => { if (!r.ok) throw new Error('The drinks list could not be loaded — check the internet'); return r.json(); })
-      .then((d) => { d.items.forEach((x) => { x._q = norm([x.name, x.brand, x.variant, x.sub, x.cat, x.country, x.grape].join(' ')); x._n = norm(x.name); }); data = d; return d; })
+    const KEY = 'aahsso-drinks';
+    if (!loading) loading = K.store.req('GET', '/api/drinks')
+      .then((d) => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { /* full: just not offline */ } return d; })
+      .catch((e) => { let d = null; try { d = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (x) { } if (d && d.items) return d; throw new Error('The drinks list could not be loaded — check the internet'); })
+      .then((d) => { if (!d.items || !d.items.length) throw new Error('The drinks list is empty for now. Add your drinks yourself, or ask the Aahsso team.'); d.items.forEach((x) => { x._q = norm([x.name, x.brand, x.variant, x.sub, x.cat, x.country, x.grape].join(' ')); x._n = norm(x.name); }); data = d; return d; })
       .catch((e) => { loading = null; throw e; });
     return loading;
   }
@@ -69,7 +72,7 @@ const Drinks = (() => {
         '<h3 class="mt">Packaging</h3><div class="dk-legend">' + data.packaging.map((p) => '<div><b>' + esc(p.key) + '</b><span>' + esc(p.desc) + '</span></div>').join('') + '</div>' +
         '<h3 class="mt">Reliability</h3><div class="dk-legend">' + data.confidence.map((p) => '<div><b>' + esc(p.key) + '</b><span>' + esc(p.desc) + '</span></div>').join('') + '</div>' +
         '<h3 class="mt">Good to know</h3><div class="dk-legend">' + n.map((x) => '<div><b>' + esc(x.title) + '</b><span>' + esc(x.text) + '</span></div>').join('') + '</div>' +
-        '<h3 class="mt">Usual suppliers</h3><div class="dk-legend">' + data.suppliers.map((s) => '<div><b>' + esc(s.name) + '</b><span>' + esc([s.type, s.products, s.notes].filter(Boolean).join(' — ')) + '</span></div>').join('') + '</div>',
+        (data.suppliers.length ? '<h3 class="mt">Usual suppliers</h3><div class="dk-legend">' + data.suppliers.map((s) => '<div><b>' + esc(s.name) + '</b><span>' + esc([s.type, s.products, s.notes].filter(Boolean).join(' — ')) + '</span></div>').join('') + '</div>' : ''),
       foot: '<button class="btn pri grow" data-a="sheetClose">Close</button>' });
   }
   /**

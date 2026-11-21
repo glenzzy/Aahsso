@@ -14,6 +14,8 @@
     "test:admin": "node --test test/admin-api.test.js test/features-api.test.js",
     "admin": "node scripts/admin.js",
     "seed-demo": "node scripts/seed-demo.js",
+    "seed:drinks": "node scripts/seed-drinks.js",
+    "build:drinks": "python3 scripts/build-drinks-catalog.py",
     "sync-public": "node scripts/sync-public.js",
     "deploy:vercel": "node scripts/sync-public.js && vercel deploy --prod",
     "test:fapshi": "node --test test/fapshi-api.test.js"
