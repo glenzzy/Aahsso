@@ -243,7 +243,7 @@ A.tkReject = async (el) => {
   $('#rjGo', sh).onclick = async () => { const v = formVals(sh); await setOrder(o, { status: 'rejected', rejectReason: [v.why, v.whyMore].filter(Boolean).join(' — '), rejectedBy: K.me.name || '', rejectedAt: new Date().toISOString() }); closeSheet(); };
 };
 A.tkReady = async (el) => { const o = rOrder(el.dataset.id); if (o) await setOrder(o, { status: 'ready', readyAt: new Date().toISOString() }); };
-A.tkServed = async (el) => { const o = rOrder(el.dataset.id); if (o) await setOrder(o, { status: 'served', servedAt: new Date().toISOString(), servedBy: K.me.name || '', servedById: K.me.id, waiterId: o.waiterId || K.me.id }); };
+A.tkServed = async (el) => { const o = rOrder(el.dataset.id); if (o) await setOrder(o, { status: 'served', servedLoc: K.loc || 'main', servedAt: new Date().toISOString(), servedBy: K.me.name || '', servedById: K.me.id, waiterId: o.waiterId || K.me.id }); };
 
 /* ================= ORDERS (tickets) ================= */
 VIEWS.tickets = {
@@ -409,7 +409,7 @@ async function closeTabIfDone(tabId, saleId, saved) {
   const tab = (K.raw.tabs || []).find((x) => x.id === tabId); if (!tab || tab.status !== 'open') return;
   if (!dueLines(tab).length && tabOwing(tab, saved) < 0.5) {
     await save('tabs', Object.assign({}, tab, { status: 'paid', closedAt: new Date().toISOString(), closedBy: K.me.name || '' }));
-    (K.raw.rorders || []).filter((o) => o.tabId === tabId && ['new', 'accepted', 'ready'].includes(o.status)).forEach((o) => save('rorders', Object.assign({}, o, { status: o.status === 'new' ? 'rejected' : 'served', servedAt: o.servedAt || new Date().toISOString(), rejectReason: o.status === 'new' ? 'Bill closed' : o.rejectReason })));
+    (K.raw.rorders || []).filter((o) => o.tabId === tabId && ['new', 'accepted', 'ready'].includes(o.status)).forEach((o) => save('rorders', Object.assign({}, o, { status: o.status === 'new' ? 'rejected' : 'served', servedLoc: o.servedLoc || K.loc || 'main', servedBy: o.servedBy || K.me.name || '', servedAt: o.servedAt || new Date().toISOString(), rejectReason: o.status === 'new' ? 'Bill closed' : o.rejectReason })));
     const t = (K.raw.tables || []).find((x) => x.id === tab.tableId); if (t && t.call) { const c = Object.assign({}, t); delete c.call; save('tables', c); }
     while (K.sheets.length) closeSheet(); toast('Paid · ' + (tab.tableLabel || 'counter') + ' is free'); scheduleRender();
     if (saleId && typeof openSale === 'function') setTimeout(() => openSale(saleId), 300); // receipt: print or WhatsApp

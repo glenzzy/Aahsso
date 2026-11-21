@@ -23,6 +23,11 @@ function stockList() {
 }
 VIEWS.stock = {
   render() {
+    const tabs = '<div class="seg st-tabs mb" role="tablist" aria-label="Stock"><button type="button" role="tab" aria-selected="' + (K.ui.stockTab !== 'moves') + '"' + (K.ui.stockTab !== 'moves' ? ' class="on"' : '') + ' data-a="stTab" data-v="items">' + ic('stock', 'sm') + 'Items</button><button type="button" role="tab" aria-selected="' + (K.ui.stockTab === 'moves') + '"' + (K.ui.stockTab === 'moves' ? ' class="on"' : '') + ' data-a="stTab" data-v="moves">' + ic('chart', 'sm') + 'Movements</button></div>';
+    if (K.ui.stockTab === 'moves') return tabs + movesView();
+    return tabs + VIEWS.stock.items();
+  },
+  items() {
     const F_ = isStore() ? [['all', 'In stock'], ['low', 'Low stock'], ['out', 'Sold out'], ['every', 'All items']] : [['all', 'In stock'], ['transit', 'Incoming'], ['low', 'Low stock'], ['expiring', 'Expiring'], ['out', 'Sold out'], ['every', 'All items'], ['archived', 'Archived']].concat(K.raw.products.some((p) => (K.C.prodX[p.id] || {}).oversold > 0) ? [['problems', '⚠ Oversold']] : []);
     const list = stockList();
     const tot = K.raw.products.reduce((a, p) => { const x = K.C.prodX[p.id]; a.u += x.available; a.c += x.stockValue; a.r += x.retailValue; a.t += x.transit + x.us; return a; }, { u: 0, c: 0, r: 0, t: 0 });
@@ -81,6 +86,84 @@ function productExpand(p) {
     lots.map((l) => { const lx = K.C.lotX[l.id]; return '<tr><td class="nowrap">' + fmtDate(l.purchaseDate) + '</td><td>' + esc(l.vendor || l.sourceType || '') + '</td><td>' + (isStore() ? '' : esc(shipName(l.shipmentId)) + '<br>') + lotStageBadge(l) + (l.reservedFor ? '<br><span class="badge acc">For ' + esc(custName(l.reservedFor)) + '</span>' : '') + '</td><td class="r">' + l.qty + (lx.received < num(l.qty) ? '<div class="tiny" style="color:var(--bad)">−' + (num(l.qty) - lx.received) + ' lost</div>' : '') + '</td><td class="r b">' + (l.reservedFor ? lx.clientAvail : lx.stage === 'warehouse' ? lx.available : '—') + '</td>' + (seeCost() ? '<td class="r money">' + money(l.unitCost, l.currency) + '</td><td class="r money">' + fmt(lx.landedUnit) + '</td>' : '') + '<td class="nowrap">' + (l.expiry ? fmtDate(l.expiry) : '—') + '</td></tr>'; }).join('') +
     '</tbody></table></div><div class="row wrap mt">' + (can('stockEdit') ? '<button class="btn sm" data-a="editProduct" data-id="' + p.id + '">' + ic('edit', 'sm') + 'Edit / price</button>' : '') + (can('lossReport') || can('stockEdit') ? '<button class="btn sm" data-a="lossNew" data-id="' + p.id + '">' + ic('alert', 'sm') + 'Record loss</button>' : '') + (can('stockEdit') ? '<button class="btn sm" data-a="adjustStock" data-id="' + p.id + '">' + ic('check', 'sm') + 'Correct count</button>' : '') + '<button class="btn sm" data-a="itemHistory" data-id="' + p.id + '">' + ic('clock', 'sm') + 'History</button><button class="btn sm" data-a="labelOne" data-id="' + p.id + '">' + ic('barcode', 'sm') + 'Label</button>' + (x.available > 0 ? '<button class="btn sm pri" data-a="sellThis" data-id="' + p.id + '">' + ic('sell', 'sm') + 'Sell</button>' : '') + '</div></div>';
 }
+A.stTab = (el) => { K.ui.stockTab = el.dataset.v; render(true); };
+
+/* ---------- Stock movements: every bottle in and out, with the quantity before and after (like a ledger) ---------- */
+const MV_PAGE = 50;
+const mvState = () => (K.ui.mv = K.ui.mv || { preset: '7d', from: '', to: '', type: '', q: '', page: 0 });
+function mvRange(st) {
+  const t = todayStr(); if (st.preset === 'custom') return [st.from || '0000-00-00', st.to || '9999-12-31'];
+  if (st.preset === 'today') return [t, t]; if (st.preset === '7d') return [KC.addDays(t, -6), t]; if (st.preset === '30d') return [KC.addDays(t, -29), t];
+  if (st.preset === 'month') return [t.slice(0, 8) + '01', t]; return ['0000-00-00', '9999-12-31'];
+}
+function mvAll() { if (K._mvC !== K.C) { K._mvC = K.C; K._mvRows = KC.stockMovements(K.raw, K.C); } return K._mvRows; }
+function mvRows() {
+  const st = mvState(); const [a, b] = mvRange(st);
+  const norm = (s) => (typeof Drinks !== 'undefined' ? Drinks.norm(s) : String(s || '').toLowerCase()); const words = norm(st.q).split(' ').filter(Boolean); const nm = (pid) => (byId('products', pid) || {}).name || '';
+  return mvAll().filter((r) => r.date >= a && r.date <= b && (!st.type || (st.type === 'in' ? r.dir > 0 : st.type === 'out' ? r.dir < 0 : r.type === st.type)) && (!words.length || words.every((w) => norm(nm(r.productId) + ' ' + r.ref + ' ' + r.by).includes(w))));
+}
+const mvLabel = (r) => (KC.MOVE_TYPES.find((t) => t.k === r.type) || { label: r.type }).label;
+const mvQty = (n) => { const v = Math.round(num(n) * 100) / 100; return fmt(v); };
+const mvUnit = (pid, n) => { const u = (byId('products', pid) || {}).unit || 'piece'; return Math.abs(n) === 1 ? u : plural2(u); };
+function movesView() {
+  const st = mvState(); const list = mvRows(); const c = seeCost(); const many = allLocs().length > 1;
+  const inR = list.filter((r) => r.dir > 0), outR = list.filter((r) => r.dir < 0);
+  const sum = (rs, k) => rs.reduce((x, r) => x + num(r[k]), 0);
+  const pages = Math.max(1, Math.ceil(list.length / MV_PAGE)); const page = Math.min(st.page, pages - 1);
+  const show = list.slice().reverse().slice(page * MV_PAGE, page * MV_PAGE + MV_PAGE); // newest first
+  const P = [['today', 'Today'], ['7d', '7 days'], ['30d', '30 days'], ['month', 'This month'], ['all', 'All'], ['custom', 'Dates…']];
+  const types = [['', 'All movements'], ['in', 'Stock in (+)'], ['out', 'Stock out (−)']].concat(KC.MOVE_TYPES.filter((t) => mvAll().some((r) => r.type === t.k)).map((t) => [t.k, t.label]));
+  const [a, b] = mvRange(st);
+  return '<div class="kpis mb">' + kpi('Stock in', '+' + mvQty(sum(inR, 'qty')), inR.length + ' movement' + (inR.length === 1 ? '' : 's') + (c ? ' · ' + F(sum(inR, 'value')) : ''), true) + kpi('Stock out', '−' + mvQty(sum(outR, 'qty')), outR.length + ' movement' + (outR.length === 1 ? '' : 's') + (c ? ' · ' + F(sum(outR, 'value')) : '')) +
+      kpi('Net change', (sum(inR, 'qty') - sum(outR, 'qty') >= 0 ? '+' : '−') + mvQty(Math.abs(sum(inR, 'qty') - sum(outR, 'qty'))), st.preset === 'all' ? 'since the start' : esc(fmtDate(a)) + (a !== b ? ' → ' + esc(fmtDate(b)) : '')) + '</div>' +
+    '<div class="mv-bar mb">' + (can('stockEdit') || can('lossReport') || can('purchases') ? '<button class="btn pri" data-a="mvRecord">' + ic('plus') + 'Record movement</button>' : '') +
+      '<div class="chips mv-pre">' + P.map(([k, l]) => '<button type="button" class="chip' + (st.preset === k ? ' on' : '') + '" data-a="mvPreset" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
+      (can('export') ? '<button class="btn ghost" data-a="mvXlsx" title="Download as Excel">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
+    (st.preset === 'custom' ? '<div class="row wrap mb mv-dates"><label class="f"><span class="lbl">From</span><input class="inp" type="date" value="' + esc(st.from) + '" data-c="mvFrom"></label><label class="f"><span class="lbl">To</span><input class="inp" type="date" value="' + esc(st.to) + '" data-c="mvTo"></label></div>' : '') +
+    '<div class="row mb mv-f"><div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search item, table, supplier or person" value="' + esc(st.q) + '" data-i="mvQ"></div><select class="inp" data-c="mvType" aria-label="Movement type">' + types.map(([k, l]) => '<option value="' + k + '"' + (st.type === k ? ' selected' : '') + '>' + esc(l) + '</option>').join('') + '</select></div>' +
+    (show.length ? '<div class="card"><div class="tw"><table class="t mv-t"><thead><tr><th>Date</th><th>Item</th><th>Movement</th><th class="r">Before</th><th class="r">Moved</th><th class="r">After</th>' + (c ? '<th class="r">Unit cost</th><th class="r">Value</th>' : '') + (many ? '<th>Location</th>' : '') + '<th>By</th><th>Reference</th></tr></thead><tbody>' +
+      show.map((r) => { const p = byId('products', r.productId) || { name: '?' };
+        return '<tr class="mv-' + r.type + '"><td class="nowrap" data-l="Date">' + esc(fmtDate(r.date)) + (r.time ? '<div class="tiny muted">' + esc(new Date(r.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) + '</div>' : '') + '</td>' +
+          '<td class="mv-item" data-l="Item"><button type="button" class="linkish mv-name" data-a="itemHistory" data-id="' + esc(r.productId) + '">' + esc(p.name) + '</button></td>' +
+          '<td data-l="Movement"><span class="mv-chip mv-c-' + r.type + '">' + esc(mvLabel(r)) + '</span></td>' +
+          '<td class="r tnum" data-l="Before">' + mvQty(r.before) + '</td>' +
+          '<td class="r tnum mv-q ' + (r.dir > 0 ? 'in' : 'out') + '" data-l="Moved">' + (r.dir > 0 ? '+' : '−') + mvQty(r.qty) + ' <span class="tiny muted">' + esc(mvUnit(r.productId, r.qty)) + '</span></td>' +
+          '<td class="r tnum b" data-l="After" data-before="' + mvQty(r.before) + '">' + mvQty(r.after) + '</td>' +
+          (c ? '<td class="r tnum" data-l="Unit cost">' + (r.unitCost ? fmt(Math.round(r.unitCost)) : '—') + '</td><td class="r tnum' + (r.dir < 0 ? ' mv-neg' : '') + '" data-l="Value">' + (r.value ? (r.dir < 0 ? '−' : '') + fmt(Math.round(r.value)) : '—') + '</td>' : '') +
+          (many ? '<td data-l="Location">' + esc(locName(r.loc)) + (r.to ? ' → ' + esc(locName(r.to)) : r.from ? ' ← ' + esc(locName(r.from)) : '') + '</td>' : '') +
+          '<td data-l="By">' + esc(r.by || '—') + '</td><td class="mv-ref" data-l="Reference">' + esc(r.ref || '—') + (r.notes ? '<div class="tiny muted" title="' + esc(r.notes) + '">' + esc(r.notes.length > 70 ? r.notes.slice(0, 68) + '…' : r.notes) + '</div>' : '') + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' + (pages > 1 ? '<div class="mv-pages"><span class="small muted">Page <b>' + (page + 1) + '</b> of <b>' + pages + '</b> · ' + list.length + ' movements</span><span class="row gap6"><button class="btn sm" data-a="mvPage" data-v="' + (page - 1) + '"' + (page ? '' : ' disabled') + '>‹ Newer</button><button class="btn sm" data-a="mvPage" data-v="' + (page + 1) + '"' + (page < pages - 1 ? '' : ' disabled') + '>Older ›</button></span></div>' : '') + '</div>'
+      : '<div class="card empty"><div class="big">📦</div><b>No stock movements' + (st.q || st.type || st.preset !== 'all' ? ' for these filters' : ' yet') + '</b><div class="small muted mt">' + (st.q || st.type || st.preset !== 'all' ? 'Try another period or <button type="button" class="linkish" data-a="mvClear">clear the filters</button>.' : 'Purchases, served orders, sales, losses and counts appear here as they happen.') + '</div></div>') +
+    '<p class="hint mt">Stock goes down when an order is served and up when a purchase is saved. “Before” and “After” are the item\'s total stock' + (many ? ' across all locations' : '') + '.</p>';
+}
+A.mvPreset = (el) => { const st = mvState(); st.preset = el.dataset.v; st.page = 0; if (st.preset === 'custom' && !st.from) { const [a, b] = mvRange({ preset: '30d' }); st.from = a; st.to = b; } render(true); };
+I.mvQ = (el) => { const st = mvState(); st.q = el.value; st.page = 0; clearTimeout(I._mv); I._mv = setTimeout(() => { render(true); const i = document.querySelector('[data-i=mvQ]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 220); };
+A.mvPage = (el) => { mvState().page = Math.max(0, +el.dataset.v); render(true); };
+A.mvClear = () => { K.ui.mv = { preset: 'all', from: '', to: '', type: '', q: '', page: 0 }; render(true); };
+CH.mvType = (el) => { const st = mvState(); st.type = el.value; st.page = 0; render(true); };
+CH.mvFrom = (el) => { const st = mvState(); st.from = el.value; st.page = 0; render(true); };
+CH.mvTo = (el) => { const st = mvState(); st.to = el.value; st.page = 0; render(true); };
+A.mvXlsx = () => { const c = seeCost(); xlsxDownload('Stock-movements-' + todayStr() + '.xlsx', { Movements: mvRows().slice().reverse().map((r) => Object.assign({ Date: r.date, Time: r.time ? new Date(r.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '', Item: (byId('products', r.productId) || {}).name || '', Movement: mvLabel(r), Before: r.before, Moved: r.dir * r.qty, After: r.after, Unit: (byId('products', r.productId) || {}).unit || 'piece' },
+  c ? { ['Unit cost (' + baseSym() + ')']: Math.round(r.unitCost || 0), ['Value (' + baseSym() + ')']: Math.round(r.dir * (r.value || 0)) } : {}, { Location: locName(r.loc) + (r.to ? ' → ' + locName(r.to) : ''), By: r.by, Reference: r.ref, Notes: r.notes })) }); };
+/** Record a movement: each kind opens the flow that already handles it (loss with approval, count, transfer, purchase) */
+A.mvRecord = () => {
+  const opt = (a, icon, t, h, ok) => (ok ? '<button type="button" class="mv-opt" data-a="' + a + '">' + ic(icon) + '<span><b>' + t + '</b><span class="hint">' + h + '</span></span>' + ic('chev', 'sm') + '</button>' : '');
+  openSheet({ title: 'Record a stock movement', body: '<div class="mv-opts">' +
+    opt('mvBuy', 'buy', 'Purchase', 'Stock bought — goes to Buy', can('purchases')) +
+    opt('mvLoss', 'alert', 'Loss / wastage', 'Broken, expired, stolen, given away… (with photo, a manager approves)', can('lossReport') || can('stockEdit')) +
+    opt('mvCount', 'check', 'Count correction', 'The shelf count differs from the system', can('stockEdit')) +
+    opt('mvMove', 'truck', 'Transfer', 'Move stock to another location', can('stockEdit') && allLocs().length > 1) +
+    '</div><p class="hint mt">Served orders and sales are recorded on their own.</p>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button>' });
+};
+A.mvBuy = () => { closeSheet(); location.hash = '#buy'; setTimeout(() => { if (typeof isResto === 'function' && isResto() && A.buyDrinks) A.buyDrinks(); else A.newPurchase(); }, 250); };
+A.mvLoss = (el) => { closeSheet(); A.lossNew(el); };
+A.mvMove = () => { closeSheet(); if (A.newTransfer) A.newTransfer(); };
+A.mvCount = () => {
+  closeSheet(); const prods = K.raw.products.filter((p) => !p.archived && (K.C.prodX[p.id] || {}).lotIds && K.C.prodX[p.id].lotIds.length).sort((a, b) => a.name.localeCompare(b.name));
+  if (!prods.length) return toast('Nothing in stock yet — buy something first', true);
+  const sh = openSheet({ title: 'Count correction · choose the item', body: field('Item', sel('mvP', [['', 'Choose…']].concat(prods.map((p) => [p.id, p.name + ' — ' + mvQty(K.C.prodX[p.id].available) + ' in stock'])), '')), foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="mvGo">Next</button>' });
+  $('#mvGo', sh).onclick = () => { const id = $('[name=mvP]', sh).value; if (!id) return toast('Choose the item', true); closeSheet(); A.adjustStock({ dataset: { id } }); };
+};
 A.stockFilter = (el) => { K.ui.stockFilter = el.dataset.v; render(true); };
 CH.stockCat = (el) => { K.ui.stockCat = el.value; render(true); };
 I.stockQ = (el) => { K.ui.stockQ = el.value; clearTimeout(I._st); I._st = setTimeout(() => dtRefresh('stockList'), 120); };
@@ -337,7 +420,7 @@ async function savePurchaseLines(h, lines) {
     if (l.photo) { try { r.p = Object.assign({}, r.p, { image: await storePhoto(l.photo) }); r.changed = true; } catch (e) { toast('Photo not saved: ' + e.message, true); } }
     if (r.isNew || r.changed) { await save('products', r.p); }
     const local = h.shipmentId === '__local' || h.sourceType === 'Local (Cameroon)';
-    await save('lots', { id: uid('l_'), productId: r.p.id, purchaseDate: l.purchaseDate || h.purchaseDate || todayStr(), sourceType: l.sourceType || h.sourceType, vendor: l.vendor || h.vendor || '', vendorPhone: h.vendorPhone || '', weightKg: num(l.weightKg) || null, poNumber: l.poNumber || h.poNumber || '', lotNumber: l.lotNumber || h.lotNumber || '', currency: h.currency || 'USD', regularPrice: l.regularPrice, unitCost: l.unitCost, unitTax: num(l.unitTax) || 0, qty: l.qty, expiry: l.expiry || '', condition: l.condition || 'New', working: l.working || 'Working', collected: h.puCollected !== 'no', shipmentId: local ? '' : (l.shipmentId || h.shipmentId || ''), inWarehouse: local, locationId: local ? K.loc : '', reservedFor: l.reservedFor || '', notes: l.notes || '', purchaseTxnId: h.purchaseTxnId || '' });
+    await save('lots', { id: uid('l_'), by: K.me.name || K.info.userLabel || '', productId: r.p.id, purchaseDate: l.purchaseDate || h.purchaseDate || todayStr(), sourceType: l.sourceType || h.sourceType, vendor: l.vendor || h.vendor || '', vendorPhone: h.vendorPhone || '', weightKg: num(l.weightKg) || null, poNumber: l.poNumber || h.poNumber || '', lotNumber: l.lotNumber || h.lotNumber || '', currency: h.currency || 'USD', regularPrice: l.regularPrice, unitCost: l.unitCost, unitTax: num(l.unitTax) || 0, qty: l.qty, expiry: l.expiry || '', condition: l.condition || 'New', working: l.working || 'Working', collected: h.puCollected !== 'no', shipmentId: local ? '' : (l.shipmentId || h.shipmentId || ''), inWarehouse: local, locationId: local ? K.loc : '', reservedFor: l.reservedFor || '', notes: l.notes || '', purchaseTxnId: h.purchaseTxnId || '' });
   }
 }
 A.editLot = (el) => {

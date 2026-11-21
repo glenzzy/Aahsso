@@ -441,3 +441,49 @@ test('editions: Aahsso Store never has Ship or Receive; everything else is up to
   const P = KC.permsWithFeatures(KC.permsFor({ role: 'manager', active: true }, {}), { ship: false, receive: false });
   assert.equal(P.containers, false); assert.equal(P.purchases, true);
 });
+
+/* ---------- Bar & Resto stock: served = off the shelf; the movement ledger ---------- */
+function bar() {
+  return {
+    settings: {}, products: [{ id: 'beer', name: '33 Export 650ml Bottle', unit: 'bottle' }, { id: 'rum', name: 'Rum 700ml' }],
+    lots: [{ id: 'L1', productId: 'beer', purchaseDate: '2026-11-20', createdAt: '2026-11-20T09:00:00.000Z', qty: 36, unitCost: 600, currency: 'XAF', inWarehouse: true, vendor: 'SABC Depot', by: 'Ama' },
+      { id: 'L2', productId: 'rum', purchaseDate: '2026-11-20', createdAt: '2026-11-20T09:05:00.000Z', qty: 2, unitCost: 8000, currency: 'XAF', inWarehouse: true }],
+    menu: [{ id: 'm33', name: '33 Export', price: 1000, uses: [{ productId: 'beer', qty: 1 }] }, { id: 'shot', name: 'Rum shot', price: 1500, uses: [{ productId: 'rum', qty: 0.04 }] }],
+    tabs: [{ id: 'T1', status: 'open', tableLabel: '4', saleIds: [] }],
+    rorders: [
+      { id: 'o1', no: '12', tabId: 'T1', tableLabel: '4', status: 'served', servedAt: '2026-11-21T19:00:00.000Z', servedBy: 'Bea', lines: [{ menuId: 'm33', name: '33 Export', qty: 3, price: 1000 }, { menuId: 'shot', name: 'Rum shot', qty: 5, price: 1500 }] },
+      { id: 'o2', no: '13', tabId: 'T1', tableLabel: '4', status: 'accepted', lines: [{ menuId: 'm33', name: '33 Export', qty: 2, price: 1000 }] },
+    ],
+    sales: [], adjustments: [], transfers: [],
+  };
+}
+test('Bar & Resto: a served ticket leaves the shelf at once; paying does not take it twice', () => {
+  const raw = bar(); let C = KC.computeAll(raw);
+  assert.equal(C.prodX.beer.available, 33, '36 bought − 3 served (the 2 not served yet stay)');
+  near(C.prodX.rum.available, 1.8); assert.equal(C.prodX.beer.inService, 3);
+  // the bill is paid: the sale takes 3 from the lots, nothing is "in service" any more
+  raw.sales.push({ id: 'S1', no: '7', date: '2026-11-21', status: 'open', source: 'resto', tabId: 'T1', lines: [{ productId: 'm:m33', menuId: 'm33', name: '33 Export', qty: 3, unitPrice: 1000, alloc: [{ lotId: 'L1', qty: 3 }] }], payments: [{ amount: 3000 }] });
+  raw.tabs[0].saleIds = ['S1']; C = KC.computeAll(raw);
+  assert.equal(C.prodX.beer.available, 33, 'still 33: paying recorded what was served'); assert.ok(!C.prodX.beer.inService);
+  // the bill closes: nothing more
+  raw.tabs[0].status = 'paid'; C = KC.computeAll(raw); assert.equal(C.prodX.beer.available, 33);
+  // a ticket not served yet takes nothing
+  assert.deepEqual(KC.servedUnpaid({ tabs: [{ id: 'X', status: 'open' }], rorders: [{ tabId: 'X', status: 'ready', lines: [{ menuId: 'm33', qty: 9 }] }], menu: raw.menu }), {});
+});
+test('stock movements: purchase, served, correction, wastage — with before / after per item', () => {
+  const raw = bar();
+  raw.adjustments.push({ id: 'A1', lotId: 'L1', productId: 'beer', qty: -2, date: '2026-11-21', createdAt: '2026-11-21T20:00:00.000Z', cause: 'damaged', reason: 'Damaged in store', by: 'Cee' });
+  raw.adjustments.push({ id: 'A2', lotId: 'L1', productId: 'beer', qty: 1, date: '2026-11-21', createdAt: '2026-11-21T21:00:00.000Z', reason: 'Found / extra', by: 'Cee' });
+  const C = KC.computeAll(raw); const rows = KC.stockMovements(raw, C).filter((r) => r.productId === 'beer');
+  assert.deepEqual(rows.map((r) => [r.type, r.dir * r.qty, r.before, r.after]), [['purchase', 36, 0, 36], ['served', -3, 36, 33], ['wastage', -2, 33, 31], ['correction', 1, 31, 32]]);
+  assert.equal(rows[0].by, 'Ama'); assert.match(rows[1].ref, /Table 4 · ticket #12/); assert.equal(rows[1].by, 'Bea'); assert.equal(rows[2].ref, 'Damaged in store');
+  assert.equal(rows[rows.length - 1].after, C.prodX.beer.available, 'the last balance is what is in stock');
+  // paying the bill adds no second movement
+  raw.sales.push({ id: 'S1', no: '7', date: '2026-11-21', status: 'open', source: 'resto', tabId: 'T1', lines: [{ productId: 'm:m33', menuId: 'm33', qty: 3, unitPrice: 1000, alloc: [{ lotId: 'L1', qty: 3 }] }] });
+  raw.tabs[0].saleIds = ['S1']; const C2 = KC.computeAll(raw);
+  assert.equal(KC.stockMovements(raw, C2).filter((r) => r.productId === 'beer').length, 4);
+  // a shop sale (not a table bill) is a Sale
+  raw.sales.push({ id: 'S2', no: '8', date: '2026-11-21', createdAt: '2026-11-21T22:00:00.000Z', status: 'open', customerName: 'Walk-in', createdBy: 'Dee', lines: [{ productId: 'beer', qty: 6, unitPrice: 900, alloc: [{ lotId: 'L1', qty: 6 }] }] });
+  const r3 = KC.stockMovements(raw, KC.computeAll(raw)).filter((r) => r.productId === 'beer'); const last = r3[r3.length - 1];
+  assert.deepEqual([last.type, last.qty, last.before, last.after, last.by], ['sale', 6, 32, 26, 'Dee']);
+});

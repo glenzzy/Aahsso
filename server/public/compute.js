@@ -571,6 +571,14 @@
       const sx = l.shipmentId && shipX[l.shipmentId];
       if (sx) { sx.unitsSold += x.sold; sx.revenue += x.revenue; sx.cogs += x.cogs; sx.lossX += x.lossX; sx.stockX += Math.max(0, x.available) * x.landedUnit; }
     });
+    // Bar & Resto: a ticket marked served has left the shelf, even before its bill is paid (paying then records it, never twice)
+    Object.entries(servedUnpaid(raw)).forEach(([pid, byLoc]) => {
+      const px = prodX[pid]; if (!px) return;
+      Object.entries(byLoc).forEach(([loc, q]) => {
+        px.inService = (px.inService || 0) + q; px.byLoc[loc] = (px.byLoc[loc] || 0) - q;
+        const was = px.available; px.available = Math.max(0, was - q); if (q > was) px.oversold = (px.oversold || 0) + (q - Math.max(0, was));
+      });
+    });
     products.forEach((p) => {
       const px = prodX[p.id];
       px.avgCost = px.costQty > 0 ? px.costSum / px.costQty : px.allQty > 0 ? px.allSum / px.allQty : 0;
@@ -591,6 +599,86 @@
     });
     return { S, prodById, shipById, lotById, lotX, shipX, prodX, saleX };
   }
+
+  /** Bar & Resto: stock served on open bills and not paid yet, per product and location: {productId: {loc: qty}}.
+   *  Served = the ticket is marked served; paid = the menu items on the bill's sales (they took their stock at payment). */
+  function servedUnpaid(raw) {
+    const out = {}; const open = (raw.tabs || []).filter((t) => t.status === 'open'); if (!open.length) return out;
+    const menu = new Map((raw.menu || []).map((m) => [m.id, m])); const sales = new Map((raw.sales || []).map((s) => [s.id, s]));
+    open.forEach((tab) => {
+      const served = {}, loc = {};
+      (raw.rorders || []).forEach((o) => { if (o.tabId !== tab.id || o.status !== 'served') return; (o.lines || []).forEach((l) => { served[l.menuId] = (served[l.menuId] || 0) + num(l.qty); loc[l.menuId] = o.servedLoc || loc[l.menuId]; }); });
+      const paid = {}; (tab.saleIds || []).forEach((id) => { const s = sales.get(id); if (!s || s.status === 'cancelled') return; (s.lines || []).forEach((l) => { if (l.menuId) paid[l.menuId] = (paid[l.menuId] || 0) + num(l.qty); }); });
+      Object.entries(served).forEach(([mid, q]) => {
+        const left = q - (paid[mid] || 0); const m = menu.get(mid); if (!(left > 0) || !m) return;
+        const where = loc[mid] || tab.locationId || 'main';
+        (m.uses || []).forEach((u) => { if (!(num(u.qty) > 0)) return; const o = (out[u.productId] = out[u.productId] || {}); o[where] = (o[where] || 0) + num(u.qty) * left; });
+      });
+    });
+    return out;
+  }
+
+  /**
+   * Every movement of stock, oldest first, with the quantity before and after for its item (all locations together):
+   *   purchase (+, when it reaches stock) · served (−, Bar & Resto tickets) · sale (−) · return (+, back to stock) ·
+   *   wastage (−, a loss) · correction (±, stock count, found, missing in transfer) · transfer_out / transfer_in (between locations).
+   * Bills of Bar & Resto tables are shown as their served tickets (the stock left when it was served), not again at payment.
+   */
+  function stockMovements(raw, C) {
+    const rows = []; const lotById = new Map((raw.lots || []).map((l) => [l.id, l])); const prod = new Map((raw.products || []).map((p) => [p.id, p]));
+    const ships = new Map((raw.shipments || []).map((s) => [s.id, s]));
+    const at = (date, created) => { const d = String(date || '').slice(0, 10); const c = String(created || ''); return c && (!d || c.slice(0, 10) === d) ? { at: c, date: c.slice(0, 10), time: true } : { at: (d || c.slice(0, 10)) + 'T12:00:00.000Z', date: d || c.slice(0, 10), time: false }; };
+    const push = (r) => { if (!(num(r.qty) > 0) || !prod.has(r.productId)) return; rows.push(r); };
+    const landed = (lotId) => ((C.lotX[lotId] || {}).landedUnit || 0);
+    // purchases: when they reach stock (straight away when bought locally, on arrival for a shipment)
+    (raw.lots || []).forEach((l) => {
+      const x = C.lotX[l.id]; if (!x || x.stage !== 'warehouse' || !(x.received > 0)) return; const sh = l.shipmentId && ships.get(l.shipmentId);
+      const t = sh && sh.receivedAt ? at(sh.receivedAt, null) : at(l.purchaseDate, l.createdAt);
+      push(Object.assign(t, { id: 'lot:' + l.id, type: 'purchase', dir: 1, productId: l.productId, qty: x.received, unitCost: x.landedUnit, loc: x.home || 'main', by: l.by || '', ref: [l.vendor, l.poNumber].filter(Boolean).join(' · '), refId: l.purchaseTxnId || '', notes: l.notes || '' }));
+    });
+    // sales (not Bar & Resto bills: those are their served tickets) and returns back to stock
+    (raw.sales || []).forEach((s) => {
+      if (s.status === 'cancelled') return; const t = at(s.date, s.createdAt); const loc = s.locationId || 'main';
+      (s.lines || []).forEach((ln, li) => {
+        const isBill = ln.menuId && s.tabId;
+        const by = {}; (ln.alloc || []).forEach((a) => { const l = lotById.get(a.lotId); if (!l) return; const o = (by[l.productId] = by[l.productId] || { q: 0, c: 0 }); o.q += num(a.qty); o.c += num(a.qty) * landed(a.lotId); });
+        if (!isBill) Object.entries(by).forEach(([pid, o]) => push(Object.assign({}, t, { id: 'sale:' + s.id + ':' + li + ':' + pid, type: 'sale', dir: -1, productId: pid, qty: o.q, unitCost: o.q ? o.c / o.q : 0, loc, by: s.createdBy || '', ref: [s.no ? 'Receipt ' + s.no : '', s.customerName].filter(Boolean).join(' · '), refId: s.id, notes: ln.menuId ? ln.name : '' })));
+        (ln.returns || []).forEach((r, ri) => { if (!r.restock) return; const tr = at(r.date || s.date, r.at || r.createdAt); const rb = {}; (r.alloc || []).forEach((a) => { const l = lotById.get(a.lotId); if (l) rb[l.productId] = (rb[l.productId] || 0) + num(a.qty); });
+          Object.entries(rb).forEach(([pid, q]) => push(Object.assign({}, tr, { id: 'ret:' + s.id + ':' + li + ':' + ri + ':' + pid, type: 'return', dir: 1, productId: pid, qty: q, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc, by: r.by || '', ref: s.no ? 'Receipt ' + s.no : '', refId: s.id, notes: [r.reason, r.note].filter(Boolean).join(' · ') }))); });
+      });
+    });
+    // Bar & Resto: served tickets take what their menu items use
+    const menu = new Map((raw.menu || []).map((m) => [m.id, m])); const tabs = new Map((raw.tabs || []).map((t) => [t.id, t]));
+    (raw.rorders || []).forEach((o) => {
+      if (o.status !== 'served' || !o.servedAt) return; const t = at(null, o.servedAt); const tab = tabs.get(o.tabId) || {};
+      const by = {}; (o.lines || []).forEach((l) => { const m = menu.get(l.menuId); (m && m.uses || []).forEach((u) => { if (num(u.qty) > 0) { const x = (by[u.productId] = by[u.productId] || { q: 0, what: [] }); x.q += num(u.qty) * num(l.qty); x.what.push(num(l.qty) + ' × ' + (l.name || m.name)); } }); });
+      Object.entries(by).forEach(([pid, x]) => push(Object.assign({}, t, { id: 'srv:' + o.id + ':' + pid, type: 'served', dir: -1, productId: pid, qty: Math.round(x.q * 10000) / 10000, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: o.servedLoc || tab.locationId || 'main', by: o.servedBy || '', ref: [o.tableLabel ? (o.tableLabel === 'Counter' ? 'Counter' : 'Table ' + o.tableLabel) : '', o.no ? 'ticket #' + o.no : ''].filter(Boolean).join(' · '), refId: o.id, notes: x.what.join(', ') })));
+    });
+    // corrections and losses
+    (raw.adjustments || []).forEach((a) => {
+      const l = lotById.get(a.lotId); if (!l || !num(a.qty)) return; const t = at(a.date, a.createdAt); const out = num(a.qty) < 0;
+      const cause = lossCauseOf(a); const loss = out && LOSS_CAUSES.some((c) => c.k === cause && c.pick);
+      push(Object.assign(t, { id: 'adj:' + a.id, type: loss ? 'wastage' : 'correction', dir: out ? -1 : 1, productId: a.productId || l.productId, qty: Math.abs(num(a.qty)), unitCost: landed(a.lotId), loc: a.locationId || (C.lotX[l.id] || {}).home || 'main', by: a.by || '', ref: loss ? lossCause(cause).label : a.reason || (out ? 'Stock correction' : 'Found / extra'), refId: a.lossId || '', notes: a.notes || '' }));
+    });
+    // transfers between locations: out of one, into the other
+    (raw.transfers || []).forEach((tr) => {
+      if (tr.status === 'cancelled') return; const by = {}; (tr.lines || []).forEach((ln) => (ln.alloc || []).forEach((a) => { const l = lotById.get(a.lotId); if (l) by[l.productId] = (by[l.productId] || 0) + num(a.qty); }));
+      const t0 = at(tr.date, tr.createdAt); const t1 = tr.status === 'in_transit' ? null : at(tr.receivedAt || tr.date, tr.receivedAt || tr.createdAt);
+      Object.entries(by).forEach(([pid, q]) => {
+        push(Object.assign({}, t0, { id: 'tro:' + tr.id + ':' + pid, type: 'transfer_out', dir: -1, productId: pid, qty: q, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: tr.from || 'main', to: tr.to || 'main', by: tr.by || tr.createdBy || '', ref: tr.no ? 'Transfer ' + tr.no : 'Transfer', refId: tr.id, notes: tr.notes || '' }));
+        if (t1) push(Object.assign({}, t1, { id: 'tri:' + tr.id + ':' + pid, type: 'transfer_in', dir: 1, productId: pid, qty: q, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: tr.to || 'main', from: tr.from || 'main', by: tr.receivedBy || tr.by || '', ref: tr.no ? 'Transfer ' + tr.no : 'Transfer', refId: tr.id, notes: tr.notes || '' }));
+      });
+    });
+    // oldest first; then the running quantity of each item
+    const ORDER = { purchase: 0, transfer_in: 1, return: 2, correction: 3, transfer_out: 4, served: 5, sale: 6, wastage: 7 };
+    rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : (ORDER[a.type] - ORDER[b.type]) || (a.id < b.id ? -1 : 1)));
+    const bal = {}; rows.forEach((r) => { r.before = bal[r.productId] || 0; r.after = Math.round((r.before + r.dir * num(r.qty)) * 10000) / 10000; bal[r.productId] = r.after; r.value = num(r.qty) * num(r.unitCost); });
+    return rows;
+  }
+  const MOVE_TYPES = [
+    { k: 'purchase', label: 'Purchase', dir: 1 }, { k: 'served', label: 'Served', dir: -1 }, { k: 'sale', label: 'Sale', dir: -1 }, { k: 'return', label: 'Return (in)', dir: 1 },
+    { k: 'wastage', label: 'Wastage / loss', dir: -1 }, { k: 'correction', label: 'Correction', dir: 0 }, { k: 'transfer_out', label: 'Transfer out', dir: -1 }, { k: 'transfer_in', label: 'Transfer in', dir: 1 },
+  ];
 
   /** FIFO (earliest expiry first, then oldest purchase) allocation of qty for a product.
    *  extra: {lotId: qty} added back (e.g. the sale being edited). Returns alloc[] or null. */
@@ -1285,6 +1373,6 @@
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
     PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
-    RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
+    servedUnpaid, stockMovements, MOVE_TYPES, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });
