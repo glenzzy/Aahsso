@@ -12,7 +12,8 @@ const Flyer = (() => {
   const SERIF = 'Georgia, "Times New Roman", serif';
   const KEY = () => 'aahsso-flyer-' + ((K.info && K.info.tenant && K.info.tenant.id) || '');
   const loadPrefs = () => { try { return JSON.parse(localStorage.getItem(KEY()) || 'null') || {}; } catch (e) { return {}; } };
-  const savePrefs = (c) => { try { localStorage.setItem(KEY(), JSON.stringify({ theme: c.theme, size: c.size, prices: c.prices, link: c.link, title: c.title })); } catch (e) { } };
+  const today = () => (KC.venueClock(S()) || {}).date || todayStr();
+  const savePrefs = (c) => { try { localStorage.setItem(KEY(), JSON.stringify({ theme: c.theme, size: c.size, prices: c.prices, link: c.link, title: c.title, extra: { date: today(), items: c.extra } })); } catch (e) { } };
   const dateLine = () => { const vc = KC.venueClock(S()) || { date: todayStr() }; const d = new Date(vc.date + 'T12:00:00'); return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }); };
   const money = (n) => fmt(n) + ' F';
   function loadImg(src) { return new Promise((ok) => { if (!src) return ok(null); const i = new Image(); i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src; }); }
@@ -62,34 +63,38 @@ const Flyer = (() => {
       if (c.prices) { ctx.textAlign = 'right'; ctx.fillStyle = T.accent; ctx.font = '800 ' + Math.round(W * 0.045) + 'px ' + FONT; ctx.fillText(money(sp.price), W - M - W * 0.035, y + bh * 0.62); }
       y += bh + W * 0.04 * k;
     }
-    // the dishes, by category; two columns when there is room for more
-    let list = c.items.filter((x) => x.id !== c.special); const room = H - y - footH - M * 1.1; const minF = Math.round(W * 0.024);
+    // the dishes, by category; two columns when there is room. Lines are planned first: a heading always stays with its
+    // first dish, the columns are balanced, and when not everything fits the last line says "+ N more dishes".
+    const list = c.items.filter((x) => x.id !== c.special); const room = H - y - footH - M * 1.1; const minF = Math.round(W * 0.024);
     const groups = []; list.forEach((x) => { let gr = groups.find((q) => q.cat === x.category); if (!gr) groups.push((gr = { cat: x.category, items: [] })); gr.items.push(x); });
     const showCats = groups.length > 1;
-    let lines = list.length + (showCats ? groups.length : 0);
-    const cols = W / H > 0.9 && lines > 7 ? 2 : 1;
-    let perCol = Math.ceil(lines / cols); let fsz = Math.min(Math.round(W * 0.034), Math.floor(room / Math.max(1, perCol) / 1.75));
-    const fits = fsz >= minF; let more = 0;
-    if (!fits && k === 0.68) { // still too many: show what fits, then "+ N more"
-      fsz = minF; const max = Math.max(1, Math.floor(room / (fsz * 1.75)) * cols - 1); let used = 0; const keep = [];
-      groups.forEach((gr) => { const g2 = { cat: gr.cat, items: [] }; gr.items.forEach((it) => { const need = (showCats && !g2.items.length ? 2 : 1); if (used + need <= max) { g2.items.push(it); used += need; } else more++; }); if (g2.items.length) keep.push(g2); });
-      groups.length = 0; keep.forEach((g2) => groups.push(g2)); lines = used + 1; perCol = Math.ceil(lines / cols);
-    }
-    fsz = Math.max(minF, fsz); const lh = fsz * 1.75;
-    const colW = (W - M * 2 - (cols - 1) * W * 0.05) / cols; let col = 0, n = 0; let cy = y; const x0 = () => M + col * (colW + W * 0.05);
-    const next = () => { n++; cy += lh; if (cols > 1 && n >= perCol && col === 0) { col = 1; n = 0; cy = y; } };
-    groups.forEach((gr) => {
-      if (showCats) { ctx.textAlign = 'left'; ctx.fillStyle = T.accent; ctx.font = '700 ' + Math.round(fsz * 0.72) + 'px ' + FONT; ctx.fillText(String(gr.cat || 'Menu').toUpperCase(), x0(), cy + fsz * 0.9); next(); }
-      gr.items.forEach((it) => {
-        const px = x0(); ctx.textAlign = 'left'; ctx.fillStyle = T.ink; ctx.font = '600 ' + fsz + 'px ' + FONT;
-        const pr = c.prices ? money(it.price) : ''; ctx.font = '700 ' + fsz + 'px ' + FONT; const pw = pr ? ctx.measureText(pr).width : 0;
-        ctx.font = '600 ' + fsz + 'px ' + FONT; const nm = clip(ctx, it.name, colW - pw - fsz * 1.2); ctx.fillText(nm, px, cy + fsz * 0.9);
-        if (pr) { const nw = ctx.measureText(nm).width; ctx.fillStyle = T.line; for (let d = px + nw + fsz * 0.4; d < px + colW - pw - fsz * 0.4; d += fsz * 0.42) { ctx.beginPath(); ctx.arc(d, cy + fsz * 0.78, 1.8, 0, Math.PI * 2); ctx.fill(); }
-          ctx.textAlign = 'right'; ctx.fillStyle = T.accent; ctx.font = '700 ' + fsz + 'px ' + FONT; ctx.fillText(pr, px + colW, cy + fsz * 0.9); }
-        next();
-      });
+    const entries = []; groups.forEach((gr) => { if (showCats) entries.push({ h: gr.cat }); gr.items.forEach((it) => entries.push({ it })); });
+    const cols = W / H > 0.9 && entries.length > 7 ? 2 : 1;
+    const plan = (fsz, cap) => {
+      const slots = Math.max(1, Math.min(cap, Math.floor(room / (fsz * 1.75)))); const placed = []; let col = 0, n = 0, i = 0;
+      for (; i < entries.length; i++) {
+        const e = entries[i]; if (n >= slots || (e.h && n >= slots - 1)) { if (col + 1 < cols) { col++; n = 0; } else break; }
+        placed.push({ e, col, n }); n++;
+      }
+      let more = entries.slice(i).filter((x) => x.it).length;
+      if (more) { if (n >= slots) { const last = placed.pop(); if (last && last.e.it) more++; } while (placed.length && placed[placed.length - 1].e.h) placed.pop(); }
+      const last = placed[placed.length - 1]; return { placed, more, endCol: last ? last.col : 0, endN: last ? last.n + 1 : 0 };
+    };
+    const balanced = Math.ceil((entries.length + (showCats ? 1 : 0)) / cols);
+    let fsz = Math.round(W * 0.034), P = plan(fsz, balanced);
+    while (P.more && fsz > minF) { fsz -= 1; P = plan(fsz, balanced); if (P.more) { const free = plan(fsz, Infinity); if (!free.more) P = free; } }
+    if (P.more) P = plan(fsz, Infinity);
+    const fits = !P.more; const lh = fsz * 1.75;
+    const colW = (W - M * 2 - (cols - 1) * W * 0.05) / cols; const xOf = (col) => M + col * (colW + W * 0.05);
+    P.placed.forEach(({ e, col, n }) => {
+      const px = xOf(col), cy = y + n * lh; ctx.textAlign = 'left';
+      if (e.h) { ctx.fillStyle = T.accent; ctx.font = '700 ' + Math.round(fsz * 0.72) + 'px ' + FONT; ctx.fillText(String(e.h || 'Menu').toUpperCase(), px, cy + fsz * 0.9); return; }
+      const it = e.it; const pr = c.prices ? money(it.price) : ''; ctx.font = '700 ' + fsz + 'px ' + FONT; const pw = pr ? ctx.measureText(pr).width : 0;
+      ctx.fillStyle = T.ink; ctx.font = '600 ' + fsz + 'px ' + FONT; const nm = clip(ctx, it.name, colW - pw - fsz * 1.2); ctx.fillText(nm, px, cy + fsz * 0.9);
+      if (pr) { const nw = ctx.measureText(nm).width; ctx.fillStyle = T.line; for (let d = px + nw + fsz * 0.4; d < px + colW - pw - fsz * 0.4; d += fsz * 0.42) { ctx.beginPath(); ctx.arc(d, cy + fsz * 0.78, 1.8, 0, Math.PI * 2); ctx.fill(); }
+        ctx.textAlign = 'right'; ctx.fillStyle = T.accent; ctx.font = '700 ' + fsz + 'px ' + FONT; ctx.fillText(pr, px + colW, cy + fsz * 0.9); }
     });
-    if (more) { ctx.textAlign = 'left'; ctx.fillStyle = T.soft; ctx.font = 'italic 600 ' + fsz + 'px ' + FONT; ctx.fillText('+ ' + more + ' more dish' + (more === 1 ? '' : 'es') + ' — ask us', x0(), cy + fsz * 0.9); }
+    if (P.more) { ctx.textAlign = 'left'; ctx.fillStyle = T.soft; ctx.font = 'italic 600 ' + fsz + 'px ' + FONT; ctx.fillText('+ ' + P.more + ' more dish' + (P.more === 1 ? '' : 'es') + ' — ask us', xOf(P.endCol), y + P.endN * lh + fsz * 0.9); }
     if (!list.length && !sp) { ctx.textAlign = 'center'; ctx.fillStyle = T.soft; ctx.font = '500 ' + Math.round(W * 0.03) + 'px ' + FONT; ctx.fillText('Choose today\'s dishes', W / 2, y + W * 0.08); }
     // contacts
     if (foot.length) { let fy = H - M * 0.95 - footH + W * 0.03; ctx.strokeStyle = T.line; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(M, fy - W * 0.015); ctx.lineTo(W - M, fy - W * 0.015); ctx.stroke();
@@ -100,24 +105,32 @@ const Flyer = (() => {
   /* ---------- the sheet ---------- */
   function open() {
     const s = S(); const pref = loadPrefs(); const menu = rMenu().filter((m) => m.active !== false && !m.soldOut);
-    if (!menu.length) return toast('Add dishes to your menu first', true);
     const food = menu.filter((m) => KC.stationOf(m, venue()) === 'kitchen');
-    const cats = [...new Set((S().menuCats || []).concat(menu.map((m) => m.category || 'Other')))].filter((c) => menu.some((m) => (m.category || 'Other') === c));
+    // dishes typed here for today's flyer only (kept until the day ends), next to the menu's own
+    const extra = pref.extra && pref.extra.date === today() ? (pref.extra.items || []) : [];
+    const all = () => menu.concat(c.extra);
+    const catsNow = () => [...new Set((S().menuCats || []).concat(all().map((m) => m.category || 'Other')))].filter((ct) => all().some((m) => (m.category || 'Other') === ct));
     const c = { theme: pref.theme || 'green', size: pref.size || 'square', prices: pref.prices !== false, link: pref.link !== false && !!s.menuSlug, title: pref.title || "Today's menu",
       date: dateLine(), name: s.businessName || '', tagline: s.tagline || '', phone: s.phone || '', address: s.address || '', logo: s.logo || '',
-      url: s.menuSlug ? location.host + '/m/' + s.menuSlug : '', pick: new Set((food.length ? food : menu).slice(0, 10).map((m) => m.id)), special: '' };
+      url: s.menuSlug ? location.host + '/m/' + s.menuSlug : '', pick: new Set((food.length ? food : menu).slice(0, 10).map((m) => m.id).concat(extra.map((x) => x.id))), special: '', extra: extra.slice() };
     c.items = [];
     const sh = openSheet({ title: 'Daily menu flyer', wide: true, body: '' }); sh.classList.add('fl-sheet');
-    const sync = () => { c.items = menu.filter((m) => c.pick.has(m.id)).sort((a, b) => cats.indexOf(a.category || 'Other') - cats.indexOf(b.category || 'Other')).map((m) => ({ id: m.id, name: m.name, price: KC.menuPrice(m, S(), new Date(), false), category: m.category || 'Other' })); if (c.special && !c.pick.has(c.special)) c.special = ''; };
+    const sync = () => { const cats = catsNow(); c.items = all().filter((m) => c.pick.has(m.id)).sort((a, b) => cats.indexOf(a.category || 'Other') - cats.indexOf(b.category || 'Other')).map((m) => ({ id: m.id, name: m.name, price: m.extra ? num(m.price) : KC.menuPrice(m, S(), new Date(), false), category: m.category || 'Other' })); if (c.special && !c.pick.has(c.special)) c.special = ''; };
     const body = () => '<div class="fl"><div class="fl-prev"><canvas id="flCv" aria-label="Preview of the flyer"></canvas></div><div class="fl-ctl">' +
       '<div class="fl-sec"><div class="lbl-t">Style</div><div class="fl-themes">' + Object.entries(THEMES).map(([k, t]) => '<button type="button" class="fl-th' + (c.theme === k ? ' on' : '') + '" data-th="' + k + '" title="' + esc(t.name) + '" aria-label="' + esc(t.name) + '" style="background:linear-gradient(135deg,' + t.bg[0] + ',' + t.bg[1] + ');color:' + t.accent + '">Aa</button>').join('') + '</div>' +
         '<div class="fl-sizes">' + Object.entries(SIZES).map(([k, z]) => '<button type="button" class="fl-sz' + (c.size === k ? ' on' : '') + '" data-sz="' + k + '"><b>' + esc(z.name) + '</b><span>' + esc(z.hint) + '</span></button>').join('') + '</div></div>' +
       '<div class="fl-sec"><div class="grid2">' + field('Title', inp('flTitle', c.title)) + field('Date', inp('flDate', c.date)) + '</div></div>' +
       '<div class="fl-sec"><div class="row between"><div class="lbl-t" style="margin:0">Today\'s dishes · <span id="flN">' + c.pick.size + '</span></div><span class="row gap6"><button type="button" class="btn sm ghost" id="flAll">All</button><button type="button" class="btn sm ghost" id="flNone">None</button></span></div>' +
-        '<div class="fl-items">' + cats.map((ct) => '<div class="fl-cat">' + esc(ct) + '</div>' + menu.filter((m) => (m.category || 'Other') === ct).map((m) => '<label class="fl-it"><input type="checkbox" data-it="' + esc(m.id) + '"' + (c.pick.has(m.id) ? ' checked' : '') + '><span class="grow">' + esc(m.name) + '</span><b class="money">' + fmt(m.price) + '</b></label>').join('')).join('') + '</div>' +
+        '<div class="fl-items" id="flItems">' + itemsHtml() + '</div>' +
+        '<div class="fl-add"><div class="lbl-t" style="margin:0 0 6px">Add a dish for today</div><div class="fl-add-r"><input class="inp" id="flXn" placeholder="e.g. Ndomba de poisson" maxlength="60" aria-label="Dish"><input class="inp" id="flXp" inputmode="numeric" placeholder="Price" aria-label="Price"><select class="inp" id="flXc" aria-label="Category">' + [...new Set((S().menuCats || []).concat(catsNow()).concat(['Other']))].map((ct) => '<option>' + esc(ct) + '</option>').join('') + '</select><button type="button" class="btn pri" id="flXadd">' + ic('plus', 'sm') + 'Add</button></div>' +
+          (can('menu') ? '<label class="check fl-add-m"><input type="checkbox" id="flXmenu">Also add it to my menu</label>' : '') + '</div>' +
         field('Dish of the day (optional)', '<select class="inp" id="flSp"></select>') + '<label class="toggle"><input type="checkbox" id="flPr"' + (c.prices ? ' checked' : '') + '>Show prices</label></div>' +
       '<div class="fl-sec"><div class="lbl-t">Your details on the flyer</div><div class="grid2">' + field('Name', inp('flName', c.name)) + field('Tagline', inp('flTag', c.tagline, 'placeholder="e.g. Home cooking since 2010"')) + field('Phone / WhatsApp', inp('flPhone', c.phone, 'inputmode="tel"')) + field('Address', inp('flAddr', c.address, 'placeholder="e.g. Bonapriso, Douala"')) + '</div>' +
         (c.url ? '<label class="toggle"><input type="checkbox" id="flLink"' + (c.link ? ' checked' : '') + '>Show the menu link (' + esc(c.url) + ')</label>' : '') + (c.logo ? '' : '<div class="hint">Add your logo in Settings → Business to put it on the flyer.</div>') + '</div></div></div>';
+    function itemsHtml() {
+      const cats = catsNow(); if (!all().length) return '<div class="empty small">No dishes yet — add today\'s dishes below.</div>';
+      return cats.map((ct) => '<div class="fl-cat">' + esc(ct) + '</div>' + all().filter((m) => (m.category || 'Other') === ct).map((m) => '<label class="fl-it"><input type="checkbox" data-it="' + esc(m.id) + '"' + (c.pick.has(m.id) ? ' checked' : '') + '><span class="grow">' + esc(m.name) + (m.extra ? ' <span class="fl-x">today only</span>' : '') + '</span><b class="money">' + fmt(m.price) + '</b>' + (m.extra ? '<button type="button" class="icon-btn" data-xrm="' + esc(m.id) + '" aria-label="Remove ' + esc(m.name) + '">' + ic('x', 'sm') + '</button>' : '') + '</label>').join('')).join('');
+    }
     setSheetBody(sh, body());
     const foot = document.createElement('div'); foot.className = 'sf'; foot.innerHTML = '<button class="btn grow" data-a="sheetClose">Close</button>' + (navigator.canShare ? '<button class="btn grow" id="flShare">' + ic('wa', 'sm') + 'Share</button>' : '') + '<button class="btn pri grow" id="flDl">' + ic('dl', 'sm') + 'Download PNG</button>'; sh.querySelector('.sheet').appendChild(foot);
     const cv = $('#flCv', sh); let t;
@@ -131,7 +144,23 @@ const Flyer = (() => {
       if (th) { c.theme = th.dataset.th; sh.querySelectorAll('[data-th]').forEach((b) => b.classList.toggle('on', b === th)); redraw(); }
       if (sz) { c.size = sz.dataset.sz; sh.querySelectorAll('[data-sz]').forEach((b) => b.classList.toggle('on', b === sz)); redraw(); }
     });
-    $('#flAll', sh).onclick = () => { menu.forEach((m) => c.pick.add(m.id)); sh.querySelectorAll('[data-it]').forEach((x) => (x.checked = true)); sync(); spSel(); $('#flN', sh).textContent = c.pick.size; redraw(); };
+    const refreshItems = () => { $('#flItems', sh).innerHTML = itemsHtml(); sync(); spSel(); $('#flN', sh).textContent = c.pick.size; savePrefs(c); redraw(); };
+    $('#flXadd', sh).onclick = async () => {
+      const name = $('#flXn', sh).value.trim(), price = num($('#flXp', sh).value), category = $('#flXc', sh).value || 'Other';
+      if (name.length < 2) { toast('Type the dish', true); return $('#flXn', sh).focus(); }
+      if (!(price > 0)) { toast('Type the price', true); return $('#flXp', sh).focus(); }
+      if (all().some((m) => m.name.trim().toLowerCase() === name.toLowerCase())) return toast(name + ' is already in the list — tick it', true);
+      let id = 'fx_' + Date.now().toString(36);
+      if ($('#flXmenu', sh) && $('#flXmenu', sh).checked) { // a real menu item: on the menu link and orderable too
+        const m = { id: uid('mn_'), name, price, category, kind: 'plain', uses: [], active: true };
+        if (!(await save('menu', m))) return; menu.push(m); id = m.id; toast(name + ' added to your menu');
+      } else c.extra.push({ id, name, price, category, extra: true });
+      c.pick.add(id); $('#flXn', sh).value = ''; $('#flXp', sh).value = ''; refreshItems(); $('#flXn', sh).focus();
+    };
+    $('#flXn', sh).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#flXp', sh).focus(); } });
+    $('#flXp', sh).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#flXadd', sh).click(); } });
+    sh.addEventListener('click', (e) => { const rm = e.target.closest('[data-xrm]'); if (!rm) return; e.preventDefault(); c.extra = c.extra.filter((x) => x.id !== rm.dataset.xrm); c.pick.delete(rm.dataset.xrm); refreshItems(); });
+    $('#flAll', sh).onclick = () => { all().forEach((m) => c.pick.add(m.id)); sh.querySelectorAll('[data-it]').forEach((x) => (x.checked = true)); sync(); spSel(); $('#flN', sh).textContent = c.pick.size; redraw(); };
     $('#flNone', sh).onclick = () => { c.pick.clear(); sh.querySelectorAll('[data-it]').forEach((x) => (x.checked = false)); sync(); spSel(); $('#flN', sh).textContent = 0; redraw(); };
     const blob = async () => { read(); await draw(cv, c); savePrefs(c); return new Promise((ok) => cv.toBlob(ok, 'image/png')); };
     const fname = () => 'Menu-' + (c.name || 'today').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '') + '-' + ((KC.venueClock(S()) || {}).date || todayStr()) + '.png';
