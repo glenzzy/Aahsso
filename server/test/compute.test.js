@@ -494,3 +494,17 @@ test('venue clock: the venue\'s time zone, whatever the phone says', () => {
   const t = KC.venueClock({ timezone: 'Asia/Tokyo' }, at); assert.deepEqual([t.date, t.time], ['2026-11-22', '07:50'], 'Tokyo is already the next day');
   assert.equal(KC.venueClock({ timezone: 'Not/AZone' }, at).tz, 'Africa/Douala', 'an unknown zone falls back to Douala');
 });
+
+test('kitchen: a served dish takes its recipe from stock; it stays orderable; short ingredients are named; kitchen use is a movement', () => {
+  const raw = { settings: {}, products: [{ id: 'beef', name: 'Beef', unit: 'kg', ingredient: { sku: 'ING-001' } }, { id: 'maggi', name: 'Maggi cubes', unit: 'cube' }, { id: 'onion', name: 'Onion', unit: 'kg' }],
+    lots: [{ id: 'B1', productId: 'beef', qty: 2, unitCost: 3500, currency: 'XAF', inWarehouse: true, purchaseDate: '2026-11-22' }, { id: 'M1', productId: 'maggi', qty: 100, unitCost: 25, currency: 'XAF', inWarehouse: true, purchaseDate: '2026-11-22' }],
+    menu: [{ id: 'nd', name: 'Ndolè with beef', price: 2500, kind: 'recipe', uses: [{ productId: 'beef', qty: 0.2 }, { productId: 'maggi', qty: 2 }, { productId: 'onion', qty: 0.1 }] }],
+    tabs: [{ id: 'T', status: 'open' }], rorders: [{ id: 'o', tabId: 'T', status: 'served', servedAt: '2026-11-22T12:00:00.000Z', lines: [{ menuId: 'nd', name: 'Ndolè with beef', qty: 3 }] }],
+    adjustments: [{ id: 'k1', lotId: 'B1', productId: 'beef', qty: -0.5, date: '2026-11-22', createdAt: '2026-11-22T13:00:00.000Z', cause: 'kitchen', reason: 'Staff meal' }], sales: [], transfers: [] };
+  const C = KC.computeAll(raw);
+  near(C.prodX.beef.available, 2 - 0.6 - 0.5); assert.equal(C.prodX.maggi.available, 94);
+  assert.equal(KC.menuUnits(C, raw.menu[0], null), Infinity, 'a dish is never sold out because of one ingredient');
+  assert.deepEqual(KC.recipeShort(C, raw.menu[0], null).map((x) => x.productId), ['onion'], 'onion is short');
+  const mv = KC.stockMovements(raw, C).filter((r) => r.productId === 'beef');
+  assert.deepEqual(mv.map((r) => r.type), ['purchase', 'served', 'used']); assert.equal(mv[2].ref, 'Staff meal'); near(mv[2].after, 0.9);
+});

@@ -17,6 +17,7 @@ function stockList() {
     if (f === 'expiring') return x.available > 0 && x.nextExpiry && daysUntil(x.nextExpiry) <= w;
     if (f === 'out') return x.available <= 0 && x.transit + x.us <= 0;
     if (f === 'problems') return x.oversold > 0;
+    if (f === 'kitchen') return !!p.ingredient;
     return true;
   }).filter((p) => !cat || p.category === cat).filter((p) => !q || (p.name + ' ' + (p.subcategory || '') + ' ' + (p.barcode || '')).toLowerCase().includes(q))
     .sort((a, b) => f === 'expiring' ? (K.C.prodX[a.id].nextExpiry || '').localeCompare(K.C.prodX[b.id].nextExpiry || '') : a.name.localeCompare(b.name));
@@ -28,7 +29,7 @@ VIEWS.stock = {
     return tabs + VIEWS.stock.items();
   },
   items() {
-    const F_ = isStore() ? [['all', 'In stock'], ['low', 'Low stock'], ['out', 'Sold out'], ['every', 'All items']] : [['all', 'In stock'], ['transit', 'Incoming'], ['low', 'Low stock'], ['expiring', 'Expiring'], ['out', 'Sold out'], ['every', 'All items'], ['archived', 'Archived']].concat(K.raw.products.some((p) => (K.C.prodX[p.id] || {}).oversold > 0) ? [['problems', '⚠ Oversold']] : []);
+    const F_ = isStore() ? [['all', 'In stock'], ['low', 'Low stock'], ['out', 'Sold out'], ['every', 'All items']].concat(K.raw.products.some((p) => p.ingredient) ? [['kitchen', 'Ingredients']] : []) : [['all', 'In stock'], ['transit', 'Incoming'], ['low', 'Low stock'], ['expiring', 'Expiring'], ['out', 'Sold out'], ['every', 'All items'], ['archived', 'Archived']].concat(K.raw.products.some((p) => (K.C.prodX[p.id] || {}).oversold > 0) ? [['problems', '⚠ Oversold']] : []);
     const list = stockList();
     const tot = K.raw.products.reduce((a, p) => { const x = K.C.prodX[p.id]; a.u += x.available; a.c += x.stockValue; a.r += x.retailValue; a.t += x.transit + x.us; return a; }, { u: 0, c: 0, r: 0, t: 0 });
     return (seeCost() && isStore() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), '', true) + kpi('Worth (at cost)', F(tot.c), 'sells for ' + fmt(tot.r)) + '</div>' : seeCost() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), fmt(tot.t) + ' incoming', true) + kpi('Stock at cost', F(tot.c)) + kpi('Stock at selling price', F(tot.r)) + kpi('Potential profit', F(tot.r - tot.c), tot.c ? pct((tot.r - tot.c) / tot.c * 100) + ' markup' : '') + '</div>' : '') +
@@ -151,6 +152,7 @@ A.mvRecord = () => {
   openSheet({ title: 'Record a stock movement', body: '<div class="mv-opts">' +
     opt('mvBuy', 'buy', 'Purchase', 'Stock bought — goes to Buy', can('purchases')) +
     opt('mvLoss', 'alert', 'Loss / wastage', 'Broken, expired, stolen, given away… (with photo, a manager approves)', can('lossReport') || can('stockEdit')) +
+    opt('mvUse', 'chef', 'Kitchen use', 'Ingredients used outside a recipe (staff meal, preparation…)', can('stockEdit') && K.raw.products.some((p) => p.ingredient)) +
     opt('mvCount', 'check', 'Count correction', 'The shelf count differs from the system', can('stockEdit')) +
     opt('mvMove', 'truck', 'Transfer', 'Move stock to another location', can('stockEdit') && allLocs().length > 1) +
     '</div><p class="hint mt">Served orders and sales are recorded on their own.</p>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button>' });
@@ -158,6 +160,33 @@ A.mvRecord = () => {
 A.mvBuy = () => { closeSheet(); location.hash = '#buy'; setTimeout(() => { if (typeof isResto === 'function' && isResto() && A.buyDrinks) A.buyDrinks(); else A.newPurchase(); }, 250); };
 A.mvLoss = (el) => { closeSheet(); A.lossNew(el); };
 A.mvMove = () => { closeSheet(); if (A.newTransfer) A.newTransfer(); };
+/** ingredients used in the kitchen outside a dish's recipe: they leave stock with a reason */
+A.mvUse = () => {
+  closeSheet(); const prods = K.raw.products.filter((p) => !p.archived && p.ingredient && (K.C.prodX[p.id] || {}).available > 0).sort((a, b) => a.name.localeCompare(b.name));
+  if (!prods.length) return toast('No ingredients in stock — buy some first', true);
+  const rows = [{ p: '', q: '' }];
+  const sh = openSheet({ title: 'Kitchen use', body: '', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="kuGo">Save</button>' });
+  const opts = [['', 'Choose an ingredient…']].concat(prods.map((p) => [p.id, p.name + ' — ' + mvQty(K.C.prodX[p.id].available) + ' ' + (p.unit || '') + ' in stock']));
+  const keep = () => { const v = formVals(sh); rows.forEach((r, i) => { r.p = v['kuP' + i] || ''; r.q = v['kuQ' + i] || ''; }); return v; };
+  const draw = () => { setSheetBody(sh, '<p class="hint">Ingredients used for a dish leave stock on their own when it is served. Record here what was used otherwise.</p>' +
+    rows.map((r, i) => { const p = byId('products', r.p); return '<div class="grid2 ku-r">' + field(i ? '' : 'Ingredient', sel('kuP' + i, opts, r.p)) + field(i ? '' : 'Quantity used', '<div class="in-unit"><input class="inp" name="kuQ' + i + '" value="' + esc(r.q) + '" inputmode="decimal" placeholder="e.g. 0.5"><span>' + esc(p ? p.unit || '' : '') + '</span></div>') + '</div>'; }).join('') +
+    '<button type="button" class="btn sm" id="kuAdd">' + ic('plus', 'sm') + 'Add an ingredient</button>' +
+    '<div class="grid2 mt">' + field('Why', sel('kuWhy', ['Staff meal', 'Preparation', 'Tasting / testing', 'Other'], 'Staff meal')) + field('Date', inp('kuDate', todayStr(), 'type="date"')) + '</div>' + field('Note', inp('kuNote', '', 'placeholder="Optional"')));
+    $('#kuAdd', sh).onclick = () => { keep(); rows.push({ p: '', q: '' }); draw(); };
+    sh.querySelectorAll('[name^=kuP]').forEach((x) => (x.onchange = () => { keep(); draw(); })); };
+  draw();
+  $('#kuGo', sh).onclick = async () => {
+    const v = keep(); const use = rows.filter((r) => r.p && num(r.q) > 0); if (!use.length) return toast('Choose an ingredient and the quantity used', true);
+    for (const r of use) {
+      const p = byId('products', r.p); const lots = K.C.prodX[p.id].lotIds.map((id) => byId('lots', id)).filter((l) => l && K.C.lotX[l.id].stage === 'warehouse' && !l.reservedFor).sort((a, b) => (a.purchaseDate || '').localeCompare(b.purchaseDate || ''));
+      let left = num(r.q), j = 0;
+      for (const l of lots) { if (left <= 1e-9) break; const av = Math.max(0, (K.C.lotX[l.id].byLoc || {})[K.loc] ?? K.C.lotX[l.id].available); const take = Math.min(av, left); if (take <= 0) continue;
+        await save('adjustments', { id: uid('a_ku_'), date: v.kuDate || todayStr(), productId: p.id, lotId: l.id, qty: -Math.round(take * 10000) / 10000, locationId: K.loc, reason: v.kuWhy || 'Used in the kitchen', cause: 'kitchen', notes: v.kuNote || '', byId: K.me.id || '', by: K.me.name || K.info.userLabel || '' }); left -= take; j++; }
+      if (left > 1e-9) toast(p.name + ': only ' + mvQty(num(r.q) - left) + ' ' + (p.unit || '') + ' was in stock', true);
+    }
+    closeSheet(); scheduleRender(); toast('Kitchen use recorded');
+  };
+};
 A.mvCount = () => {
   closeSheet(); const prods = K.raw.products.filter((p) => !p.archived && (K.C.prodX[p.id] || {}).lotIds && K.C.prodX[p.id].lotIds.length).sort((a, b) => a.name.localeCompare(b.name));
   if (!prods.length) return toast('Nothing in stock yet — buy something first', true);
@@ -415,6 +444,9 @@ async function savePurchaseLines(h, lines) {
     if (r.isNew) Object.assign(r.p, { unit: l.unit || 'piece', size: l.size || null, sizeUnit: l.sizeUnit || '' });
     const dk = r.isNew && typeof isResto === 'function' && isResto() && Drinks.ready() ? Drinks.byName(l.name) : null; // a drink from the catalog: its category, size, crate…
     if (dk) { const fromCat = Drinks.toProduct(dk, null); r.p = Object.assign(fromCat, { id: r.p.id, name: dk.name, barcode: r.p.barcode || '' }); await Drinks.addStockCats([dk]); }
+    const ig = r.isNew && !dk && typeof isResto === 'function' && isResto() ? Ingredients.byName(l.name) : null; // an ingredient: its category, unit, tray…
+    if (ig) { r.p = Object.assign(Ingredients.toProduct(ig), { id: r.p.id, name: ig.name, barcode: r.p.barcode || '' }); await Drinks.addStockCats([ig]); }
+    else if (r.isNew && !dk && l.unit && typeof isResto === 'function' && isResto()) r.p.unit = l.unit;
     if (num(l.pack) > 1 && !KC.packsOf(r.p).some((k) => k.size === num(l.pack))) { r.p = Object.assign({}, r.p, { packs: ((r.p.packs || []).concat([{ name: l.packName || 'pack', size: Math.floor(num(l.pack)), price: null }])).slice(0, 3) }); r.changed = true; } // bought by the pack: sell by the pack too
     else if (!r.p.size && l.size) { r.p = Object.assign({}, r.p, { size: l.size, sizeUnit: l.sizeUnit, unit: r.p.unit || l.unit }); r.changed = true; }
     if (l.photo) { try { r.p = Object.assign({}, r.p, { image: await storePhoto(l.photo) }); r.changed = true; } catch (e) { toast('Photo not saved: ' + e.message, true); } }

@@ -1200,6 +1200,7 @@ app.get('/api/menu/:key', menuReadLimiter, wrap(async (req, res) => {
     canOrder: menuOrdersOn(t) && (!!table || menuPickOn(t)),
     tables: !req.query.t && menuPickOn(t) ? L.tables.slice().sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true })).map((x) => { const a = L.areas.find((y) => y.id === x.areaId); return { id: x.id, label: x.label, area: a ? a.name : '' }; }) : [],
     happyHour: L.hhOn ? { pct: Number(st.happyHour.pct) || 0, to: st.happyHour.to || '' } : null,
+    takeaway: (() => { const tw = KC.takeawayOf(st); return tw.on && KC.featureOn(t.features, 'qrOrders') ? { delivery: tw.delivery, pickup: tw.pickup, fee: tw.fee, zones: tw.zones, minOrder: tw.minOrder, prepMins: tw.prepMins, pay: tw.pay, address: st.address || '' } : null; })(),
     cats, items: L.items.map((i) => ({ id: i.id, name: i.name, category: i.category, desc: i.desc, photo: i.photo, price: i.price, priceNow: i.priceNow, soldOut: i.soldOut })) });
 }));
 app.post('/api/menu/:key/orders', menuOrderLimiter, wrap(async (req, res) => {
@@ -1222,6 +1223,35 @@ app.post('/api/menu/:key/orders', menuOrderLimiter, wrap(async (req, res) => {
   });
   broadcast(t.tid, 'tabs', tabId); broadcast(t.tid, 'rorders', orderId);
   res.json({ ok: true, no: KC.orderNoText(num), orderId, total: r.lines.reduce((a, l) => a + l.qty * l.price, 0) });
+}));
+/* delivery & pickup: the customer orders from the public menu link; the order is a ticket on its own bill (no table) */
+app.post('/api/menu/:key/takeaway', menuOrderLimiter, wrap(async (req, res) => {
+  const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
+  if (!KC.featureOn(t.features, 'qrOrders')) return err(res, 403, 'Online orders are not available — please call the restaurant');
+  const L = await liveMenu(t); const cfg = KC.takeawayOf(L.st);
+  const tw = KC.validateTakeaway(req.body, cfg); if (tw.error) return err(res, 400, tw.error);
+  const r = KC.validateMenuOrder(req.body, L.items, L.st); if (r.error) return err(res, 400, r.error);
+  const sub = r.lines.reduce((a, l) => a + l.qty * l.price, 0); if (cfg.minOrder && sub < cfg.minOrder) return err(res, 400, 'The minimum order is ' + cfg.minOrder + ' ' + KC.currencySymbolOf(L.st));
+  r.lines.forEach((l) => { const m = L.items.find((i) => i.id === l.menuId); l.station = KC.stationOf(m || { station: l.station, category: l.category }, L.st.venueType || 'both'); });
+  const lines = r.lines.concat(tw.fee > 0 ? [{ menuId: '_delivery', name: 'Delivery fee', qty: 1, price: tw.fee, category: 'Delivery', station: 'none' }] : []);
+  const device = String((req.body || {}).device || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 40);
+  const now = new Date().toISOString(); const tabId = 'tb_' + crypto.randomBytes(8).toString('hex'); const orderId = 'ro_' + crypto.randomBytes(8).toString('hex'); let num = { no: '', nos: {} };
+  const label = (tw.info.mode === 'delivery' ? 'Delivery' : 'Pickup') + ' · ' + r.name;
+  await tx(async (c) => {
+    await putDoc(c, t.tid, 'tabs', tabId, { tableId: '', tableLabel: label, status: 'open', openedAt: now, customerName: r.name, customerPhone: tw.info.phone, source: tw.info.mode, away: tw.info }, 'Online order');
+    num = await orderNos(c, t.tid, lines);
+    await putDoc(c, t.tid, 'rorders', orderId, { no: num.no, nos: num.nos, tabId, tableId: '', tableLabel: label, source: tw.info.mode, customerName: r.name, note: r.note, device, waiterIds: [], waiterId: '', status: 'new', lines, away: tw.info, createdAt: now }, 'Online order');
+  });
+  broadcast(t.tid, 'tabs', tabId); broadcast(t.tid, 'rorders', orderId);
+  res.json({ ok: true, no: KC.orderNoText(num), orderId, total: sub + tw.fee, fee: tw.fee, mode: tw.info.mode, prepMins: cfg.prepMins });
+}));
+/** a delivery / pickup order's progress, for the phone that sent it */
+app.get('/api/menu/:key/track', menuReadLimiter, wrap(async (req, res) => {
+  const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
+  const ids = String(req.query.o || '').split(',').filter((x) => /^ro_[a-f0-9]{16}$/.test(x)).slice(0, 10); const device = String(req.query.d || '');
+  if (!ids.length || !device) return res.json({ orders: [] });
+  const rows = (await q("SELECT id, data FROM documents WHERE tenant_id=$1 AND collection='rorders' AND id = ANY($2)", [t.tid, ids])).rows.map((x) => Object.assign({}, x.data, { id: x.id })).filter((o) => o.device === device && o.away);
+  res.set('Cache-Control', 'no-store').json({ orders: rows.map((o) => { const s = KC.takeawayStage(o); return { id: o.id, no: KC.orderNoText(o), mode: o.away.mode, stage: s.k, label: s.label, reason: o.rejectReason || '', at: o.createdAt, total: (o.lines || []).reduce((a, l) => a + Number(l.qty) * Number(l.price), 0), lines: (o.lines || []).filter((l) => l.menuId !== '_delivery').map((l) => ({ name: l.name, qty: l.qty })) }; }) });
 }));
 /** what this phone ordered at this table, and the bill so far */
 app.get('/api/menu/:key/status', menuReadLimiter, wrap(async (req, res) => {

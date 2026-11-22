@@ -657,8 +657,8 @@
     // corrections and losses
     (raw.adjustments || []).forEach((a) => {
       const l = lotById.get(a.lotId); if (!l || !num(a.qty)) return; const t = at(a.date, a.createdAt); const out = num(a.qty) < 0;
-      const cause = lossCauseOf(a); const loss = out && LOSS_CAUSES.some((c) => c.k === cause && c.pick);
-      push(Object.assign(t, { id: 'adj:' + a.id, type: loss ? 'wastage' : 'correction', dir: out ? -1 : 1, productId: a.productId || l.productId, qty: Math.abs(num(a.qty)), unitCost: landed(a.lotId), loc: a.locationId || (C.lotX[l.id] || {}).home || 'main', by: a.by || '', ref: loss ? lossCause(cause).label : a.reason || (out ? 'Stock correction' : 'Found / extra'), refId: a.lossId || '', notes: a.notes || '' }));
+      const cause = a.cause === 'kitchen' ? 'kitchen' : lossCauseOf(a); const loss = out && cause !== 'kitchen' && LOSS_CAUSES.some((c) => c.k === cause && c.pick);
+      push(Object.assign(t, { id: 'adj:' + a.id, type: cause === 'kitchen' ? 'used' : loss ? 'wastage' : 'correction', dir: out ? -1 : 1, productId: a.productId || l.productId, qty: Math.abs(num(a.qty)), unitCost: landed(a.lotId), loc: a.locationId || (C.lotX[l.id] || {}).home || 'main', by: a.by || '', ref: cause === 'kitchen' ? a.reason || 'Used in the kitchen' : loss ? lossCause(cause).label : a.reason || (out ? 'Stock correction' : 'Found / extra'), refId: a.lossId || '', notes: a.notes || '' }));
     });
     // transfers between locations: out of one, into the other
     (raw.transfers || []).forEach((tr) => {
@@ -670,7 +670,7 @@
       });
     });
     // oldest first; then the running quantity of each item
-    const ORDER = { purchase: 0, transfer_in: 1, return: 2, correction: 3, transfer_out: 4, served: 5, sale: 6, wastage: 7 };
+    const ORDER = { purchase: 0, transfer_in: 1, return: 2, correction: 3, transfer_out: 4, served: 5, used: 6, sale: 7, wastage: 8 };
     rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : (ORDER[a.type] - ORDER[b.type]) || (a.id < b.id ? -1 : 1)));
     const bal = {}; rows.forEach((r) => { r.before = bal[r.productId] || 0; r.after = Math.round((r.before + r.dir * num(r.qty)) * 10000) / 10000; bal[r.productId] = r.after; r.value = num(r.qty) * num(r.unitCost); });
     return rows;
@@ -684,6 +684,43 @@
     const hh = p.hour === '24' ? '00' : p.hour;
     return { tz, date: p.year + '-' + p.month + '-' + p.day, time: hh + ':' + p.minute, mins: +hh * 60 + +p.minute, weekday: p.weekday, city: tz.split('/').pop().replace(/_/g, ' '), zone };
   }
+  /* ---------- Bar & Resto: delivery & pickup (orders from the public menu link) ----------
+   * settings.takeaway = { on, delivery, pickup, fee, zones: 'Akwa: 1000\nBonapriso: 1500', minOrder, prepMins }
+   * The order is a normal ticket on its own bill (tab source 'delivery' / 'pickup'); the delivery fee is a line on it. */
+  function takeawayOf(S) {
+    const t = (S && S.takeaway) || {}; const zones = String(t.zones || '').split('\n').map((l) => { const m = l.match(/^\s*(.+?)\s*[:=–-]\s*([\d\s.,]+)\s*$/); return m ? { name: m[1].trim().slice(0, 60), fee: Math.round(num(m[2].replace(/[\s.,]/g, ''))) } : null; }).filter(Boolean).slice(0, 40);
+    const pay = [{ method: 'Cash', label: 'Cash' }].concat(((S && S.momoAccounts) || []).filter((a) => a && a.number && /momo|orange/i.test(a.method || '')).map((a) => ({ method: a.method, number: a.number, label: a.label || '' })));
+    return { on: !!t.on && (t.delivery !== false || t.pickup !== false), delivery: t.delivery !== false, pickup: t.pickup !== false, fee: Math.max(0, Math.round(num(t.fee))), zones, minOrder: Math.max(0, Math.round(num(t.minOrder))), prepMins: Math.max(5, Math.round(num(t.prepMins) || 30)), pay };
+  }
+  /** a delivery / pickup order from the public menu: who, where, when, how they pay. Returns { error } or { info, fee } */
+  function validateTakeaway(b, cfg) {
+    b = b || {}; const cut = (v, n) => String(v || '').trim().slice(0, n);
+    const mode = b.mode === 'pickup' ? 'pickup' : b.mode === 'delivery' ? 'delivery' : '';
+    if (!cfg.on || !mode || (mode === 'delivery' && !cfg.delivery) || (mode === 'pickup' && !cfg.pickup)) return { error: mode === 'delivery' ? 'Delivery is not available right now' : 'Pickup is not available right now' };
+    const phone = cut(b.phone, 30).replace(/[^\d+]/g, ''); if (phone.replace(/\D/g, '').length < 8) return { error: 'Type your phone number so we can call you' };
+    const info = { mode, phone, when: /^\d{1,2}:\d{2}$/.test(String(b.when || '')) ? String(b.when) : 'asap' };
+    let fee = 0;
+    if (mode === 'delivery') {
+      info.address = cut(b.address, 200); if (info.address.length < 4) return { error: 'Type where to deliver (area, street, a landmark)' };
+      if (cfg.zones.length) { const z = cfg.zones.find((x) => x.name === b.zone); if (!z) return { error: 'Choose your area' }; info.zone = z.name; fee = z.fee; } else fee = cfg.fee;
+    } else {
+      info.who = b.who === 'other' ? 'other' : 'me';
+      if (info.who === 'other') { info.byName = cut(b.byName, 60); info.byPhone = cut(b.byPhone, 30).replace(/[^\d+]/g, ''); if (info.byName.length < 2) return { error: 'Type the name of the person who will come' }; }
+    }
+    const pm = cfg.pay.find((p) => p.method === b.pay) || cfg.pay[0]; info.pay = pm.method;
+    if (pm.method !== 'Cash') { info.payRef = cut(b.payRef, 40); info.payTo = pm.number || ''; }
+    return { info, fee };
+  }
+  /** where a delivery / pickup order is, in the customer's words */
+  function takeawayStage(o) {
+    const d = (o && o.away) || {}; const dl = (o && o.dlv) || {};
+    if (o.status === 'rejected') return { k: 'rejected', label: 'Not possible' };
+    if (o.status === 'served') return d.mode === 'pickup' ? { k: 'done', label: 'Collected' } : { k: 'done', label: 'Delivered' };
+    if (dl.stage === 'out') return { k: 'out', label: 'On the way' + (dl.rider ? ' with ' + dl.rider : '') };
+    if (o.status === 'ready') return d.mode === 'pickup' ? { k: 'ready', label: 'Ready to collect' } : { k: 'ready', label: 'Ready' };
+    if (o.status === 'accepted') return { k: 'prep', label: 'Being prepared' };
+    return { k: 'new', label: 'Received' };
+  }
   /** an order's number for people: one station "#004"; both "Bar #004 · Kitchen #002"; for one station's screen, its own number */
   function orderNoText(o, st) {
     const n = (o && o.nos) || {}; const ks = ['bar', 'kitchen'].filter((k) => n[k]);
@@ -694,7 +731,7 @@
   }
   const MOVE_TYPES = [
     { k: 'purchase', label: 'Purchase', dir: 1 }, { k: 'served', label: 'Served', dir: -1 }, { k: 'sale', label: 'Sale', dir: -1 }, { k: 'return', label: 'Return (in)', dir: 1 },
-    { k: 'wastage', label: 'Wastage / loss', dir: -1 }, { k: 'correction', label: 'Correction', dir: 0 }, { k: 'transfer_out', label: 'Transfer out', dir: -1 }, { k: 'transfer_in', label: 'Transfer in', dir: 1 },
+    { k: 'used', label: 'Kitchen use', dir: -1 }, { k: 'wastage', label: 'Wastage / loss', dir: -1 }, { k: 'correction', label: 'Correction', dir: 0 }, { k: 'transfer_out', label: 'Transfer out', dir: -1 }, { k: 'transfer_in', label: 'Transfer in', dir: 1 },
   ];
 
   /** FIFO (earliest expiry first, then oldest purchase) allocation of qty for a product.
@@ -802,7 +839,7 @@
   const lineQtyText = (l, fmtN) => l.pack && num(l.pack.size) > 1 ? (num(l.qty) / num(l.pack.size)) + ' × ' + l.pack.name + ' of ' + l.pack.size + ' @ ' + fmtN(num(l.unitPrice) * num(l.pack.size)) : l.qty + ' × ' + fmtN(l.unitPrice);
 
   /* ---------------- units of measure ---------------- */
-  const SELL_UNITS = ['piece', 'pack', 'box', 'case', 'carton', 'bottle', 'can', 'jar', 'bag', 'sachet', 'pair', 'set', 'dozen', 'kg', 'lb', 'litre', 'gallon', 'metre', 'unit'];
+  const SELL_UNITS = ['piece', 'pack', 'packet', 'box', 'case', 'carton', 'bottle', 'can', 'tin', 'jar', 'bag', 'sachet', 'cube', 'bunch', 'heap', 'tray', 'roll', 'pair', 'set', 'dozen', 'kg', 'lb', 'litre', 'gallon', 'metre', 'unit'];
   const SIZE_UNITS = {
     g: ['mass', 1], kg: ['mass', 1000], oz: ['mass', 28.349523125], lb: ['mass', 453.59237],
     mL: ['vol', 1], L: ['vol', 1000], 'fl oz': ['vol', 29.5735295625], gal: ['vol', 3785.411784],
@@ -1337,8 +1374,15 @@
   }
   /** how many servings stock allows (Infinity when the item takes nothing from stock) */
   function menuUnits(C, m, loc) {
+    if (menuKind(m) === 'recipe') return Infinity; // dishes stay on the menu; recipeShort() tells the kitchen what is running out
     let n = Infinity; (m.uses || []).forEach((u) => { const q = num(u.qty); if (!(q > 0)) return; const px = C.prodX[u.productId]; const av = px ? (loc && px.byLoc ? (px.byLoc[loc] !== undefined ? px.byLoc[loc] : px.available) : px.available) : 0; n = Math.min(n, Math.floor(av / q + 1e-9)); });
     return n;
+  }
+  /** the ingredients of a dish that are short for `servings` more (default 1): [{productId, need, have}] */
+  function recipeShort(C, m, loc, servings) {
+    const k = num(servings) || 1; const out = [];
+    (m.uses || []).forEach((u) => { const q = num(u.qty) * k; if (!(q > 0)) return; const px = C.prodX[u.productId]; const have = px ? (loc && px.byLoc && px.byLoc[loc] !== undefined ? px.byLoc[loc] : px.available) : 0; if (have < q - 1e-9) out.push({ productId: u.productId, need: q, have: Math.max(0, have) }); });
+    return out;
   }
   /** take up to qty of a product from stock (oldest first); never fails — what is missing stays unallocated */
   function allocUpTo(C, lots, productId, qty, loc) {
@@ -1390,6 +1434,6 @@
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
     PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
-    servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
+    servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, recipeShort, takeawayOf, validateTakeaway, takeawayStage, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

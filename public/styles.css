@@ -1818,3 +1818,46 @@ label.f,.settings label.f .lbl{font-weight:500}
 .bk-clock{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
 .bk-clock>.ic,.bk-clock>svg{color:var(--brand);flex:none}
 .bk-now{font-size:20px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+
+/* Kitchen ingredients */
+.mv-c-used{color:#7a4a12;background:#f6ecdf}
+.rc-short{color:var(--bad);font-weight:600;display:flex;align-items:center;gap:4px;margin-top:2px}
+.ku-r{align-items:end}
+
+/* New purchase: the unit beside the quantity (5 kg, 3 bunch) */
+.pu-qw{position:relative}
+.pu-qw.has-u .inp{padding-right:38px}
+.pu-u{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11.5px;color:var(--ink3);pointer-events:none}
+@media (max-width:699px){
+  .ed-store table.pu-t2 thead tr,.ed-store table.pu-t2 tr[data-r]{grid-template-columns:minmax(0,1fr) 78px 108px}
+  .ed-store table.pu-t2 tr[data-r] .pu-qw.has-u .inp{padding-right:32px}
+  .ed-store table.pu-t2 tr[data-r] .pu-u{right:6px;font-size:10.5px}
+}
+
+/* Daily menu flyer */
+.fl-sheet .sheet{width:min(1100px,100%);height:min(94vh,940px)}
+.fl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:18px;align-items:start}
+.fl-prev{position:sticky;top:0;background:repeating-conic-gradient(var(--line2,#eee) 0 25%,transparent 0 50%) 0 0/18px 18px;border-radius:14px;padding:12px;display:grid;place-items:center}
+.fl-prev canvas{display:block;max-width:100%;max-height:min(72vh,720px);height:auto;width:auto;border-radius:10px;box-shadow:0 12px 32px rgba(20,32,46,.25)}
+.fl-ctl{display:flex;flex-direction:column;gap:14px}
+.fl-sec{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.fl-themes{display:flex;gap:10px;margin-bottom:10px}
+.fl-th{width:48px;height:48px;border-radius:12px;border:2px solid transparent;font:700 16px Georgia,serif;font-style:italic;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+.fl-th.on{border-color:var(--ink);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 25%,transparent)}
+.fl-sizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.fl-sz{display:flex;flex-direction:column;gap:2px;text-align:left;border:1.5px solid var(--line);background:var(--card);border-radius:10px;padding:8px 10px;font:inherit;color:var(--ink);cursor:pointer}
+.fl-sz b{font-size:13px} .fl-sz span{font-size:11.5px;color:var(--ink3)}
+.fl-sz.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 6%,var(--card))}
+.fl-items{max-height:260px;overflow:auto;margin:8px 0 10px;border:1px solid var(--line);border-radius:10px}
+.fl-cat{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);padding:8px 10px 2px;background:var(--bg)}
+.fl-it{display:flex;align-items:center;gap:10px;padding:8px 10px;border-top:1px solid var(--line2,var(--line));cursor:pointer;font-size:14px}
+.fl-it input{width:18px;height:18px;flex:none}
+@media (max-width:899px){.fl{grid-template-columns:1fr}.fl-prev{position:static}.fl-prev canvas{max-height:46vh}.fl-sizes{grid-template-columns:1fr}}
+
+/* Delivery & pickup tickets */
+.aw{border:1px solid #f3c98b;background:#fff8ee;border-radius:10px;padding:8px 10px;margin:8px 0;font-size:13.5px;display:flex;flex-direction:column;gap:3px}
+.aw.aw-p{border-color:#bcd9d6;background:#eef7f6}
+.aw-h{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.aw-b{font-weight:700}
+.aw-st{font-size:12px;font-weight:600;color:var(--ink2)}
+.aw a{color:var(--brand);font-weight:600}

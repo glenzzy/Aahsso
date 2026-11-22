@@ -211,3 +211,33 @@ test('order numbers: per business from 001, drinks and food counted apart, never
   const mine = (await api('GET', '/api/data/rorders', S.o)).body.docs.filter((d) => d.nos && d.nos.bar).map((d) => d.nos.bar).sort();
   assert.ok(mine.includes('001') && !mine.some((n) => n > '010'), 'each business has its own numbers: ' + mine.join(','));
 });
+
+test('delivery & pickup: online order from the menu link, a fee by area, tracking, out for delivery → delivered (stock out then)', async () => {
+  const r = await api('POST', '/api/auth/register', null, { businessName: 'Dlv Kitchen ' + rnd, name: 'Dina', login: 'dina' + rnd + '@resto.test', password: 'secret12', edition: 'resto', venueType: 'restaurant' });
+  const T = r.body.token; const P = (col, id, body) => api('PUT', '/api/data/' + col + '/' + id, T, body);
+  const st = (await api('GET', '/api/data/settings', T)).body.docs.find((d) => d.id === 'main'); const key = st.menuKey;
+  await P('products', 'fish', { name: 'Fresh fish', unit: 'kg' }); await P('lots', 'lf', { productId: 'fish', qty: 10, unitCost: 3000, currency: 'XAF', inWarehouse: true, purchaseDate: '2026-11-22' });
+  await P('menu', 'gf', { name: 'Grilled fish', category: 'Grills', price: 5000, kind: 'recipe', uses: [{ productId: 'fish', qty: 0.5 }] });
+  assert.equal((await api('GET', '/api/menu/' + key)).body.takeaway, null, 'off until the owner turns it on');
+  await P('settings', 'main', Object.assign({}, st, { takeaway: { on: true, delivery: true, pickup: true, fee: 1000, zones: 'Akwa: 1000\nMakepe: 2000', minOrder: 3000, prepMins: 40 }, momoAccounts: [{ method: 'MTN MoMo', number: '677000111', label: 'Dina' }] }));
+  const m = (await api('GET', '/api/menu/' + key)).body; assert.deepEqual(m.takeaway.zones, [{ name: 'Akwa', fee: 1000 }, { name: 'Makepe', fee: 2000 }]); assert.deepEqual(m.takeaway.pay.map((p) => p.method), ['Cash', 'MTN MoMo']);
+  const order = (b) => api('POST', '/api/menu/' + key + '/takeaway', null, Object.assign({ name: 'Ada', phone: '677123456', device: 'devA', items: [{ menuId: 'gf', qty: 2 }] }, b));
+  assert.equal((await order({ mode: 'delivery', address: 'Behind Total', zone: '' })).status, 400, 'an area is needed');
+  assert.equal((await order({ mode: 'delivery', address: 'Behind Total', zone: 'Makepe', items: [{ menuId: 'gf', qty: 0.4 }] })).status, 400);
+  assert.equal((await order({ mode: 'delivery', phone: '12', address: 'x', zone: 'Makepe' })).status, 400, 'a phone is needed');
+  const o = await order({ mode: 'delivery', address: 'Behind Total, Makepe', zone: 'Makepe', pay: 'MTN MoMo', payRef: 'MP261122ABC', when: 'asap' });
+  assert.equal(o.status, 200, JSON.stringify(o.body)); assert.equal(o.body.total, 2 * 5000 + 2000, 'the dishes + the Makepe fee'); assert.equal(o.body.no, '#001');
+  const ro = (await api('GET', '/api/data/rorders', T)).body.docs.find((d) => d.id === o.body.orderId);
+  assert.equal(ro.away.mode, 'delivery'); assert.equal(ro.away.payRef, 'MP261122ABC'); assert.equal(ro.status, 'new');
+  assert.ok(ro.lines.some((l) => l.menuId === '_delivery' && l.price === 2000 && l.station === 'none'), 'the fee is a line on the bill, prepared nowhere');
+  const tab = (await api('GET', '/api/data/tabs', T)).body.docs.find((d) => d.id === ro.tabId); assert.equal(tab.source, 'delivery'); assert.equal(tab.customerPhone, '677123456');
+  const track = async () => (await api('GET', '/api/menu/' + key + '/track?o=' + o.body.orderId + '&d=devA')).body.orders[0];
+  assert.equal((await track()).stage, 'new'); assert.equal((await api('GET', '/api/menu/' + key + '/track?o=' + o.body.orderId + '&d=other')).body.orders.length, 0, 'only the phone that ordered');
+  await P('rorders', ro.id, Object.assign({}, ro, { status: 'accepted' })); assert.equal((await track()).label, 'Being prepared');
+  await P('rorders', ro.id, Object.assign({}, ro, { status: 'ready', dlv: { stage: 'out', rider: 'Paul' } })); assert.equal((await track()).label, 'On the way with Paul');
+  await P('rorders', ro.id, Object.assign({}, ro, { status: 'served', servedLoc: 'main', servedAt: new Date().toISOString(), dlv: { stage: 'delivered', rider: 'Paul' } })); assert.equal((await track()).label, 'Delivered');
+  const raw = {}; for (const col of ['products', 'lots', 'menu', 'tabs', 'rorders', 'sales', 'adjustments', 'transfers']) raw[col] = (await api('GET', '/api/data/' + col, T)).body.docs;
+  assert.equal(KC.computeAll(raw).prodX.fish.available, 9, 'delivered: 2 × 0.5 kg of fish left the stock');
+  const p = await api('POST', '/api/menu/' + key + '/takeaway', null, { mode: 'pickup', name: 'Ben', phone: '690000001', who: 'other', byName: 'Paul', device: 'devB', items: [{ menuId: 'gf', qty: 1 }] });
+  assert.equal(p.status, 200); assert.equal(p.body.total, 5000, 'pickup: no fee'); assert.equal(p.body.no, '#002');
+});

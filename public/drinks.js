@@ -85,17 +85,18 @@ const Drinks = (() => {
    *        onPick(list, { price }) (return false to keep the window open), onOwn(text) — "not in the list? add it yourself" }
    */
   async function picker(opt) {
-    const sh = openSheet({ title: opt.title || 'Drinks catalog', wide: true, body: '<div class="empty">Loading the drinks list…</div>' });
+    const SRC = opt.src || { load, data: () => data, find, bySku, metaLine, detail, about, noun: 'drink', nouns: 'drinks', listName: 'the drinks list', placeholder: 'Search: Castel, Hennessy, Merlot, Mützig…', icon: '🍾' };
+    const sh = openSheet({ title: opt.title || 'Choose', wide: true, body: '<div class="empty">Loading ' + SRC.listName + '…</div>' });
     sh.classList.add('dk-sheet');
-    try { await load(); } catch (e) { setSheetBody(sh, '<div class="alert bad">' + esc(e.message) + '</div>'); return; }
+    try { await SRC.load(); } catch (e) { setSheetBody(sh, '<div class="alert bad">' + esc(e.message) + '</div>'); return; }
     const st = { q: '', cat: '', sel: new Map(), open: null, price: (opt.prices || ['bar'])[0], limit: 60 };
     const priceOf = (d) => (st.price === 'lounge' ? d.priceLounge : st.price === 'bar' ? d.priceBar : null);
-    setSheetBody(sh, '<div class="dk-top"><div class="search">' + ic('search') + '<input class="inp" id="dkQ" placeholder="Search: Castel, Hennessy, Merlot, Mützig…" autocomplete="off" aria-label="Search drinks"></div>' +
+    setSheetBody(sh, '<div class="dk-top"><div class="search">' + ic('search') + '<input class="inp" id="dkQ" placeholder="' + esc(SRC.placeholder) + '" autocomplete="off" aria-label="Search ' + SRC.nouns + '"></div>' +
       '<div class="chips dk-cats" id="dkCats"></div></div><div id="dkList" class="dk-list" role="list"></div>');
     const foot = document.createElement('div'); foot.className = 'sf dk-foot'; sh.querySelector('.sheet').appendChild(foot);
     const listEl = $('#dkList', sh), catsEl = $('#dkCats', sh), qEl = $('#dkQ', sh);
-    const pool = (q, cat) => find(q, cat).filter((d) => !opt.only || opt.only(d));
-    const drawCats = () => { const all = pool(st.q, ''); catsEl.innerHTML = [['', 'All', all.length]].concat(data.categories.map((c) => [c.name, c.name, all.filter((x) => x.cat === c.name).length])).filter((c) => c[0] === '' || c[2] || c[0] === st.cat)
+    const pool = (q, cat) => SRC.find(q, cat).filter((d) => !opt.only || opt.only(d));
+    const drawCats = () => { const all = pool(st.q, ''); catsEl.innerHTML = [['', 'All', all.length]].concat(SRC.data().categories.map((c) => [c.name, c.name, all.filter((x) => x.cat === c.name).length])).filter((c) => c[0] === '' || c[2] || c[0] === st.cat)
       .map(([k, l, n]) => '<button type="button" class="chip' + (st.cat === k ? ' on' : '') + '" data-dk-cat="' + esc(k) + '">' + esc(l) + ' <span class="dk-n">' + n + '</span></button>').join(''); };
     const drawFoot = () => {
       const n = st.sel.size;
@@ -103,20 +104,20 @@ const Drinks = (() => {
         '<button type="button" class="btn ghost sm" id="dkAbout">' + ic('info', 'sm') + 'About</button><span class="grow"></span>' +
         (opt.many ? '<button class="btn" data-a="sheetClose">Cancel</button><button class="btn pri" id="dkGo"' + (n ? '' : ' disabled') + '>' + esc(opt.action ? opt.action(n) : 'Add ' + n) + '</button>' : '<button class="btn" data-a="sheetClose">Cancel</button>');
       if ($('#dkPrice', foot)) $('#dkPrice', foot).onchange = (e) => { st.price = e.target.value; drawList(); };
-      $('#dkAbout', foot).onclick = about;
+      $('#dkAbout', foot).onclick = SRC.about;
       if ($('#dkGo', foot)) $('#dkGo', foot).onclick = go;
     };
     const drawList = () => {
       const all = pool(st.q, st.cat); const show = all.slice(0, st.limit);
-      const lead = opt.lead ? opt.lead(pool('', '').length, data.items.length) : '';
+      const lead = opt.lead ? opt.lead(pool('', '').length, SRC.data().items.length) : '';
       if (!all.length && opt.only && !pool('', '').length && opt.empty) { listEl.innerHTML = opt.empty; return; }
-      const notBought = !all.length && opt.only && st.q ? find(st.q, st.cat) : [];
+      const notBought = !all.length && opt.only && st.q ? SRC.find(st.q, st.cat) : [];
       if (notBought.length) { // in the drinks list, but not in stock: buy it first (never "add it yourself" around the stock)
-        listEl.innerHTML = lead + '<div class="empty dk-empty"><div class="big">📦</div><b>Not in your stock yet</b><p class="small muted">' + esc(notBought.slice(0, 3).map((x) => x.name).join(', ') + (notBought.length > 3 ? ' and ' + (notBought.length - 3) + ' more' : '')) + (notBought.length === 1 ? ' is' : ' are') + ' in the drinks list but not in your stock. Buy ' + (notBought.length === 1 ? 'it' : 'them') + ' first, then add ' + (notBought.length === 1 ? 'it' : 'them') + ' here.</p>' + (opt.lead ? '<div class="mt"><button type="button" class="btn pri" data-a="dkBuy">' + ic('buy', 'sm') + 'Buy drinks</button></div>' : '') + '</div>';
+        listEl.innerHTML = lead + '<div class="empty dk-empty"><div class="big">📦</div><b>Not in your stock yet</b><p class="small muted">' + esc(notBought.slice(0, 3).map((x) => x.name).join(', ') + (notBought.length > 3 ? ' and ' + (notBought.length - 3) + ' more' : '')) + (notBought.length === 1 ? ' is' : ' are') + ' in ' + SRC.listName + ' but not in your stock. Buy ' + (notBought.length === 1 ? 'it' : 'them') + ' first, then add ' + (notBought.length === 1 ? 'it' : 'them') + ' here.</p>' + (opt.lead ? '<div class="mt"><button type="button" class="btn pri" data-a="dkBuy">' + ic('buy', 'sm') + 'Buy ' + SRC.nouns + '</button></div>' : '') + '</div>';
         return;
       }
       if (!all.length) {
-        listEl.innerHTML = lead + '<div class="empty dk-empty"><div class="big">🍾</div>' + (st.q ? 'No drink matches “' + esc(st.q) + '”.' : 'Nothing here.') + (opt.onOwn && st.q ? '<div class="mt"><button type="button" class="btn pri" id="dkOwn">' + ic('plus', 'sm') + 'Add “' + esc(st.q) + '” yourself</button></div><div class="hint mt">Not every drink is in the list — add yours with your own name and price.</div>' : '') + '</div>';
+        listEl.innerHTML = lead + '<div class="empty dk-empty"><div class="big">' + SRC.icon + '</div>' + (st.q ? 'No ' + SRC.noun + ' matches “' + esc(st.q) + '”.' : 'Nothing here.') + (opt.onOwn && st.q ? '<div class="mt"><button type="button" class="btn pri" id="dkOwn">' + ic('plus', 'sm') + 'Add “' + esc(st.q) + '” yourself</button></div><div class="hint mt">Not every ' + SRC.noun + ' is in the list — add yours with your own name and price.</div>' : '') + '</div>';
         if ($('#dkOwn', listEl)) $('#dkOwn', listEl).onclick = () => { const q = qEl.value.trim(); closeSheet(); opt.onOwn(q); };
         return;
       }
@@ -124,17 +125,17 @@ const Drinks = (() => {
         const taken = opt.taken ? opt.taken(d) : null; const on = st.sel.has(d.sku); const p = priceOf(d);
         return '<div class="dk-row' + (on ? ' on' : '') + (taken ? ' taken' : '') + '" role="listitem" data-sku="' + esc(d.sku) + '">' +
           (opt.many ? '<span class="dk-check" aria-hidden="true">' + (taken ? ic('check', 'sm') : on ? ic('check', 'sm') : '') + '</span>' : '') +
-          '<div class="grow dk-main"><div class="dk-name">' + esc(d.name) + (d.confidence === 'Verify' ? ' <span class="dk-tag" title="Check this drink before selling it">to check</span>' : '') + '</div><div class="dk-meta">' + esc(metaLine(d)) + '</div>' +
+          '<div class="grow dk-main"><div class="dk-name">' + esc(d.name) + (d.confidence === 'Verify' ? ' <span class="dk-tag" title="Check this drink before selling it">to check</span>' : '') + '</div><div class="dk-meta">' + esc(SRC.metaLine(d)) + '</div>' +
           (taken ? '<div class="dk-taken">' + esc(taken) + '</div>' : opt.note && opt.note(d) ? '<div class="dk-stock">' + esc(opt.note(d)) + '</div>' : '') + '</div>' +
           '<div class="dk-side">' + (p ? '<b class="money">' + fmt(p) + '</b>' : '') + '<button type="button" class="icon-btn dk-info" data-dk-info aria-label="Details" aria-expanded="' + (st.open === d.sku) + '">' + ic('info', 'sm') + '</button></div>' +
-          (st.open === d.sku ? detail(d) : '') + '</div>';
+          (st.open === d.sku ? SRC.detail(d) : '') + '</div>';
       }).join('') + (all.length > show.length ? '<button type="button" class="btn ghost dk-more" id="dkMore">Show ' + Math.min(60, all.length - show.length) + ' more of ' + (all.length - show.length) + '</button>' : '') +
-        (opt.onOwn ? '<div class="hint dk-own">Not in the list? <button type="button" class="linkish" id="dkOwn2">Add your own drink</button></div>' : '');
+        (opt.onOwn ? '<div class="hint dk-own">Not in the list? <button type="button" class="linkish" id="dkOwn2">Add your own ' + SRC.noun + '</button></div>' : '');
       if ($('#dkMore', listEl)) $('#dkMore', listEl).onclick = () => { st.limit += 60; drawList(); };
       if ($('#dkOwn2', listEl)) $('#dkOwn2', listEl).onclick = () => { const q = qEl.value.trim(); closeSheet(); opt.onOwn(q); };
     };
     listEl.addEventListener('click', (e) => {
-      const r = e.target.closest('.dk-row'); if (!r) return; const d = bySku(r.dataset.sku); if (!d) return;
+      const r = e.target.closest('.dk-row'); if (!r) return; const d = SRC.bySku(r.dataset.sku); if (!d) return;
       if (e.target.closest('[data-dk-info]')) { st.open = st.open === d.sku ? null : d.sku; drawList(); return; }
       if (e.target.closest('.dk-detail')) return;
       if (opt.taken && opt.taken(d)) { toast(d.name + ': ' + opt.taken(d)); return; }

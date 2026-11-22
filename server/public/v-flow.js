@@ -44,7 +44,7 @@ VIEWS.buy = {
     if (isStore()) { // Aahsso Store: what you bought, what you owe, and the list — nothing to ship
       const nMonth = purchaseGroups(mLots).length;
       return '<div class="kpis mb2">' + kpi('Bought this month', F(spent), nMonth + ' purchase' + (nMonth === 1 ? '' : 's') + (tax ? ' · tax ' + fmt(tax) : '')) + kpi('Owed to suppliers', F(owed), 'unpaid or part paid') + '</div>' +
-        '<div class="toolbar mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'New purchase</button>' + (typeof isResto === 'function' && isResto() ? '<button class="btn" data-a="buyDrinks">' + ic('glass') + 'Buy drinks</button>' : '') +
+        '<div class="toolbar mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'New purchase</button>' + (typeof isResto === 'function' && isResto() ? '<button class="btn" data-a="buyDrinks">' + ic('glass') + 'Buy drinks</button>' + (typeof hasStation === 'function' && hasStation('kitchen') ? '<button class="btn" data-a="buyIngredients">' + ic('chef') + 'Buy ingredients</button>' : '') : '') +
           '<div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search supplier, item, receipt or txn ID" value="' + esc(K.ui.buyQ || '') + '" data-c="buyQ"></div>' +
           (can('export') ? '<button class="btn ghost" data-a="exportPurch" title="Download as Excel">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
         purchaseTable(groups);
@@ -71,7 +71,14 @@ A.newPurchase = () => purchaseForm();
 const CASE_CATS = ['Beer', 'Cider & RTD', 'Soft Drinks', 'Malt Drinks', 'Water', 'Energy Drinks', 'Juices'];
 const plural3 = (w, n) => (n === 1 ? w : /(s|x|ch|sh)$/.test(w) ? w + 'es' : w + 's');
 /** a purchase row becomes a catalog drink: how it is packed, and bought by the crate when that is the custom */
+/** a catalog item by its code: a drink (from the drinks list) or an ingredient (ING-…) */
+const catItem = (sku) => (/^ING-/.test(sku || '') ? Ingredients.bySku(sku) : typeof Drinks !== 'undefined' ? Drinks.bySku(sku) : null);
 function puDrink(r, d, keepBy) {
+  if (/^ING-/.test(d.sku)) { // an ingredient: counted by its unit (kg, bunch, cube…); eggs bought by the tray
+    Object.assign(r, { dk: d.sku, perCase: d.pack ? d.pack.size : 0, packName: d.pack ? d.pack.name : '', unitName: d.unit, unit: d.unit, category: d.cat, subcategory: '' });
+    if (!keepBy) r.packOf = d.pack && d.pack.default ? String(d.pack.size) : '1';
+    r.hint = ''; return r;
+  }
   Object.assign(r, { dk: d.sku, perCase: d.perCase > 1 ? d.perCase : 0, packName: d.returnable ? 'crate' : 'case', unitName: d.pack === 'Can' ? 'can' : d.pack === 'Carton' ? 'carton' : 'bottle', category: d.cat, subcategory: d.sub || '' });
   if (!keepBy) r.packOf = r.perCase && CASE_CATS.includes(d.cat) ? String(r.perCase) : '1';
   r.hint = d.cost && seeCost() ? '≈ ' + fmt(d.cost * Math.max(1, num(r.packOf))) : '';
@@ -84,6 +91,14 @@ A.buyDrinks = () => Drinks.picker({
   onOwn: (q) => setTimeout(() => purchaseForm({ rows: [{ name: q }] }), 0),
   onPick: (list) => { setTimeout(() => purchaseForm({ rows: list.map((d) => puDrink(puRow({ name: d.name, qty: '' }), d)) }), 0); },
 });
+/** Bar & Resto kitchens: buy what you cook with, from the Cameroon ingredients list (anything missing: type it) */
+A.buyIngredients = () => Ingredients.picker({
+  title: 'Buy ingredients', many: true,
+  note: (d) => { const n = Ingredients.inStock(d); return n ? fmt(n) + ' ' + d.unit + ' in stock' : Ingredients.productOf(d) ? 'Out of stock' : ''; },
+  action: (n) => (n ? 'Buy ' + n + ' ingredient' + (n === 1 ? '' : 's') : 'Choose ingredients'),
+  onOwn: (q) => setTimeout(() => purchaseForm({ rows: [{ name: q, unit: 'kg' }] }), 0),
+  onPick: (list) => { setTimeout(() => purchaseForm({ rows: list.map((d) => puDrink(puRow({ name: d.name, qty: '' }), d)) }), 0); },
+});
 /** from the menu ("Buy it first"): the picker over the menu closes, Buy drinks opens */
 A.dkBuy = () => { closeSheet(); setTimeout(A.buyDrinks, 0); };
 /** a row bought by the crate ↔ by the bottle: quantity and price follow, the total stays the same */
@@ -93,7 +108,7 @@ A.puBy = (el) => {
   const q = num(r.qty), c = r.unitCost === '' ? '' : num(r.unitCost);
   if (toPack) { r.packOf = String(pc); r.qty = q && q % pc === 0 ? String(q / pc) : q ? String(Math.ceil(q / pc)) : r.qty; if (c !== '') r.unitCost = String(Math.round(c * pc)); }
   else { r.packOf = '1'; r.qty = q ? String(q * pc) : r.qty; if (c !== '') r.unitCost = String(Math.round(c / pc * 100) / 100); }
-  const d = Drinks.bySku(r.dk); if (d) puDrink(r, d, true); sh._draw();
+  const d = catItem(r.dk); if (d) puDrink(r, d, true); sh._draw();
 };
 /* Where it was bought decides the money: abroad = US dollars, in Cameroon = local currency (FCFA). */
 const PU_WHERE = {
@@ -175,10 +190,11 @@ function purchaseForm(pre) {
   const rs = typeof isResto === 'function' && isResto(); // Bar & Resto: drinks — no condition, working, shelf price or client
   const byPack = (r) => !!r.perCase && num(r.packOf) > 1;
   const byHtml = (r, i) => !r.perCase ? '' : '<div class="pu-by"><div class="seg sm" role="group" aria-label="Bought by"><button type="button"' + (byPack(r) ? ' class="on"' : '') + ' data-a="puBy" data-i="' + i + '" data-v="pack" aria-pressed="' + byPack(r) + '">' + esc(r.packName[0].toUpperCase() + r.packName.slice(1)) + 's of ' + r.perCase + '</button><button type="button"' + (byPack(r) ? '' : ' class="on"') + ' data-a="puBy" data-i="' + i + '" data-v="unit" aria-pressed="' + !byPack(r) + '">' + esc(r.unitName[0].toUpperCase() + r.unitName.slice(1)) + 's</button></div><span class="pu-units" data-out="units"></span></div>';
-  const qtyL = (r) => (r.perCase ? (byPack(r) ? r.packName[0].toUpperCase() + r.packName.slice(1) + 's' : r.unitName[0].toUpperCase() + r.unitName.slice(1) + 's') : 'Qty');
-  const priceL = (r) => (r.perCase ? 'Price per ' + (byPack(r) ? r.packName : r.unitName) : 'Price each');
+  const qtyL = (r) => (r.perCase ? (byPack(r) ? r.packName[0].toUpperCase() + r.packName.slice(1) + 's' : r.unitName[0].toUpperCase() + r.unitName.slice(1) + 's') : r.unitName ? 'Qty (' + r.unitName + ')' : 'Qty');
+  const priceL = (r) => (r.perCase ? 'Price per ' + (byPack(r) ? r.packName : r.unitName) : r.unitName ? 'Price per ' + r.unitName : 'Price each');
+  const unitTag = (r) => (r.unitName && !byPack(r) && !/^(bottle|can|carton)$/.test(r.unitName) ? '<span class="pu-u">' + esc(r.unitName) + '</span>' : ''); // kg, bunch, cube…
   const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" value="' + esc(r.name) + '" placeholder="' + (typeof isResto === 'function' && isResto() ? 'Search a drink or item' : 'Item name') + '" autocomplete="off" autocapitalize="words" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-label="Item">' + byHtml(r, i) + '</td>' +
-    '<td data-l="' + qtyL(r) + '"><input class="inp r" data-f="qty" inputmode="numeric" value="' + esc(r.qty) + '" placeholder="' + (r.perCase ? '0' : '') + '" aria-label="' + qtyL(r) + '"></td>' +
+    '<td data-l="' + qtyL(r) + '"><div class="pu-qw' + (unitTag(r) ? ' has-u' : '') + '"><input class="inp r" data-f="qty" inputmode="decimal" value="' + esc(r.qty) + '" placeholder="' + (r.perCase || r.unitName ? '0' : '') + '" aria-label="' + qtyL(r) + '">' + unitTag(r) + '</div></td>' +
     (st ? '' : '<td data-l="Weight each"><div class="in-unit"><input class="inp r" data-f="weight" inputmode="decimal" value="' + esc(r.weight) + '" placeholder="0" aria-label="Weight of one item in kg"><span>kg</span></div></td>') +
     '<td data-l="' + priceL(r) + '"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="' + esc(r.hint || '0') + '" aria-label="' + priceL(r) + '"><span data-unit>' + esc(curSym(cur())) + '</span></div></td>' +
     '<td class="r pu-ltot" data-l="Total"><b class="money" data-out="total">—</b><span class="pu-tx" data-out="tax"></span></td>' +
@@ -229,7 +245,7 @@ function purchaseForm(pre) {
     if (f === 'name' && e.type === 'change') { // a known item: bring back its category, condition and size
       const p = K.raw.products.find((x) => x.name.toLowerCase() === r.name.trim().toLowerCase());
       if (p) { r.category = p.category || r.category; r.subcategory = p.subcategory || ''; r.condition = p.condition || 'New'; r.unit = p.unit || ''; r.size = p.size ?? null; r.sizeUnit = p.sizeUnit || ''; }
-      const d = typeof isResto === 'function' && isResto() && Drinks.ready() ? Drinks.byName(r.name) : null;
+      const d = typeof isResto === 'function' && isResto() ? (Drinks.ready() && Drinks.byName(r.name)) || (hasStation('kitchen') && Ingredients.byName(r.name)) || null : null;
       if (d && r.dk !== d.sku) { puDrink(r, d); sh._draw(); return; }
       if (!d && r.dk) { Object.assign(r, { dk: '', perCase: 0, packName: '', unitName: '', packOf: '1', hint: '' }); sh._draw(); return; }
     }
@@ -307,10 +323,12 @@ function itemSuggest(sh) {
     const have = new Set(K.raw.products.map((p) => N(p.name)));
     const cat = typeof isResto === 'function' && isResto() && Drinks.ready() && words.length ? Drinks.find(q).filter((d) => !have.has(d._n)).slice(0, 8)
       .map((d) => ({ name: d.name, sub: Drinks.metaLine(d), right: d.perCase > 1 ? (d.returnable ? 'crate' : 'case') + ' of ' + d.perCase : '' })) : [];
+    const ing = typeof isResto === 'function' && isResto() && hasStation('kitchen') && words.length ? Ingredients.find(q).filter((d) => !have.has(d._n)).slice(0, 8).map((d) => ({ name: d.name, sub: d.cat, right: 'by the ' + d.unit })) : [];
     const out = [];
     if (mine.length) out.push({ head: 'In your stock' }, ...mine);
+    if (ing.length) out.push({ head: 'Ingredients list' }, ...ing);
     if (cat.length) out.push({ head: 'Drinks list' }, ...cat);
-    const exact = words.length && [...mine, ...cat].some((o) => N(o.name) === N(q));
+    const exact = words.length && [...mine, ...ing, ...cat].some((o) => N(o.name) === N(q));
     if (words.length && !exact) out.push({ own: true, name: q.trim() });
     if (!words.length && typeof isResto === 'function' && isResto()) out.push({ tip: 'Type to search ' + (Drinks.ready() ? Drinks.ready().items.length + ' drinks' : 'the drinks list') + ' — e.g. Castel, 33 Export, Hennessy' });
     return out;

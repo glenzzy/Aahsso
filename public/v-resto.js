@@ -95,7 +95,7 @@ function restoWatch(col, docs) {
   if (!isResto() || !K.member) return;
   if (col === 'rorders') {
     const nw = docs.filter((o) => o.status === 'new'); const acc = docs.filter((o) => o.status === 'accepted');
-    if (_seen.ro && (can('serve') || can('bills'))) { const f = nw.filter((o) => !_seen.ro.has(o.id) && (forMe(o) || can('tables'))); if (f.length) ding('New order · ' + (f[0].tableLabel || 'Counter') + (f[0].customerName ? ' · ' + f[0].customerName : '')); }
+    if (_seen.ro && (can('serve') || can('bills'))) { const f = nw.filter((o) => !_seen.ro.has(o.id) && (forMe(o) || can('tables') || o.away)); if (f.length) ding('New order · ' + (f[0].tableLabel || 'Counter') + (f[0].customerName ? ' · ' + f[0].customerName : '')); }
     if (_seen.kds && can('kds') && !can('serve')) { const at = K.route === 'barscreen' ? 'bar' : K.route === 'kds' ? 'kitchen' : ''; const f = acc.filter((o) => !_seen.kds.has(o.id) && (!at || (o.lines || []).some((l) => (l.station || 'kitchen') === at))); if (f.length) ding((at === 'bar' ? 'New drinks · ' : at === 'kitchen' ? 'New food · ' : 'New ticket · ') + (f[0].tableLabel || 'Counter')); }
     _seen.ro = new Set(nw.map((o) => o.id)); _seen.kds = new Set(acc.map((o) => o.id));
   }
@@ -238,11 +238,37 @@ function ticketCard(o) {
   if (o.status === 'new' && can('serve')) acts.push('<button class="btn sm" data-a="tkReject" data-id="' + o.id + '">Reject</button><button class="btn sm pri" data-a="tkAccept" data-id="' + o.id + '">' + ic('check', 'sm') + 'Accept</button>');
   if (o.status === 'accepted' && (can('serve') || can('kds')) && (!has('kds') || can('tables'))) acts.push('<button class="btn sm" data-a="tkReady" data-id="' + o.id + '">Ready</button>');
   if (orderPay(o) === 'unpaid' && can('bills')) { const tb = tabById(o.tabId); acts.push('<span class="tk-due">' + ic('wallet', 'sm') + 'Bill open · <b class="money">' + fmt(tabDue(tb)) + '</b></span><button class="btn sm pri" data-a="tabPay" data-id="' + esc(tb.id) + '">Take payment</button>'); }
-  if (['accepted', 'ready'].includes(o.status) && can('serve')) acts.push('<button class="btn sm pri" data-a="tkServed" data-id="' + o.id + '">' + ic('check', 'sm') + 'Served</button>');
-  return '<div class="card tk' + (late ? ' tk-late' : '') + (orderPay(o) === 'unpaid' ? ' tk-unpaid' : '') + '"><div class="row between"><div><b>' + esc(o.tableLabel || 'Counter') + '</b> <span class="faint small tk-no">' + esc(tkNo(o)) + (o.customerName ? ' · ' + esc(o.customerName) : '') + (o.source === 'qr' ? ' · QR' : '') + '</span></div><div class="row gap6">' + badge + '<span class="small ' + (late ? 'bad-t' : 'faint') + '">' + rAgo(o.createdAt) + '</span></div></div>' +
-    '<div class="tk-lines">' + (o.lines || []).map((l) => '<div><b>' + fmt(l.qty) + '×</b> ' + esc(l.name) + (l.note ? ' <span class="faint">— ' + esc(l.note) + '</span>' : '') + (stations().length > 1 ? ' <span class="tk-st">' + esc(STATION[l.station] || '') + '</span>' : '') + '</div>').join('') + (o.note ? '<div class="faint small">' + esc(o.note) + '</div>' : '') + (o.rejectReason ? '<div class="small bad-t">' + esc(o.rejectReason) + '</div>' : '') + '</div>' +
+  if (o.away && can('serve') && ['accepted', 'ready'].includes(o.status)) {
+    if (o.away.mode === 'delivery') acts.push((o.dlv && o.dlv.stage === 'out') ? '<button class="btn sm pri" data-a="dlDone" data-id="' + o.id + '">' + ic('check', 'sm') + 'Delivered</button>' : '<button class="btn sm' + (o.status === 'ready' ? ' pri' : '') + '" data-a="dlOut" data-id="' + o.id + '">' + ic('truck', 'sm') + 'Out for delivery</button>');
+    else acts.push('<button class="btn sm' + (o.status === 'ready' ? ' pri' : '') + '" data-a="dlDone" data-id="' + o.id + '">' + ic('check', 'sm') + 'Picked up</button>');
+  } else if (['accepted', 'ready'].includes(o.status) && can('serve')) acts.push('<button class="btn sm pri" data-a="tkServed" data-id="' + o.id + '">' + ic('check', 'sm') + 'Served</button>');
+  return '<div class="card tk' + (late ? ' tk-late' : '') + (orderPay(o) === 'unpaid' ? ' tk-unpaid' : '') + '"><div class="row between"><div><b>' + esc(o.tableLabel || 'Counter') + '</b> <span class="faint small tk-no">' + esc(tkNo(o)) + (o.customerName && !o.away ? ' · ' + esc(o.customerName) : '') + (o.source === 'qr' ? ' · QR' : '') + '</span></div><div class="row gap6">' + badge + '<span class="small ' + (late ? 'bad-t' : 'faint') + '">' + rAgo(o.createdAt) + '</span></div></div>' +
+    (o.away ? awayInfo(o) : '') +
+    '<div class="tk-lines">' + (o.lines || []).filter((l) => l.menuId !== '_delivery').map((l) => '<div><b>' + fmt(l.qty) + '×</b> ' + esc(l.name) + (l.note ? ' <span class="faint">— ' + esc(l.note) + '</span>' : '') + (stations().length > 1 ? ' <span class="tk-st">' + esc(STATION[l.station] || '') + '</span>' : '') + '</div>').join('') + (o.note ? '<div class="faint small">' + esc(o.note) + '</div>' : '') + (o.rejectReason ? '<div class="small bad-t">' + esc(o.rejectReason) + '</div>' : '') + '</div>' +
     (acts.length ? '<div class="row gap6 tk-acts">' + acts.join('') + '</div>' : '') + '</div>';
 }
+/** a delivery / pickup order: who, where, when, how they pay — call or WhatsApp in one tap */
+function awayInfo(o) {
+  const a = o.away; const st = KC.takeawayStage(o); const wa = (p) => 'https://wa.me/' + (String(p).replace(/\D/g, '').length === 9 ? '237' : '') + String(p).replace(/\D/g, '');
+  const fee = (o.lines || []).find((l) => l.menuId === '_delivery');
+  return '<div class="aw' + (a.mode === 'pickup' ? ' aw-p' : '') + '"><div class="aw-h"><span class="aw-b">' + (a.mode === 'delivery' ? '🛵 Delivery' : '🛍 Pickup') + '</span><span class="aw-st">' + esc(st.label) + '</span></div>' +
+    '<div class="aw-r"><b>' + esc(o.customerName || '') + '</b> · <a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a> · <a href="' + esc(wa(a.phone)) + '" target="_blank" rel="noopener">WhatsApp</a></div>' +
+    (a.mode === 'delivery' ? '<div class="aw-r">📍 ' + esc((a.zone ? a.zone + ' — ' : '') + (a.address || '')) + (fee ? ' <span class="faint">· fee ' + fmt(fee.price) + '</span>' : '') + '</div>' : a.who === 'other' ? '<div class="aw-r">Collected by <b>' + esc(a.byName) + '</b>' + (a.byPhone ? ' · <a href="tel:' + esc(a.byPhone) + '">' + esc(a.byPhone) + '</a>' : '') + '</div>' : '') +
+    '<div class="aw-r">🕒 ' + (a.when === 'asap' ? 'As soon as possible' : 'For ' + esc(a.when)) + ' · ' + (a.pay === 'Cash' ? (a.mode === 'delivery' ? 'Cash on delivery' : 'Pays at pickup') : esc(a.pay) + (a.payRef ? ' · ref <b>' + esc(a.payRef) + '</b> (check it)' : ' · no reference yet')) + '</div>' +
+    (o.dlv && o.dlv.rider ? '<div class="aw-r">Rider: <b>' + esc(o.dlv.rider) + '</b></div>' : '') + '</div>';
+}
+/** delivery steps: out with a rider, then delivered (or picked up) — that is when its stock leaves, like a served table */
+A.dlOut = (el) => {
+  const o = rOrder(el.dataset.id); if (!o) return;
+  const sh = openSheet({ title: 'Out for delivery', body: field('Who is delivering?', inp('rider', (o.dlv && o.dlv.rider) || K.ui.lastRider || '', 'placeholder="Rider\'s name"')) + '<p class="hint">The customer sees it is on the way.</p>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="dlGo">' + ic('truck', 'sm') + 'On the way</button>' });
+  $('#dlGo', sh).onclick = async () => { const rider = $('[name=rider]', sh).value.trim(); K.ui.lastRider = rider; const now = new Date().toISOString();
+    await setOrder(o, Object.assign({ dlv: { stage: 'out', rider, at: now } }, o.status === 'accepted' ? { status: 'ready', readyAt: now } : {})); closeSheet(); toast((o.customerName || 'The order') + ' is on the way'); };
+};
+A.dlDone = async (el) => {
+  const o = rOrder(el.dataset.id); if (!o) return; const now = new Date().toISOString();
+  await setOrder(o, { status: 'served', servedLoc: K.loc || 'main', servedAt: now, servedBy: K.me.name || '', servedById: K.me.id, dlv: Object.assign({}, o.dlv || {}, { stage: o.away && o.away.mode === 'pickup' ? 'picked' : 'delivered', doneAt: now }) });
+  toast(o.away && o.away.mode === 'pickup' ? 'Picked up — take the payment if not done' : 'Delivered — take the payment if not done');
+};
 const rOrder = (id) => (K.raw.rorders || []).find((o) => o.id === id);
 async function setOrder(o, patch) { const n = Object.assign({}, o, patch); if (await save('rorders', n)) { refreshSheets(); scheduleRender(); return n; } return null; }
 A.tkAccept = async (el) => {
@@ -265,10 +291,10 @@ VIEWS.tickets = {
   render() {
     const tab = K.ui.tkTab || 'live'; const mine = K.ui.tkMine !== undefined ? K.ui.tkMine : isWaiterOnly();
     let list = (K.raw.rorders || []).slice(); if (mine) list = list.filter(forMe);
-    const t = todayStr(); const by = { live: (o) => ['new', 'accepted', 'ready'].includes(o.status), new: (o) => o.status === 'new', ready: (o) => o.status === 'ready', unpaid: (o) => orderPay(o) === 'unpaid', done: (o) => ['served', 'rejected'].includes(o.status) && String(o.createdAt).slice(0, 10) === t };
+    const t = todayStr(); const by = { live: (o) => ['new', 'accepted', 'ready'].includes(o.status), new: (o) => o.status === 'new', ready: (o) => o.status === 'ready', unpaid: (o) => orderPay(o) === 'unpaid', away: (o) => !!o.away && (!['served', 'rejected'].includes(o.status) || orderPay(o) === 'unpaid'), done: (o) => ['served', 'rejected'].includes(o.status) && String(o.createdAt).slice(0, 10) === t };
     const every = list; const n = (k) => every.filter(by[k]).length; // counts over all orders, not only the tab shown
     list = list.filter(by[tab]).sort((a, b) => (tab === 'done' ? String(b.createdAt).localeCompare(String(a.createdAt)) : String(a.createdAt).localeCompare(String(b.createdAt))));
-    return '<div class="row wrap between mb"><div class="chips">' + [['live', 'Open'], ['new', 'New'], ['ready', 'Ready'], ['unpaid', 'Not paid'], ['done', 'Done today']].map(([k, l]) => '<button class="chip' + (tab === k ? ' on' : '') + (k === 'unpaid' && n(k) ? ' chip-warn' : '') + '" data-a="tkTab" data-v="' + k + '">' + l + (k !== 'done' && n(k) ? ' · ' + n(k) : '') + '</button>').join('') + '</div>' +
+    return '<div class="row wrap between mb"><div class="chips">' + [['live', 'Open'], ['new', 'New'], ['ready', 'Ready']].concat((K.raw.rorders || []).some((o) => o.away) || (S().takeaway || {}).on ? [['away', '🛵 Delivery & pickup']] : []).concat([['unpaid', 'Not paid'], ['done', 'Done today']]).map(([k, l]) => '<button class="chip' + (tab === k ? ' on' : '') + (k === 'unpaid' && n(k) ? ' chip-warn' : '') + '" data-a="tkTab" data-v="' + k + '">' + l + (k !== 'done' && n(k) ? ' · ' + n(k) : '') + '</button>').join('') + '</div>' +
       '<div class="row gap6">' + (can('serve') && can('tables') ? '<label class="toggle small"><input type="checkbox" data-c="tkMine"' + (mine ? ' checked' : '') + '>Only mine</label>' : '') + (can('serve') ? '<button class="btn pri" data-a="rNewOrder">' + ic('plus') + 'New order</button>' : '') + '</div></div>' +
       (() => { const ub = unpaidBills(); if (!ub.length || tab === 'unpaid') return ''; const due = ub.reduce((a, x) => a + x.due, 0);
         return '<div class="alert warn mb np-bar" role="status">' + ic('wallet', 'sm') + '<span><b>Served, not paid yet:</b> ' + ub.length + ' bill' + (ub.length === 1 ? '' : 's') + ' · <b class="money">' + F(due) + '</b> — ' + esc(ub.slice(0, 4).map((x) => x.tab.tableLabel === 'Counter' || !x.tab.tableLabel ? 'Counter' : 'Table ' + x.tab.tableLabel).join(', ')) + (ub.length > 4 ? '…' : '') + '. The stock is already out; it closes when the bill is paid.</span><button class="btn sm" data-a="tkTab" data-v="unpaid">See them</button></div>'; })() +
@@ -300,7 +326,7 @@ function stationScreen(st) {
 A.kdsGo = async (el) => {
   const o = rOrder(el.dataset.id); if (!o) return; const k = el.dataset.s; const now = new Date().toISOString();
   const st = Object.assign({}, o.st || {}, { [k]: { s: el.dataset.v, at: now, by: K.me.name || '' } });
-  const need = [...new Set((o.lines || []).map((l) => l.station || 'kitchen'))]; const all = need.every((x) => st[x] && st[x].s === 'ready');
+  const need = [...new Set((o.lines || []).filter((l) => l.station !== 'none').map((l) => l.station || 'kitchen'))]; const all = need.every((x) => st[x] && st[x].s === 'ready');
   await setOrder(o, Object.assign({ st }, all ? { status: 'ready', readyAt: now } : {}));
   if (all) toast((o.tableLabel || 'Counter') + ' is ready to serve');
 };
@@ -538,12 +564,12 @@ VIEWS.menu = {
     const items = rMenu(); const cats = [...new Set((S().menuCats || []).concat(items.map((m) => m.category || 'Other')))]; const cur = K.ui.mnCat || ''; const q = (K.ui.mnQ || '').toLowerCase();
     const list = items.filter((m) => (!cur || (m.category || 'Other') === cur) && (!q || m.name.toLowerCase().includes(q))).sort((a, b) => cats.indexOf(a.category) - cats.indexOf(b.category) || a.name.localeCompare(b.name));
     const kind = { plain: '', stock: 'From stock', portion: 'Glass / shot', recipe: 'Recipe' };
-    return '<div class="row wrap mb">' + (can('menu') ? '<button class="btn pri" data-a="mnEdit">' + ic('plus') + 'New item</button><button class="btn" data-a="dkMenu">' + ic('glass') + 'Add drinks</button><button class="btn" data-a="mnCats">' + ic('tag') + 'Categories</button>' : '') + (S().menuKey ? '<button class="btn ghost" data-a="mnLink">' + ic('copy') + 'Menu link</button>' : '') + '</div>' +
+    return '<div class="row wrap mb">' + (can('menu') ? '<button class="btn pri" data-a="mnEdit">' + ic('plus') + 'New item</button><button class="btn" data-a="dkMenu">' + ic('glass') + 'Add drinks</button>' + (rMenu().length ? '<button class="btn" data-a="flyer">' + ic('cam') + 'Daily menu flyer</button>' : '') + '<button class="btn" data-a="mnCats">' + ic('tag') + 'Categories</button>' : '') + (S().menuKey ? '<button class="btn ghost" data-a="mnLink">' + ic('copy') + 'Menu link</button>' : '') + '</div>' +
       (hhLive() ? '<div class="alert ok mb">Happy hour now: −' + num(S().happyHour.pct) + '% until ' + esc(S().happyHour.to) + '</div>' : '') +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search the menu" value="' + esc(K.ui.mnQ || '') + '" data-c="mnQ"></div>' +
       '<div class="chips mb">' + [['', 'All']].concat(cats.map((c) => [c, c])).map(([k, l]) => '<button class="chip' + (cur === k ? ' on' : '') + '" data-a="mnCat" data-v="' + esc(k) + '">' + esc(l) + '</button>').join('') + '</div>' +
       (list.length ? '<div class="card list">' + list.map((m) => { const u = m.uses && m.uses.length ? KC.menuUnits(K.C, m, K.loc) : null; const out = m.soldOut || u === 0; return '<div class="li mn-i' + (m.active === false ? ' off' : '') + '"' + (can('menu') ? ' data-a="mnEdit" data-id="' + m.id + '"' : '') + '>' + (m.photo ? '<img class="mn-ph" src="' + esc(imgSrc(m.photo)) + '" alt="">' : '<div class="av">' + esc(initials(m.name)) + '</div>') +
-        '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(m.name) + '</div><div class="tiny muted">' + [esc(m.category || 'Other'), stations().length > 1 ? STATION[KC.stationOf(m, venue())] : '', kind[KC.menuKind(m)], u !== null && u !== Infinity ? (u === 0 ? 'no stock' : u + ' left') : '', m.active === false ? 'hidden' : ''].filter(Boolean).join(' · ') + '</div></div>' +
+        '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(m.name) + '</div><div class="tiny muted">' + [esc(m.category || 'Other'), stations().length > 1 ? STATION[KC.stationOf(m, venue())] : '', kind[KC.menuKind(m)], u !== null && u !== Infinity ? (u === 0 ? 'no stock' : u + ' left') : '', m.active === false ? 'hidden' : ''].filter(Boolean).join(' · ') + (KC.menuKind(m) === 'recipe' ? (() => { const sh = KC.recipeShort(K.C, m, K.loc); return sh.length ? '<div class="tiny rc-short">' + ic('alert', 'sm') + 'Out: ' + esc(sh.map((x) => (byId('products', x.productId) || {}).name || '?').join(', ')) + '</div>' : ''; })() : '') + '</div></div>' +
         '<b class="money">' + fmt(m.price) + '</b>' + (can('menu') || can('serve') ? '<label class="sw" title="Sold out" data-stop><input type="checkbox" data-c="mnOut" data-id="' + m.id + '"' + (out ? '' : ' checked') + (u === 0 ? ' disabled' : '') + '><span></span></label>' : '') + '</div>'; }).join('') + '</div>'
         : '<div class="card empty"><div class="big">🍹</div>' + (items.length ? 'Nothing here.' : 'Your menu is empty.') + (can('menu') && !items.length ? '<div class="mt row wrap" style="justify-content:center"><button class="btn pri" data-a="dkMenu">' + ic('glass') + 'Add drinks in stock</button><button class="btn" data-a="mnEdit">' + ic('plus') + 'Add your own item</button></div><div class="hint mt">Drinks go on the menu once they are bought and in stock — buy them in Stock → Buy drinks.</div>' : '') + '</div>') +
       '<p class="hint mt">The switch on each item: on = served, off = sold out (hidden from the QR menu).</p>';
@@ -555,6 +581,7 @@ CH.mnQ = (el) => { K.ui.mnQ = el.value; render(true); };
 CH.mnOut = async (el) => { const m = menuById(el.dataset.id); if (m) { await save('menu', Object.assign({}, m, { soldOut: !el.checked })); toast(m.name + (el.checked ? ' is back on the menu' : ' is sold out')); } };
 document.addEventListener('click', (e) => { if (e.target.closest('[data-stop]')) e.stopPropagation(); }, true);
 A.mnLink = async () => { await ensureMenuKey(); await copyText(menuLink()); toast('Menu link copied — share it on WhatsApp'); };
+A.rcBuy = () => { A.buyIngredients(); };
 A.mnCats = () => {
   const cats = (S().menuCats || []).slice();
   const sh = openSheet({ title: 'Menu categories', body: '<p class="hint">In the order customers see them. One per line.</p><textarea class="inp" id="mcT" rows="10">' + esc(cats.join('\n')) + '</textarea>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="mcGo">Save</button>' });
@@ -595,7 +622,8 @@ A.mnEdit = (el) => {
   m.kind = KC.menuKind(m); const prods = K.raw.products.filter((p) => !p.archived).sort((a, b) => a.name.localeCompare(b.name));
   const kinds = [['plain', 'Simple', 'No stock to follow (e.g. a dish you do not cost)'], ['stock', 'From stock', 'One stock item per serving (a bottle of beer, a can)']].concat(has('portions') ? [['portion', 'Glass / shot', 'Part of a bottle (e.g. 25 shots per bottle)']] : []).concat(has('recipes') ? [['recipe', 'Recipe', 'Made from ingredients in stock']] : []);
   const left = (p) => Math.max(0, Math.floor((K.C.prodX[p.id] || {}).available || 0));
-  const pOpts = [['', 'Choose a stock item…']].concat(prods.map((p) => [p.id, p.name + ' — ' + (left(p) ? left(p) + ' in stock' : 'none in stock')]));
+  const pOpts = [['', 'Choose a stock item…']].concat(prods.map((p) => [p.id, p.name + ' — ' + (left(p) ? left(p) + ' ' + (p.unit && p.unit !== 'piece' ? p.unit + ' ' : '') + 'in stock' : 'none in stock')]));
+  const unitOf = (pid) => { const p = byId('products', pid); return p ? p.unit || 'piece' : ''; };
   const sh = openSheet({ title: id ? 'Edit ' + m.name : 'New menu item', wide: true, body: '' });
   const draw = () => {
     const dk = m.drink && Drinks.ready() ? Drinks.bySku(m.drink) : null;
@@ -607,7 +635,7 @@ A.mnEdit = (el) => {
       '<div class="lbl-t">Stock</div><div class="biz-pick">' + kinds.map(([k, l, h]) => '<label class="biz-opt"><input type="radio" name="kind" value="' + k + '"' + (m.kind === k ? ' checked' : '') + '><span><b>' + l + '</b><span class="hint">' + h + '</span></span></label>').join('') + '</div>' +
       (m.kind === 'stock' ? field('Stock item', sel('p0', pOpts, (m.uses[0] || {}).productId || '')) : '') +
       (m.kind === 'portion' ? '<div class="grid2">' + field('Bottle (stock item)', sel('p0', pOpts, (m.uses[0] || {}).productId || '')) + field('Servings per bottle', inp('per', per, 'inputmode="numeric"')) + '</div>' : '') +
-      (m.kind === 'recipe' ? '<div id="rcp">' + (m.uses.length ? m.uses : [{ productId: '', qty: '' }]).map((u, i) => '<div class="grid2 rcp-r">' + field(i ? '' : 'Ingredient', sel('rp' + i, pOpts, u.productId || '')) + field(i ? '' : 'Quantity per serving', inp('rq' + i, u.qty, 'inputmode="decimal" placeholder="e.g. 0.25"')) + '</div>').join('') + '</div><button type="button" class="btn sm" id="rcAdd">' + ic('plus', 'sm') + 'Add ingredient</button><p class="hint">Quantities are in each stock item\'s unit (kg, piece, bottle…).</p>' : '') +
+      (m.kind === 'recipe' ? '<div id="rcp">' + (m.uses.length ? m.uses : [{ productId: '', qty: '' }]).map((u, i) => '<div class="grid2 rcp-r">' + field(i ? '' : 'Ingredient', sel('rp' + i, pOpts, u.productId || '')) + field(i ? '' : 'Quantity per serving', '<div class="in-unit"><input class="inp" name="rq' + i + '" value="' + esc(u.qty) + '" inputmode="decimal" placeholder="e.g. 0.25"><span>' + esc(unitOf(u.productId)) + '</span></div>') + '</div>').join('') + '</div><div class="row wrap gap6"><button type="button" class="btn sm" id="rcAdd">' + ic('plus', 'sm') + 'Add ingredient</button>' + (can('purchases') && hasStation('kitchen') ? '<button type="button" class="btn sm ghost" data-a="rcBuy">' + ic('buy', 'sm') + 'Buy ingredients</button>' : '') + '</div><p class="hint">Quantities are in each ingredient\'s unit: 150 g of beef = <b>0.15</b> kg, 2 Maggi cubes = <b>2</b> cube. They leave stock when the dish is served. A missing ingredient never stops the dish being ordered — the menu shows what is short.</p>' : '') +
       '<div class="row wrap">' + (has('photos') ? '<button type="button" class="btn sm" id="mnPh">' + ic('cam', 'sm') + (m.photo ? 'Change photo' : 'Add photo') + '</button>' : '') + '<label class="toggle"><input type="checkbox" name="active"' + (m.active !== false ? ' checked' : '') + '>On the menu</label></div></div>');
     sh.querySelectorAll('[name=kind]').forEach((r) => (r.onchange = () => { keep(); const pid = (m.uses[0] || {}).productId; m.kind = r.value; m.uses = pid && ['stock', 'portion'].includes(r.value) ? [{ productId: pid, qty: r.value === 'stock' ? 1 : 1 / Math.max(1, (dk && dk.pours) || 25) }] : []; draw(); }));
     if ($('#dkFill', sh)) $('#dkFill', sh).onclick = () => Drinks.picker({ title: 'Choose a drink', prices: ['bar', 'lounge'], only: Drinks.servable, lead: can('purchases') ? dkLead : null, empty: dkEmpty,
@@ -619,17 +647,18 @@ A.mnEdit = (el) => {
       draw(); toast(d.name + ' filled in — check the price');
     } });
     if ($('#rcAdd', sh)) $('#rcAdd', sh).onclick = () => { keep(); m.uses.push({ productId: '', qty: '' }); draw(); };
+    sh.querySelectorAll('[name^=rp]').forEach((x) => (x.onchange = () => { keep(); draw(); })); // the unit follows the ingredient
     if ($('#mnPh', sh)) $('#mnPh', sh).onclick = async () => { const f = await photoPicker(); if (!f) return; keep(); m.photo = await storePhoto(f); draw(); toast('Photo added'); };
   };
   const keep = () => { const v = formVals(sh); ['name', 'price', 'category', 'station', 'desc'].forEach((k) => { if (v[k] !== undefined) m[k] = v[k]; }); m.active = !!v.active;
     if (m.kind === 'stock') m.uses = v.p0 ? [{ productId: v.p0, qty: 1 }] : [];
     if (m.kind === 'portion') m.uses = v.p0 ? [{ productId: v.p0, qty: Math.round(10000 / Math.max(1, num(v.per) || 25)) / 10000 }] : [];
-    if (m.kind === 'recipe') { const out = []; for (let i = 0; i < 40; i++) { if (v['rp' + i] === undefined) break; if (v['rp' + i] && num(v['rq' + i]) > 0) out.push({ productId: v['rp' + i], qty: num(v['rq' + i]) }); } m.uses = out; }
+    if (m.kind === 'recipe') { const out = []; for (let i = 0; i < 40; i++) { if (v['rp' + i] === undefined) break; if (v['rp' + i]) out.push({ productId: v['rp' + i], qty: v['rq' + i] === '' ? '' : num(v['rq' + i]) }); } m.uses = out; } // rows stay while being filled in
     if (m.kind === 'plain') m.uses = []; };
   if (!$('.sf', sh)) { const f = document.createElement('div'); f.className = 'sf'; sh.querySelector('.sheet').appendChild(f); }
   $('.sf', sh).innerHTML = (id ? '<button class="btn danger" id="mnDel">' + ic('trash') + '</button>' : '') + '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="mnGo">Save</button>';
   draw();
-  $('#mnGo', sh).onclick = async () => { keep(); m.name = (m.name || '').trim(); if (!m.name) return toast('Type the name', true); if (!(num(m.price) > 0)) return toast('Type the price', true); if (['stock', 'portion'].includes(m.kind) && !m.uses.length) return toast('Choose the stock item', true); if (m.kind === 'recipe' && !m.uses.length) return toast('Add at least one ingredient', true);
+  $('#mnGo', sh).onclick = async () => { keep(); if (m.kind === 'recipe') m.uses = m.uses.filter((u) => u.productId && num(u.qty) > 0); m.name = (m.name || '').trim(); if (!m.name) return toast('Type the name', true); if (!(num(m.price) > 0)) return toast('Type the price', true); if (['stock', 'portion'].includes(m.kind) && !m.uses.length) return toast('Choose the stock item', true); if (m.kind === 'recipe' && !m.uses.length) return toast('Add at least one ingredient', true);
     m.price = num(m.price);
     if (m.category && !(S().menuCats || []).includes(m.category)) await saveSettings({ menuCats: (S().menuCats || []).concat([m.category]) });
     if (await save('menu', Object.assign(m, { id: id || uid('mn_') }))) { closeSheet(); render(true); toast(id ? 'Saved' : m.name + ' added to the menu'); } };
@@ -692,6 +721,11 @@ A.venueSettings = () => {
     (has('payFirst') ? '<label class="toggle"><input type="checkbox" name="payFirst"' + (s.payFirst ? ' checked' : '') + '>Pay-first counter (order and pay at the counter)</label>' : '') +
     (has('tabsPlus') ? field('Service charge (%)', inp('serviceCharge', s.serviceCharge || '', 'inputmode="decimal" placeholder="0 = none"')) : '') +
     (has('happyHour') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="hhOn"' + (hh.on ? ' checked' : '') + '><b>Happy hour</b></label><div class="grid3 mt">' + field('From', inp('hhFrom', hh.from, 'type="time"')) + field('To', inp('hhTo', hh.to, 'type="time"')) + field('Discount %', inp('hhPct', hh.pct, 'inputmode="numeric"')) + '</div><div class="row wrap mt">' + D.map((d, i) => '<label class="check"><input type="checkbox" name="hhd' + i + '"' + (!(hh.days || []).length || hh.days.includes(i) ? ' checked' : '') + '> ' + d + '</label>').join('') + '</div>' + field('Only these categories (empty = all)', inp('hhCats', (hh.cats || []).join(', '), 'placeholder="e.g. Beers, Cocktails"')) + '</div>' : '') +
+    (has('qrOrders') ? (() => { const tw = s.takeaway || {}; return '<div class="card pad"><label class="toggle"><input type="checkbox" name="twOn"' + (tw.on ? ' checked' : '') + '><b>Delivery & pickup</b> <span class="hint">customers order online from your menu link</span></label>' +
+      '<div class="row wrap mt"><label class="check"><input type="checkbox" name="twDel"' + (tw.delivery !== false ? ' checked' : '') + '>We deliver</label><label class="check"><input type="checkbox" name="twPick"' + (tw.pickup !== false ? ' checked' : '') + '>Customers collect (or send someone)</label></div>' +
+      '<div class="grid3 mt">' + field('Delivery fee (' + baseSym() + ')', inp('twFee', tw.fee ?? 1000, 'inputmode="numeric"')) + field('Minimum order', inp('twMin', tw.minOrder || '', 'inputmode="numeric" placeholder="None"')) + field('Ready in about (minutes)', inp('twPrep', tw.prepMins || 30, 'inputmode="numeric"')) + '</div>' +
+      field('Fee by area <span class="hint">(optional — one per line, e.g. “Akwa: 1000”)</span>', '<textarea class="inp" name="twZones" rows="3" placeholder="Akwa: 1000&#10;Bonapriso: 1500&#10;Makepe: 2000">' + esc(tw.zones || '') + '</textarea>') +
+      '<div class="hint">Customers pay cash on delivery or at pickup' + ((s.momoAccounts || []).some((a) => /momo|orange/i.test(a.method || '')) ? ', or by mobile money to your numbers (' + esc((s.momoAccounts || []).filter((a) => /momo|orange/i.test(a.method || '')).map((a) => a.method + ' ' + a.number).join(', ')) + ')' : ' — add your MTN MoMo / Orange Money numbers in Settings → Mobile money to take mobile money too') + '.</div></div>'; })() : '') +
     (has('loyalty') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="loyaltyOn"' + (s.loyaltyOn ? ' checked' : '') + '><b>Loyalty points</b></label><div class="grid2 mt">' + field('1 point for every (' + baseSym() + ')', inp('loyaltyPer', s.loyaltyPer || 1000, 'inputmode="numeric"')) + field('1 point is worth (' + baseSym() + ')', inp('pointValue', s.pointValue || 10, 'inputmode="numeric"')) + '</div></div>' : '') +
     '</div>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="vsGo">Save</button>' });
   $('#vsGo', sh).onclick = async () => {
@@ -699,6 +733,7 @@ A.venueSettings = () => {
     if (has('payFirst')) patch.payFirst = !!v.payFirst;
     if (has('tabsPlus')) patch.serviceCharge = Math.max(0, Math.min(30, num(v.serviceCharge)));
     if (has('happyHour')) { const days = D.map((_, i) => i).filter((i) => v['hhd' + i]); patch.happyHour = { on: !!v.hhOn, from: v.hhFrom || '17:00', to: v.hhTo || '19:00', pct: Math.max(0, Math.min(90, num(v.hhPct))), days: days.length === 7 ? [] : days, cats: String(v.hhCats || '').split(',').map((x) => x.trim()).filter(Boolean) }; }
+    if (has('qrOrders')) patch.takeaway = { on: !!v.twOn, delivery: !!v.twDel, pickup: !!v.twPick, fee: Math.max(0, Math.round(num(v.twFee))), minOrder: Math.max(0, Math.round(num(v.twMin))), prepMins: Math.max(5, Math.round(num(v.twPrep) || 30)), zones: String(v.twZones || '').slice(0, 2000) };
     if (has('loyalty')) { patch.loyaltyOn = !!v.loyaltyOn; patch.loyaltyPer = Math.max(1, num(v.loyaltyPer) || 1000); patch.pointValue = Math.max(0, num(v.pointValue) || 10); }
     if (v.venueType !== venue() && !(S().menuCats || []).length) patch.menuCats = KC.MENU_CATS[v.venueType].slice();
     if (await saveSettings(patch)) { closeSheet(); render(true); toast('Venue settings saved'); }
