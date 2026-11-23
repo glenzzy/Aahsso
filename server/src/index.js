@@ -203,8 +203,7 @@ async function auth(req, res, next) {
     if (p.ro && !['GET', 'HEAD'].includes(req.method)) return err(res, 403, 'Aahsso support view is read-only — nothing can be changed', { code: 'read_only' });
     const u = (await q('SELECT u.id,u.tenant_id,u.name,coalesce(lp.login,u.login) AS login,u.email,u.role,u.perms,u.location_id,u.active,u.person_id,t.name AS tenant_name,t.edition,t.plan,t.status,t.trial_ends_at,t.paid_until,t.grace_days FROM users u JOIN tenants t ON t.id=u.tenant_id LEFT JOIN users lp ON lp.id=u.person_id WHERE u.id=$1', [p.uid])).rows[0];
     if (!u || !u.active) return err(res, 401, 'Session expired');
-    const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0];
-    u.customRoles = (st && st.roles) || {};
+    u.customRoles = await rolesOfTenant(u.tenant_id);
     if (p.ro) u.supportView = { by: p.impName || 'Aahsso support', until: new Date(p.exp * 1000).toISOString() };
     u.ent = await billing.limitsFor(pool, u.tenant_id); u.features = u.ent.features; // what the plan includes
     req.user = u; next();
@@ -425,15 +424,15 @@ app.get('/api/stream', auth, (req, res) => {
   poll(); // start the cursor now, or catch up on whatever happened while reconnecting
   req.on('close', stop);
 });
-function broadcast(tid, col, id) { (streams.get(tid) || new Set()).forEach((r) => r.write('data: ' + JSON.stringify({ col, id }) + '\n\n')); }
+function broadcast(tid, col, id) { forgetTenant(tid); (streams.get(tid) || new Set()).forEach((r) => r.write('data: ' + JSON.stringify({ col, id }) + '\n\n')); }
 
 /* ---------- data ---------- */
 const colOk = (req, res, next) => COLLECTIONS.includes(req.params.col) ? next() : err(res, 404, 'Unknown collection');
 
-app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
-  const u = req.user, col = req.params.col;
-  const r = await q('SELECT id, data FROM documents WHERE tenant_id=$1 AND collection=$2', [u.tenant_id, col]);
-  let docs = r.rows.map((x) => Object.assign({}, x.data, { id: x.id }));
+/** what this user may see of a collection's documents (prices, costs, other people's sales, HR…). `ctx` is per request
+ *  (computeAll done once even when several collections need it). */
+async function docsFor(u, col, rows, ctx) {
+  let docs = rows.map((x) => Object.assign({}, x.data, { id: x.id }));
   const P = perms(u);
   if (col === 'sales' && !P.salesAll) {
     // Other people's sales are reduced to what stock calculations need: no customers, prices or payments.
@@ -445,7 +444,7 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
     if (col === 'shipments') docs = docs.map((d) => Object.assign({}, d, { costs: [] }));
     if (col === 'products') {
       // Send selling prices already calculated, because this user cannot receive the costs they come from.
-      const C = KC.computeAll(await loadAll(pool, u.tenant_id));
+      const C = ctx.C || (ctx.C = KC.computeAll(await loadAll(pool, u.tenant_id)));
       docs = docs.map((d) => { const x = C.prodX[d.id] || {}; return Object.assign({}, d, { priceMax: x.priceMax || d.priceMax, priceMin: x.priceMin || d.priceMin, markup: null, minMarkup: null, priceHistory: (d.priceHistory || []).map((e) => Object.assign({}, e, { cost: null })) }); });
     }
     if (col === 'adjustments' || col === 'expenses') docs = col === 'expenses' && !P.expenses ? [] : docs;
@@ -468,8 +467,25 @@ app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
   if (col === 'tills' && !P.handover) docs = docs.filter((d) => d.fromId === u.id || d.toId === u.id);
   if (col === 'losses' && !P.stockEdit && !P.reports) docs = docs.filter((d) => d.reportedById === u.id);
   if (col === 'losses' && !P.costs) docs = docs.map((d) => Object.assign({}, d, { lines: (d.lines || []).map((l) => Object.assign({}, l, { unitCost: 0 })) }));
-  res.json({ docs });
+  return docs;
+}
+app.get('/api/data/:col', auth, colOk, wrap(async (req, res) => {
+  const u = req.user, col = req.params.col;
+  const r = await q('SELECT id, data FROM documents WHERE tenant_id=$1 AND collection=$2', [u.tenant_id, col]);
+  res.json({ docs: await docsFor(u, col, r.rows, {}) });
 }));
+/* many collections in ONE request (the app at start-up, on switching business, and when refreshing): one sign-in check
+   and one query instead of ~30 — on serverless each of those could be a cold start */
+app.get('/api/data', auth, wrap(async (req, res) => {
+  const u = req.user; const cols = [...new Set(String(req.query.cols || '').split(',').filter((c) => COLLECTIONS.includes(c)))];
+  if (!cols.length) return err(res, 400, 'Which collections?');
+  const r = await q('SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection = ANY($2)', [u.tenant_id, cols]);
+  const by = {}; cols.forEach((c) => (by[c] = [])); r.rows.forEach((x) => by[x.collection].push(x));
+  const ctx = {}; const out = {};
+  for (const c of cols) out[c] = await docsFor(u, c, by[c], ctx);
+  res.json({ cols: out });
+}));
+
 
 async function loadAllSales(c, tid) {
   const r = await c.query("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('sales','tills')", [tid]);
@@ -629,6 +645,20 @@ async function staffRules(c, u, P, col, id, body, old) {
   }
   return null;
 }
+/* small per-instance caches: a business's custom roles (every request needs them) and its public menu / shop page */
+const roleCache = new Map(); const ROLE_TTL = 30e3;
+async function rolesOfTenant(tid) {
+  const hit = roleCache.get(tid); if (hit && Date.now() - hit.at < ROLE_TTL) return hit.v;
+  const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [tid])).rows[0];
+  const v = (st && st.roles) || {}; roleCache.set(tid, { at: Date.now(), v }); return v;
+}
+const pageCache = new Map(); const PAGE_TTL = Number(process.env.PUBLIC_PAGE_CACHE_MS || 10e3);
+/** the same answer for a few seconds: a public menu or shop opened by many customers at once is computed once */
+async function cached(key, fn) {
+  const hit = pageCache.get(key); if (hit && Date.now() - hit.at < PAGE_TTL) return hit.v;
+  const v = await fn(); pageCache.set(key, { at: Date.now(), v }); if (pageCache.size > 500) pageCache.delete(pageCache.keys().next().value); return v;
+}
+const forgetTenant = (tid) => { roleCache.delete(tid); for (const k of pageCache.keys()) if (k.endsWith(':' + tid)) pageCache.delete(k); };
 async function loadAll(c, tid) {
   const r = await c.query("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('settings','products','lots','shipments','sales','adjustments','transfers','promos')", [tid]);
   const raw = { settings: {}, products: [], lots: [], shipments: [], sales: [], adjustments: [], transfers: [], promos: [] };
@@ -1117,11 +1147,11 @@ async function shopTenant(key) {
 }
 app.get('/api/shop/:key', shopReadLimiter, wrap(async (req, res) => {
   const t = await shopTenant(req.params.key); if (!t) return err(res, 404, 'This shop is not available');
-  const raw = await loadAll(pool, t.tid); const C = KC.computeAll(raw); const st = t.settings;
+  const items = await cached('shop:' + t.tid, async () => { const raw = await loadAll(pool, t.tid); return KC.shopCatalog(raw, KC.computeAll(raw)).map(KC.publicItem); }); const st = t.settings;
   res.set('Cache-Control', 'no-store').json({
     business: { name: st.businessName, tagline: st.tagline || '', phone: st.phone || '', whatsapp: st.whatsapp || st.phone || '', address: st.address || '', logo: st.logo || '', currency: st.currency || 'XAF', symbol: KC.currencySymbolOf(st), message: st.shopMessage || '' },
     delivery: { modes: KC.DELIVERY_MODES, agencies: Array.isArray(st.shopAgencies) ? st.shopAgencies.slice(0, 30) : [] },
-    items: KC.shopCatalog(raw, C).map(KC.publicItem),
+    items,
   });
 }));
 app.post('/api/shop/:key/orders', shopOrderLimiter, wrap(async (req, res) => {
@@ -1192,7 +1222,7 @@ async function putDoc(c, tid, col, id, data, who) {
 }
 app.get('/api/menu/:key', menuReadLimiter, wrap(async (req, res) => {
   const t = await menuTenant(req.params.key); if (!t) return err(res, 404, 'This menu is not available');
-  const L = await liveMenu(t); const st = L.st; const table = menuTable(L.tables, t, req.query); const area = table && L.areas.find((a) => a.id === table.areaId);
+  const L = await cached('menu:' + t.tid, () => liveMenu(t)); const st = L.st; const table = menuTable(L.tables, t, req.query); const area = table && L.areas.find((a) => a.id === table.areaId);
   const cats = (st.menuCats || []).filter((c) => L.items.some((i) => i.category === c)).concat([...new Set(L.items.map((i) => i.category))].filter((c) => !(st.menuCats || []).includes(c)));
   res.set('Cache-Control', 'no-store').json({
     business: { name: st.businessName, tagline: st.tagline || '', logo: st.logo || '', symbol: KC.currencySymbolOf(st), venueType: st.venueType || 'both', phone: st.whatsapp || st.phone || '' },

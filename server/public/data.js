@@ -87,13 +87,27 @@ class RestStore {
   }
   /** a live message that is not a collection (e.g. 'billing': a mobile money payment moved on) */
   on(col, f) { this.events = this.events || {}; (this.events[col] = this.events[col] || []).push(f); }
+  /* refreshes asked within a moment of each other (start-up, switching business, the minute refresh, live updates) go
+     out as ONE request for all of them — one sign-in check and one query on the server instead of ~30 */
   _refresh(col) {
     if (!this.subs[col]) return;
-    clearTimeout(this['_t' + col]);
-    this['_t' + col] = setTimeout(async () => {
-      try { const r = await this.req('GET', '/api/data/' + col); (this.subs[col] || []).forEach((cb) => cb(r.docs)); }
-      catch (e) { (this.errs || []).forEach((f) => f(e)); }
-    }, 150);
+    if (!COLLECTIONS.includes(col)) return this._refreshOne(col);
+    (this._want = this._want || new Set()).add(col);
+    clearTimeout(this._tq); this._tq = setTimeout(() => this._flushRefresh(), 120);
+  }
+  async _flushRefresh() {
+    const cols = [...(this._want || [])]; this._want = new Set(); if (!cols.length) return;
+    try {
+      const r = await this.req('GET', '/api/data?cols=' + cols.join(','));
+      cols.forEach((c) => (this.subs[c] || []).forEach((cb) => cb((r.cols || {})[c] || [])));
+    } catch (e) {
+      if (/not found|unknown|which collections/i.test(e.message || '')) return cols.forEach((c) => this._refreshOne(c)); // an older server: one by one
+      (this.errs || []).forEach((f) => f(e));
+    }
+  }
+  async _refreshOne(col) {
+    try { const r = await this.req('GET', '/api/data/' + col); (this.subs[col] || []).forEach((cb) => cb(r.docs)); }
+    catch (e) { (this.errs || []).forEach((f) => f(e)); }
   }
   subscribe(col, cb, onErr) { (this.subs[col] = this.subs[col] || []).push(cb); if (onErr) (this.errs = this.errs || []).push(onErr); this._refresh(col); return () => { }; }
   async put(col, id, data) { const body = JSON.parse(JSON.stringify(data)); delete body.id; await this.req('PUT', '/api/data/' + col + '/' + encodeURIComponent(id), body); this._refresh(col); }
