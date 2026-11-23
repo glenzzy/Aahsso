@@ -9,7 +9,7 @@ function renderLogin() {
     '<div class="auth-brand"><div class="auth-mark" aria-hidden="true">A</div><div class="auth-name">Aahsso</div><div class="auth-tag">Buy, stock &amp; sell</div></div>' +
     '<form class="auth-card" id="aForm" novalidate>' +
       '<h1 id="aTitle">Welcome back</h1><p class="auth-sub" id="aSub">Sign in to your business account.</p>' +
-      '<div id="fReg" class="auth-fields hide">' + field('Business name', inp('businessName', '', 'autocomplete="organization"')) + field('Your name', inp('name', '', 'autocomplete="name"')) + '</div>' +
+      '<div id="fReg" class="auth-fields hide">' + field('Business name', inp('businessName', '', 'autocomplete="organization"')) + '<div class="grid2 auth-2">' + field('First name', inp('firstName', '', 'autocomplete="given-name" autocapitalize="words"')) + field('Last name', inp('lastName', '', 'autocomplete="family-name" autocapitalize="words"')) + '</div>' + '</div>' +
       '<div class="auth-fields" id="fCore">' + field('Email or phone', inp('login', '', 'autocomplete="username" autocapitalize="off" spellcheck="false"')) + field('Password', pw('password', 'current-password')) + '</div>' +
       '<div id="fEd" class="auth-ed hide" role="radiogroup" aria-label="What do you run?"></div>' +
       '<div class="auth-forgot" id="fgRow"><button type="button" class="auth-link" id="tForgot">Forgot password?</button></div>' +
@@ -27,10 +27,10 @@ function renderLogin() {
   let vtPick = 'both'; // Aahsso Bar & Resto: a bar, a restaurant or both
   const drawEds = () => {
     const ICON = { ship: 'ship', sell: 'sell', glass: 'glass' };
-    $('#fEd').innerHTML = (eds || []).map((e) => { const on = edPick === e.key; const kc = KC.editionOf(e.key) || {}; const name = e.name || kc.name || e.label, pitch = e.pitch || kc.pitch || e.tag, who = e.who || kc.who || '';
+    $('#fEd').innerHTML = (eds || []).map((e) => { const on = edPick === e.key; const kc = KC.editionOf(e.key) || {}; const name = e.name || kc.name || e.label, pitch = e.pitch !== undefined ? e.pitch : kc.pitch !== undefined ? kc.pitch : e.tag || '', who = e.who || kc.who || '';
       return '<button type="button" class="auth-edc ed-' + esc(e.key) + (on ? ' on' : '') + '" role="radio" aria-checked="' + on + '" data-ed="' + esc(e.key) + '">' +
         '<span class="auth-edi" aria-hidden="true">' + ic(ICON[e.icon || kc.icon] || 'stock') + '</span>' +
-        '<span class="auth-edt"><b>' + esc(name) + '</b><span class="auth-edp">' + esc(pitch) + '</span>' + (who ? '<span class="auth-edw">' + esc(who) + '</span>' : '') + '</span>' +
+        '<span class="auth-edt"><b>' + esc(name) + '</b>' + (pitch ? '<span class="auth-edp">' + esc(pitch) + '</span>' : '') + (who ? '<span class="auth-edw">' + esc(who) + '</span>' : '') + '</span>' +
         '<span class="auth-edk" aria-hidden="true">' + (on ? ic('check', 'sm') : '') + '</span>' +
         (e.key === 'resto' && on ? '<span class="auth-vt" role="radiogroup" aria-label="What do you run?">' + [['bar', 'Bar', 'glass'], ['restaurant', 'Restaurant', 'chef'], ['both', 'Both', 'table']].map(([k, l, i]) => '<span role="radio" tabindex="0" aria-checked="' + (vtPick === k) + '" class="auth-vtc' + (vtPick === k ? ' on' : '') + '" data-vt="' + k + '">' + ic(i, 'sm') + l + '</span>').join('') + '</span>' : '') + '</button>'; }).join('') +
       '<p class="auth-edn">' + ic('check', 'sm') + '5-day free trial · no payment needed</p><button type="button" class="auth-link" id="edBack">← Back to your details</button>';
@@ -65,9 +65,10 @@ function renderLogin() {
   $('#go').onclick = async (e) => {
     e.preventDefault(); err('');
     const v = formVals(document.body); const api = (window.AAHSSO_CONFIG.api || location.origin).replace(/\/$/, '');
-    const need = (reg ? [['businessName', 'your business name'], ['name', 'your name']] : []).concat([['login', 'your email or phone'], ['password', 'your password']]);
+    const need = (reg ? [['businessName', 'your business name'], ['firstName', 'your first name'], ['lastName', 'your last name']] : []).concat([['login', 'your email or phone'], ['password', 'your password']]);
     const miss = need.find(([k]) => !String(v[k] || '').trim());
     if (miss) { err('Please enter ' + miss[1] + '.'); if (step === 2) goStep(1); $('[name=' + miss[0] + ']').focus(); return; }
+    if (reg) { v.name = (String(v.firstName).trim() + ' ' + String(v.lastName).trim()).replace(/\s+/g, ' ').trim(); delete v.firstName; delete v.lastName; } // one full name, as before
     if (reg) {
       if (step === 1 && String(v.password).length < 6) { err('Use at least 6 characters for the password.'); $('[name=password]').focus(); return; }
       await loadEds();
