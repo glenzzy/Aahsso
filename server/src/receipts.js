@@ -7,9 +7,14 @@
 //   RECEIPT_MODEL            default claude-opus-5-5
 //   RECEIPT_EFFORT           default low (reading, not reasoning: faster and cheaper)
 //   ANTHROPIC_BASE_URL       optional (tests point it at a local mock)
+//
+// Testing through OpenRouter before having an Anthropic key (receipts then go to OpenRouter as well as Anthropic):
+//   ANTHROPIC_BASE_URL=https://openrouter.ai/api   ANTHROPIC_AUTH_TOKEN=<OpenRouter key>   (leave ANTHROPIC_API_KEY empty)
+//   RECEIPT_MODEL=anthropic/claude-opus-5.5        — the model name defaults to this when the address is OpenRouter
 const Anthropic = require('@anthropic-ai/sdk');
 
-const MODEL = process.env.RECEIPT_MODEL || 'claude-opus-5-5';
+const VIA_OPENROUTER = /openrouter\.ai/i.test(process.env.ANTHROPIC_BASE_URL || '') || process.env.RECEIPT_PROVIDER === 'openrouter';
+const MODEL = process.env.RECEIPT_MODEL || (VIA_OPENROUTER ? 'anthropic/claude-opus-5.5' : 'claude-opus-5-5');
 const EFFORT = process.env.RECEIPT_EFFORT || 'low';
 const MAX_FILES = 8; // several photos of one long receipt, or a few receipts at once
 const MAX_BYTES = 4 * 1024 * 1024; // all files together (the hosting platform takes ~4.5 MB per request)
@@ -111,12 +116,20 @@ async function readReceipts(files, { categories = [], currency = '' } = {}) {
   const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), DEADLINE_MS);
   let r;
   try {
-    r = await api().beta.messages.create({
+    const body = {
       model: MODEL, max_tokens: 16000, system: SYSTEM,
-      betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', // a false-positive safety decline is retried on another model instead of failing
       output_config: { effort: EFFORT, format: { type: 'json_schema', schema: SCHEMA } },
       messages: [{ role: 'user', content: blocks.concat([{ type: 'text', text: hint }]) }],
-    }, { signal: ac.signal });
+    };
+    r = VIA_OPENROUTER
+      // OpenRouter: its own fallback list, and the schema repeated in the prompt in case the format is not enforced there
+      ? await api().messages.create(Object.assign(body, {
+        fallbacks: [{ model: 'anthropic/claude-opus-5' }],
+        system: SYSTEM + '\n\nReply with only a JSON object (no other text) that follows this JSON schema:\n' + JSON.stringify(SCHEMA),
+      }), { signal: ac.signal })
+      : await api().beta.messages.create(Object.assign(body, {
+        betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', // a false-positive safety decline is retried on another model instead of failing
+      }), { signal: ac.signal });
   } catch (e) {
     if (e instanceof Anthropic.RateLimitError) throw Object.assign(new Error('Receipt reading is busy — try again in a minute'), { status: 503, cause: e });
     if (e instanceof Anthropic.BadRequestError) throw Object.assign(new Error('These files could not be read — try a clearer photo or a smaller PDF'), { status: 422, cause: e });
@@ -129,7 +142,9 @@ async function readReceipts(files, { categories = [], currency = '' } = {}) {
   if (r.stop_reason === 'refusal') throw Object.assign(new Error('These files could not be read as a receipt'), { status: 422, usage });
   if (r.stop_reason === 'max_tokens') throw Object.assign(new Error('This receipt is too long to read at once — send fewer pages at a time'), { status: 422, usage });
   const text = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-  let out; try { out = JSON.parse(text); } catch (e) { throw Object.assign(new Error('The receipt could not be read — try again'), { status: 502, usage }); }
+  let out; try { out = JSON.parse(text); } catch (e) { out = null; }
+  if (!out) try { out = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); } catch (e) { // a reply wrapped in ```json … ``` or a sentence: the object inside it
+    throw Object.assign(new Error('The receipt could not be read — try again'), { status: 502, usage }); }
   return { receipts: clean(out.receipts), unreadable: typeof out.unreadable === 'string' ? out.unreadable.slice(0, 300) : '', usage };
 }
 
@@ -148,4 +163,4 @@ function clean(list) {
   })).filter((x) => x.lines.length);
 }
 
-module.exports = { readReceipts, configured, sniff, SCHEMA, MODEL };
+module.exports = { readReceipts, configured, sniff, SCHEMA, MODEL, VIA_OPENROUTER };

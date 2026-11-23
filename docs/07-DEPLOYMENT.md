@@ -34,6 +34,7 @@ npm run migrate && npm start
 | REMINDERS_DISABLED | | `1` to switch the scheduler off (e.g. on extra instances) |
 | ANTHROPIC_API_KEY | | Turns on **receipt scanning** (photo / PDF of a receipt → purchase lines, read by Claude). Without it the Scan buttons are hidden. |
 | RECEIPT_MODEL, RECEIPT_EFFORT | | Model and effort for receipt scanning (default `claude-opus-5-5`, `low`) |
+| ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN | | For testing **through OpenRouter** before an Anthropic key: `ANTHROPIC_BASE_URL=https://openrouter.ai/api`, `ANTHROPIC_AUTH_TOKEN=<OpenRouter key>`, `ANTHROPIC_API_KEY` left empty. The model then defaults to `anthropic/claude-opus-5.5`. Receipts are then also sent to OpenRouter. |
 | RECEIPT_SCANS_PER_MONTH | | Scans per business per month when its plan sets no "Receipt scans a month" limit (default 200) |
 | RECEIPT_SCANS_PER_10MIN | | Burst limit per business (default 20) |
 | MOMO_FEE_TABLES | | Optional JSON object overriding default MTN MoMo / Orange Money withdrawal fee tiers for new tenants (also editable per business in Settings) |
