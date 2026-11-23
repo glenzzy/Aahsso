@@ -411,16 +411,30 @@ function parsePurchaseRows(rows) {
     purchaseDate: xlDate(pickCol(r, ['Date', 'Purchase Date'])), sourceType: String(pickCol(r, ['Source', 'Bought From'])), vendor: String(pickCol(r, ['Store', 'Vendor', 'Seller'])), poNumber: String(pickCol(r, ['Order No', 'Receipt', 'PO', 'Order'])),
     name: String(pickCol(r, ['Description', 'Item Description', 'Product Name', 'Title', 'Item', 'Name'])).trim(), brand: String(pickCol(r, ['Brand', 'Make', 'Manufacturer'])).trim(), model: String(pickCol(r, ['Model', 'Model No', 'Model Number', 'MPN'])).trim(), category: String(pickCol(r, ['Category', 'Department'])), subcategory: String(pickCol(r, ['Subcategory', 'Sub Category', 'Class'])),
     condition: (() => { const c = String(pickCol(r, ['Condition', 'Grade'])).toLowerCase(); return !c ? 'New' : /open|box/.test(c) ? 'Open box' : /refurb/.test(c) ? 'Refurbished' : /damag|part|salvage/.test(c) ? 'Damaged / Parts' : /used|return/.test(c) ? 'Used' : 'New'; })(),
-    regularPrice: num(pickCol(r, ['Regular Price', 'Shelf Price', 'Retail Price', 'MSRP', 'Unit Retail', 'Ext Retail'])) || '', unitCost: pickCol(r, ['Price Paid', 'Price Each', 'Unit Cost', 'Cost', 'Price']), qty: Math.floor(num(pickCol(r, ['Quantity', 'Qty', 'Units']))) || 1,
+    regularPrice: num(pickCol(r, ['Regular Price', 'Shelf Price', 'Retail Price', 'MSRP', 'Unit Retail', 'Ext Retail'])) || '', unitCost: pickCol(r, ['Price Paid', 'Price Each', 'Unit Cost', 'Unit Price', 'Cost', 'Price'], /shelf|retail|regular|msrp|total|tax|ext|amount/i), qty: Math.floor(num(pickCol(r, ['Quantity', 'Qty', 'Units']))) || 1,
     expiry: xlDate(pickCol(r, ['Expiry Date', 'Expiry', 'Expiration'])), barcode: String(pickCol(r, ['Barcode', 'UPC', 'EAN'])), notes: String(pickCol(r, ['Notes'])),
     unit: String(pickCol(r, ['Unit', 'Sold By'])), size: num(pickCol(r, ['Size'])) || null, weight: num(pickCol(r, ['Weight (kg)', 'Weight Kg', 'Weight', 'Kg'])) || '', sizeUnit: String(pickCol(r, ['Size Unit', 'Weight Unit'])), packOf: Math.max(1, Math.floor(num(pickCol(r, ['Pack Of', 'Units Per Pack', 'Pack'])) || 1)),
-    tax: pickCol(r, ['Tax', 'Tax Rate', 'Tax %']),
+    tax: pickCol(r, ['Tax %', 'Tax Rate', 'Tax', 'VAT %', 'VAT Rate'], /total|amount|amt/i),
+    total: pickCol(r, ['Total', 'Line Total', 'Total Price', 'Amount', 'Ext Price', 'Extended Price'], /tax|sub|grand|retail/i), // price × qty, before tax
+    taxAmt: pickCol(r, ['Total Tax', 'Tax Amount', 'Tax Total', 'Line Tax', 'VAT Amount'], /^$/), // the line's tax in money
   })).filter((l) => l.name);
   lines.forEach((l) => {
     const u = String(l.unit || '').trim().toLowerCase(); // each / ea / pcs → piece; pk → pack…
     l.unit = KC.SELL_UNITS.includes(u) ? u : ({ each: 'piece', ea: 'piece', pc: 'piece', pcs: 'piece', pce: 'piece', units: 'unit', pk: 'pack', pkt: 'packet', bx: 'box', btl: 'bottle', ltr: 'litre', l: 'litre', liter: 'litre', kgs: 'kg', lbs: 'lb' }[u] || (u ? 'piece' : ''));
     const t = String(l.tax ?? '').replace('%', '').trim(); l.taxPct = t === '' ? '' : String(num(t));
-    l.check = (String(l.notes).match(/CHECK \[[^\]]+\][^;|]*/g) || []).map((x) => x.trim()).join('; ');
+    const ck = (String(l.notes).match(/CHECK \[[^\]]+\][^;|]*/g) || []).map((x) => x.trim());
+    // Total (price × qty) and Total Tax: fill what the file leaves out, and flag a line whose figures do not agree
+    const q = num(l.qty) || 1, r2 = (v) => Math.round(v * 100) / 100;
+    const tot = String(l.total).trim() === '' ? null : num(l.total), tAmt = String(l.taxAmt).trim() === '' ? null : num(l.taxAmt);
+    if (String(l.unitCost).trim() === '' && tot > 0) l.unitCost = String(Math.round(tot / q * 1e4) / 1e4); // only the total on the receipt: price each = total ÷ qty
+    else if (tot != null && String(l.unitCost).trim() !== '') {
+      const calc = num(l.unitCost) * q, ok = (v) => Math.abs(v - tot) <= Math.max(Number.isInteger(tot) ? 0.5 : 0.011, q * 0.005); // rounding: to the franc (whole totals), or half a cent a unit
+      if (!ok(calc) && !(num(l.taxPct) && ok(calc * (1 + num(l.taxPct) / 100)))) ck.push('CHECK [Total]: price × qty is ' + r2(calc) + ', the file says ' + tot); // a total with tax in it is fine
+    }
+    const lineV = num(l.unitCost) * q;
+    if (l.taxPct === '' && tAmt != null && lineV > 0) l.taxPct = String(Math.round(tAmt / lineV * 1e6) / 1e4); // only the tax amount: its rate
+    else if (l.taxPct !== '' && tAmt != null && lineV > 0) { const calc = r2(lineV * num(l.taxPct) / 100); if (Math.abs(calc - tAmt) > (Number.isInteger(tAmt) ? 0.5 : 0.011)) ck.push('CHECK [Tax]: ' + l.taxPct + '% of ' + r2(lineV) + ' is ' + calc + ', the file says ' + tAmt); }
+    l.check = ck.join('; ');
     if (!KC.SIZE_UNITS[l.sizeUnit]) { const mm = { kgs: 'kg', lbs: 'lb', ounce: 'oz', liter: 'L', litre: 'L', l: 'L', ml: 'mL', gallon: 'gal', floz: 'fl oz' }[String(l.sizeUnit).toLowerCase().replace(/[^a-z]/g, '')]; l.sizeUnit = mm || ''; }
     if (!catOpts().includes(l.category)) { l.notes = [l.notes, l.category && 'Cat: ' + l.category].filter(Boolean).join(' · '); l.category = /tv|speaker|audio|laptop|phone|electr|computer|tablet/i.test(l.name + l.category) ? (catOpts().includes('Electronics') ? 'Electronics' : defCat()) : (catOpts().includes('Other') ? 'Other' : defCat()); l.subcategory = subOpts(l.category)[0] || ''; }
   });
@@ -470,10 +484,19 @@ function puFill(sh, lines, intro) {
   const checks = lines.filter((l) => l.check).length;
   toast((intro || '') + lines.length + ' line' + (lines.length === 1 ? '' : 's') + ' imported' + (noPrice ? ' · ' + noPrice + ' without a price' : '') + (checks ? ' · ' + checks + ' to check (⚠)' : '') + ' — check them, then save');
 }
-A.tplPurch = () => xlsxDownload('Purchase-template.xlsx', { Purchases: [
-  { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Quaker Oats Old Fashioned 2x2.6kg', Category: 'Food & Snacks', Subcategory: 'Cereal & Oats', Brand: 'Quaker', Model: 'Old Fashioned', Condition: 'New', 'Shelf Price': 12.99, 'Price Each': 9.98, Quantity: 10, 'Pack Of': 1, Unit: 'pack', Size: 2.6, 'Size Unit': 'kg', 'Expiry Date': '2027-06-30', Barcode: '', 'Weight (kg)': 2.6, 'Tax %': 8.25, Notes: '' },
-  { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Kirkland Olive Oil 2L', Category: 'Food & Snacks', Subcategory: '', Brand: 'Kirkland', Model: '', Condition: 'New', 'Shelf Price': 24.99, 'Price Each': 19.99, Quantity: 6, 'Pack Of': 1, Unit: 'bottle', Size: 2, 'Size Unit': 'L', 'Expiry Date': '', Barcode: '', 'Weight (kg)': 2, 'Tax %': '', Notes: '' },
-] });
+/* the template: Total = Price Each × Quantity and Total Tax = the line's tax, as formulas that update while typing */
+A.tplPurch = () => {
+  const ex = [
+    { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Quaker Oats Old Fashioned 2x2.6kg', Category: 'Food & Snacks', Subcategory: 'Cereal & Oats', Brand: 'Quaker', Model: 'Old Fashioned', Condition: 'New', 'Shelf Price': 12.99, 'Price Each': 9.98, Quantity: 10, 'Pack Of': 1, Unit: 'pack', Size: 2.6, 'Size Unit': 'kg', 'Expiry Date': '2027-06-30', Barcode: '', 'Weight (kg)': 2.6, 'Tax %': 8.25, Notes: '' },
+    { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Kirkland Olive Oil 2L', Category: 'Food & Snacks', Subcategory: '', Brand: 'Kirkland', Model: '', Condition: 'New', 'Shelf Price': 24.99, 'Price Each': 19.99, Quantity: 6, 'Pack Of': 1, Unit: 'bottle', Size: 2, 'Size Unit': 'L', 'Expiry Date': '', Barcode: '', 'Weight (kg)': 2, 'Tax %': '', Notes: '' },
+  ];
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const rows = ex.map((r) => { const o = {}; Object.entries(r).forEach(([k, v]) => { o[k] = v; if (k === 'Quantity') o.Total = r2(r['Price Each'] * r.Quantity); if (k === 'Tax %') o['Total Tax'] = r2(o.Total * num(r['Tax %']) / 100); }); return o; });
+  xlsxDownload('Purchase-template.xlsx', { Purchases: rows }, { _blank: 50, Purchases: {
+    Total: 'IF(OR({Price Each}="",{Quantity}=""),"",ROUND({Price Each}*{Quantity},2))',
+    'Total Tax': 'IF({Total}="","",ROUND({Total}*N({Tax %})/100,2))',
+  } });
+};
 
 /* ================= 2 · SHIP ================= */
 VIEWS.ship = {

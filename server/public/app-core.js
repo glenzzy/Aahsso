@@ -333,10 +333,19 @@ async function copyText(t) {
     ta.remove();
   }
 }
-function xlsxDownload(filename, sheets) { // sheets: {name: rows[]}
+function xlsxDownload(filename, sheets, formulas) { // sheets: {name: rows[]}; formulas: {name: {column: 'formula with {Other column}'}, _blank: extra empty rows carrying the formulas}
   if (!window.XLSX) { toast('Excel library still loading — try again in a moment', true); return; }
   const wb = XLSX.utils.book_new();
-  Object.entries(sheets).forEach(([n, rows]) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ '': '' }]), n.slice(0, 31)));
+  Object.entries(sheets).forEach(([n, rows]) => {
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ '': '' }]); const fm = formulas && formulas[n];
+    if (fm && rows.length) { // the value we computed stays as the cell's value; Excel recalculates when the row is edited
+      const heads = Object.keys(rows[0]); const last = rows.length + (formulas._blank || 0);
+      Object.entries(fm).forEach(([h, f]) => { const c = heads.indexOf(h); if (c < 0) return;
+        for (let r = 1; r <= last; r++) { const a = XLSX.utils.encode_cell({ r, c }); const cell = ws[a] || (ws[a] = { t: 's', v: '' }); cell.f = f.replace(/\{([^}]+)\}/g, (m, k) => XLSX.utils.encode_col(heads.indexOf(k)) + (r + 1)); } });
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: last, c: heads.length - 1 } });
+    }
+    XLSX.utils.book_append_sheet(wb, ws, n.slice(0, 31));
+  });
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   saveFile(filename, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
 }
