@@ -344,7 +344,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
       q(`SELECT
         (SELECT data FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main') AS settings,
         (SELECT coalesce(json_object_agg(collection, n), '{}') FROM (SELECT collection, count(*)::int AS n FROM documents WHERE tenant_id=$1 AND collection IN ('products','sales','customers','orders') GROUP BY collection) x) AS counts,
-        (SELECT coalesce(json_agg(x ORDER BY x.created_at), '[]') FROM (SELECT u.id, u.name, coalesce(p.login, u.login) AS login, u.email, u.role, u.active, u.created_at, u.last_login_at, u.person_id IS NOT NULL AS linked FROM users u LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=$1) x) AS users,
+        (SELECT coalesce(json_agg(x ORDER BY x.created_at), '[]') FROM (SELECT u.id, u.name, coalesce(p.login, u.login) AS login, u.email, u.role, u.active, u.created_at, u.last_login_at, u.person_id IS NOT NULL AS linked, u.deleted_at FROM users u LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=$1) x) AS users,
         (SELECT coalesce(json_agg(x ORDER BY x.issued_at DESC), '[]') FROM (SELECT i.*, p.name AS plan_name FROM invoices i LEFT JOIN plans p ON p.id=i.plan_id WHERE tenant_id=$1 ORDER BY issued_at DESC LIMIT 50) x) AS invoices,
         (SELECT coalesce(json_agg(x ORDER BY x.created_at DESC), '[]') FROM (SELECT * FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 50) x) AS payments,
         (SELECT coalesce(json_agg(x ORDER BY x.at DESC), '[]') FROM (SELECT at, user_name, action, collection, doc_id FROM audit_log WHERE tenant_id=$1 ORDER BY at DESC LIMIT 25) x) AS activity,
@@ -443,7 +443,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   }));
 
   /* ---------- business users: everyone who signs in to a business (owners and their team) ---------- */
-  const USER_SEL = 'SELECT u.id, u.tenant_id, u.name, coalesce(lp.login, u.login) AS login, u.email, u.role, u.active, u.location_id, u.created_at, u.last_login_at, t.name AS tenant, u.person_id IS NOT NULL AS linked FROM users u JOIN tenants t ON t.id=u.tenant_id LEFT JOIN users lp ON lp.id=u.person_id';
+  const USER_SEL = 'SELECT u.id, u.tenant_id, u.name, coalesce(lp.login, u.login) AS login, u.email, u.role, u.active, u.location_id, u.created_at, u.last_login_at, u.deleted_at, u.deleted_by, u.delete_reason, t.name AS tenant, u.person_id IS NOT NULL AS linked FROM users u JOIN tenants t ON t.id=u.tenant_id LEFT JOIN users lp ON lp.id=u.person_id';
   /** the roles a business can give: the standard ones, plus its own custom roles when its plan includes them */
   async function rolesOf(tid) {
     const st = (await q("SELECT data->'roles' AS roles FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [tid])).rows[0];
@@ -461,9 +461,9 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const page = Math.max(0, Number(req.query.page) || 0); const qs = String(req.query.q || '').slice(0, 80).replace(/[%_]/g, '');
     const st = String(req.query.status || ''); const role = String(req.query.role || '').slice(0, 40);
     const [list, cnt] = await Promise.all([q(USER_SEL + " WHERE ($1='' OR u.name ILIKE '%'||$1||'%' OR u.login ILIKE '%'||$1||'%' OR coalesce(u.email,'') ILIKE '%'||$1||'%' OR t.name ILIKE '%'||$1||'%')" +
-      " AND ($2='' OR u.tenant_id::text=$2) AND ($3='' OR ($3='active' AND u.active) OR ($3='disabled' AND NOT u.active)) AND ($4='' OR u.role=$4 OR ($4='staff' AND u.role<>'owner'))" +
-      ' ORDER BY u.created_at DESC LIMIT 51 OFFSET $5', [qs, String(req.query.tenant || ''), st, role, page * 50]),
-    q("SELECT count(*)::int AS total, count(*) FILTER (WHERE active)::int AS active, count(*) FILTER (WHERE role='owner')::int AS owners, count(*) FILTER (WHERE last_login_at > now() - interval '30 days')::int AS recent FROM users")]);
+      " AND ($2='' OR u.tenant_id::text=$2) AND (($3='deleted' AND u.deleted_at IS NOT NULL) OR ($3<>'deleted' AND u.deleted_at IS NULL AND ($3='' OR ($3='active' AND u.active) OR ($3='disabled' AND NOT u.active)))) AND ($4='' OR u.role=$4 OR ($4='staff' AND u.role<>'owner'))" +
+      ' ORDER BY coalesce(u.deleted_at, u.created_at) DESC LIMIT 51 OFFSET $5', [qs, String(req.query.tenant || ''), st, role, page * 50]),
+    q("SELECT count(*) FILTER (WHERE deleted_at IS NULL)::int AS total, count(*) FILTER (WHERE active AND deleted_at IS NULL)::int AS active, count(*) FILTER (WHERE role='owner' AND deleted_at IS NULL)::int AS owners, count(*) FILTER (WHERE last_login_at > now() - interval '30 days' AND deleted_at IS NULL)::int AS recent, count(*) FILTER (WHERE deleted_at IS NOT NULL)::int AS deleted FROM users")]);
     const rows = list.rows; const counts = cnt.rows[0];
     res.json({ users: rows.slice(0, 50), more: rows.length > 50, counts });
   }));
@@ -481,7 +481,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     let password = String(b.password || ''); const generated = !password; if (generated) password = tempPassword(); else if (password.length < 6) return bad(res, 'Password must be at least 6 characters');
     const lim = await B.checkLimit(pool, t.id, 'maxUsers'); if (lim) return bad(res, lim.error, lim.status);
     let u; try { u = (await q("INSERT INTO users (tenant_id, name, login, password_hash, role, perms, location_id, email) VALUES ($1,$2,$3,$4,$5,'{}',$6,$7) RETURNING id", [t.id, name, login, await bcrypt.hash(password, 10), b.role, String(b.locationId || 'main').slice(0, 40), mailer.isEmail(b.email) ? String(b.email).trim().toLowerCase() : null])).rows[0]; }
-    catch (e) { if (e.code === '23505') return bad(res, 'This login is already used by someone', 409); throw e; }
+    catch (e) { if (e.code === '23505') return bad(res, (await q('SELECT 1 FROM users WHERE login=$1 AND deleted_at IS NOT NULL', [login])).rowCount ? 'This login belongs to a deleted user — restore them, or delete them permanently first' : 'This login is already used by someone', 409); throw e; }
     u = (await q(USER_SEL + ' WHERE u.id=$1', [u.id])).rows[0];
     await tenantLog(t.id, 'support_user_created', { name, login, role: b.role, by: req.admin.name });
     await audit(req, 'user_created', { tenantId: t.id, target: login, details: { role: b.role } });
@@ -490,6 +490,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   }));
   A.patch('/users/:id', need('users.write'), wrap(async (req, res) => {
     const u = await userOr404(req, res); if (!u) return; const b = req.body || {}; const ch = {};
+    if (u.deleted_at) return bad(res, 'This user is deleted — restore them first');
     if (b.name !== undefined) { const n = String(b.name).trim().slice(0, 80); if (n.length < 2) return bad(res, 'Type their name'); ch.name = n; }
     if (b.email !== undefined) { if (b.email && !mailer.isEmail(b.email)) return bad(res, 'Type a valid email address (or leave it empty)'); ch.email = b.email ? String(b.email).trim().toLowerCase() : null; }
     if (b.login !== undefined && !u.linked && String(b.login).trim().toLowerCase() !== u.login) { const l = String(b.login).trim().toLowerCase().slice(0, 120); if (l.length < 3 || /\s/.test(l)) return bad(res, 'Login: an email or phone number, no spaces'); ch.login = l; }
@@ -508,6 +509,7 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
   }));
   A.post('/users/:id/password', need('users.write'), reauth, wrap(async (req, res) => {
     const u = await userOr404(req, res); if (!u) return;
+    if (u.deleted_at) return bad(res, 'This user is deleted — restore them first');
     if (u.role === 'owner' && !can(req.admin, 'tenants.resetOwner')) return res.status(403).json({ error: 'Your admin role cannot reset an owner\'s password' });
     const temp = tempPassword();
     await q('UPDATE users SET password_hash=$2 WHERE id=$1', [u.id, await bcrypt.hash(temp, 10)]);
@@ -516,13 +518,33 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const emailed = (req.body || {}).sendEmail === false ? null : await mailLogin(u, temp, true);
     res.json({ ok: true, password: temp, login: u.login, emailed });
   }));
+  /* delete: mode 'soft' (default) moves the user to Deleted — no sign-in, hidden from the team, seat freed, login kept, can be restored;
+     mode 'hard' removes the account for good (their past actions stay in the business history by name) and needs their login typed */
   A.post('/users/:id/delete', need('users.delete'), reauth, wrap(async (req, res) => {
-    const u = await userOr404(req, res); if (!u) return; const reason = needReason(req, res); if (!reason) return;
-    if (u.role === 'owner') return bad(res, 'The owner cannot be deleted — they own the business');
-    await q('DELETE FROM users WHERE id=$1', [u.id]); // their past actions stay in the business history (by name)
-    await tenantLog(u.tenant_id, 'support_user_deleted', { name: u.name, login: u.login, reason, by: req.admin.name });
-    await audit(req, 'user_deleted', { tenantId: u.tenant_id, target: u.login, reason, details: { name: u.name, role: u.role } });
-    res.json({ ok: true });
+    const u = await userOr404(req, res); if (!u) return; const reason = needReason(req, res); if (!reason) return; const b = req.body || {};
+    if (u.role === 'owner') return bad(res, 'The owner cannot be deleted — they own the business. Suspend or close the business instead.');
+    const hard = b.mode === 'hard';
+    if (hard) {
+      if (String(b.confirm || '').trim().toLowerCase() !== String(u.login).toLowerCase()) return bad(res, 'Type the user\'s login exactly to delete them permanently');
+      await q('DELETE FROM users WHERE id=$1', [u.id]);
+      await tenantLog(u.tenant_id, 'support_user_deleted', { name: u.name, login: u.login, reason, permanent: true, by: req.admin.name });
+      await audit(req, 'user_deleted', { tenantId: u.tenant_id, target: u.login, reason, details: { name: u.name, role: u.role, permanent: true, wasDeleted: !!u.deleted_at } });
+      return res.json({ ok: true, mode: 'hard' });
+    }
+    if (u.deleted_at) return bad(res, 'This user is already in Deleted');
+    await q('UPDATE users SET deleted_at=now(), deleted_by=$2, delete_reason=$3, active=false WHERE id=$1', [u.id, req.admin.name, reason]);
+    await tenantLog(u.tenant_id, 'support_user_removed', { name: u.name, login: u.login, reason, by: req.admin.name });
+    await audit(req, 'user_soft_deleted', { tenantId: u.tenant_id, target: u.login, reason, details: { name: u.name, role: u.role, wasActive: u.active } });
+    res.json({ ok: true, mode: 'soft', user: (await q(USER_SEL + ' WHERE u.id=$1', [u.id])).rows[0] });
+  }));
+  /* restore a deleted user: back in the team; signs in again when the plan has a free seat (else restored disabled) */
+  A.post('/users/:id/restore', need('users.delete'), wrap(async (req, res) => {
+    const u = await userOr404(req, res); if (!u) return; if (!u.deleted_at) return bad(res, 'This user is not deleted');
+    const lim = await B.checkLimit(pool, u.tenant_id, 'maxUsers'); const active = !lim;
+    await q('UPDATE users SET deleted_at=NULL, deleted_by=NULL, delete_reason=NULL, active=$2 WHERE id=$1', [u.id, active]);
+    await tenantLog(u.tenant_id, 'support_user_restored', { name: u.name, login: u.login, active, by: req.admin.name });
+    await audit(req, 'user_restored', { tenantId: u.tenant_id, target: u.login, details: { active } });
+    res.json({ ok: true, active, limit: lim ? lim.error : null, user: (await q(USER_SEL + ' WHERE u.id=$1', [u.id])).rows[0] });
   }));
 
   A.post('/tenants/:id/view', need('tenants.impersonate'), reauth, wrap(async (req, res) => {

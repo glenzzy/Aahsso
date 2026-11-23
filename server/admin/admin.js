@@ -187,7 +187,7 @@
   const canAny = (p) => !p || p.split('|').some(can);
   /* one short line under the title of each page — what it is for */
   const INTRO = { overview: 'Revenue, sign-ups and what needs your attention today.', tenants: 'Every business on Aahsso — search, open one to see its plan, usage and invoices.', users: 'Everyone who signs in to a business — owners and their team. Add, edit, disable, reset passwords.', audit: 'Everything admins did: sign-ins, changes to plans, businesses, users and payments.', account: 'Your details, password, PIN and where you are signed in.', plans: 'What each plan costs and which features and limits it includes.', billing: 'Payments to check, invoices, and money received. Record a payment made outside the app — cash, MoMo, bank.', support: 'Questions and problems sent by businesses from the app.', health: 'Server, database, emails and automatic reminders.', settings: 'How businesses pay you and the subscription rules.' };
-  const IC = { home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', store: 'M3 9l1.5-5h15L21 9M3 9h18M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 12v8h14v-8', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', card: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2zM2 10h20M6 15h4', chat: 'M21 12a8 8 0 01-11.6 7.1L3 21l1.9-6.4A8 8 0 1121 12z', pulse: 'M3 12h4l3-8 4 16 3-8h4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4', gear: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z', menu: 'M4 6h16M4 12h16M4 18h16', list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', user: 'M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z', lock: 'M5 11h14v10H5zM8 11V7a4 4 0 018 0v4', users: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8', plus: 'M12 5v14M5 12h14', key: 'M15 7a2 2 0 012 2M21 9a6 6 0 01-7.7 5.7L11 17H9v2H7v2H3v-3.6l6.3-6.3A6 6 0 1121 9z', trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6', money: 'M2 7a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2zM12 15a3 3 0 100-6 3 3 0 000 6zM6 12h.01M18 12h.01', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3', out: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9' };
+  const IC = { undo: 'M9 14L4 9l5-5M4 9h11a5 5 0 010 10h-3', alert: 'M12 3l10 18H2L12 3zM12 10v4M12 17h.01', home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10', store: 'M3 9l1.5-5h15L21 9M3 9h18M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 12v8h14v-8', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', card: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2zM2 10h20M6 15h4', chat: 'M21 12a8 8 0 01-11.6 7.1L3 21l1.9-6.4A8 8 0 1121 12z', pulse: 'M3 12h4l3-8 4 16 3-8h4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4', gear: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z', menu: 'M4 6h16M4 12h16M4 18h16', list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', user: 'M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z', lock: 'M5 11h14v10H5zM8 11V7a4 4 0 018 0v4', users: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8', plus: 'M12 5v14M5 12h14', key: 'M15 7a2 2 0 012 2M21 9a6 6 0 01-7.7 5.7L11 17H9v2H7v2H3v-3.6l6.3-6.3A6 6 0 1121 9z', trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6', money: 'M2 7a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2zM12 15a3 3 0 100-6 3 3 0 000 6zM6 12h.01M18 12h.01', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3', out: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9' };
   const ic = (n, c) => '<svg class="i' + (c ? ' ' + c : '') + '" viewBox="0 0 24 24" aria-hidden="true"><path d="' + IC[n] + '"/></svg>';
   async function boot() {
     try { S.me = await api('GET', '/me'); } catch (e) { if (!e.quiet) renderLogin(); return; }
@@ -321,7 +321,7 @@
         '<div class="row between mt"><h3>Features</h3>' + (can('tenants.features') ? '<button class="btn sm" data-act="tFeatures">Customize for this business</button>' : '') + '</div>' +
         '<div class="small muted mb">' + (s.status === 'trialing' ? 'Everything is open during the free trial.' : 'From the plan' + (Object.keys((s.overrides || {}).modules || {}).length || Object.keys((s.overrides || {}).limits || {}).length ? ', with this business\'s own changes.' : '.')) + '</div>' +
         '<div class="fchips">' + d.catalog.map(([k, l]) => { const on = d.features[k] !== false; const ovr = ((s.overrides || {}).modules || {})[k]; return '<span class="fchip ' + (on ? 'on' : 'off') + '" title="' + esc(ovr === undefined ? 'from the plan' : 'changed for this business') + '">' + (on ? '✓ ' : '✕ ') + esc(l) + (ovr !== undefined ? ' *' : '') + '</span>'; }).join('') + '</div>' +
-        '<h3 class="mt2 mb">Owner & team</h3>' + table([{ label: 'Name', v: (u) => esc(u.name) + (u.active ? '' : ' <span class="badge">disabled</span>') }, { label: 'Login', v: (u) => esc(u.email || u.login) }, { label: 'Role', v: (u) => esc(u.role) }, { label: 'Last sign-in', v: (u) => esc(ago(u.last_login_at)) }], d.users) + '</section></div>' +
+        '<h3 class="mt2 mb">Owner & team</h3>' + table([{ label: 'Name', v: (u) => esc(u.name) + (u.deleted_at ? ' <span class="badge bad">deleted</span>' : u.active ? '' : ' <span class="badge">disabled</span>') }, { label: 'Login', v: (u) => esc(u.email || u.login) }, { label: 'Role', v: (u) => esc(u.role) }, { label: 'Last sign-in', v: (u) => esc(ago(u.last_login_at)) }], d.users) + '</section></div>' +
       '<section class="card pad2 mb2"><div class="row between mb"><h2>Invoices</h2><div class="row">' + A('tInvoice', 'New invoice', '', 'billing.write') + A('tPay', 'Record payment', 'pri', 'billing.write') + '</div></div>' +
         table([{ label: 'Number', v: (i) => '<span class="mono">' + esc(i.number) + '</span>' }, { label: 'Plan', v: (i) => esc((i.plan_name || i.plan_id || '') + ' · ' + i.cycle) }, { label: 'Period', v: (i) => esc(fmtD(i.period_start) + ' → ' + fmtD(i.period_end)) }, { label: 'Amount', num: true, v: (i) => esc(money(i.amount, i.currency)) }, { label: 'Due', v: (i) => esc(fmtD(i.due_date)) }, { label: 'Status', v: (i) => badge(i.status, INV[i.status]) + (i.void_reason ? '<div class="tiny faint">' + esc(i.void_reason) + '</div>' : '') }, { label: '', v: (i) => (i.status === 'open' && can('billing.void') ? '<button class="btn sm" data-act="iVoid" data-id="' + i.id + '">Void</button>' : '') }], d.invoices, { empty: 'No invoices yet.' }) + '</section>' +
       '<section class="card pad2 mb2"><h2 class="mb">Payments</h2>' + payTable(d.payments, false) + '</section>' +
@@ -454,7 +454,7 @@
   }
 
   /* ---------- users: people who sign in to businesses ---------- */
-  const ROLE_L = { owner: 'Owner', admin: 'Admin', manager: 'Manager', sales: 'Sales rep', viewer: 'Viewer' };
+  const ROLE_L = { owner: 'Owner', admin: 'Admin', manager: 'Manager', sales: 'Sales rep', viewer: 'Viewer' , resto_waiter: 'Waiter', resto_cashier: 'Cashier', resto_kitchen: 'Kitchen / bartender' };
   const userRole = (r) => '<span class="badge' + (r === 'owner' ? ' info' : '') + '">' + esc(ROLE_L[r] || r) + '</span>';
   PAGES.users = async (v, [tab]) => {
     const tabs = USER_TABS(); tab = tabs.some((t) => t[0] === (tab || '')) ? tab || '' : tabs[0][0];
@@ -465,7 +465,7 @@
     if (!T.done('<div class="page-intro"><p>' + esc(INTRO.users) + '</p><div class="acts">' + (can('users.write') ? '<button class="btn pri" data-act5="uAdd">' + ic('plus', 'sm') + 'Add user</button>' : '') + '</div></div>' +
       '<div class="kpis mb2" id="ukpi"></div>' +
       '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search users</span>' + ic('search', 'sm') + '<input class="inp" id="uq" type="search" placeholder="Search name, login, email or business" value="' + esc(f.q) + '"></label>' +
-      sel('us', [['', 'Active and disabled'], ['active', 'Active'], ['disabled', 'Disabled']], f.status, 'id="us" style="width:auto"') +
+      sel('us', [['', 'Active and disabled'], ['active', 'Active'], ['disabled', 'Disabled'], ['deleted', 'Deleted']], f.status, 'id="us" style="width:auto"') +
       sel('ur', [['', 'All roles'], ['owner', 'Owners'], ['staff', 'Team members']], f.role, 'id="ur" style="width:auto"') +
       (f.tenant ? '<span class="badge info">' + esc(f.tenantName) + ' <button type="button" class="link tiny" data-act5="uClearT" aria-label="Show all businesses">✕</button></span>' : '') + '</div><div class="card" id="ul"><div class="empty">Loading…</div></div>')) return;
     let page = 0; let timer;
@@ -474,16 +474,16 @@
       const d = await api('GET', '/users?q=' + encodeURIComponent(f.q) + '&status=' + f.status + '&role=' + f.role + '&tenant=' + encodeURIComponent(f.tenant) + '&page=' + page);
       if (!T.live() || !$('#ul')) return; // another tab was opened meanwhile
       S.users = more ? (S.users || []).concat(d.users) : d.users; const c = d.counts;
-      $('#ukpi').innerHTML = kpi('Users', esc(c.total)) + kpi('Active', esc(c.active), esc(c.total - c.active) + ' disabled') + kpi('Owners', esc(c.owners), 'one per business') + kpi('Signed in · 30 days', esc(c.recent));
+      $('#ukpi').innerHTML = kpi('Users', esc(c.total)) + kpi('Active', esc(c.active), esc(c.total - c.active) + ' disabled') + kpi('Owners', esc(c.owners), 'one per business') + kpi('Signed in · 30 days', esc(c.recent)) + '<button type="button" class="card kpi kpi-btn' + (f.status === 'deleted' ? ' on' : '') + '" data-act5="uShowDel"><div class="l">Deleted</div><div class="v">' + esc(c.deleted || 0) + '</div><div class="s">' + (f.status === 'deleted' ? 'showing them' : 'can be restored') + '</div></button>';
       const html = table([
         { label: 'User', v: (u) => '<b>' + esc(u.name) + '</b><div class="tiny faint">' + esc(u.login) + '</div>' },
         { label: 'Business', v: (u) => (can('tenants.view') ? '<a href="#/tenants/' + esc(u.tenant_id) + '">' + esc(u.tenant) + '</a>' : esc(u.tenant)) },
         { label: 'Role', v: (u) => userRole(u.role) },
         { label: 'Email', v: (u) => (u.email ? esc(u.email) : '<span class="faint">—</span>') },
-        { label: 'Status', v: (u) => (u.active ? badge('Active', 'ok') : badge('Disabled', 'bad')) },
+        { label: 'Status', v: (u) => (u.deleted_at ? badge('Deleted', 'bad') + '<div class="tiny faint">' + esc(ago(u.deleted_at)) + (u.deleted_by ? ' · by ' + esc(u.deleted_by) : '') + '</div>' + (u.delete_reason ? '<div class="tiny faint" title="' + esc(u.delete_reason) + '">“' + esc(u.delete_reason.length > 40 ? u.delete_reason.slice(0, 38) + '…' : u.delete_reason) + '”</div>' : '') : u.active ? badge('Active', 'ok') : badge('Disabled', 'bad')) },
         { label: 'Last sign-in', v: (u) => esc(ago(u.last_login_at)) },
-        { label: '', v: (u) => '<div class="row" style="justify-content:flex-end;flex-wrap:nowrap">' + (can('users.write') ? '<button class="btn sm" data-act5="uEdit" data-id="' + esc(u.id) + '">Manage</button>' : '') + '</div>' },
-      ], d.users, { empty: 'No user matches.' });
+        { label: '', v: (u) => '<div class="row" style="justify-content:flex-end;flex-wrap:nowrap">' + (u.deleted_at ? (can('users.delete') ? '<button class="btn sm" data-act5="uRestore" data-id="' + esc(u.id) + '">' + ic('undo', 'sm') + 'Restore</button><button class="btn sm danger-o" data-act5="uPurge" data-id="' + esc(u.id) + '">' + ic('trash', 'sm') + 'Delete permanently</button>' : '') : can('users.write') ? '<button class="btn sm" data-act5="uEdit" data-id="' + esc(u.id) + '">Manage</button>' : '') + '</div>' },
+      ], d.users, { empty: f.status === 'deleted' ? 'No deleted users.' : 'No user matches.' });
       if (more) $('#ul tbody').insertAdjacentHTML('beforeend', html.split('<tbody>')[1].split('</tbody>')[0]); else $('#ul').innerHTML = html;
       $('#umore') && $('#umore').parentElement.remove(); if (d.more) $('#ul').insertAdjacentHTML('afterend', '<div class="row mt"><button class="btn" id="umore">Show more</button></div>');
       if ($('#umore')) $('#umore').onclick = (e) => busy(e.currentTarget, () => load(true));
@@ -536,14 +536,57 @@
       $('#go', b2).onclick = (e) => busy(e.target, async () => { const x = await api('POST', '/users/' + id + '/password', vals(b2));
         modal({ title: 'New temporary password', body: '<p class="small">Login: <b>' + esc(x.login) + '</b></p><div class="secret mb">' + esc(x.password) + '</div><p class="small muted">' + (x.emailed && x.emailed.status === 'sent' ? 'Emailed to ' + esc(x.emailed.to) + '.' : 'Not emailed — give it to them yourself after checking who they are.') + ' It is not shown again.</p>', foot: '<button class="btn pri" data-close>Done</button>' }); });
     });
-    $('#uDel', box) && ($('#uDel', box).onclick = () => {
-      const b2 = modal({ title: 'Delete ' + u.name + '?', body: '<p class="small">They can no longer sign in to <b>' + esc(u.tenant) + '</b>. What they did stays in the business history. This cannot be undone — <b>Disable</b> keeps the account instead.</p>' + reasonField(true), foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Delete user</button>' });
-      $('#go', b2).onclick = (e) => busy(e.target, async () => { await api('POST', '/users/' + id + '/delete', vals(b2)); closeModal(); toast('User deleted'); route(); });
+    $('#uDel', box) && ($('#uDel', box).onclick = () => userDelete(u, 'soft'));
+  }
+  /* delete a user: move to Deleted (restorable) or delete permanently (typed login) — every step explained in a modal */
+  function userDelete(u, mode) {
+    const already = !!u.deleted_at; if (already) mode = 'hard';
+    const opt = (k, t, h, cls) => '<label class="del-opt' + (cls ? ' ' + cls : '') + (mode === k ? ' on' : '') + '"><input type="radio" name="mode" value="' + k + '"' + (mode === k ? ' checked' : '') + '><span><b>' + t + '</b><span class="small muted">' + h + '</span></span></label>';
+    const b2 = modal({ title: (already ? 'Delete ' : 'Delete ') + u.name + (already ? ' permanently?' : '?'), body: '<div class="col">' +
+      '<div class="small muted">' + esc(u.login) + ' · ' + esc(userRoleText(u.role)) + ' at <b>' + esc(u.tenant) + '</b></div>' +
+      (already ? '' : '<div class="del-opts" role="radiogroup" aria-label="How to delete">' +
+        opt('soft', 'Move to Deleted <span class="badge ok">recommended</span>', 'They cannot sign in, disappear from the business\'s team and free their seat on the plan. You can restore them later.') +
+        opt('hard', 'Delete permanently', 'The account is removed for good. This cannot be undone.', 'hard') + '</div>') +
+      '<div id="delInfo"></div>' + reasonField(true) +
+      '<div id="delConfirm" class="hide">' + field('Type “' + u.login + '” to confirm', '<input class="inp" name="confirm" autocomplete="off" spellcheck="false" placeholder="' + esc(u.login) + '">') + '</div></div>',
+      foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Move to Deleted</button>' });
+    const draw = () => {
+      const m = already ? 'hard' : (b2.querySelector('[name=mode]:checked') || {}).value || 'soft'; mode = m;
+      b2.querySelectorAll('.del-opt').forEach((x) => x.classList.toggle('on', x.querySelector('input').value === m));
+      $('#delInfo', b2).innerHTML = m === 'hard'
+        ? '<div class="alert bad">' + ic('alert', 'sm') + ' <b>This cannot be undone.</b> ' + esc(u.name) + '\'s account and login are removed for good. What they did stays in <b>' + esc(u.tenant) + '</b>\'s history, under their name. To keep the account, choose <b>Move to Deleted</b> or simply disable them.</div>'
+        : '<div class="alert warn"><b>' + esc(u.name) + ' will be signed out and cannot sign in.</b> Their login stays reserved, nothing they recorded is lost, and you can restore them from <b>Users → Deleted</b> at any time.</div>';
+      $('#delConfirm', b2).classList.toggle('hide', m !== 'hard');
+      const ok = m !== 'hard' || String(($('[name=confirm]', b2) || {}).value || '').trim().toLowerCase() === String(u.login).toLowerCase();
+      const go = $('#go', b2); go.textContent = m === 'hard' ? 'Delete permanently' : 'Move to Deleted'; go.disabled = !ok;
+    };
+    b2.addEventListener('change', draw); b2.addEventListener('input', draw); draw();
+    $('#go', b2).onclick = (e) => busy(e.target, async () => {
+      const v = vals(b2); const r = await api('POST', '/users/' + u.id + '/delete', { mode, reason: v.reason, confirm: v.confirm });
+      closeModal(); route();
+      if (r.mode === 'hard') modal({ title: 'Deleted permanently', body: '<div class="alert ok">' + esc(u.name) + ' (' + esc(u.login) + ') has been deleted for good.</div><p class="small muted mt">Their past actions stay in ' + esc(u.tenant) + '\'s history. The deletion and your reason are in the audit log.</p>', foot: '<button class="btn pri" data-close>Done</button>' });
+      else { const b3 = modal({ title: 'Moved to Deleted', body: '<div class="alert ok">' + esc(u.name) + ' can no longer sign in to ' + esc(u.tenant) + '.</div><p class="small muted mt">Changed your mind? Restore them now, or later from <b>Users → Deleted</b>.</p>', foot: '<button class="btn" id="undo">' + ic('undo', 'sm') + 'Undo — restore</button><button class="btn pri" data-close>Done</button>' });
+        $('#undo', b3).onclick = (e2) => busy(e2.target, async () => { const x = await api('POST', '/users/' + u.id + '/restore', {}); closeModal(); toast(x.active ? u.name + ' is back and can sign in' : u.name + ' is back, disabled — ' + x.limit); route(); }); }
     });
   }
+  /* restore: back in the business's team; signs in again when the plan has a free seat */
+  function userRestore(u) {
+    const b2 = modal({ title: 'Restore ' + u.name + '?', body: '<div class="col"><div class="small muted">' + esc(u.login) + ' · ' + esc(userRoleText(u.role)) + ' at <b>' + esc(u.tenant) + '</b> · deleted ' + esc(ago(u.deleted_at)) + (u.deleted_by ? ' by ' + esc(u.deleted_by) : '') + '</div>' +
+      (u.delete_reason ? '<div class="small">Reason given: “' + esc(u.delete_reason) + '”</div>' : '') +
+      '<div class="alert info">They come back to the business\'s team with the same login, role and password, and can sign in again. If the plan has no free seat for a team member, they come back <b>disabled</b> until a seat is free.</div></div>',
+      foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">' + ic('undo', 'sm') + 'Restore</button>' });
+    $('#go', b2).onclick = (e) => busy(e.target, async () => {
+      const x = await api('POST', '/users/' + u.id + '/restore', {}); closeModal(); route();
+      modal({ title: 'Restored', body: x.active ? '<div class="alert ok">' + esc(u.name) + ' is back in ' + esc(u.tenant) + ' and can sign in again.</div>' : '<div class="alert warn">' + esc(u.name) + ' is back in ' + esc(u.tenant) + ', but <b>disabled</b>: ' + esc(x.limit || 'the plan has no free seat') + '. Enable them once a seat is free.</div>', foot: '<button class="btn pri" data-close>Done</button>' });
+    });
+  }
+  const userRoleText = (r) => String(userRole(r)).replace(/<[^>]+>/g, '');
   const ACT5 = {
     uAdd: () => userAdd(S.uf && S.uf.tenant ? { id: S.uf.tenant, name: S.uf.tenantName } : null),
     uEdit: (el) => userEdit(el.dataset.id),
+    uRestore: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) userRestore(u); },
+    uPurge: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) userDelete(u, 'hard'); },
+    uShowDel: () => { S.uf.status = S.uf.status === 'deleted' ? '' : 'deleted'; route(); },
     uClearT: () => { S.uf.tenant = ''; S.uf.tenantName = ''; route(); },
     uForTenant: () => { S.uf = { q: '', status: '', role: '', tenant: S.t.tenant.id, tenantName: S.t.tenant.name }; location.hash = '#/users'; },
     payAny: () => payModal(null),

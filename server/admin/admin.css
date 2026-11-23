@@ -229,3 +229,14 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: #f
 b, strong { font-weight: 600; }
 input, select, textarea { font-weight: 400; }
 input::placeholder, textarea::placeholder { color: #aab2bc; opacity: 1; font-weight: 400; }
+
+/* users: delete choices, Deleted count */
+.del-opts { display: flex; flex-direction: column; gap: 8px; }
+.del-opt { display: flex; gap: 10px; align-items: flex-start; border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.del-opt input { margin-top: 3px; }
+.del-opt > span { display: flex; flex-direction: column; gap: 2px; }
+.del-opt.on { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 6%, transparent); }
+.del-opt.hard.on { border-color: var(--bad); background: var(--badSoft); }
+.btn.danger-o { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+.kpi-btn { text-align: left; font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); }
+.kpi-btn.on { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }

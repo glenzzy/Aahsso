@@ -241,3 +241,35 @@ test('delivery & pickup: online order from the menu link, a fee by area, trackin
   const p = await api('POST', '/api/menu/' + key + '/takeaway', null, { mode: 'pickup', name: 'Ben', phone: '690000001', who: 'other', byName: 'Paul', device: 'devB', items: [{ menuId: 'gf', qty: 1 }] });
   assert.equal(p.status, 200); assert.equal(p.body.total, 5000, 'pickup: no fee'); assert.equal(p.body.no, '#002');
 });
+
+test('admin users: move to Deleted (no sign-in, hidden, seat freed, login kept) → restore; permanent delete needs the login typed; the owner is never deleted', async () => {
+  const r = await api('POST', '/api/auth/register', null, { businessName: 'Del Bar ' + rnd, name: 'Owner Del', login: 'odel' + rnd + '@resto.test', password: 'secret12', edition: 'resto', venueType: 'bar' });
+  const T = r.body.token; const tid = (await api('GET', '/api/me', T)).body.tenant.id;
+  const mk = await api('POST', '/api/users', T, { name: 'Wanda Waiter', login: 'wanda' + rnd, password: 'secret12', role: 'resto_waiter' }); assert.equal(mk.status, 200, JSON.stringify(mk.body));
+  const uid = mk.body.user.id; const login = 'wanda' + rnd;
+  assert.equal((await api('POST', '/api/auth/login', null, { login, password: 'secret12' })).status, 200, 'she can sign in');
+  await fresh();
+  // move to Deleted
+  assert.equal((await adm('POST', '/api/admin/users/' + uid + '/delete', { mode: 'soft', reason: 'x' })).status, 400, 'a reason is needed');
+  const sd = await adm('POST', '/api/admin/users/' + uid + '/delete', { mode: 'soft', reason: 'Left the job' }); assert.equal(sd.status, 200, JSON.stringify(sd.body)); assert.equal(sd.body.mode, 'soft');
+  assert.notEqual((await api('POST', '/api/auth/login', null, { login, password: 'secret12' })).status, 200, 'a deleted user cannot sign in');
+  assert.ok(!(await api('GET', '/api/users', T)).body.users.some((u) => u.id === uid), 'hidden from the business\'s team');
+  assert.equal((await api('PATCH', '/api/users/' + uid, T, { active: true })).status, 404, 'the business cannot re-enable her');
+  const del = (await adm('GET', '/api/admin/users?status=deleted&tenant=' + tid)).body; assert.deepEqual(del.users.map((u) => u.login), [login]); assert.equal(del.users[0].delete_reason, 'Left the job'); assert.ok(del.counts.deleted >= 1);
+  assert.ok(!(await adm('GET', '/api/admin/users?tenant=' + tid)).body.users.some((u) => u.id === uid), 'not in the normal list');
+  assert.equal((await api('POST', '/api/users', T, { name: 'Copy', login, password: 'secret12', role: 'resto_waiter' })).status, 409, 'her login stays reserved');
+  assert.equal((await adm('PATCH', '/api/admin/users/' + uid, { name: 'X Y' })).status, 400, 'a deleted user is only restored or deleted');
+  // restore
+  const rs = await adm('POST', '/api/admin/users/' + uid + '/restore', {}); assert.equal(rs.status, 200); assert.equal(rs.body.active, true);
+  assert.equal((await api('POST', '/api/auth/login', null, { login, password: 'secret12' })).status, 200, 'restored: she signs in again');
+  assert.ok((await api('GET', '/api/users', T)).body.users.some((u) => u.id === uid), 'back in the team');
+  // delete permanently
+  await fresh();
+  assert.equal((await adm('POST', '/api/admin/users/' + uid + '/delete', { mode: 'hard', reason: 'Asked to be removed', confirm: 'wrong' })).status, 400, 'the login must be typed');
+  const hd = await adm('POST', '/api/admin/users/' + uid + '/delete', { mode: 'hard', reason: 'Asked to be removed', confirm: login.toUpperCase() }); assert.equal(hd.status, 200); assert.equal(hd.body.mode, 'hard');
+  assert.equal((await adm('GET', '/api/admin/users?status=deleted&tenant=' + tid)).body.users.length, 0, 'gone for good');
+  assert.equal((await api('POST', '/api/users', T, { name: 'New Wanda', login, password: 'secret12', role: 'resto_waiter' })).status, 200, 'the login is free again');
+  // the owner
+  const owner = (await adm('GET', '/api/admin/users?role=owner&tenant=' + tid)).body.users[0];
+  assert.equal((await adm('POST', '/api/admin/users/' + owner.id + '/delete', { mode: 'soft', reason: 'Testing owner' })).status, 400, 'the owner is never deleted');
+});

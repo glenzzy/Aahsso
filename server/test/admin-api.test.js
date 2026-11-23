@@ -286,12 +286,14 @@ test('users: admins add, edit, disable, reset and delete business users; owner p
   assert.equal((await S.c.call('PATCH', '/api/admin/users/' + owner.id, { role: 'sales' })).status, 400, 'owner keeps the role');
   assert.equal((await S.c.call('POST', '/api/admin/users/' + owner.id + '/delete', { reason: 'Testing it' })).status, 400, 'owner cannot be deleted');
   assert.equal((await S.c.call('POST', '/api/admin/users/' + uid + '/delete', {})).status, 400, 'delete needs a reason');
-  assert.equal((await S.c.call('POST', '/api/admin/users/' + uid + '/delete', { reason: 'Left the company' })).status, 200);
+  assert.equal((await S.c.call('POST', '/api/admin/users/' + uid + '/delete', { reason: 'Left the company' })).status, 200, 'no mode: moved to Deleted');
   assert.equal((await login(rs.body.password)).status, 401, 'deleted');
+  assert.equal((await S.c.call('POST', '/api/admin/users/' + uid + '/delete', { mode: 'hard', reason: 'Left the company', confirm: 'nope' })).status, 400, 'permanent needs the login typed');
+  assert.equal((await S.c.call('POST', '/api/admin/users/' + uid + '/delete', { mode: 'hard', reason: 'Left the company', confirm: 'kim' + rnd })).status, 200, 'then deleted permanently');
   const log = (await db.query("SELECT action FROM audit_log WHERE tenant_id=$1 AND action LIKE 'support_%'", [tid])).rows.map((r) => r.action);
-  assert.ok(log.includes('support_user_created') && log.includes('support_user_deleted') && log.includes('support_password'), 'the business sees it all: ' + log);
+  assert.ok(log.includes('support_user_created') && log.includes('support_user_removed') && log.includes('support_user_deleted') && log.includes('support_password'), 'the business sees it all: ' + log);
   const aud = (await db.query("SELECT action FROM admin_audit WHERE tenant_id=$1", [tid])).rows.map((r) => r.action);
-  assert.ok(['user_created', 'user_changed', 'user_disabled', 'user_enabled', 'user_password_reset', 'user_deleted'].every((x) => aud.includes(x)), 'admin audit: ' + aud);
+  assert.ok(['user_created', 'user_changed', 'user_disabled', 'user_enabled', 'user_password_reset', 'user_soft_deleted', 'user_deleted'].every((x) => aud.includes(x)), 'admin audit: ' + aud);
   // manual payment for a plan: invoice + payment + active subscription in one go
   const pay = await S.c.call('POST', '/api/admin/payments', { tenantId: tid, planId: 'business', cycle: 'yearly', amount: 250000, method: 'Cash', note: 'Paid at the office' });
   assert.equal(pay.status, 200, JSON.stringify(pay.body)); assert.equal(pay.body.invoice.status, 'paid'); assert.equal(pay.body.invoice.amount, 250000, 'discounted price kept');

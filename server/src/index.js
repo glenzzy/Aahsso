@@ -942,10 +942,10 @@ app.post('/api/approvals', auth, requireActive, authLimiter, wrap(async (req, re
   res.json({ approval: approvalToken({ tid: u.tenant_id, for: u.id, by: a.row.id, name: a.row.name, action, ref: String(ref), exp: Date.now() + 5 * 60e3 }), by: a.row.name });
 }));
 app.get('/api/team-names', auth, wrap(async (req, res) => {
-  res.json({ people: (await q('SELECT id, name, role, location_id AS "locationId", active FROM users WHERE tenant_id=$1 ORDER BY name', [req.user.tenant_id])).rows });
+  res.json({ people: (await q('SELECT id, name, role, location_id AS "locationId", active FROM users WHERE tenant_id=$1 AND deleted_at IS NULL ORDER BY name', [req.user.tenant_id])).rows });
 }));
 app.get('/api/users', auth, requirePerm('team'), wrap(async (req, res) => {
-  res.json({ users: (await q('SELECT u.id,u.name,coalesce(p.login,u.login) AS login,u.email,u.role,u.perms,u.location_id AS "locationId",u.active,u.created_at,u.last_login_at FROM users u LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=$1 ORDER BY u.created_at', [req.user.tenant_id])).rows });
+  res.json({ users: (await q('SELECT u.id,u.name,coalesce(p.login,u.login) AS login,u.email,u.role,u.perms,u.location_id AS "locationId",u.active,u.created_at,u.last_login_at FROM users u LEFT JOIN users p ON p.id=u.person_id WHERE u.tenant_id=$1 AND u.deleted_at IS NULL ORDER BY u.created_at', [req.user.tenant_id])).rows });
 }));
 const ROLE_OK_BASE = ['admin', 'manager', 'sales', 'viewer', 'resto_waiter', 'resto_cashier', 'resto_kitchen'];
 const roleOk = (u, r) => r !== 'owner' && (ROLE_OK_BASE.includes(r) || (KC.featureOn(u.features, 'customRoles') && !!(u.customRoles && u.customRoles[r])));
@@ -960,12 +960,12 @@ app.post('/api/users', auth, requireActive, requirePerm('team'), wrap(async (req
   try {
     const u = (await q('INSERT INTO users(tenant_id,name,login,password_hash,role,perms,location_id,email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,name,login,email,role,perms,location_id', [req.user.tenant_id, name, String(login).trim().toLowerCase(), await bcrypt.hash(String(password), 10), role, JSON.stringify(cleanPerms(pp, req.user)), locationId || 'main', cleanEmail(email)])).rows[0];
     res.json({ user: u, email: await staffEmail(req, u, String(password), sendEmail, false) });
-  } catch (e) { if (e.code === '23505') return err(res, 409, 'Login already in use'); throw e; }
+  } catch (e) { if (e.code === '23505') return err(res, 409, (await q('SELECT 1 FROM users WHERE login=$1 AND deleted_at IS NOT NULL', [String(login).trim().toLowerCase()])).rowCount ? 'This login belonged to a removed account — use another login, or ask Aahsso support' : 'Login already in use'); throw e; }
 }));
 app.patch('/api/users/:id', auth, requirePerm('team'), wrap(async (req, res) => {
   const { role, active, password, name, perms: pp, locationId, email, sendEmail } = req.body || {};
   if (email && !mailer.isEmail(email)) return err(res, 400, 'Type a valid email address (or leave it empty)');
-  const target = (await q('SELECT * FROM users WHERE id=$1 AND tenant_id=$2', [req.params.id, req.user.tenant_id])).rows[0];
+  const target = (await q('SELECT * FROM users WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL', [req.params.id, req.user.tenant_id])).rows[0];
   if (!target) return err(res, 404, 'User not found');
   if (target.role === 'owner' && req.user.role !== 'owner') return err(res, 403, 'Only the owner can change the owner');
   if (role && !roleOk(req.user, role)) return err(res, 400, 'Invalid role');
