@@ -15,6 +15,9 @@ const saveCart = () => { try { localStorage.setItem('aahsso-cart', JSON.stringif
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/** the loading state everywhere: a spinning circle at the centre of the page; LOADER_IN centres it in a window instead */
+const LOADER = '<div class="ld" role="status" aria-label="Loading"><span class="ld-c"></span></div>';
+const LOADER_IN = '<div class="ld in" role="status" aria-label="Loading"><span class="ld-c"></span></div>';
 const uid = (p = '') => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const grp = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
 const fmt = (n) => (n < 0 ? '−' : '') + grp(Math.abs(num(n)));
@@ -293,7 +296,7 @@ function shellSync() {
   const n = K.outbox.length;
   if (n) { el.innerHTML = '<span class="dot warn"></span>' + n + ' to sync'; el.title = 'Saved on this phone. Will upload automatically when online.'; return; }
   const dot = K.sync === 'ok' ? '' : K.sync === 'local' ? 'warn' : K.sync === 'err' || K.sync === 'offline' ? 'bad' : 'warn';
-  el.innerHTML = '<span class="dot ' + dot + '"></span>' + ({ ok: 'Synced', local: 'This device only', err: 'Offline', offline: 'Offline copy', loading: 'Loading…' }[K.sync] || '');
+  el.innerHTML = (K.sync === 'loading' ? '<span class="ld-c sm" role="status" aria-label="Loading"></span>' : '<span class="dot ' + dot + '"></span>' + ({ ok: 'Synced', local: 'This device only', err: 'Offline', offline: 'Offline copy' }[K.sync] || ''));
 }
 async function saveMany(col, list) { let ok = 0; for (const o of list) { if (await save(col, o)) ok++; } return ok; }
 

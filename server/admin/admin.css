@@ -247,3 +247,11 @@ input::placeholder, textarea::placeholder { color: #aab2bc; opacity: 1; font-wei
 .del-opt.off { opacity: .55; cursor: not-allowed; }
 .od-list { margin: 6px 0 0; padding-left: 18px; }
 .od-list li { margin: 2px 0; }
+
+/* the one loading state: a spinning circle, at the centre of the page (or of the window it is in) */
+.ld{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:4}
+.ld.in{position:static;inset:auto;min-height:240px;width:100%}
+.ld-c{width:38px;height:38px;border-radius:50%;border:3.5px solid rgba(13,92,99,.15);border-top-color:var(--brand,#0d5c63);animation:ld-spin .8s linear infinite;box-sizing:border-box}
+.ld-c.sm{width:12px;height:12px;border-width:2px;vertical-align:-1px;display:inline-block}
+@keyframes ld-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.ld-c{animation-duration:2s}}

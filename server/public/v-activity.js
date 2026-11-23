@@ -39,7 +39,7 @@ VIEWS.activity = {
       '<select class="inp" style="width:auto" data-c="actType"><option value="">Everything</option>' + types.map((t) => '<option' + (type === t ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>' +
       (can('export') ? '<button class="btn" data-a="actXlsx">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search: receipt no., item, customer, reason…" value="' + esc(K.ui.actQ || '') + '" data-c="actQ"></div>' +
-      (!all ? '<div class="empty">Loading history…</div>' : !list.length ? '<div class="card empty"><div class="big">🗒️</div>Nothing recorded for this period.</div>' :
+      (!all ? LOADER : !list.length ? '<div class="card empty"><div class="big">🗒️</div>Nothing recorded for this period.</div>' :
         actTable(list));
   },
 };

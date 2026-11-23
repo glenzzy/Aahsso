@@ -225,7 +225,7 @@
     const tb = $('.top'); if (tb) tb.dataset.loading = (Number(tb.dataset.loading) || 0) + 1, tb.classList.add('loading');
     if (!soft) { // a fresh element per page: a slower page that finishes late writes into the old, detached one
       const fresh = view.cloneNode(false); fresh.removeAttribute('data-page'); view.replaceWith(fresh); view = fresh;
-      view.innerHTML = '<div class="empty">Loading…</div>';
+      view.innerHTML = '<div class="ld" role="status" aria-label="Loading"><span class="ld-c"></span></div>';
     }
     try { await PAGES[r](view, parts.slice(1)); if (!soft && INTRO[r] && !(r === 'tenants' && parts[1]) && !$('.page-intro', view)) view.insertAdjacentHTML('afterbegin', '<div class="page-intro"><p>' + esc(INTRO[r]) + '</p></div>'); }
     catch (e) { if (!e.quiet) { const b = $('#tabBody', view); if (b) { b.classList.remove('loading'); b.removeAttribute('aria-busy'); b.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; } else view.innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; } }
@@ -243,7 +243,7 @@
       body.classList.add('loading'); body.setAttribute('aria-busy', 'true');
     } else {
       v.innerHTML = (head || '') + (tabs.length > 1 ? '<nav class="tabs" aria-label="Sections">' + tabs.map(([k, l, href]) => '<a href="' + href + '" data-tab="' + esc(k) + '" class="' + (k === cur ? 'on' : '') + '"' + (k === cur ? ' aria-current="page"' : '') + '>' + esc(l) + '</a>').join('') + '</nav>' : '') +
-        '<div id="tabBody" class="tab-body"><div class="empty">Loading…</div></div>';
+        '<div id="tabBody" class="tab-body"><div class="ld in" role="status" aria-label="Loading"><span class="ld-c"></span></div></div>';
       v.dataset.page = page; body = $('#tabBody', v);
     }
     const tok = ++tabTok;
@@ -281,7 +281,7 @@
       sel('te', [['', 'All kinds']].concat(Object.entries(ED).map(([k, x]) => [k, x.label])), f.edition, 'id="te" style="width:auto"') +
       sel('ts', [['', 'All statuses']].concat(Object.entries(STATUS).map(([k, x]) => [k, x[0]])), f.status, 'id="ts" style="width:auto"') +
       sel('tp', [['', 'All plans']].concat(S.plans.filter((p) => !f.edition || p.edition === f.edition).map((p) => [p.id, p.name + ' · ' + edOf(p.edition).short])), f.plan, 'id="tp" style="width:auto"') +
-      '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" data-act="dl" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="empty">Loading…</div></div>';
+      '<span class="grow"></span>' + (can('export') ? '<a class="btn sm" data-act="dl" href="/api/admin/export/tenants">Export CSV</a>' : '') + '</div><div class="card" id="tl"><div class="ld in" role="status" aria-label="Loading"><span class="ld-c"></span></div></div>';
     let page = 0; let timer;
     const load = async (more) => {
       page = more ? page + 1 : 0;
@@ -468,7 +468,7 @@
       '<div class="row mb toolbar"><label class="search"><span class="sr-only">Search users</span>' + ic('search', 'sm') + '<input class="inp" id="uq" type="search" placeholder="Search name, login, email or business" value="' + esc(f.q) + '"></label>' +
       sel('us', [['', 'Active and disabled'], ['active', 'Active'], ['disabled', 'Disabled'], ['deleted', 'Deleted']], f.status, 'id="us" style="width:auto"') +
       sel('ur', [['', 'All roles'], ['owner', 'Owners'], ['staff', 'Team members']], f.role, 'id="ur" style="width:auto"') +
-      (f.tenant ? '<span class="badge info">' + esc(f.tenantName) + ' <button type="button" class="link tiny" data-act5="uClearT" aria-label="Show all businesses">✕</button></span>' : '') + '</div><div class="card" id="ul"><div class="empty">Loading…</div></div>')) return;
+      (f.tenant ? '<span class="badge info">' + esc(f.tenantName) + ' <button type="button" class="link tiny" data-act5="uClearT" aria-label="Show all businesses">✕</button></span>' : '') + '</div><div class="card" id="ul"><div class="ld in" role="status" aria-label="Loading"><span class="ld-c"></span></div></div>')) return;
     let page = 0; let timer;
     const load = async (more) => {
       page = more ? page + 1 : 0;

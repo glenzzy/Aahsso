@@ -12,13 +12,14 @@
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<style>/* the loading spinner, here so it is centred before the stylesheet arrives */.ld{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:4}.ld-c{width:38px;height:38px;border-radius:50%;border:3.5px solid rgba(13,92,99,.15);border-top-color:#0d5c63;animation:ld-spin .8s linear infinite;box-sizing:border-box}@keyframes ld-spin{to{transform:rotate(360deg)}}</style>
 </head>
 <body>
 <div class="app">
   <aside class="side" id="side"></aside>
   <div class="main">
-    <header class="top"><div class="logo tlogo" id="tlogo"></div><h1 class="grow ellipsis" id="title">Loading…</h1><button class="chip hide" id="locBtn" data-a="pickLoc"></button><div class="sync" id="sync"><span class="dot warn"></span>Loading…</div><div class="pmenu" id="pmenu"></div></header>
-    <main class="view" id="view"><div class="empty"><div class="big">⏳</div>Loading your data…</div></main>
+    <header class="top"><div class="logo tlogo" id="tlogo"></div><h1 class="grow ellipsis" id="title"></h1><button class="chip hide" id="locBtn" data-a="pickLoc"></button><div class="sync" id="sync"><span class="ld-c sm" role="status" aria-label="Loading"></span></div><div class="pmenu" id="pmenu"></div></header>
+    <main class="view" id="view"><div class="ld" role="status" aria-label="Loading"><span class="ld-c"></span></div></main>
   </div>
 </div>
 <nav class="bnav" id="bnav"></nav>

@@ -16,7 +16,7 @@ function permSummary(m) { const p = KC.permsFor(m, S().roles); return teamPerms(
 VIEWS.team = {
   render() {
     if (K.info.mode === 'local') return '<div class="card pad2"><h2>Team</h2><p class="muted">Team access needs the online version of the app.</p></div>';
-    if (K.info.mode === 'saas') { setTimeout(loadSaasTeam, 0); return '<div id="saasTeam"><div class="empty">Loading team…</div></div>'; }
+    if (K.info.mode === 'saas') { setTimeout(loadSaasTeam, 0); return '<div id="saasTeam">' + LOADER + '</div>'; }
     const members = K.raw.members.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     const memberIds = new Set(members.map((m) => m.id));
     const reqs = K.raw.requests.filter((r) => !memberIds.has(r.id)).sort((a, b) => (b.at || '').localeCompare(a.at || ''));

@@ -213,7 +213,7 @@ VIEWS.billing = {
   render() {
     if (K.info.mode !== 'saas') return '<div class="card pad2 muted">Billing applies to the online version of Aahsso.</div>';
     if (!canBilling()) return '<div class="card pad2 muted">Only the business owner or an admin can see billing. Ask them if you have a question about the subscription.</div>';
-    const b = K._bill; if (!b) { loadBilling(); return K._billErr ? '<div class="alert bad">' + esc(K._billErr) + '</div>' : '<div class="empty">Loading…</div>'; }
+    const b = K._bill; if (!b) { loadBilling(); return K._billErr ? '<div class="alert bad">' + esc(K._billErr) + '</div>' : LOADER; }
     const s = b.subscription || {}; const st = subState(); const cyc = K.ui.billCycle || (s.cycle === 'yearly' ? 'yearly' : 'monthly');
     const open = b.invoices.filter((i) => i.status === 'open'); const pendingFor = (i) => b.payments.find((p) => p.invoice_id === i.id && p.status === 'pending'); const rejectedFor = (i) => b.payments.find((p) => p.invoice_id === i.id && p.status === 'rejected');
     const ended = ['expired', 'suspended'].includes(s.status);
@@ -506,7 +506,7 @@ VIEWS.plans = {
   render() {
     if (K.info.mode !== 'saas') return '<div class="card pad2 muted">Plans apply to the online version of Aahsso.</div>';
     if (!canBilling()) return '<div class="card pad2 muted">Only the business owner or an admin can choose the plan.</div>';
-    const b = K._bill; if (!b) { loadBilling(); return K._billErr ? '<div class="alert bad">' + esc(K._billErr) + '</div>' : '<div class="empty">Loading plans…</div>'; }
+    const b = K._bill; if (!b) { loadBilling(); return K._billErr ? '<div class="alert bad">' + esc(K._billErr) + '</div>' : LOADER; }
     const s = b.subscription || {}; const left = s.trialEndsAt ? Math.ceil((new Date(s.trialEndsAt).getTime() - Date.now()) / 864e5) : null;
     const line = s.status === 'trialing' ? (s.planId ? 'You are on a free trial of ' + esc(s.planName) + (left !== null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '') + '. Choose a paid plan any time.' : 'Welcome to Aahsso! Pick the plan that fits your business. Free plans start a ' + (b.trialDays || 5) + '-day free trial — no payment needed.')
       : s.status === 'active' ? 'You are on ' + esc(s.planName || 'a paid plan') + '. Compare plans or switch below.' : 'Your subscription has ended. Choose a plan to keep recording — your data is safe.';

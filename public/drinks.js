@@ -86,7 +86,7 @@ const Drinks = (() => {
    */
   async function picker(opt) {
     const SRC = opt.src || { load, data: () => data, find, bySku, metaLine, detail, about, noun: 'drink', nouns: 'drinks', listName: 'the drinks list', placeholder: 'Search: Castel, Hennessy, Merlot, Mützig…', icon: '🍾' };
-    const sh = openSheet({ title: opt.title || 'Choose', wide: true, body: '<div class="empty">Loading ' + SRC.listName + '…</div>' });
+    const sh = openSheet({ title: opt.title || 'Choose', wide: true, body: LOADER_IN });
     sh.classList.add('dk-sheet');
     try { await SRC.load(); } catch (e) { setSheetBody(sh, '<div class="alert bad">' + esc(e.message) + '</div>'); return; }
     const st = { q: '', cat: '', sel: new Map(), open: null, price: (opt.prices || ['bar'])[0], limit: 60 };

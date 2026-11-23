@@ -9,9 +9,10 @@
 <link rel="preload" href="/admin/fonts/plus-jakarta-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/admin/admin.css">
 <script defer src="/admin/admin.js"></script>
+<style>/* the loading spinner, here so it is centred before the stylesheet arrives */.ld{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:4}.ld-c{width:38px;height:38px;border-radius:50%;border:3.5px solid rgba(13,92,99,.15);border-top-color:#0d5c63;animation:ld-spin .8s linear infinite;box-sizing:border-box}@keyframes ld-spin{to{transform:rotate(360deg)}}</style>
 </head>
 <body>
-<div id="app" class="boot" aria-live="polite">Loading…</div>
+<div id="app" class="boot" aria-live="polite"><div class="ld" role="status" aria-label="Loading"><span class="ld-c"></span></div></div>
 <div id="modal" class="modal hide" role="dialog" aria-modal="true" aria-labelledby="mTitle"></div>
 <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 </body>
