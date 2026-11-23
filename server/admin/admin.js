@@ -482,7 +482,7 @@
         { label: 'Email', v: (u) => (u.email ? esc(u.email) : '<span class="faint">—</span>') },
         { label: 'Status', v: (u) => (u.deleted_at ? badge('Deleted', 'bad') + '<div class="tiny faint">' + esc(ago(u.deleted_at)) + (u.deleted_by ? ' · by ' + esc(u.deleted_by) : '') + '</div>' + (u.delete_reason ? '<div class="tiny faint" title="' + esc(u.delete_reason) + '">“' + esc(u.delete_reason.length > 40 ? u.delete_reason.slice(0, 38) + '…' : u.delete_reason) + '”</div>' : '') : u.active ? badge('Active', 'ok') : badge('Disabled', 'bad')) },
         { label: 'Last sign-in', v: (u) => esc(ago(u.last_login_at)) },
-        { label: '', v: (u) => '<div class="row" style="justify-content:flex-end;flex-wrap:nowrap">' + (u.deleted_at ? (can('users.delete') ? '<button class="btn sm" data-act5="uRestore" data-id="' + esc(u.id) + '">' + ic('undo', 'sm') + 'Restore</button><button class="btn sm danger-o" data-act5="uPurge" data-id="' + esc(u.id) + '">' + ic('trash', 'sm') + 'Delete permanently</button>' : '') : can('users.write') ? '<button class="btn sm" data-act5="uEdit" data-id="' + esc(u.id) + '">Manage</button>' : '') + '</div>' },
+        { label: '', v: (u) => '<div class="row" style="justify-content:flex-end;flex-wrap:nowrap">' + (u.deleted_at ? (can('users.delete') ? '<button class="btn sm" data-act5="uRestore" data-id="' + esc(u.id) + '">' + ic('undo', 'sm') + 'Restore</button><button class="btn sm danger-o" data-act5="uPurge" data-id="' + esc(u.id) + '">' + ic('trash', 'sm') + 'Delete permanently</button>' : '') : (can('users.write') ? '<button class="btn sm" data-act5="uEdit" data-id="' + esc(u.id) + '">Manage</button>' : '') + (can('users.delete') && u.role !== 'owner' ? '<button class="btn sm danger-o" data-act5="uDelRow" data-id="' + esc(u.id) + '" title="Delete ' + esc(u.name) + '" aria-label="Delete ' + esc(u.name) + '">' + ic('trash', 'sm') + '</button>' : '')) + '</div>' },
       ], d.users, { empty: f.status === 'deleted' ? 'No deleted users.' : 'No user matches.' });
       if (more) $('#ul tbody').insertAdjacentHTML('beforeend', html.split('<tbody>')[1].split('</tbody>')[0]); else $('#ul').innerHTML = html;
       $('#umore') && $('#umore').parentElement.remove(); if (d.more) $('#ul').insertAdjacentHTML('afterend', '<div class="row mt"><button class="btn" id="umore">Show more</button></div>');
@@ -527,7 +527,8 @@
       '<div class="u-more"><h3>Access</h3><div class="row mt">' +
       ((owner && !can('tenants.resetOwner')) ? '' : '<button type="button" class="btn sm" id="uPw">' + ic('key', 'sm') + 'Reset password</button>') +
       (owner ? '' : '<button type="button" class="btn sm" id="uAct">' + (u.active ? 'Disable' : 'Enable') + '</button>') +
-      (owner || !can('users.delete') ? '' : '<button type="button" class="btn sm" id="uDel" style="color:var(--bad)">' + ic('trash', 'sm') + 'Delete</button>') + '</div></div></div>',
+      '<button type="button" class="btn sm danger-o" id="uDel"' + (owner || !can('users.delete') ? ' disabled' : '') + ' title="' + (owner ? 'The owner cannot be deleted' : !can('users.delete') ? 'Your admin role cannot delete users' : 'Move to Deleted or delete permanently') + '">' + ic('trash', 'sm') + 'Delete…</button></div>' +
+      (owner ? '<div class="tiny muted mt">Owners cannot be deleted — suspend or close the business instead.</div>' : !can('users.delete') ? '<div class="tiny muted mt">Your admin role cannot delete users — ask the Super Admin.</div>' : '<div class="tiny muted mt">Delete lets you move them to Deleted (they can be restored) or delete them permanently.</div>') + '</div></div>',
       foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save changes</button>' });
     $('#go', box).onclick = (e) => busy(e.target, async () => { const v = vals(box); const body = { name: v.name, login: v.login, email: v.email }; if (!owner) body.role = v.role; await api('PATCH', '/users/' + id, body); closeModal(); toast('Saved'); route(); });
     $('#uAct', box) && ($('#uAct', box).onclick = (e) => busy(e.target, async () => { await api('PATCH', '/users/' + id, { active: !u.active }); closeModal(); toast(u.active ? u.name + ' can no longer sign in' : u.name + ' can sign in again'); route(); }));
@@ -585,6 +586,7 @@
     uAdd: () => userAdd(S.uf && S.uf.tenant ? { id: S.uf.tenant, name: S.uf.tenantName } : null),
     uEdit: (el) => userEdit(el.dataset.id),
     uRestore: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) userRestore(u); },
+    uDelRow: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) userDelete(u, 'soft'); },
     uPurge: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) userDelete(u, 'hard'); },
     uShowDel: () => { S.uf.status = S.uf.status === 'deleted' ? '' : 'deleted'; route(); },
     uClearT: () => { S.uf.tenant = ''; S.uf.tenantName = ''; route(); },
