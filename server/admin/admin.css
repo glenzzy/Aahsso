@@ -240,3 +240,10 @@ input::placeholder, textarea::placeholder { color: #aab2bc; opacity: 1; font-wei
 .btn.danger-o { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
 .kpi-btn { text-align: left; font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); }
 .kpi-btn.on { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }
+
+/* deleting an owner */
+.od-biz { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.od-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.del-opt.off { opacity: .55; cursor: not-allowed; }
+.od-list { margin: 6px 0 0; padding-left: 18px; }
+.od-list li { margin: 2px 0; }

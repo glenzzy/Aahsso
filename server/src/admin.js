@@ -42,6 +42,7 @@ const ADMIN_PERMS = [
   ['users.view', 'See the people who sign in to businesses', 'Users'],
   ['users.write', 'Add and edit business users, disable them, reset their passwords', 'Users'],
   ['users.delete', 'Delete business users', 'Users'],
+  ['tenants.delete', 'Delete a business and all its data (when deleting its owner)', 'Businesses'],
   ['billing', 'See invoices and payments', 'Billing'],
   ['billing.write', 'Create invoices, record and confirm payments', 'Billing'],
   ['billing.void', 'Void invoices', 'Billing'],
@@ -518,12 +519,32 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     const emailed = (req.body || {}).sendEmail === false ? null : await mailLogin(u, temp, true);
     res.json({ ok: true, password: temp, login: u.login, emailed });
   }));
+  /* deleting an owner: every business they own needs a decision — give it to a team member, or delete it with all its data */
+  async function ownerPlan(u) {
+    const pid = u.person_id || u.id;
+    const rows = (await q('SELECT u.id, u.tenant_id, u.role, u.deleted_at, t.name AS tenant, t.edition, t.status FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=$1 OR u.person_id=$1 ORDER BY u.created_at', [pid])).rows;
+    const out = [];
+    for (const r of rows.filter((x) => x.role === 'owner')) {
+      const c = (await q(`SELECT
+        (SELECT coalesce(json_object_agg(collection, n), '{}') FROM (SELECT collection, count(*)::int AS n FROM documents WHERE tenant_id=$1 AND collection IN ('products','sales','customers','lots','menu','rorders') GROUP BY collection) x) AS counts,
+        (SELECT coalesce(sum(amount),0)::int FROM payments WHERE tenant_id=$1 AND status='confirmed') AS paid,
+        (SELECT coalesce(json_agg(x ORDER BY x.name), '[]') FROM (SELECT id, name, role, coalesce(email, login) AS login FROM users WHERE tenant_id=$1 AND role<>'owner' AND active AND deleted_at IS NULL AND person_id IS NULL) x) AS team,
+        (SELECT count(*)::int FROM users WHERE tenant_id=$1 AND deleted_at IS NULL) AS users`, [r.tenant_id])).rows[0];
+      const n = Object.values(c.counts || {}).reduce((a, x) => a + x, 0);
+      out.push({ tenantId: r.tenant_id, name: r.tenant, edition: r.edition, status: r.status, ownerRowId: r.id, counts: c.counts, paid: c.paid, team: c.team, users: c.users, empty: n === 0 && !c.paid });
+    }
+    return { personId: pid, rows: rows.map((r) => r.id), businesses: out, memberOf: rows.filter((x) => x.role !== 'owner').map((x) => ({ tenant: x.tenant, role: x.role })) };
+  }
+  A.get('/users/:id/owner-plan', need('users.delete'), wrap(async (req, res) => {
+    const u = (await q('SELECT * FROM users WHERE id::text=$1', [req.params.id])).rows[0]; if (!u) return bad(res, 'User not found', 404);
+    res.json(await ownerPlan(u));
+  }));
   /* delete: mode 'soft' (default) moves the user to Deleted — no sign-in, hidden from the team, seat freed, login kept, can be restored;
      mode 'hard' removes the account for good (their past actions stay in the business history by name) and needs their login typed */
   A.post('/users/:id/delete', need('users.delete'), reauth, wrap(async (req, res) => {
     const u = await userOr404(req, res); if (!u) return; const reason = needReason(req, res); if (!reason) return; const b = req.body || {};
-    if (u.role === 'owner') return bad(res, 'The owner cannot be deleted — they own the business. Suspend or close the business instead.');
     const hard = b.mode === 'hard';
+    if (u.role === 'owner') return deleteOwner(req, res, u, reason, hard);
     if (hard) {
       if (String(b.confirm || '').trim().toLowerCase() !== String(u.login).toLowerCase()) return bad(res, 'Type the user\'s login exactly to delete them permanently');
       await q('DELETE FROM users WHERE id=$1', [u.id]);
@@ -537,6 +558,42 @@ module.exports = function mountAdmin(app, { tenantSecret }) {
     await audit(req, 'user_soft_deleted', { tenantId: u.tenant_id, target: u.login, reason, details: { name: u.name, role: u.role, wasActive: u.active } });
     res.json({ ok: true, mode: 'soft', user: (await q(USER_SEL + ' WHERE u.id=$1', [u.id])).rows[0] });
   }));
+  /** an owner leaves: each of their businesses is given to a team member or deleted with all its data; then their account goes */
+  async function deleteOwner(req, res, u, reason, hard) {
+    const b = req.body || {}; const raw = (await q('SELECT * FROM users WHERE id=$1', [u.id])).rows[0]; const plan = await ownerPlan(raw);
+    if (hard && String(b.confirm || '').trim().toLowerCase() !== String(u.login).toLowerCase()) return bad(res, 'Type the owner\'s login exactly to delete them permanently');
+    const asked = new Map((Array.isArray(b.businesses) ? b.businesses : []).map((x) => [String(x.tenantId), x]));
+    for (const bz of plan.businesses) {
+      const d = asked.get(String(bz.tenantId)); if (!d) return bad(res, 'Choose what happens to ' + bz.name);
+      if (d.action === 'transfer') { if (!bz.team.some((m) => m.id === d.to)) return bad(res, 'Choose who takes over ' + bz.name); }
+      else if (d.action === 'delete') {
+        if (!can(req.admin, 'tenants.delete')) return res.status(403).json({ error: 'Your admin role cannot delete a business — give ' + bz.name + ' to a team member, or ask the Super Admin' });
+        if (!bz.empty && String(d.confirm || '').trim().toLowerCase() !== String(bz.name).trim().toLowerCase()) return bad(res, 'Type the business name “' + bz.name + '” to delete it with all its data');
+      } else return bad(res, 'Choose what happens to ' + bz.name);
+    }
+    const done = [];
+    await tx(async (c) => {
+      for (const bz of plan.businesses) {
+        const d = asked.get(String(bz.tenantId));
+        if (d.action === 'transfer') {
+          const to = bz.team.find((m) => m.id === d.to);
+          await c.query("UPDATE users SET role='owner' WHERE id=$1", [to.id]);
+          await c.query("UPDATE users SET role='admin' WHERE id=$1", [bz.ownerRowId]); // the old owner becomes a member, then leaves below
+          await c.query("INSERT INTO audit_log (tenant_id, user_name, location_id, action, after) VALUES ($1, 'Aahsso support', 'main', 'support_owner_transferred', $2)", [bz.tenantId, JSON.stringify({ from: u.name, to: to.name, reason, by: req.admin.name })]);
+          done.push({ business: bz.name, action: 'transfer', to: to.name });
+        } else {
+          await c.query('DELETE FROM tenants WHERE id=$1', [bz.tenantId]); // everything of the business goes with it
+          done.push({ business: bz.name, action: 'delete', counts: bz.counts, paid: bz.paid });
+        }
+      }
+      const left = (await c.query('SELECT id FROM users WHERE (id=$1 OR person_id=$1)', [plan.personId])).rows.map((r) => r.id);
+      if (hard) { await c.query('DELETE FROM users WHERE person_id=$1', [plan.personId]); await c.query('DELETE FROM users WHERE id=$1', [plan.personId]); }
+      else if (left.length) await c.query('UPDATE users SET deleted_at=now(), deleted_by=$2, delete_reason=$3, active=false WHERE id = ANY($1)', [left, req.admin.name, reason]);
+    });
+    for (const x of done) await audit(req, x.action === 'transfer' ? 'owner_transferred' : 'tenant_deleted', { target: x.business, reason, details: Object.assign({ owner: u.name, login: u.login }, x) });
+    await audit(req, hard ? 'user_deleted' : 'user_soft_deleted', { target: u.login, reason, details: { name: u.name, role: 'owner', permanent: hard, businesses: done } });
+    res.json({ ok: true, mode: hard ? 'hard' : 'soft', businesses: done });
+  }
   /* restore a deleted user: back in the team; signs in again when the plan has a free seat (else restored disabled) */
   A.post('/users/:id/restore', need('users.delete'), wrap(async (req, res) => {
     const u = await userOr404(req, res); if (!u) return; if (!u.deleted_at) return bad(res, 'This user is not deleted');

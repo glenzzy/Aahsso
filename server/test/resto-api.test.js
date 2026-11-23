@@ -271,5 +271,41 @@ test('admin users: move to Deleted (no sign-in, hidden, seat freed, login kept) 
   assert.equal((await api('POST', '/api/users', T, { name: 'New Wanda', login, password: 'secret12', role: 'resto_waiter' })).status, 200, 'the login is free again');
   // the owner
   const owner = (await adm('GET', '/api/admin/users?role=owner&tenant=' + tid)).body.users[0];
-  assert.equal((await adm('POST', '/api/admin/users/' + owner.id + '/delete', { mode: 'soft', reason: 'Testing owner' })).status, 400, 'the owner is never deleted');
+  assert.equal((await adm('POST', '/api/admin/users/' + owner.id + '/delete', { mode: 'soft', reason: 'Testing owner' })).status, 400, 'an owner needs a decision for each business');
+});
+
+test('deleting a business owner: give the business to a team member, or delete it with all its data (typed name unless empty)', async () => {
+  await fresh();
+  // 1. a business with a team: given to the manager
+  const r1 = await api('POST', '/api/auth/register', null, { businessName: 'Hand Over ' + rnd, name: 'Old Owner', login: 'oldo' + rnd + '@resto.test', password: 'secret12', edition: 'resto', venueType: 'bar' });
+  const T1 = r1.body.token; const t1 = (await api('GET', '/api/me', T1)).body.tenant.id;
+  await api('PUT', '/api/data/products/p1', T1, { name: 'Castel Beer', unit: 'bottle' });
+  const mg = (await api('POST', '/api/users', T1, { name: 'Mia Manager', login: 'mia' + rnd, password: 'secret12', role: 'manager' })).body.user;
+  const o1 = (await adm('GET', '/api/admin/users?role=owner&tenant=' + t1)).body.users[0];
+  const plan = (await adm('GET', '/api/admin/users/' + o1.id + '/owner-plan')).body;
+  assert.equal(plan.businesses.length, 1); assert.deepEqual(plan.businesses[0].team.map((m) => m.name), ['Mia Manager']); assert.equal(plan.businesses[0].empty, false);
+  assert.equal((await adm('POST', '/api/admin/users/' + o1.id + '/delete', { mode: 'soft', reason: 'Sold the bar', businesses: [{ tenantId: t1, action: 'transfer', to: 'nobody' }] })).status, 400, 'a real team member must take over');
+  const d1 = await adm('POST', '/api/admin/users/' + o1.id + '/delete', { mode: 'soft', reason: 'Sold the bar', businesses: [{ tenantId: t1, action: 'transfer', to: mg.id }] });
+  assert.equal(d1.status, 200, JSON.stringify(d1.body)); assert.deepEqual(d1.body.businesses, [{ business: 'Hand Over ' + rnd, action: 'transfer', to: 'Mia Manager' }]);
+  const T1b = (await api('POST', '/api/auth/login', null, { login: 'mia' + rnd, password: 'secret12' })).body.token;
+  assert.equal((await api('GET', '/api/me', T1b)).body.user.role, 'owner', 'Mia is the owner now');
+  assert.ok((await api('GET', '/api/data/products', T1b)).body.docs.some((p) => p.id === 'p1'), 'the business and its data stay');
+  assert.notEqual((await api('POST', '/api/auth/login', null, { login: 'oldo' + rnd + '@resto.test', password: 'secret12' })).status, 200, 'the old owner cannot sign in');
+  // 2. an empty business, no team: deleted with its owner, permanently
+  const r2 = await api('POST', '/api/auth/register', null, { businessName: 'Never Used ' + rnd, name: 'Idle Owner', login: 'idle' + rnd + '@resto.test', password: 'secret12', edition: 'store' });
+  const t2 = (await api('GET', '/api/me', r2.body.token)).body.tenant.id; const o2 = (await adm('GET', '/api/admin/users?role=owner&tenant=' + t2)).body.users[0];
+  const p2 = (await adm('GET', '/api/admin/users/' + o2.id + '/owner-plan')).body; assert.equal(p2.businesses[0].empty, true); assert.equal(p2.businesses[0].team.length, 0);
+  assert.equal((await adm('POST', '/api/admin/users/' + o2.id + '/delete', { mode: 'hard', reason: 'Never used it', confirm: 'wrong', businesses: [{ tenantId: t2, action: 'delete' }] })).status, 400, 'their login typed');
+  const d2 = await adm('POST', '/api/admin/users/' + o2.id + '/delete', { mode: 'hard', reason: 'Never used it', confirm: 'idle' + rnd + '@resto.test', businesses: [{ tenantId: t2, action: 'delete' }] });
+  assert.equal(d2.status, 200, JSON.stringify(d2.body));
+  assert.equal((await db.query('SELECT 1 FROM tenants WHERE id=$1', [t2])).rowCount, 0, 'the empty business is gone');
+  assert.equal((await db.query('SELECT 1 FROM users WHERE tenant_id=$1 OR login=$2', [t2, 'idle' + rnd + '@resto.test'])).rowCount, 0, 'the owner is gone');
+  // 3. a business with data: its name must be typed
+  const r3 = await api('POST', '/api/auth/register', null, { businessName: 'Full Shop ' + rnd, name: 'Busy Owner', login: 'busy' + rnd + '@resto.test', password: 'secret12', edition: 'store' });
+  const T3 = r3.body.token; const t3 = (await api('GET', '/api/me', T3)).body.tenant.id; await api('PUT', '/api/data/customers/c1', T3, { name: 'Ada' });
+  const o3 = (await adm('GET', '/api/admin/users?role=owner&tenant=' + t3)).body.users[0];
+  assert.equal((await adm('POST', '/api/admin/users/' + o3.id + '/delete', { mode: 'soft', reason: 'Closing down', businesses: [{ tenantId: t3, action: 'delete', confirm: 'Full' }] })).status, 400, 'the business name must be typed');
+  assert.equal((await adm('POST', '/api/admin/users/' + o3.id + '/delete', { mode: 'soft', reason: 'Closing down', businesses: [{ tenantId: t3, action: 'delete', confirm: 'full shop ' + rnd }] })).status, 200);
+  assert.equal((await db.query("SELECT count(*)::int AS n FROM documents WHERE tenant_id=$1", [t3])).rows[0].n, 0, 'all its data is gone');
+  const aud = (await db.query("SELECT action FROM admin_audit WHERE target=$1", ['Full Shop ' + rnd])).rows.map((x) => x.action); assert.ok(aud.includes('tenant_deleted'), 'the platform audit keeps a trace');
 });

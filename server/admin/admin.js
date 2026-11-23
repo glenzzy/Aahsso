@@ -21,6 +21,7 @@
   const INV = { open: 'warn', paid: 'ok', void: '' }; const PAY = { pending: 'warn', confirmed: 'ok', rejected: 'bad', processing: 'info', failed: 'bad' };
   const PAY_L = { pending: 'to check', processing: 'waiting for the payer', failed: 'failed' };
   const isAuto = (p) => p.provider && p.provider !== 'manual'; // paid through Fapshi, not reported by hand
+  const fmtN = (n) => Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const badge = (t, cls) => '<span class="badge ' + (cls || '') + '">' + esc(t) + '</span>';
   /* the kinds of business: Aahsso Brocan, Aahsso Store and Aahsso Bar & Resto */
   const ED = { import: { label: 'Aahsso Brocan', short: 'Brocan', cls: 'info', what: 'buy abroad, ship, receive and sell' }, store: { label: 'Aahsso Store', short: 'Store', cls: 'ok', what: 'buy locally, sell and manage stock' }, resto: { label: 'Aahsso Bar & Resto', short: 'Resto', cls: 'warn', what: 'tables, QR menu, waiters and kitchen' } };
@@ -482,7 +483,7 @@
         { label: 'Email', v: (u) => (u.email ? esc(u.email) : '<span class="faint">—</span>') },
         { label: 'Status', v: (u) => (u.deleted_at ? badge('Deleted', 'bad') + '<div class="tiny faint">' + esc(ago(u.deleted_at)) + (u.deleted_by ? ' · by ' + esc(u.deleted_by) : '') + '</div>' + (u.delete_reason ? '<div class="tiny faint" title="' + esc(u.delete_reason) + '">“' + esc(u.delete_reason.length > 40 ? u.delete_reason.slice(0, 38) + '…' : u.delete_reason) + '”</div>' : '') : u.active ? badge('Active', 'ok') : badge('Disabled', 'bad')) },
         { label: 'Last sign-in', v: (u) => esc(ago(u.last_login_at)) },
-        { label: '', v: (u) => '<div class="row" style="justify-content:flex-end;flex-wrap:nowrap">' + (u.deleted_at ? (can('users.delete') ? '<button class="btn sm" data-act5="uRestore" data-id="' + esc(u.id) + '">' + ic('undo', 'sm') + 'Restore</button><button class="btn sm danger-o" data-act5="uPurge" data-id="' + esc(u.id) + '">' + ic('trash', 'sm') + 'Delete permanently</button>' : '') : (can('users.write') ? '<button class="btn sm" data-act5="uEdit" data-id="' + esc(u.id) + '">Manage</button>' : '') + (can('users.delete') && u.role !== 'owner' ? '<button class="btn sm danger-o" data-act5="uDelRow" data-id="' + esc(u.id) + '" title="Delete ' + esc(u.name) + '" aria-label="Delete ' + esc(u.name) + '">' + ic('trash', 'sm') + '</button>' : '')) + '</div>' },
+        { label: '', v: (u) => '<div class="row" style="justify-content:flex-end;flex-wrap:nowrap">' + (u.deleted_at ? (can('users.delete') ? '<button class="btn sm" data-act5="uRestore" data-id="' + esc(u.id) + '">' + ic('undo', 'sm') + 'Restore</button><button class="btn sm danger-o" data-act5="uPurge" data-id="' + esc(u.id) + '">' + ic('trash', 'sm') + 'Delete permanently</button>' : '') : (can('users.write') ? '<button class="btn sm" data-act5="uEdit" data-id="' + esc(u.id) + '">Manage</button>' : '') + (can('users.delete') ? '<button class="btn sm danger-o" data-act5="uDelRow" data-id="' + esc(u.id) + '" title="Delete ' + esc(u.name) + '" aria-label="Delete ' + esc(u.name) + '">' + ic('trash', 'sm') + '</button>' : '')) + '</div>' },
       ], d.users, { empty: f.status === 'deleted' ? 'No deleted users.' : 'No user matches.' });
       if (more) $('#ul tbody').insertAdjacentHTML('beforeend', html.split('<tbody>')[1].split('</tbody>')[0]); else $('#ul').innerHTML = html;
       $('#umore') && $('#umore').parentElement.remove(); if (d.more) $('#ul').insertAdjacentHTML('afterend', '<div class="row mt"><button class="btn" id="umore">Show more</button></div>');
@@ -523,12 +524,12 @@
     const box = modal({ title: u.name, body: '<div class="col"><div class="small muted">' + esc(u.tenant) + ' · joined ' + esc(fmtD(u.created_at)) + ' · last sign-in ' + esc(ago(u.last_login_at)) + '</div>' +
       '<div class="grid2">' + field('Full name', inp('name', u.name)) + field('Role', roleSel(roles, u.role, owner)) + '</div>' +
       '<div class="grid2">' + field('Login (email or phone)', inp('login', u.login, 'spellcheck="false"')) + field('Email', inp('email', u.email || '', 'type="email"')) + '</div>' +
-      (owner ? '<div class="tiny muted">The owner keeps the Owner role and cannot be disabled or deleted — suspend the business instead.</div>' : '') +
+      (owner ? '<div class="tiny muted">The owner keeps the Owner role and cannot be disabled. To remove them, use <b>Delete owner</b> below.</div>' : '') +
       '<div class="u-more"><h3>Access</h3><div class="row mt">' +
       ((owner && !can('tenants.resetOwner')) ? '' : '<button type="button" class="btn sm" id="uPw">' + ic('key', 'sm') + 'Reset password</button>') +
       (owner ? '' : '<button type="button" class="btn sm" id="uAct">' + (u.active ? 'Disable' : 'Enable') + '</button>') +
-      '<button type="button" class="btn sm danger-o" id="uDel"' + (owner || !can('users.delete') ? ' disabled' : '') + ' title="' + (owner ? 'The owner cannot be deleted' : !can('users.delete') ? 'Your admin role cannot delete users' : 'Move to Deleted or delete permanently') + '">' + ic('trash', 'sm') + 'Delete…</button></div>' +
-      (owner ? '<div class="tiny muted mt">Owners cannot be deleted — suspend or close the business instead.</div>' : !can('users.delete') ? '<div class="tiny muted mt">Your admin role cannot delete users — ask the Super Admin.</div>' : '<div class="tiny muted mt">Delete lets you move them to Deleted (they can be restored) or delete them permanently.</div>') + '</div></div>',
+      '<button type="button" class="btn sm danger-o" id="uDel"' + (!can('users.delete') ? ' disabled' : '') + ' title="' + (!can('users.delete') ? 'Your admin role cannot delete users' : owner ? 'Give their businesses to someone or delete them, then delete the owner' : 'Move to Deleted or delete permanently') + '">' + ic('trash', 'sm') + (owner ? 'Delete owner…' : 'Delete…') + '</button></div>' +
+      (!can('users.delete') ? '<div class="tiny muted mt">Your admin role cannot delete users — ask the Super Admin.</div>' : owner ? '<div class="tiny muted mt">Deleting an owner: each of their businesses is given to a team member, or deleted with all its data.</div>' : '<div class="tiny muted mt">Delete lets you move them to Deleted (they can be restored) or delete them permanently.</div>') + '</div></div>',
       foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save changes</button>' });
     $('#go', box).onclick = (e) => busy(e.target, async () => { const v = vals(box); const body = { name: v.name, login: v.login, email: v.email }; if (!owner) body.role = v.role; await api('PATCH', '/users/' + id, body); closeModal(); toast('Saved'); route(); });
     $('#uAct', box) && ($('#uAct', box).onclick = (e) => busy(e.target, async () => { await api('PATCH', '/users/' + id, { active: !u.active }); closeModal(); toast(u.active ? u.name + ' can no longer sign in' : u.name + ' can sign in again'); route(); }));
@@ -537,7 +538,7 @@
       $('#go', b2).onclick = (e) => busy(e.target, async () => { const x = await api('POST', '/users/' + id + '/password', vals(b2));
         modal({ title: 'New temporary password', body: '<p class="small">Login: <b>' + esc(x.login) + '</b></p><div class="secret mb">' + esc(x.password) + '</div><p class="small muted">' + (x.emailed && x.emailed.status === 'sent' ? 'Emailed to ' + esc(x.emailed.to) + '.' : 'Not emailed — give it to them yourself after checking who they are.') + ' It is not shown again.</p>', foot: '<button class="btn pri" data-close>Done</button>' }); });
     });
-    $('#uDel', box) && ($('#uDel', box).onclick = () => userDelete(u, 'soft'));
+    $('#uDel', box) && ($('#uDel', box).onclick = () => (owner ? ownerDelete(u) : userDelete(u, 'soft')));
   }
   /* delete a user: move to Deleted (restorable) or delete permanently (typed login) — every step explained in a modal */
   function userDelete(u, mode) {
@@ -570,6 +571,49 @@
         $('#undo', b3).onclick = (e2) => busy(e2.target, async () => { const x = await api('POST', '/users/' + u.id + '/restore', {}); closeModal(); toast(x.active ? u.name + ' is back and can sign in' : u.name + ' is back, disabled — ' + x.limit); route(); }); }
     });
   }
+  /* delete a business owner: each business they own is given to a team member or deleted with all its data, then their account goes */
+  async function ownerDelete(u) {
+    const plan = await api('GET', '/users/' + u.id + '/owner-plan'); const canBiz = can('tenants.delete');
+    const dec = {}; plan.businesses.forEach((bz) => { dec[bz.tenantId] = bz.team.length ? { action: 'transfer', to: bz.team[0].id } : { action: canBiz ? 'delete' : '', confirm: '' }; });
+    const what = (bz) => { const c = bz.counts || {}; const parts = [[c.products, 'item'], [c.sales, 'sale'], [c.customers, 'customer'], [c.menu, 'menu item'], [c.rorders, 'order']].filter(([n]) => n).map(([n, l]) => fmtN(n) + ' ' + l + (n === 1 ? '' : 's')); return (parts.join(' · ') || 'No data yet') + ' · ' + bz.users + ' user' + (bz.users === 1 ? '' : 's') + (bz.paid ? ' · paid ' + fmtN(bz.paid) + ' FCFA to Aahsso' : ''); };
+    const bizHtml = (bz) => { const d = dec[bz.tenantId];
+      return '<div class="od-biz"><div class="od-h"><b>' + esc(bz.name) + '</b>' + edBadge(bz.edition) + (bz.empty ? '<span class="badge">empty</span>' : '') + '</div><div class="tiny muted">' + esc(what(bz)) + '</div>' +
+        '<label class="del-opt' + (d.action === 'transfer' ? ' on' : '') + (bz.team.length ? '' : ' off') + '"><input type="radio" name="act_' + bz.tenantId + '" value="transfer"' + (d.action === 'transfer' ? ' checked' : '') + (bz.team.length ? '' : ' disabled') + '><span><b>Give it to someone</b><span class="small muted">' + (bz.team.length ? 'They become the owner. The business and all its data stay.' : 'No active team member to take over — add one in the business first.') + '</span>' +
+          (bz.team.length ? '<select class="inp mt" name="to_' + bz.tenantId + '">' + bz.team.map((m) => '<option value="' + esc(m.id) + '"' + (d.to === m.id ? ' selected' : '') + '>' + esc(m.name + ' · ' + userRoleText(m.role) + ' · ' + m.login) + '</option>').join('') + '</select>' : '') + '</span></label>' +
+        '<label class="del-opt hard' + (d.action === 'delete' ? ' on' : '') + (canBiz ? '' : ' off') + '"><input type="radio" name="act_' + bz.tenantId + '" value="delete"' + (d.action === 'delete' ? ' checked' : '') + (canBiz ? '' : ' disabled') + '><span><b>Delete the business and all its data</b><span class="small muted">' + (canBiz ? (bz.empty ? 'It has no data yet.' : 'Records, stock, sales, customers, its team, invoices and payments — removed for good.') : 'Your admin role cannot delete a business.') + '</span>' +
+          (d.action === 'delete' && !bz.empty ? '<input class="inp mt" name="bz_' + bz.tenantId + '" value="' + esc(d.confirm || '') + '" autocomplete="off" spellcheck="false" placeholder="Type “' + esc(bz.name) + '” to confirm">' : '') + '</span></label></div>'; };
+    let mode = 'soft';
+    const b2 = modal({ title: 'Delete ' + u.name + ' (business owner)?', wide: true, body: '<div class="col">' +
+      '<div class="small muted">' + esc(u.login) + ' · owner of ' + plan.businesses.length + ' business' + (plan.businesses.length === 1 ? '' : 'es') + (plan.memberOf.length ? ' · also a member of ' + esc(plan.memberOf.map((x) => x.tenant).join(', ')) : '') + '</div>' +
+      '<h3 class="mt">1 · Their business' + (plan.businesses.length === 1 ? '' : 'es') + '</h3><div id="odBiz"></div>' +
+      '<h3 class="mt">2 · Their account</h3><div class="del-opts"><label class="del-opt on"><input type="radio" name="mode" value="soft" checked><span><b>Move to Deleted</b><span class="small muted">They cannot sign in. If they keep membership in a business they gave away, you can restore them there as an admin.</span></span></label>' +
+        '<label class="del-opt hard"><input type="radio" name="mode" value="hard"><span><b>Delete permanently</b><span class="small muted">Their account and login are removed for good.</span></span></label></div>' +
+      '<div id="odSum"></div>' + reasonField(true) + '<div id="odConf" class="hide">' + field('Type “' + u.login + '” to confirm', '<input class="inp" name="confirm" autocomplete="off" spellcheck="false" placeholder="' + esc(u.login) + '">') + '</div></div>',
+      foot: '<button class="btn" data-close>Cancel</button><button class="btn danger" id="go">Delete owner</button>' });
+    const readDec = () => plan.businesses.forEach((bz) => { const a = (b2.querySelector('[name="act_' + bz.tenantId + '"]:checked') || {}).value || ''; const to = b2.querySelector('[name="to_' + bz.tenantId + '"]'); const cf = b2.querySelector('[name="bz_' + bz.tenantId + '"]'); dec[bz.tenantId] = { action: a, to: to ? to.value : '', confirm: cf ? cf.value : (dec[bz.tenantId] || {}).confirm || '' }; });
+    const drawBiz = () => { $('#odBiz', b2).innerHTML = plan.businesses.map(bizHtml).join(''); };
+    const check = () => {
+      mode = (b2.querySelector('[name=mode]:checked') || {}).value || 'soft';
+      b2.querySelectorAll('.del-opts .del-opt').forEach((x) => x.classList.toggle('on', x.querySelector('input').checked));
+      const lines = plan.businesses.map((bz) => { const d = dec[bz.tenantId]; const to = bz.team.find((m) => m.id === d.to);
+        return d.action === 'transfer' ? '<li><b>' + esc(bz.name) + '</b> → ' + esc(to ? to.name : '?') + ' becomes the owner</li>' : d.action === 'delete' ? '<li><b>' + esc(bz.name) + '</b> is deleted with all its data</li>' : '<li><b>' + esc(bz.name) + '</b>: choose what happens</li>'; });
+      const anyDel = plan.businesses.some((bz) => dec[bz.tenantId].action === 'delete');
+      $('#odSum', b2).innerHTML = '<div class="alert ' + (anyDel || mode === 'hard' ? 'bad' : 'warn') + '">' + (anyDel || mode === 'hard' ? ic('alert', 'sm') + ' <b>Parts of this cannot be undone.</b>' : '<b>What will happen</b>') + '<ul class="od-list">' + lines.join('') + '<li>' + esc(u.name) + (mode === 'hard' ? '\'s account is deleted permanently' : ' is moved to Deleted and cannot sign in') + '</li></ul></div>';
+      $('#odConf', b2).classList.toggle('hide', mode !== 'hard');
+      const ready = plan.businesses.every((bz) => { const d = dec[bz.tenantId]; return d.action === 'transfer' ? !!d.to : d.action === 'delete' ? bz.empty || String(d.confirm).trim().toLowerCase() === String(bz.name).trim().toLowerCase() : false; })
+        && (mode !== 'hard' || String(($('[name=confirm]', b2) || {}).value || '').trim().toLowerCase() === String(u.login).toLowerCase());
+      $('#go', b2).disabled = !ready;
+    };
+    drawBiz(); check();
+    b2.addEventListener('change', (e) => { if (e.target.name && /^act_/.test(e.target.name)) { readDec(); drawBiz(); } else readDec(); check(); });
+    b2.addEventListener('input', () => { readDec(); check(); });
+    $('#go', b2).onclick = (e) => busy(e.target, async () => {
+      readDec(); const v = vals(b2);
+      const r = await api('POST', '/users/' + u.id + '/delete', { mode, reason: v.reason, confirm: v.confirm, businesses: plan.businesses.map((bz) => Object.assign({ tenantId: bz.tenantId }, dec[bz.tenantId])) });
+      closeModal(); route();
+      modal({ title: r.mode === 'hard' ? 'Owner deleted permanently' : 'Owner moved to Deleted', body: '<div class="alert ok">' + esc(u.name) + (r.mode === 'hard' ? ' has been deleted for good.' : ' can no longer sign in.') + '</div><ul class="od-list mt">' + r.businesses.map((x) => '<li><b>' + esc(x.business) + '</b> — ' + (x.action === 'transfer' ? 'now owned by ' + esc(x.to) : 'deleted with all its data') + '</li>').join('') + '</ul><p class="small muted">Everything is in the audit log with your reason.</p>', foot: '<button class="btn pri" data-close>Done</button>' });
+    });
+  }
   /* restore: back in the business's team; signs in again when the plan has a free seat */
   function userRestore(u) {
     const b2 = modal({ title: 'Restore ' + u.name + '?', body: '<div class="col"><div class="small muted">' + esc(u.login) + ' · ' + esc(userRoleText(u.role)) + ' at <b>' + esc(u.tenant) + '</b> · deleted ' + esc(ago(u.deleted_at)) + (u.deleted_by ? ' by ' + esc(u.deleted_by) : '') + '</div>' +
@@ -586,7 +630,7 @@
     uAdd: () => userAdd(S.uf && S.uf.tenant ? { id: S.uf.tenant, name: S.uf.tenantName } : null),
     uEdit: (el) => userEdit(el.dataset.id),
     uRestore: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) userRestore(u); },
-    uDelRow: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) userDelete(u, 'soft'); },
+    uDelRow: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) (u.role === 'owner' ? ownerDelete(u) : userDelete(u, 'soft')); },
     uPurge: (el) => { const u = (S.users || []).find((x) => x.id === el.dataset.id); if (u) userDelete(u, 'hard'); },
     uShowDel: () => { S.uf.status = S.uf.status === 'deleted' ? '' : 'deleted'; route(); },
     uClearT: () => { S.uf.tenant = ''; S.uf.tenantName = ''; route(); },
