@@ -44,7 +44,7 @@ VIEWS.buy = {
     if (isStore()) { // Aahsso Store: what you bought, what you owe, and the list — nothing to ship
       const nMonth = purchaseGroups(mLots).length;
       return '<div class="kpis mb2">' + kpi('Bought this month', F(spent), nMonth + ' purchase' + (nMonth === 1 ? '' : 's') + (tax ? ' · tax ' + fmt(tax) : '')) + kpi('Owed to suppliers', F(owed), 'unpaid or part paid') + '</div>' +
-        '<div class="toolbar mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'New purchase</button>' + (typeof isResto === 'function' && isResto() ? '<button class="btn" data-a="buyDrinks">' + ic('glass') + 'Buy drinks</button>' + (typeof hasStation === 'function' && hasStation('kitchen') ? '<button class="btn" data-a="buyIngredients">' + ic('chef') + 'Buy ingredients</button>' : '') : '') +
+        '<div class="toolbar mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'New purchase</button>' + (K.info && K.info.receiptScan && has('receiptScan') ? '<button class="btn" data-a="scanPurchase">' + ic('cam') + 'Scan a receipt</button>' : '') + (typeof isResto === 'function' && isResto() ? '<button class="btn" data-a="buyDrinks">' + ic('glass') + 'Buy drinks</button>' + (typeof hasStation === 'function' && hasStation('kitchen') ? '<button class="btn" data-a="buyIngredients">' + ic('chef') + 'Buy ingredients</button>' : '') : '') +
           '<div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search supplier, item, receipt or txn ID" value="' + esc(K.ui.buyQ || '') + '" data-c="buyQ"></div>' +
           (can('export') ? '<button class="btn ghost" data-a="exportPurch" title="Download as Excel">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
         purchaseTable(groups);
@@ -52,7 +52,7 @@ VIEWS.buy = {
     return '' +
       '<div class="kpis mb2">' + kpi('Bought this month', F(spent), 'tax included') + kpi('Tax this month', F(tax), spent ? pct(tax / Math.max(1, spent - tax) * 100) + ' on average' : '') + kpi('Owed to sellers', F(owed), 'unpaid or part paid') +
         '<div class="card kpi"><div class="l">Waiting to ship</div><div class="v">' + fmt(waitU) + ' <span class="hint">units</span></div><div class="s">' + (waitU && can('containers') ? '<a href="#ship">Put them in a shipment →</a>' : 'bought, not shipped yet') + '</div></div></div>' +
-      '<div class="toolbar mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'New purchase</button>' +
+      '<div class="toolbar mb"><button class="btn pri" data-a="newPurchase">' + ic('plus') + 'New purchase</button>' + (K.info && K.info.receiptScan && has('receiptScan') ? '<button class="btn" data-a="scanPurchase">' + ic('cam') + 'Scan a receipt</button>' : '') +
         '<div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search seller, item, receipt or txn ID" value="' + esc(K.ui.buyQ || '') + '" data-c="buyQ"></div>' +
         (can('export') ? '<button class="btn ghost" data-a="exportPurch" title="Download as Excel">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + [['all', 'All'], ['us', 'Waiting to ship'], ['transit', 'Shipping'], ['warehouse', 'In stock']].map(([k, l]) => '<button class="chip' + (f === k ? ' on' : '') + '" data-a="buyF" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
@@ -147,7 +147,7 @@ function purchaseForm(pre) {
         '<details class="pu-extra"><summary>More details <span class="hint">receipt no., pick-up</span></summary><div class="grid2 mt">' +
           field('Receipt / order no.', inp('poNumber', '', 'placeholder="Optional"')) + field('Collected from the ' + who + '?', sel('puCollected', [['yes', 'Yes, we have the goods'], ['no', 'No — pick up later']], 'yes')) + '</div></details></section>' +
       // items
-      '<section class="pu-sec"><div class="pu-h2"><h3 class="pu-t3">Items</h3><div class="row gap6"><button type="button" class="btn sm ghost" data-a="puImport">' + ic('up', 'sm') + 'Import Excel</button><button type="button" class="btn sm ghost" data-a="tplPurch">' + ic('dl', 'sm') + 'Template</button></div></div>' +
+      '<section class="pu-sec"><div class="pu-h2"><h3 class="pu-t3">Items</h3><div class="row gap6">' + (K.info && K.info.receiptScan && has('receiptScan') ? '<button type="button" class="btn sm" data-a="puScan">' + ic('cam', 'sm') + 'Scan receipt</button>' : '') + '<button type="button" class="btn sm ghost" data-a="puImport">' + ic('up', 'sm') + 'Import Excel</button><button type="button" class="btn sm ghost" data-a="tplPurch">' + ic('dl', 'sm') + 'Template</button></div></div>' +
         '<div class="pu-tw"><table class="t pu-t2"><thead><tr><th>Item</th><th class="r">Qty</th>' + (st ? '' : '<th class="r">Weight each</th>') + '<th class="r" id="puPriceH">Price each</th><th class="r">Total</th><th></th></tr></thead><tbody id="puRows"></tbody></table></div>' +
         '<div class="pu-under"><div class="col" style="gap:10px"><button type="button" class="btn sm" data-a="puAdd" style="align-self:flex-start">' + ic('plus', 'sm') + 'Add item</button><span class="hint">Tip: press Enter in the price to add the next item.</span>' +
           '<div id="puSpread" class="hide"><div class="hint mb">Paid one price for the items without a price?</div><div class="row gap6"><input class="inp" id="puLot" inputmode="decimal" placeholder="Total paid" style="width:140px"><button type="button" class="btn sm" data-a="puSpread">Spread it</button></div></div></div>' +
@@ -414,7 +414,7 @@ function parsePurchaseRows(rows) {
     regularPrice: num(pickCol(r, ['Regular Price', 'Shelf Price', 'Retail Price', 'MSRP', 'Unit Retail', 'Ext Retail'])) || '', unitCost: pickCol(r, ['Price Paid', 'Price Each', 'Unit Cost', 'Unit Price', 'Cost', 'Price'], /shelf|retail|regular|msrp|total|tax|ext|amount/i), qty: Math.floor(num(pickCol(r, ['Quantity', 'Qty', 'Units']))) || 1,
     expiry: xlDate(pickCol(r, ['Expiry Date', 'Expiry', 'Expiration'])), barcode: String(pickCol(r, ['Barcode', 'UPC', 'EAN'])), notes: String(pickCol(r, ['Notes'])),
     unit: String(pickCol(r, ['Unit', 'Sold By'])), size: num(pickCol(r, ['Size'])) || null, weight: num(pickCol(r, ['Weight (kg)', 'Weight Kg', 'Weight', 'Kg'])) || '', sizeUnit: String(pickCol(r, ['Size Unit', 'Weight Unit'])), packOf: Math.max(1, Math.floor(num(pickCol(r, ['Pack Of', 'Units Per Pack', 'Pack'])) || 1)),
-    tax: pickCol(r, ['Tax %', 'Tax Rate', 'Tax', 'VAT %', 'VAT Rate'], /total|amount|amt/i),
+    tax: pickCol(r, ['Tax %', 'Tax Rate', 'Tax', 'VAT %', 'VAT Rate'], /total|amount|amt/i), currency: String(pickCol(r, ['Currency'])).trim().toUpperCase(), group: r.__scanGroup == null ? '' : String(r.__scanGroup),
     total: pickCol(r, ['Total', 'Line Total', 'Total Price', 'Amount', 'Ext Price', 'Extended Price'], /tax|sub|grand|retail/i), // price × qty, before tax
     taxAmt: pickCol(r, ['Total Tax', 'Tax Amount', 'Tax Total', 'Line Tax', 'VAT Amount'], /^$/), // the line's tax in money
   })).filter((l) => l.name);
@@ -442,7 +442,7 @@ function parsePurchaseRows(rows) {
 }
 /** the receipts in a file: one per date + seller + receipt number, in the file's order */
 function receiptGroups(lines) {
-  const m = new Map(); lines.forEach((l) => { const k = [l.purchaseDate, String(l.vendor).toLowerCase().trim(), String(l.poNumber).trim()].join('|'); if (!m.has(k)) m.set(k, []); m.get(k).push(l); });
+  const m = new Map(); lines.forEach((l) => { const k = [l.purchaseDate, String(l.vendor).toLowerCase().trim(), String(l.poNumber).trim(), l.group || ''].join('|'); if (!m.has(k)) m.set(k, []); m.get(k).push(l); });
   return [...m.values()];
 }
 const receiptLabel = (g) => [g[0].vendor || 'Seller not given', g[0].purchaseDate ? fmtDate(g[0].purchaseDate) : '', g[0].poNumber ? 'receipt ' + g[0].poNumber : ''].filter(Boolean).join(' · ');
@@ -454,6 +454,10 @@ A.puImport = async (el) => {
   try { const wb = await readSheet(f); const ws = wb.Sheets[wb.SheetNames.find((n) => /purch|manifest|item/i.test(n)) || wb.SheetNames[0]]; lines = parsePurchaseRows(XLSX.utils.sheet_to_json(ws, { defval: '' })); }
   catch (e) { return toast('Could not read this file: ' + e.message, true); }
   if (!lines.length) return toast('No item rows found. Use the template column names.', true);
+  puLoad(sh, lines);
+};
+/** imported lines (Excel or a scanned receipt) into the purchase: several receipts → one purchase each (recommended) or all here */
+async function puLoad(sh, lines, from) {
   const groups = receiptGroups(lines);
   if (groups.length > 1) { // several receipts: one purchase each (recommended), or everything here
     const box = openSheet({ title: 'This file has ' + groups.length + ' receipts', body: '<p class="small">Each receipt is its own purchase — its own seller, date, payment and tax.</p><div class="card list">' + groups.map((g, i) => '<div class="li" style="cursor:default"><div class="grow"><b>' + (i + 1) + ' · ' + esc(receiptLabel(g)) + '</b><div class="tiny muted">' + g.length + ' line' + (g.length === 1 ? '' : 's') + ' · ' + fmt(g.reduce((a, l) => a + num(l.qty), 0)) + ' items</div></div></div>').join('') + '</div>',
@@ -463,12 +467,76 @@ A.puImport = async (el) => {
     if (!pick) return;
     if (pick === 'one') { K._puQueue = groups.slice(1); lines = groups[0]; return puFill(sh, lines, 'Receipt 1 of ' + groups.length + ' (' + receiptLabel(groups[0]) + ') · '); }
   }
-  puFill(sh, lines);
+  puFill(sh, lines, from);
+}
+
+/* ---------- scan a receipt or invoice (photos or PDF): read by Claude on the server, then the same rows as the Excel template ---------- */
+const SCAN_MAX_BYTES = 4 * 1024 * 1024;
+/** a photo made lighter for mobile data: at most ~2000 px on the long side and ~3.5 million pixels, JPEG — still sharp enough to read */
+async function shrinkPhoto(file) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height), Math.sqrt(3.5e6 / (bmp.width * bmp.height)));
+    if (k === 1 && file.size < 900e3 && /jpe?g|png|webp/.test(file.type)) { bmp.close && bmp.close(); return file; } // already small
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(bmp, 0, 0, c.width, c.height); bmp.close && bmp.close();
+    return (await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.85))) || file;
+  } catch (e) { return file; } // a format this browser cannot draw: sent as it is (the server says if it cannot read it)
+}
+const fileB64 = (b) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, '')); r.onerror = () => no(new Error('Could not read the file')); r.readAsDataURL(b); });
+/** what the AI read → rows with the receipt template's column names (parsePurchaseRows then works exactly as for Excel) */
+function scanRows(list) {
+  const r2 = (v) => Math.round(v * 100) / 100; const out = [];
+  list.forEach((x, ri) => {
+    const lineV = (l) => (l.lineTotal != null ? l.lineTotal : l.unitPrice != null ? l.unitPrice * (l.quantity || 1) : 0);
+    const sum = x.lines.reduce((a, l) => a + lineV(l), 0);
+    const noLineTax = x.lines.every((l) => l.taxPct == null && l.taxAmount == null);
+    const base = x.subtotal != null ? x.subtotal : x.total != null && x.tax != null ? x.total - x.tax : null;
+    const rate = noLineTax && x.tax > 0 && (base || sum) > 0 ? Math.round(x.tax / (base || sum) * 1e6) / 1e4 : null; // one tax for the whole receipt: as a rate on every line
+    const rc = x.checks.slice();
+    const tol = (v) => Math.max(Number.isInteger(v) ? 1 : 0.02, Math.abs(v) * 0.005);
+    if (x.subtotal != null && Math.abs(sum - x.subtotal) > tol(x.subtotal)) rc.push('the lines add up to ' + r2(sum) + ', the receipt subtotal is ' + x.subtotal);
+    else if (x.subtotal == null && x.total != null && x.tax == null && noLineTax && Math.abs(sum - x.total) > tol(x.total)) rc.push('the lines add up to ' + r2(sum) + ', the receipt total is ' + x.total);
+    x.lines.forEach((l, i) => {
+      const notes = l.checks.map((c) => 'CHECK [' + (c.field || 'Line').replace(/[\[\];|]/g, ' ').trim() + ']: ' + String(c.reason).replace(/[;|]/g, ','));
+      if (i === 0) rc.forEach((m) => notes.push('CHECK [Receipt]: ' + String(m).replace(/[;|]/g, ',')));
+      out.push({ __scanGroup: ri, Date: x.date, Seller: x.seller, Receipt: x.receiptNo, Currency: x.currency, Description: l.description, Brand: l.brand, Model: l.model, Category: l.category, Unit: l.unit,
+        Quantity: l.quantity == null ? '' : l.quantity, 'Price Each': l.unitPrice == null ? '' : l.unitPrice, Total: l.lineTotal == null ? '' : l.lineTotal,
+        'Tax %': l.taxPct != null ? l.taxPct : rate != null ? rate : '', 'Total Tax': l.taxAmount == null ? '' : l.taxAmount, Notes: notes.join(' | ') });
+    });
+  });
+  return out;
+}
+A.scanPurchase = () => { purchaseForm(); const sh = K.sheets[K.sheets.length - 1]; const b = sh && $('[data-a=puScan]', sh); if (b) A.puScan(b); };
+A.puScan = async (el) => {
+  const sh = puSheet(el);
+  if (!(K.info && K.info.receiptScan)) return toast('Receipt scanning is not set up yet', true);
+  const files = await chooseFile('image/*,application/pdf,.pdf', null, true); if (!files) return;
+  if (files.length > 8) return toast('At most 8 photos or PDFs at a time', true);
+  const wait = openSheet({ title: 'Reading your receipt', body: LOADER_IN + '<p class="small muted" style="text-align:center;margin-top:-60px">This takes about 10 to 30 seconds. Keep this page open.</p>' });
+  const done = () => { if (K.sheets.includes(wait)) { wait._onClose = null; closeSheet(); } };
+  let r;
+  try {
+    const parts = []; let size = 0;
+    for (const f of files) {
+      const b = f.type === 'application/pdf' || /\.pdf$/i.test(f.name) ? f : await shrinkPhoto(f);
+      size += b.size; if (size > SCAN_MAX_BYTES) throw new Error('The files are too large together (more than 4 MB) — send fewer pages at a time');
+      parts.push({ data: await fileB64(b) });
+    }
+    r = await K.store.req('POST', '/api/purchases/scan', { files: parts, categories: catOpts(), currency: baseCode() });
+  } catch (e) { done(); return toast(e.message, true); }
+  done();
+  if (!K.sheets.includes(sh)) return; // the purchase was closed meanwhile
+  if (!r.receipts.length) return toast(r.unreadable || 'No receipt could be read in these files — try a clearer, closer photo', true);
+  const lines = parsePurchaseRows(scanRows(r.receipts));
+  if (!lines.length) return toast('No items were found on this receipt', true);
+  puLoad(sh, lines, 'Read from the receipt · ');
 };
 /** put imported lines (one receipt) into the purchase: seller, date, receipt no., tax, rows */
 function puFill(sh, lines, intro) {
   const head = $('#puHead', sh); const setIf = (n, v) => { const i = $('[name=' + n + ']', head); if (i && v && (!i.value || (n === 'purchaseDate' && i.value === todayStr()))) i.value = v; };
   const f0 = lines[0];
+  if (f0.currency && sh._setWhere && !sh._rows.some((r) => r.name.trim())) { if (f0.currency === baseCode() && sh._where !== 'local') sh._setWhere('local'); else if (f0.currency === 'USD' && sh._where !== 'abroad') sh._setWhere('abroad'); } // the receipt's currency: bought in Cameroon / abroad (first, as it redraws the seller list)
   const pick = $('#puSeller', sh);
   if (f0.vendor && !pick.value) { // the file names the seller: pick them, or open "New seller" with the name filled in
     const known = [...pick.options].find((o) => o.value.toLowerCase() === f0.vendor.toLowerCase() && o.value !== '__new');

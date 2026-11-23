@@ -15,6 +15,7 @@ const KC = require('../public/compute.js'); // same business logic as the browse
 const mailer = require('./mailer');
 const { migrate } = require('./migrate');
 const billing = require('./billing');
+const receipts = require('./receipts');
 const momo = require('./fapshi'); // mobile money (Fapshi)
 const mountAdmin = require('./admin');
 /* The database schema is brought up to date before the first request is served (also on Vercel, where there is no start
@@ -302,7 +303,7 @@ app.get('/api/me', auth, wrap(async (req, res) => {
   const pin = (await q('SELECT approval_pin_hash IS NOT NULL AS has FROM users WHERE id=$1', [u.id])).rows[0];
   res.json({ user: { id: u.id, name: u.name, login: u.login, email: u.email || '', emailTo: mailer.emailOf(u) || '', role: u.role, perms: u.perms || {}, locationId: u.location_id || 'main', effective: perms(u), approvalPin: !!(pin && pin.has) }, tenant: { id: u.tenant_id, name: u.tenant_name, edition: KC.editionOf(u.edition).key, plan: u.plan, status: u.status, trialEndsAt: u.trial_ends_at, paidUntil: u.paid_until, active: subscriptionOk(u) }, emailEnabled: mailer.enabled(), support: SUPPORT(),
     subscription: sub ? { planId: sub.plan_id, planName: sub.plan_name, planVenue: sub.plan_venue || null, status: sub.status, statusLabel: billing.STATUS_LABEL[sub.status], cycle: sub.cycle, periodEnd: sub.current_period_end, trialEndsAt: sub.trial_ends_at } : null,
-    edition: lim.edition, limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null,
+    edition: lim.edition, limits: lim.limits, features: lim.features, trial: !!lim.trial, supportView: u.supportView || null, receiptScan: receipts.configured(),
     businesses: u.supportView ? [] : await myBusinesses(u), canAddBusiness: !u.supportView && u.role === 'owner' });
 }));
 
@@ -896,6 +897,25 @@ app.get('/api/export', auth, requireFeature('excel'), requirePerm('export'), wra
   r.rows.forEach((x) => data[x.collection] && data[x.collection].push(Object.assign({}, x.data, { id: x.id })));
   res.setHeader('Content-Disposition', 'attachment; filename="aahsso-backup.json"');
   res.json({ app: 'aahsso', version: 1, exportedAt: new Date().toISOString(), business: req.user.tenant_name, data });
+}));
+/* ---------- receipt scanning: a photo or PDF of a receipt / invoice → purchase lines (read by Claude) ----------
+ * The files are sent to the AI and not kept. Each scan is logged (receipt_scans) for the monthly limit: the plan's
+ * "Receipt scans a month", or RECEIPT_SCANS_PER_MONTH (default 200) when the plan sets none. */
+const scanLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(process.env.RECEIPT_SCANS_PER_10MIN || 20), standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => 'scan:' + req.user.tenant_id, message: { error: 'Too many scans in a few minutes — please wait a little' } });
+const scanMax = (u) => { const v = u.ent && u.ent.limits && u.ent.limits.maxReceiptScans; return v ? Number(v) : Number(process.env.RECEIPT_SCANS_PER_MONTH || 200); };
+const scansUsed = async (tid) => (await q("SELECT count(*)::int AS n FROM receipt_scans WHERE tenant_id=$1 AND counted AND created_at >= date_trunc('month', now())", [tid])).rows[0].n;
+app.get('/api/purchases/scan', auth, wrap(async (req, res) => res.json({ on: receipts.configured(), used: await scansUsed(req.user.tenant_id), max: scanMax(req.user) })));
+app.post('/api/purchases/scan', auth, requireActive, requireFeature('receiptScan'), requirePerm('purchases'), scanLimiter, wrap(async (req, res) => {
+  const u = req.user; const b = req.body || {}; const max = scanMax(u); const used = await scansUsed(u.tenant_id);
+  if (max && used >= max) return err(res, 402, 'You have used the ' + max + ' receipt scans of this month. Upgrade in Billing & subscription for more, or import the Excel template.', { code: 'plan_limit', limit: 'maxReceiptScans', max, used });
+  const t0 = Date.now(); let out = null, fail = null;
+  try { out = await receipts.readReceipts(b.files, { categories: Array.isArray(b.categories) ? b.categories : [], currency: b.currency }); } catch (e) { fail = e; }
+  const us = (out && out.usage) || (fail && fail.usage) || null; const counted = !!(us && us.input);
+  await q('INSERT INTO receipt_scans (tenant_id, user_id, files, counted, receipts, lines, model, input_tokens, output_tokens, ms, error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+    [u.tenant_id, u.id, Array.isArray(b.files) ? b.files.length : 0, counted, out ? out.receipts.length : 0, out ? out.receipts.reduce((a, x) => a + x.lines.length, 0) : 0, us ? us.model : null, us ? us.input : 0, us ? us.output : 0, Date.now() - t0, fail ? String(fail.message).slice(0, 300) : (out && !out.receipts.length ? 'unreadable: ' + out.unreadable : null)]).catch((e) => console.error('receipt_scans log', e.message));
+  if (fail) { if (!fail.status) throw fail; if (fail.cause) console.error('receipt scan:', fail.cause.status || '', fail.cause.message); return err(res, fail.status, fail.message); }
+  res.json({ receipts: out.receipts, unreadable: out.unreadable, used: used + (counted ? 1 : 0), max });
 }));
 app.post('/api/import', auth, requireActive, requirePerm('settings'), wrap(async (req, res) => {
   const b = req.body; if (!b || !['aahsso', 'kargo'].includes(b.app) || !b.data) return err(res, 400, 'Not an Aahsso backup file');

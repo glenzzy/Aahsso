@@ -312,13 +312,13 @@ async function saveFile(filename, blob) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 /** Open the file chooser. Resolves with the file, or null if the person cancels (so buttons stop loading). */
-function chooseFile(accept, capture) {
+function chooseFile(accept, capture, multiple) { // multiple: resolves with an array of files
   return new Promise((res) => {
-    const i = document.createElement('input'); i.type = 'file'; i.accept = accept; if (capture) i.setAttribute('capture', capture);
+    const i = document.createElement('input'); i.type = 'file'; i.accept = accept; if (capture) i.setAttribute('capture', capture); if (multiple) i.multiple = true;
     let done = false; const finish = (f) => { if (done) return; done = true; window.removeEventListener('focus', onFocus); res(f); };
     // older browsers have no 'cancel' event: when the window gets focus back and nothing was chosen, treat it as cancel
     const onFocus = () => setTimeout(() => { if (!i.files || !i.files.length) finish(null); }, 800);
-    i.onchange = () => finish(i.files[0] || null);
+    i.onchange = () => finish(multiple ? (i.files.length ? [...i.files] : null) : i.files[0] || null);
     i.addEventListener('cancel', () => finish(null));
     setTimeout(() => window.addEventListener('focus', onFocus), 300);
     i.click();

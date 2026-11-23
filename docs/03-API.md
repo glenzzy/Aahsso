@@ -37,6 +37,8 @@ Collections include `assets` (permission `assets`; users without it receive an e
 | POST | /api/images | Raw image body (`Content-Type: image/jpeg|png|webp`, ≤ 5 MB; `stockEdit` or `purchases`) → `{id}` |
 | GET | /api/images/:id | The image (tenant-checked) |
 | GET | /api/export | Full JSON backup `{app:"aahsso", version, exportedAt, data: {collection: [docs]}}` (`export` permission) |
+| GET | /api/purchases/scan | Receipt scanning: `{on, used, max}` — set up?, scans used this month and the month's limit. |
+| POST | /api/purchases/scan | `{files: [{data: base64}], categories?, currency?}` — up to 8 photos (JPG/PNG/WEBP) or PDFs, 4 MB together (`purchases` permission, plan feature `receiptScan`). Read by Claude; returns `{receipts: [{seller, date, receiptNo, currency, subtotal, tax, total, checks, lines: [{description, brand, model, category, quantity, unit, unitPrice, lineTotal, taxPct, taxAmount, checks}]}], unreadable, used, max}`. Files are not stored; each scan is logged in `receipt_scans`. Errors: 402 month's limit, 413 too large, 415 not a photo/PDF, 422 unreadable, 503 not set up / busy, 504 too slow. |
 | POST | /api/import | Restore a backup (`settings` permission). Upserts every document in the file, in one transaction. |
 | GET / POST / PATCH | /api/users, /api/users/:id | List, create, update staff (`team`). Escalation is blocked: you can't change your own permissions, a non-owner can't create admins or owners, and nobody can grant permissions they don't hold themselves. |
 | GET | /api/activity?from&to&user&location&type&q | Readable activity log (`activity`) |

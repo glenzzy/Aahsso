@@ -771,6 +771,7 @@ table.pu-t2 tr.pu-more td{background:var(--bg);padding:12px}
 .pu-rate.hide+.pu-seller{margin-top:14px}
 .pu-newsel{margin-top:12px;padding:12px;border:1px dashed var(--line);border-radius:12px;background:var(--card)}
 .pu-h2{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.pu-h2 > .row{flex-wrap:wrap;justify-content:flex-end} /* Scan receipt · Import Excel · Template wrap on a phone */
 .pu-h2 .pu-t3{margin:0}
 .pu-local{font-weight:500;color:var(--ink2);text-align:right;margin-top:-4px}
 table.pu-t2 .in-unit .inp{padding-right:44px}

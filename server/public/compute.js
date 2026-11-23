@@ -290,6 +290,7 @@
    * Always included (not in this list): Home, stock list & prices, settings, team members, profile, billing, help. */
   const FEATURES = [
     ['buy', 'Purchases', 'Buying', 'Record what you buy, with costs and tax'],
+    ['receiptScan', 'Receipt scanning', 'Buying', 'Read receipts and invoices from a photo or PDF into a purchase'],
     ['ship', 'Shipments', 'Import flow', 'Group items into shipments and track them to your Destination'],
     ['receive', 'Receiving', 'Import flow', 'Arrival, customs and putting stock in the warehouse'],
     ['sell', 'Point of sale', 'Sales', 'Sales, receipts, payments, returns'],
@@ -353,7 +354,7 @@
   const locWord = (ed, n, cap) => { const L = editionOf(ed).loc; const w = n === 1 ? (cap ? L.One : L.one) : (cap ? L.Many : L.many); return n === undefined ? w : n + ' ' + w; };
   /** a plan limit's name for an edition. maxBusinesses = how many businesses of this kind the owner may have:
    *  "Stores" on an Aahsso Store plan, "Warehouses" on an Aahsso Brocan plan. maxLocations = branches inside one business. */
-  const limitLabel = (ed, key) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: editionOf(ed).loc.Many, maxTables: 'Tables' })[key] || key;
+  const limitLabel = (ed, key) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: editionOf(ed).loc.Many, maxTables: 'Tables', maxReceiptScans: 'Receipt scans a month' })[key] || key;
   /** does this edition have this feature at all (before the plan is applied) */
   const editionHas = (ed, key) => !editionOf(ed).off.includes(key);
   /** the plan catalog for one edition */

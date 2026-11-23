@@ -32,6 +32,10 @@ npm run migrate && npm start
 | TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM | | Twilio SMS (or WhatsApp with `TWILIO_FROM=whatsapp:+1…`) |
 | SMS_HTTP_URL, SMS_HTTP_AUTH, SMS_SENDER | | Any SMS gateway accepting POST JSON `{to, message, sender}` (local gateways in Cameroon, Africa's Talking via a small adapter…) |
 | REMINDERS_DISABLED | | `1` to switch the scheduler off (e.g. on extra instances) |
+| ANTHROPIC_API_KEY | | Turns on **receipt scanning** (photo / PDF of a receipt → purchase lines, read by Claude). Without it the Scan buttons are hidden. |
+| RECEIPT_MODEL, RECEIPT_EFFORT | | Model and effort for receipt scanning (default `claude-opus-5-5`, `low`) |
+| RECEIPT_SCANS_PER_MONTH | | Scans per business per month when its plan sets no "Receipt scans a month" limit (default 200) |
+| RECEIPT_SCANS_PER_10MIN | | Burst limit per business (default 20) |
 | MOMO_FEE_TABLES | | Optional JSON object overriding default MTN MoMo / Orange Money withdrawal fee tiers for new tenants (also editable per business in Settings) |
 
 ## 7.4 Hosting suggestions

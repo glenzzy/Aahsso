@@ -27,10 +27,10 @@
   const ED = { import: { label: 'Aahsso Brocan', short: 'Brocan', cls: 'info', what: 'buy abroad, ship, receive and sell' }, store: { label: 'Aahsso Store', short: 'Store', cls: 'ok', what: 'buy locally, sell and manage stock' }, resto: { label: 'Aahsso Bar & Resto', short: 'Resto', cls: 'warn', what: 'tables, QR menu, waiters and kitchen' } };
   const edOf = (e) => ED[e] || ED.import;
   /** plan limit names: the branch limit is Warehouses for Brocan, Stores for Aahsso Store */
-  const limName = (k, ed) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: ed === 'store' ? 'Stores' : ed === 'import' ? 'Warehouses' : ed === 'resto' ? 'Venues' : 'Stores / warehouses / venues', maxTables: 'Tables' })[k] || k;
+  const limName = (k, ed) => ({ maxUsers: 'Team members', maxLocations: 'Branches', maxProducts: 'Items', maxBusinesses: ed === 'store' ? 'Stores' : ed === 'import' ? 'Warehouses' : ed === 'resto' ? 'Venues' : 'Stores / warehouses / venues', maxTables: 'Tables', maxReceiptScans: 'Receipt scans a month' })[k] || k;
   /** limits that mean something for this kind (tables only in a Bar & Resto) */
   const limFor = (k, ed) => k !== 'maxTables' || !ed || ed === 'resto';
-  const LIM_HINT = { maxBusinesses: 'how many businesses of this kind the owner can have', maxLocations: 'inside one business, including the main one', maxTables: 'labelled tables with a QR code' };
+  const LIM_HINT = { maxBusinesses: 'how many businesses of this kind the owner can have', maxLocations: 'inside one business, including the main one', maxTables: 'labelled tables with a QR code', maxReceiptScans: 'photos / PDFs read by the AI each month (empty = the platform default)' };
   const edBadge = (e) => badge(edOf(e).short, edOf(e).cls);
   const METHODS = ['MTN MoMo', 'Orange Money', 'Bank transfer', 'Cash', 'Other'];
 
@@ -309,7 +309,7 @@
     $('#title').textContent = t.name;
     const end = s.status === 'trialing' ? s.trial_ends_at : s.current_period_end; const n = daysLeft(end);
     const A = (act, label, cls, perm) => (can(perm) ? '<button class="btn sm ' + (cls || '') + '" data-act="' + act + '">' + label + '</button>' : '');
-    const lim = d.limits || {}; const LBL = { maxUsers: limName('maxUsers'), maxLocations: limName('maxLocations'), maxProducts: limName('maxProducts'), maxBusinesses: limName('maxBusinesses', t.edition) }; if (t.edition === 'resto') LBL.maxTables = limName('maxTables');
+    const lim = d.limits || {}; const LBL = { maxUsers: limName('maxUsers'), maxLocations: limName('maxLocations'), maxProducts: limName('maxProducts'), maxBusinesses: limName('maxBusinesses', t.edition) }; LBL.maxReceiptScans = limName('maxReceiptScans'); if (t.edition === 'resto') LBL.maxTables = limName('maxTables');
     v.innerHTML = '<div class="row between mb"><div class="row"><a class="btn sm" href="#/tenants">← Businesses</a>' + stBadge(s.status) + (s.suspended_reason ? '<span class="small muted">' + esc(s.suspended_reason) + '</span>' : '') + '</div>' +
       '<div class="row">' + A('tViewAs', 'View as owner', '', 'tenants.impersonate') + A('tResetPw', 'Reset owner password', '', 'tenants.resetOwner') + (can('users.view') ? '<button class="btn sm" data-act5="uForTenant">' + ic('users', 'sm') + 'Users</button>' : '') + '</div></div>' +
       '<div class="grid2 mb2"><section class="card pad2"><div class="row between mb"><h2>Subscription</h2><div class="row">' + A('tPlan', 'Change plan', '', 'subs.write') + A('tExtend', 'Extend', '', 'subs.write') + '</div></div>' +
@@ -348,12 +348,12 @@
       const g = {}; d.catalog.forEach(([k, l, grp]) => (g[grp] = g[grp] || []).push([k, l]));
       const box = modal({ title: 'Features for ' + d.tenant.name, wide: true, body: '<p class="small muted" style="margin-top:0">Start from the plan' + (s.plan_name ? ' (' + esc(s.plan_name) + ')' : '') + ', then give or take away single features for this business only.</p>' +
         '<div class="cgroups">' + Object.entries(g).map(([grp, items]) => '<fieldset class="cgroup"><legend>' + esc(grp) + '</legend>' + items.map(([k, l]) => '<div class="frow"><span class="grow">' + esc(l) + ' <span class="tiny faint">plan: ' + (pm[k] === false ? 'off' : 'on') + '</span></span>' + sel('M_' + k, [['', 'As plan'], ['on', 'On'], ['off', 'Off']], om[k] === true ? 'on' : om[k] === false ? 'off' : '', 'style="width:auto;min-height:34px;padding:4px 8px"') + '</div>').join('') + '</fieldset>').join('') + '</div>' +
-        '<h3 class="mt">Limits</h3><div class="grid3">' + ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses', 'maxTables'].filter((k) => limFor(k, d.tenant.edition)).map((k) => [k, limName(k, d.tenant.edition)]).map(([k, l]) => field(l + ' (plan: ' + (pl[k] || '∞') + ')', inp('L_' + k, ol[k] || '', 'inputmode="numeric" placeholder="as plan"'))).join('') + '</div>' +
+        '<h3 class="mt">Limits</h3><div class="grid3">' + ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses', 'maxTables', 'maxReceiptScans'].filter((k) => limFor(k, d.tenant.edition)).map((k) => [k, limName(k, d.tenant.edition)]).map(([k, l]) => field(l + ' (plan: ' + (pl[k] || '∞') + ')', inp('L_' + k, ol[k] || '', 'inputmode="numeric" placeholder="as plan"'))).join('') + '</div>' +
         reasonField(false), foot: '<button class="btn" data-close>Cancel</button><button class="btn pri" id="go">Save</button>' });
       $('#go', box).onclick = (e) => busy(e.target, async () => {
         const v = vals(box); const modules = {}, limits = {};
         d.catalog.forEach(([k]) => { if (v['M_' + k] === 'on') modules[k] = true; if (v['M_' + k] === 'off') modules[k] = false; });
-        ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses', 'maxTables'].forEach((k) => { if (v['L_' + k] !== undefined && v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
+        ['maxUsers', 'maxLocations', 'maxProducts', 'maxBusinesses', 'maxTables', 'maxReceiptScans'].forEach((k) => { if (v['L_' + k] !== undefined && v['L_' + k] !== '') limits[k] = Number(v['L_' + k]); });
         await api('POST', '/tenants/' + d.tenant.id + '/features', { modules, limits, reason: v.reason }); closeModal(); toast('Saved — the business sees the change within seconds'); route();
       });
     },

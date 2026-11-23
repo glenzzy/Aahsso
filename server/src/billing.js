@@ -5,7 +5,7 @@ const { q, pool } = require('./db');
 const KC = require('../public/compute.js');
 const mailer = require('./mailer');
 
-const COUNT_LIMITS = { maxUsers: 'team members', maxLocations: 'branches (including the main one)', maxProducts: 'items', maxBusinesses: 'businesses of this kind for one owner', maxTables: 'tables' };
+const COUNT_LIMITS = { maxUsers: 'team members', maxLocations: 'branches (including the main one)', maxProducts: 'items', maxBusinesses: 'businesses of this kind for one owner', maxTables: 'tables', maxReceiptScans: 'receipt scans a month' };
 const FEATURES = Object.fromEntries(KC.FEATURES.map(([k, l]) => [k, l])); // every business feature a plan can include
 const LIMIT_KEYS = Object.keys(COUNT_LIMITS);
 const FREE_TRIAL_DAYS = 5; // the free trial: after sign-up, and on a Free plan (fixed — not an env or admin setting)
@@ -105,7 +105,8 @@ async function usage(c, tid) {
       (SELECT count(*)::int FROM documents WHERE tenant_id=$1 AND collection='products' AND coalesce((data->>'archived')::boolean, false) = false) AS "maxProducts",
       (SELECT count(*)::int FROM users u JOIN tenants t ON t.id=u.tenant_id, (SELECT coalesce(o.person_id, o.id) AS pid, ot.edition FROM users o JOIN tenants ot ON ot.id=o.tenant_id WHERE o.tenant_id=$1 AND o.role='owner' ORDER BY o.created_at LIMIT 1) me
          WHERE (u.id=me.pid OR u.person_id=me.pid) AND u.active AND t.edition=me.edition) AS "maxBusinesses",
-      (SELECT count(*)::int FROM documents WHERE tenant_id=$1 AND collection='tables' AND coalesce((data->>'archived')::boolean, false) = false) AS "maxTables"`, [tid])).rows[0];
+      (SELECT count(*)::int FROM documents WHERE tenant_id=$1 AND collection='tables' AND coalesce((data->>'archived')::boolean, false) = false) AS "maxTables",
+      (SELECT count(*)::int FROM receipt_scans WHERE tenant_id=$1 AND counted AND created_at >= date_trunc('month', now())) AS "maxReceiptScans"`, [tid])).rows[0];
   return r;
 }
 const limitError = (plan, key, max, edition) => COUNT_LIMITS[key]
