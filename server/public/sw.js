@@ -1,5 +1,5 @@
 /* Aahsso service worker (SaaS version): the app opens without network; data writes are queued by the app itself. */
-const CACHE = 'aahsso-v96';
+const CACHE = 'aahsso-v97';
 const SHELL = ['./', 'index.html', 'styles.css', 'config.js', 'compute.js', 'data.js', 'app-core.js', 'v-sell.js', 'v-stock.js', 'v-flow.js', 'v-tour.js', 'v-promo.js', 'v-other.js', 'v-reports.js', 'v-team.js', 'v-money.js', 'v-loss.js', 'v-count.js', 'v-claims.js', 'v-assets.js', 'v-staff.js', 'v-account.js', 'v-activity.js', 'bell.js', 'bell.mp3', 'drinks.js', 'ingredients.js', 'flyer.js', 'v-resto.js', 'boot.js', 'manifest.json',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => {})))).then(() => self.skipWaiting())); });
