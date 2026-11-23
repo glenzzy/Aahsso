@@ -19,7 +19,7 @@ function stockList() {
     if (f === 'problems') return x.oversold > 0;
     if (f === 'kitchen') return !!p.ingredient;
     return true;
-  }).filter((p) => !cat || p.category === cat).filter((p) => !q || (p.name + ' ' + (p.subcategory || '') + ' ' + (p.barcode || '')).toLowerCase().includes(q))
+  }).filter((p) => !cat || p.category === cat).filter((p) => !q || (p.name + ' ' + (p.subcategory || '') + ' ' + (p.barcode || '') + ' ' + (p.brand || '') + ' ' + (p.model || '')).toLowerCase().includes(q))
     .sort((a, b) => f === 'expiring' ? (K.C.prodX[a.id].nextExpiry || '').localeCompare(K.C.prodX[b.id].nextExpiry || '') : a.name.localeCompare(b.name));
 }
 VIEWS.stock = {
@@ -52,7 +52,7 @@ function stockRows(list) {
     expand: { key: (p) => 'p' + p.id, html: (p) => productExpand(p) },
     cols: [
       { k: 'photo', label: 'Photo', core: true, cls: 'thumbc', v: () => '', html: (p) => thumb(p, 36, 9) },
-      { k: 'name', label: 'Item', core: true, v: (p) => p.name, html: (p) => '<b>' + esc(p.name) + '</b>' },
+      { k: 'name', label: 'Item', core: true, v: (p) => p.name, html: (p) => '<b>' + esc(p.name) + '</b>' + (p.brand || p.model ? '<div class="tiny muted">' + esc([p.brand, p.model].filter(Boolean).join(' · ')) + '</div>' : '') },
       { k: 'cat', label: 'Category', core: true, st: false, v: (p) => p.category || '' },
       { k: 'sub', label: 'Subcategory', v: (p) => p.subcategory || '', cls: 'mut' },
       { k: 'cond', label: 'Condition', v: (p) => p.condition || 'New' },
@@ -198,7 +198,7 @@ CH.stockCat = (el) => { K.ui.stockCat = el.value; render(true); };
 I.stockQ = (el) => { K.ui.stockQ = el.value; clearTimeout(I._st); I._st = setTimeout(() => dtRefresh('stockList'), 120); };
 A.sellThis = (el) => { A.newSale(); addToCart(el.dataset.id); };
 A.exportStock = () => {
-  const rows = K.raw.products.map((p) => { const x = K.C.prodX[p.id]; const r = { Item: p.name, Category: p.category, Subcategory: p.subcategory, Condition: p.condition, Barcode: p.barcode || '', 'In stock': x.available, Incoming: x.transit + x.us, ['Price max (' + baseSym() + ')']: x.priceMax, ['Price min (' + baseSym() + ')']: x.priceMin, 'Next expiry': x.nextExpiry || '' }; if (seeCost()) Object.assign(r, { ['Avg landed cost (' + baseSym() + ')']: Math.round(x.avgCost), ['Stock value (' + baseSym() + ')']: Math.round(x.stockValue), 'Units sold': x.sold, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue), ['Profit (' + baseSym() + ')']: Math.round(x.profit) }); return r; });
+  const rows = K.raw.products.map((p) => { const x = K.C.prodX[p.id]; const r = { Item: p.name, Brand: p.brand || '', Model: p.model || '', Category: p.category, Subcategory: p.subcategory, Condition: p.condition, Barcode: p.barcode || '', 'In stock': x.available, Incoming: x.transit + x.us, ['Price max (' + baseSym() + ')']: x.priceMax, ['Price min (' + baseSym() + ')']: x.priceMin, 'Next expiry': x.nextExpiry || '' }; if (seeCost()) Object.assign(r, { ['Avg landed cost (' + baseSym() + ')']: Math.round(x.avgCost), ['Stock value (' + baseSym() + ')']: Math.round(x.stockValue), 'Units sold': x.sold, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue), ['Profit (' + baseSym() + ')']: Math.round(x.profit) }); return r; });
   xlsxDownload('Stock-' + todayStr() + '.xlsx', { Stock: rows });
 };
 
@@ -208,7 +208,7 @@ function editProduct(id) {
   const p = byId('products', id); const x = K.C.prodX[id];
   const sh = openSheet({
     title: 'Edit item',
-    body: '<div class="col"><div class="row"><div class="photo-slot" data-a="pickPhoto">' + (imgSrc(p.image) ? '<img src="' + esc(imgSrc(p.image)) + '">' : ic('cam')) + '</div><div class="grow">' + field('Item name', inp('name', p.name)) + '</div></div>' + unitFields(p) + packFields(p) + '<div class="grid2">' + field('Category', sel('category', !p.category || catOpts().includes(p.category) ? catOpts() : [p.category].concat(catOpts()), p.category, 'id="pCat"')) + field('Subcategory', sel('subcategory', subOpts(p.category), p.subcategory, 'id="pSub"')) + '</div>' +
+    body: '<div class="col"><div class="row"><div class="photo-slot" data-a="pickPhoto">' + (imgSrc(p.image) ? '<img src="' + esc(imgSrc(p.image)) + '">' : ic('cam')) + '</div><div class="grow">' + field('Item name', inp('name', p.name)) + '</div></div><div class="grid2">' + field('Brand', inp('brand', p.brand || '', 'placeholder="e.g. Samsung"')) + field('Model', inp('model', p.model || '', 'placeholder="e.g. Galaxy A15"')) + '</div>' + unitFields(p) + packFields(p) + '<div class="grid2">' + field('Category', sel('category', !p.category || catOpts().includes(p.category) ? catOpts() : [p.category].concat(catOpts()), p.category, 'id="pCat"')) + field('Subcategory', sel('subcategory', subOpts(p.category), p.subcategory, 'id="pSub"')) + '</div>' +
       '<div class="grid2">' + field('Condition', sel('condition', KC.CONDITIONS, p.condition || 'New')) + field('Barcode', '<div class="row gap6">' + inp('barcode', p.barcode, 'id="pBar" placeholder="Scan or generate"') + '<button class="btn sm" type="button" data-a="genBar">Gen</button></div>') + '</div>' +
       '<div class="card pad"><h3>Pricing</h3><div class="tiny muted mb">Average ' + costWord() + ': <b class="money">' + F(x.avgCost) + '</b>. Leave fixed prices empty to follow the markup.</div><div class="grid2">' +
       field('Markup % (max price)', inp('markup', p.markup ?? '', 'inputmode="decimal" placeholder="Default ' + S().defaultMarkup + '"')) + field('Min markup % (bulk)', inp('minMarkup', p.minMarkup ?? '', 'inputmode="decimal" placeholder="Default ' + S().minMarkup + '"')) +
@@ -442,6 +442,7 @@ async function savePurchaseLines(h, lines) {
   for (const l of lines) {
     const r = findOrCreateProduct(l.name, l.category, l.subcategory, l.condition, l.barcode);
     if (r.isNew) Object.assign(r.p, { unit: l.unit || 'piece', size: l.size || null, sizeUnit: l.sizeUnit || '' });
+    if ((l.brand && !r.p.brand) || (l.model && !r.p.model)) { r.p = Object.assign({}, r.p, { brand: r.p.brand || l.brand || '', model: r.p.model || l.model || '' }); r.changed = true; } // brand / model from the receipt
     const dk = r.isNew && typeof isResto === 'function' && isResto() && Drinks.ready() ? Drinks.byName(l.name) : null; // a drink from the catalog: its category, size, crate…
     if (dk) { const fromCat = Drinks.toProduct(dk, null); r.p = Object.assign(fromCat, { id: r.p.id, name: dk.name, barcode: r.p.barcode || '' }); await Drinks.addStockCats([dk]); }
     const ig = r.isNew && !dk && typeof isResto === 'function' && isResto() ? Ingredients.byName(l.name) : null; // an ingredient: its category, unit, tray…
