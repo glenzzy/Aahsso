@@ -33,7 +33,7 @@ VIEWS.stock = {
     const list = stockList();
     const tot = K.raw.products.reduce((a, p) => { const x = K.C.prodX[p.id]; a.u += x.available; a.c += x.stockValue; a.r += x.retailValue; a.t += x.transit + x.us; return a; }, { u: 0, c: 0, r: 0, t: 0 });
     return (seeCost() && isStore() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), '', true) + kpi('Worth (at cost)', F(tot.c), 'sells for ' + fmt(tot.r)) + '</div>' : seeCost() ? '<div class="kpis mb">' + kpi('Units in stock', fmt(tot.u), fmt(tot.t) + ' incoming', true) + kpi('Stock at cost', F(tot.c)) + kpi('Stock at selling price', F(tot.r)) + kpi('Potential profit', F(tot.r - tot.c), tot.c ? pct((tot.r - tot.c) / tot.c * 100) + ' markup' : '') + '</div>' : '') +
-      '<div class="row wrap mb">' + (can('stockEdit') ? '<button class="btn pri" data-a="pricing">' + ic('tag') + (isStore() ? 'Set prices' : 'Set prices / markup') + '</button><button class="btn" data-a="labels">' + ic('barcode') + 'Barcode labels</button>' : '') + (can('export') ? '<button class="btn" data-a="exportStock">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
+      '<div class="row wrap mb">' + (can('stockEdit') && !barPrices() ? '<button class="btn pri" data-a="pricing">' + ic('tag') + (isStore() ? 'Set prices' : 'Set prices / markup') + '</button>' : '') + (can('stockEdit') ? '<button class="btn" data-a="labels">' + ic('barcode') + 'Barcode labels</button>' : '') + (can('export') ? '<button class="btn" data-a="exportStock">' + ic('dl') + 'Excel</button>' : '') + '</div>' +
       '<div class="chips mb">' + F_.map(([k, l]) => '<button class="chip' + (K.ui.stockFilter === k ? ' on' : '') + '" data-a="stockFilter" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       '<div class="row mb"><div class="search grow">' + ic('search') + '<input class="inp" placeholder="Search item or barcode" value="' + esc(K.ui.stockQ) + '" data-i="stockQ"></div><select class="inp" style="width:auto;max-width:44%" data-c="stockCat"><option value="">All categories</option>' + catOpts().map((c) => '<option' + (K.ui.stockCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>' +
       stockRows(list);
@@ -63,6 +63,7 @@ function stockRows(list) {
       multi ? { k: 'all', label: 'All branches', num: true, v: (p) => X(p).available } : null,
       { k: 'inc', label: 'Incoming', core: !isStore(), num: true, v: (p) => X(p).transit + X(p).us || '', total: (rows) => fmt(dtSum(rows, (p) => X(p).transit + X(p).us)) },
       { k: 'held', label: 'Held for clients', num: true, v: (p) => X(p).reserved || '' },
+      barPrices() ? { k: 'price', label: 'Price', core: true, money: true, v: (p) => menuPricesOf(p.id).unit, html: (p) => { const mp = menuPricesOf(p.id); return mp.unit ? fmt(mp.unit) + (mp.crate ? '<div class="tiny faint">' + esc(mp.packName) + ' ' + fmt(mp.crate) + '</div>' : '') : '<span class="faint small">not on the menu</span>'; } } :
       { k: 'price', label: 'Price', core: true, money: true, v: (p) => X(p).promo ? X(p).promo.price : X(p).priceMax, html: (p) => X(p).promo ? '<span class="promo-p">' + fmt(X(p).promo.price) + '</span> <s class="faint">' + fmt(X(p).priceMax) + '</s>' : fmt(X(p).priceMax) },
       { k: 'ws', label: 'Wholesale price', money: true, v: (p) => X(p).priceWholesale },
       { k: 'min', label: 'Lowest price', money: true, v: (p) => X(p).priceMin },
@@ -79,13 +80,14 @@ function productExpand(p) {
   const src = imgSrc(p.image);
   const locRow = allLocs().length > 1 ? '<div class="row wrap gap6 mb">' + allLocs().map((L) => '<span class="badge' + (L.id === K.loc ? ' brand' : '') + '">' + esc(L.name) + ': ' + fmt(x.byLoc[L.id] || 0) + '</span>').join('') + '</div>' : '';
   return '<div class="expand">' + locRow + '<div class="row mb" style="align-items:flex-start">' + (src ? '<img src="' + esc(src) + '" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:14px;flex:none">' : '') + '<div class="small col gap4">' + (KC.sizeLabel(p) ? '<div><span class="faint">Size:</span> <b>' + esc(KC.sizeLabel(p)) + '</b></div>' : '') + '<div><span class="faint">Sold by:</span> <b>' + esc(p.unit || 'piece') + '</b></div>' + ((can('stockEdit') || can('purchases')) ? '<button class="btn sm" data-a="quickPhoto" data-id="' + p.id + '">' + ic('cam', 'sm') + (src ? 'Change photo' : 'Add photo') + '</button>' : '') + '</div></div><div class="grid4 small">' +
-    (seeCost() ? '<div><div class="faint tiny">Avg ' + costWord() + '</div><div class="b money">' + F(x.avgCost) + '</div></div><div><div class="faint tiny">Markup</div><div class="b">' + (x.priceManual ? 'Fixed price' : pct(x.markup)) + '</div></div>' : '') +
-    '<div><div class="faint tiny">Price (max)</div><div class="b money">' + F(x.priceMax) + '</div></div><div><div class="faint tiny">Wholesale' + (x.bulkQty ? ' / ' + x.bulkQty + '+' : '') + '</div><div class="b money">' + F(x.priceWholesale) + '</div></div><div><div class="faint tiny">Lowest allowed</div><div class="b money">' + F(x.priceMin) + '</div></div>' +
+    (seeCost() ? '<div><div class="faint tiny">Avg ' + costWord() + '</div><div class="b money">' + F(x.avgCost) + '</div></div>' + (barPrices() ? '' : '<div><div class="faint tiny">Markup</div><div class="b">' + (x.priceManual ? 'Fixed price' : pct(x.markup)) + '</div></div>') : '') +
+    (barPrices() ? (() => { const mp = menuPricesOf(p.id); return '<div><div class="faint tiny">Price per ' + esc(mp.unitName) + '</div><div class="b money">' + (mp.unit ? F(mp.unit) : '—') + '</div></div>' + (mp.size ? '<div><div class="faint tiny">Price per ' + esc(mp.packName) + ' of ' + mp.size + '</div><div class="b money">' + (mp.crate ? F(mp.crate) : '—') + '</div></div>' : '') + '<div><button type="button" class="btn sm" data-a="priceOnMenu" data-id="' + p.id + '">' + ic('tag', 'sm') + (mp.line ? 'Change on the menu' : 'Put it on the menu') + '</button></div>'; })() :
+    '<div><div class="faint tiny">Price (max)</div><div class="b money">' + F(x.priceMax) + '</div></div><div><div class="faint tiny">Wholesale' + (x.bulkQty ? ' / ' + x.bulkQty + '+' : '') + '</div><div class="b money">' + F(x.priceWholesale) + '</div></div><div><div class="faint tiny">Lowest allowed</div><div class="b money">' + F(x.priceMin) + '</div></div>') +
     (seeCost() ? '<div><div class="faint tiny">Sold</div><div class="b">' + fmt(x.sold) + '</div></div><div><div class="faint tiny">Revenue</div><div class="b money">' + F(x.revenue) + '</div></div><div><div class="faint tiny">Profit</div><div class="b money" style="color:var(--ok)">' + F(x.profit) + '</div></div><div><div class="faint tiny">Margin</div><div class="b">' + (x.revenue ? pct(x.profit / x.revenue * 100) : '—') + '</div></div>' : '') + '</div>' +
     (p.barcode ? '<div class="tiny muted mt">Barcode: <b>' + esc(p.barcode) + '</b></div>' : '') +
     '<div class="tw mt"><table class="t"><thead><tr><th>Bought</th><th>Where</th><th>' + (isStore() ? 'Status' : 'Container') + '</th><th class="r">Qty</th><th class="r">Left</th>' + (seeCost() ? '<th class="r">Paid</th><th class="r">' + (isStore() ? 'Cost' : 'Landed') + '/unit</th>' : '') + '<th>Expiry</th></tr></thead><tbody>' +
     lots.map((l) => { const lx = K.C.lotX[l.id]; return '<tr><td class="nowrap">' + fmtDate(l.purchaseDate) + '</td><td>' + esc(l.vendor || l.sourceType || '') + '</td><td>' + (isStore() ? '' : esc(shipName(l.shipmentId)) + '<br>') + lotStageBadge(l) + (l.reservedFor ? '<br><span class="badge acc">For ' + esc(custName(l.reservedFor)) + '</span>' : '') + '</td><td class="r">' + l.qty + (lx.received < num(l.qty) ? '<div class="tiny" style="color:var(--bad)">−' + (num(l.qty) - lx.received) + ' lost</div>' : '') + '</td><td class="r b">' + (l.reservedFor ? lx.clientAvail : lx.stage === 'warehouse' ? lx.available : '—') + '</td>' + (seeCost() ? '<td class="r money">' + money(l.unitCost, l.currency) + '</td><td class="r money">' + fmt(lx.landedUnit) + '</td>' : '') + '<td class="nowrap">' + (l.expiry ? fmtDate(l.expiry) : '—') + '</td></tr>'; }).join('') +
-    '</tbody></table></div><div class="row wrap mt">' + (can('stockEdit') ? '<button class="btn sm" data-a="editProduct" data-id="' + p.id + '">' + ic('edit', 'sm') + 'Edit / price</button>' : '') + (can('lossReport') || can('stockEdit') ? '<button class="btn sm" data-a="lossNew" data-id="' + p.id + '">' + ic('alert', 'sm') + 'Record loss</button>' : '') + (can('stockEdit') ? '<button class="btn sm" data-a="adjustStock" data-id="' + p.id + '">' + ic('check', 'sm') + 'Correct count</button>' : '') + '<button class="btn sm" data-a="itemHistory" data-id="' + p.id + '">' + ic('clock', 'sm') + 'History</button><button class="btn sm" data-a="labelOne" data-id="' + p.id + '">' + ic('barcode', 'sm') + 'Label</button>' + (x.available > 0 ? '<button class="btn sm pri" data-a="sellThis" data-id="' + p.id + '">' + ic('sell', 'sm') + 'Sell</button>' : '') + '</div></div>';
+    '</tbody></table></div><div class="row wrap mt">' + (can('stockEdit') ? '<button class="btn sm" data-a="editProduct" data-id="' + p.id + '">' + ic('edit', 'sm') + (barPrices() ? 'Edit' : 'Edit / price') + '</button>' : '') + (can('lossReport') || can('stockEdit') ? '<button class="btn sm" data-a="lossNew" data-id="' + p.id + '">' + ic('alert', 'sm') + 'Record loss</button>' : '') + (can('stockEdit') ? '<button class="btn sm" data-a="adjustStock" data-id="' + p.id + '">' + ic('check', 'sm') + 'Correct count</button>' : '') + '<button class="btn sm" data-a="itemHistory" data-id="' + p.id + '">' + ic('clock', 'sm') + 'History</button><button class="btn sm" data-a="labelOne" data-id="' + p.id + '">' + ic('barcode', 'sm') + 'Label</button>' + (x.available > 0 ? '<button class="btn sm pri" data-a="sellThis" data-id="' + p.id + '">' + ic('sell', 'sm') + 'Sell</button>' : '') + '</div></div>';
 }
 A.stTab = (el) => { K.ui.stockTab = el.dataset.v; render(true); };
 
@@ -204,27 +206,30 @@ A.exportStock = () => {
 
 /* ---------- product edit ---------- */
 A.editProduct = (el) => editProduct(el.dataset.id);
+/** Bar & Resto: a price is set in one place, the menu (per bottle and per crate) — Stock shows it */
+const barPrices = () => typeof isResto === 'function' && isResto() && typeof menuPricesOf === 'function';
 function editProduct(id) {
   const p = byId('products', id); const x = K.C.prodX[id];
   const sh = openSheet({
     title: 'Edit item',
     body: '<div class="col"><div class="row"><div class="photo-slot" data-a="pickPhoto">' + (imgSrc(p.image) ? '<img src="' + esc(imgSrc(p.image)) + '">' : ic('cam')) + '</div><div class="grow">' + field('Item name', inp('name', p.name)) + '</div></div><div class="grid2">' + field('Brand', inp('brand', p.brand || '', 'placeholder="e.g. Samsung"')) + field('Model', inp('model', p.model || '', 'placeholder="e.g. Galaxy A15"')) + '</div>' + unitFields(p) + packFields(p) + '<div class="grid2">' + field('Category', sel('category', !p.category || catOpts().includes(p.category) ? catOpts() : [p.category].concat(catOpts()), p.category, 'id="pCat"')) + field('Subcategory', sel('subcategory', subOpts(p.category), p.subcategory, 'id="pSub"')) + '</div>' +
       '<div class="grid2">' + field('Condition', sel('condition', KC.CONDITIONS, p.condition || 'New')) + field('Barcode', '<div class="row gap6">' + inp('barcode', p.barcode, 'id="pBar" placeholder="Scan or generate"') + '<button class="btn sm" type="button" data-a="genBar">Gen</button></div>') + '</div>' +
+      (barPrices() ? (() => { const mp = menuPricesOf(p.id); return '<div class="card pad"><h3>Selling price</h3><div class="row wrap gap6 mt" style="align-items:baseline">' + (mp.unit ? '<span>Per ' + esc(mp.unitName) + ' <b class="money">' + F(mp.unit) + '</b></span>' + (mp.crate ? '<span class="faint">·</span><span>per ' + esc(mp.packName) + ' of ' + mp.size + ' <b class="money">' + F(mp.crate) + '</b></span>' : '') : '<span class="muted">Not on the menu yet</span>') + '</div><div class="hint mt">Prices are set on the menu, and are the same everywhere.</div><button type="button" class="btn sm mt" data-a="priceOnMenu" data-id="' + p.id + '">' + ic('tag', 'sm') + (mp.line ? 'Change on the menu' : 'Put it on the menu') + '</button></div>'; })() :
       '<div class="card pad"><h3>Pricing</h3><div class="tiny muted mb">Average ' + costWord() + ': <b class="money">' + F(x.avgCost) + '</b>. Leave fixed prices empty to follow the markup.</div><div class="grid2">' +
       field('Markup % (max price)', inp('markup', p.markup ?? '', 'inputmode="decimal" placeholder="Default ' + S().defaultMarkup + '"')) + field('Min markup % (bulk)', inp('minMarkup', p.minMarkup ?? '', 'inputmode="decimal" placeholder="Default ' + S().minMarkup + '"')) +
       field('Fixed max price (' + baseSym() + ')', inp('priceMax', p.priceMax || '', 'inputmode="numeric" placeholder="Auto: ' + fmt(x.priceMax) + '"')) + field('Fixed min price (' + baseSym() + ')', inp('priceMin', p.priceMin || '', 'inputmode="numeric" placeholder="Auto: ' + fmt(x.priceMin) + '"')) + '</div>' +
-      '<h3 class="mt">Wholesale / bulk</h3><div class="tiny muted mb">Used automatically for Wholesale & Reseller customers, or when a line reaches the bulk quantity.</div><div class="grid3">' + field('Wholesale markup %', inp('wholesaleMarkup', p.wholesaleMarkup ?? '', 'inputmode="decimal" placeholder="Default ' + S().wholesaleMarkup + '"')) + field('Fixed wholesale price', inp('priceWholesale', p.priceWholesale || '', 'inputmode="numeric" placeholder="Auto: ' + fmt(x.priceWholesale) + '"')) + field('Bulk from qty', inp('bulkQty', p.bulkQty || '', 'inputmode="numeric" placeholder="' + (S().bulkQty ? 'Default ' + S().bulkQty : 'Off') + '"')) + '</div></div>' +
+      '<h3 class="mt">Wholesale / bulk</h3><div class="tiny muted mb">Used automatically for Wholesale & Reseller customers, or when a line reaches the bulk quantity.</div><div class="grid3">' + field('Wholesale markup %', inp('wholesaleMarkup', p.wholesaleMarkup ?? '', 'inputmode="decimal" placeholder="Default ' + S().wholesaleMarkup + '"')) + field('Fixed wholesale price', inp('priceWholesale', p.priceWholesale || '', 'inputmode="numeric" placeholder="Auto: ' + fmt(x.priceWholesale) + '"')) + field('Bulk from qty', inp('bulkQty', p.bulkQty || '', 'inputmode="numeric" placeholder="' + (S().bulkQty ? 'Default ' + S().bulkQty : 'Off') + '"')) + '</div></div>') +
       field('Notes', '<textarea class="inp" name="notes">' + esc(p.notes || '') + '</textarea>') + '<label class="toggle"><input type="checkbox" name="archived" ' + (p.archived ? 'checked' : '') + '>Archive (hide from lists)</label></div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="pSave">Save</button>',
   });
   $('#pCat', sh).onchange = (e) => ($('#pSub', sh).innerHTML = subOpts(e.target.value).map((s) => '<option>' + esc(s) + '</option>').join(''));
   $('#pSave', sh).onclick = async () => {
     const v = formVals(sh);
-    ['markup', 'minMarkup', 'wholesaleMarkup'].forEach((k) => (v[k] = v[k] === '' ? null : num(v[k])));
-    ['priceMax', 'priceMin', 'priceWholesale', 'bulkQty'].forEach((k) => (v[k] = v[k] === '' ? null : num(v[k])));
+    ['markup', 'minMarkup', 'wholesaleMarkup'].forEach((k) => { if (k in v) v[k] = v[k] === '' ? null : num(v[k]); });
+    ['priceMax', 'priceMin', 'priceWholesale', 'bulkQty'].forEach((k) => { if (k in v) v[k] = v[k] === '' ? null : num(v[k]); });
     if (v.barcode && K.raw.products.some((o) => o.id !== id && o.barcode === v.barcode)) return toast('Another item already uses this barcode', true);
     v.size = v.size === '' ? null : num(v.size);
-    const packs = readPacks(sh); if (typeof packs === 'string') return toast(packs, true); v.packs = packs; ['pkName0', 'pkSize0', 'pkPrice0', 'pkName1', 'pkSize1', 'pkPrice1', 'pkName2', 'pkSize2', 'pkPrice2'].forEach((k) => delete v[k]);
+    const packs = readPacks(sh, p); if (typeof packs === 'string') return toast(packs, true); v.packs = packs; ['pkName0', 'pkSize0', 'pkPrice0', 'pkName1', 'pkSize1', 'pkPrice1', 'pkName2', 'pkSize2', 'pkPrice2'].forEach((k) => delete v[k]);
     if (sh._photo) { try { v.image = await storePhoto(sh._photo); } catch (e) { toast(e.message, true); } }
     if (await save('products', withPriceLog(p, Object.assign({}, p, v), 'Edit item'))) { closeSheet(); scheduleRender(); refreshSheets(); toast('Saved'); }
   };
@@ -598,14 +603,14 @@ function packFields(p) {
   return '<div class="card pad mt"><h3>Packs <span class="tiny muted">(optional)</span></h3><div class="tiny muted mb">Sell a whole carton or box at once. Stock stays counted in ' + esc(plural2(p.unit || 'piece')) + '. Leave the price empty to use the bulk price.</div>' +
     pk.map((k, i) => '<div class="pk-row">' + sel('pkName' + i, [['', '—']].concat(KC.PACK_NAMES.map((n) => [n, n[0].toUpperCase() + n.slice(1)])), k.name || '') +
       '<label class="pk-of"><span>of</span><input class="inp" name="pkSize' + i + '" inputmode="numeric" data-nofmt value="' + esc(k.size || '') + '" placeholder="24"></label>' +
-      '<input class="inp" name="pkPrice' + i + '" inputmode="numeric" value="' + esc(k.price || '') + '" placeholder="' + (x.priceMax ? 'Auto' : 'Price') + '" aria-label="Pack price"></div>').join('') +
+      (barPrices() ? '' : '<input class="inp" name="pkPrice' + i + '" inputmode="numeric" value="' + esc(k.price || '') + '" placeholder="' + (x.priceMax ? 'Auto' : 'Price') + '" aria-label="Pack price">') + '</div>').join('') +
     (pk.length < 3 ? '<div class="tiny muted">Up to 3 pack sizes.</div>' : '') + '</div>';
 }
 const plural2 = (w) => /(s|x|ch|sh)$/.test(w) ? w + 'es' : w + 's';
-function readPacks(sh) {
+function readPacks(sh, p0) {
   const v = formVals(sh); const out = [];
   for (let i = 0; i < 3; i++) {
-    const name = v['pkName' + i]; const size = Math.floor(num(v['pkSize' + i])); const price = v['pkPrice' + i] === '' || v['pkPrice' + i] === undefined ? null : num(v['pkPrice' + i]);
+    const name = v['pkName' + i]; const size = Math.floor(num(v['pkSize' + i])); const old = ((p0 && p0.packs) || []).find((k) => num(k.size) === Math.floor(num(v['pkSize' + i]))); const price = v['pkPrice' + i] === undefined ? (old ? old.price : null) : v['pkPrice' + i] === '' ? null : num(v['pkPrice' + i]); // a bar's form has no price: keep it
     if (!name && !size) continue;
     if (!name) return 'Choose the pack name (carton, box…)';
     if (!(size > 1)) return 'A ' + name + ' holds at least 2 pieces';
@@ -683,6 +688,8 @@ function priceHistoryCard(p) {
   const x = K.C.prodX[p.id]; const hist = (p.priceHistory || []).slice().reverse();
   const promos = (K.raw.promos || []).filter((pr) => KC.promoCovers(pr, p)).sort((a, b) => (b.start || '').localeCompare(a.start || ''));
   const chip = (l, v, cls) => '<div class="pchip' + (cls ? ' ' + cls : '') + '"><span>' + l + '</span><b>' + F(v) + '</b></div>';
+  if (barPrices()) { const mp = menuPricesOf(p.id); return '<section class="card mb ph-card"><div class="ph-head"><h3>Prices</h3><div class="row wrap gap6"><button class="btn sm pri" data-a="priceOnMenu" data-id="' + p.id + '">' + ic('tag', 'sm') + (mp.line ? 'Change on the menu' : 'Put it on the menu') + '</button></div></div>' +
+    '<div class="pchips">' + (mp.unit ? chip('Per ' + esc(mp.unitName), mp.unit) : '') + (mp.crate ? chip('Per ' + esc(mp.packName) + ' of ' + mp.size, mp.crate) : '') + (seeCost() ? chip('Cost', x.avgCost, 'cost') : '') + '</div>' + (mp.line ? '<div class="hint ph-empty">Set on the menu — the same in Stock, at the till, on the QR menu and the flyer.</div>' : '<div class="hint ph-empty">Not on the menu yet: put it on the menu to give it a price.</div>') + '</section>'; }
   return '<section class="card mb ph-card"><div class="ph-head"><h3>Prices</h3><div class="row wrap gap6">' + (can('stockEdit') ? '<button class="btn sm pri" data-a="priceSet" data-id="' + p.id + '">' + ic('tag', 'sm') + 'Change price</button><button class="btn sm" data-a="promoFor" data-id="' + p.id + '">Launch a promotion</button>' : '') + '</div></div>' +
     '<div class="pchips">' + (x.promo ? chip('Promo price · ' + esc(x.promo.name), x.promo.price, 'promo') : '') + chip('Selling price', x.priceMax) + chip('Lowest allowed', x.priceMin) + chip('Wholesale', x.priceWholesale) + (seeCost() ? chip('Landed cost', x.avgCost, 'cost') : '') + '</div>' +
     '<div class="ph-sub">Price changes' + (hist.length ? ' <span class="hint">(' + hist.length + ')</span>' : '') + '</div>' +
@@ -699,6 +706,7 @@ function priceHistoryCard(p) {
     '</section>';
 }
 A.priceSet = (el) => {
+  if (barPrices()) return A.priceOnMenu(el); // a bar sets prices on the menu
   const p = byId('products', el.dataset.id); const x = K.C.prodX[p.id];
   const sh = openSheet({ title: 'Change price · ' + p.name, body: '<div class="col">' +
     (seeCost() ? '<div class="hint">' + costWord(true) + ': <b>' + F(x.avgCost) + '</b> per unit</div>' : '') +

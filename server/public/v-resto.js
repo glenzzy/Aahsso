@@ -600,6 +600,22 @@ const crateOf = (p) => (p && (p.packs || []).find((k) => num(k.size) > 1)) || nu
 const isCrateLine = (m) => { const u = stockUse(m); return !!u && num(u.qty) > 1; };
 /** the price a menu line selling a stock item as it is gets: a bottle → its selling price, a crate → the crate price */
 function stockPriceFor(m) { const u = stockUse(m); const p = u && byId('products', u.productId); if (!p) return 0; if (num(u.qty) === 1) return num(p.priceMax); const pk = crateOf(p); return pk && num(u.qty) === num(pk.size) ? num(pk.price) : 0; }
+/** a stock item's prices as set on the menu (the one place prices are set in a bar): per bottle and per crate */
+function menuPricesOf(pid) {
+  const lines = rMenu().filter((m) => { const u = stockUse(m); return u && u.productId === pid; });
+  const line = lines.find((m) => num(stockUse(m).qty) === 1) || null; const cl = lines.find((m) => num(stockUse(m).qty) > 1) || null;
+  const p = byId('products', pid); const pk = crateOf(p); const unit = (p && p.unit && p.unit !== 'piece' ? p.unit : 'bottle');
+  return { unit: line ? num(line.price) : 0, crate: cl ? num(cl.price) : 0, size: cl ? num(stockUse(cl).qty) : pk ? num(pk.size) : 0, packName: (pk && pk.name) || 'crate', unitName: unit, line, crateLine: cl };
+}
+/** "Change on the menu" from Stock: the drink's menu item opens (or a new one, already linked to the stock item) */
+A.priceOnMenu = (el) => {
+  const pid = el.dataset.id; const p = byId('products', pid); if (!p) return;
+  if (!can('menu')) return toast('Prices are set on the menu — ask someone who can change the menu', true);
+  const mp = menuPricesOf(pid); if (mp.line) return A.mnEdit({ dataset: { id: mp.line.id } });
+  const d = p.drink && Drinks.ready() ? Drinks.bySku(p.drink.sku) : null;
+  K.ui.mnPrefill = { name: p.name, kind: 'stock', uses: [{ productId: pid, qty: 1 }], drink: (p.drink && p.drink.sku) || '', category: d ? Drinks.menuCat(d, S().menuCats || []) : (S().menuCats || [])[0] || 'Drinks', price: num(p.priceMax) || '' };
+  A.mnEdit({ dataset: {} }); toast(p.name + ' is not on the menu yet — type its price and save');
+};
 /** after a stock item's price changed (anywhere): its menu lines take it */
 async function syncMenuPrices(p) {
   if (!isResto() || !can('menu') || !p) return;
@@ -656,10 +672,10 @@ A.mnEdit = (el) => {
   const crateLine = () => { const u = stockUse(m); const sz = crateSize(); return u && sz ? rMenu().find((x) => x.id !== id && stockUse(x) && stockUse(x).productId === u.productId && num(stockUse(x).qty) === sz) : null; };
   const priceLbl = () => (isCrateLine(m) ? 'Price per crate (' + baseSym() + ')' : stockUse(m) ? 'Price per ' + unitWord() + ' (' + baseSym() + ')' : 'Price (' + baseSym() + ')');
   const crateHtml = () => {
-    if (!stockUse(m) || isCrateLine(m) || !crateSize()) return stockUse(m) ? '<div class="hint mn-same">' + ic('check', 'sm') + 'Same selling price as in Stock — change it here or there.</div>' : '';
+    if (!stockUse(m) || isCrateLine(m) || !crateSize()) return stockUse(m) ? '<div class="hint mn-same">' + ic('check', 'sm') + 'The selling price everywhere — Stock, the till, the QR menu and the flyer.</div>' : '';
     const pk = crateOf(prodOf()); const cl = crateLine(); const v = m._crate !== undefined ? m._crate : cl ? cl.price : pk && num(pk.price) > 0 ? pk.price : '';
     return '<div class="grid2 mn-crate">' + field('Price per ' + ((pk && pk.name) || 'crate') + ' of ' + crateSize() + ' (' + baseSym() + ') <span class="hint">optional</span>', inp('crate', v, 'inputmode="numeric" placeholder="Not sold by the crate"')) +
-      '<div class="hint mn-same">' + ic('check', 'sm') + 'Same selling prices as in Stock. A crate price puts “' + esc(crateName(m.name || 'it', { name: (pk && pk.name) || 'crate', size: crateSize() })) + '” on the menu too.</div></div>';
+      '<div class="hint mn-same">' + ic('check', 'sm') + 'The selling prices everywhere — Stock, the till, the QR menu and the flyer. A crate price puts “' + esc(crateName(m.name || 'it', { name: (pk && pk.name) || 'crate', size: crateSize() })) + '” on the menu too.</div></div>';
   };
   const draw = () => {
     const dk = m.drink && Drinks.ready() ? Drinks.bySku(m.drink) : null;
