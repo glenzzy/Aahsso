@@ -416,7 +416,7 @@ function parsePurchaseRows(rows) {
     unit: String(pickCol(r, ['Unit', 'Sold By'])), size: num(pickCol(r, ['Size'])) || null, weight: num(pickCol(r, ['Weight (kg)', 'Weight Kg', 'Weight', 'Kg'])) || '', sizeUnit: String(pickCol(r, ['Size Unit', 'Weight Unit'])), packOf: Math.max(1, Math.floor(num(pickCol(r, ['Pack Of', 'Units Per Pack', 'Pack'])) || 1)),
     tax: pickCol(r, ['Tax %', 'Tax Rate', 'Tax', 'VAT %', 'VAT Rate'], /total|amount|amt/i), currency: String(pickCol(r, ['Currency'])).trim().toUpperCase(), group: r.__scanGroup == null ? '' : String(r.__scanGroup),
     total: pickCol(r, ['Total', 'Line Total', 'Total Price', 'Amount', 'Ext Price', 'Extended Price'], /tax|sub|grand|retail/i), // price × qty, before tax
-    taxAmt: pickCol(r, ['Total Tax', 'Tax Amount', 'Tax Total', 'Line Tax', 'VAT Amount'], /^$/), // the line's tax in money
+    taxAmt: pickCol(r, ['Total Tax', 'Tax Amount', 'Tax Total', 'Line Tax', 'VAT Amount'], /^$/), // the receipt's tax in money (see below)
   })).filter((l) => l.name);
   lines.forEach((l) => {
     const u = String(l.unit || '').trim().toLowerCase(); // each / ea / pcs → piece; pk → pack…
@@ -431,12 +431,28 @@ function parsePurchaseRows(rows) {
       const calc = num(l.unitCost) * q, ok = (v) => Math.abs(v - tot) <= Math.max(Number.isInteger(tot) ? 0.5 : 0.011, q * 0.005); // rounding: to the franc (whole totals), or half a cent a unit
       if (!ok(calc) && !(num(l.taxPct) && ok(calc * (1 + num(l.taxPct) / 100)))) ck.push('CHECK [Total]: price × qty is ' + r2(calc) + ', the file says ' + tot); // a total with tax in it is fine
     }
-    const lineV = num(l.unitCost) * q;
-    if (l.taxPct === '' && tAmt != null && lineV > 0) l.taxPct = String(Math.round(tAmt / lineV * 1e6) / 1e4); // only the tax amount: its rate
-    else if (l.taxPct !== '' && tAmt != null && lineV > 0) { const calc = r2(lineV * num(l.taxPct) / 100); if (Math.abs(calc - tAmt) > (Number.isInteger(tAmt) ? 0.5 : 0.011)) ck.push('CHECK [Tax]: ' + l.taxPct + '% of ' + r2(lineV) + ' is ' + calc + ', the file says ' + tAmt); }
+    l._lineV = num(l.unitCost) * q; l._tAmt = tAmt;
     l.check = ck.join('; ');
     if (!KC.SIZE_UNITS[l.sizeUnit]) { const mm = { kgs: 'kg', lbs: 'lb', ounce: 'oz', liter: 'L', litre: 'L', l: 'L', ml: 'mL', gallon: 'gal', floz: 'fl oz' }[String(l.sizeUnit).toLowerCase().replace(/[^a-z]/g, '')]; l.sizeUnit = mm || ''; }
     if (!catOpts().includes(l.category)) { l.notes = [l.notes, l.category && 'Cat: ' + l.category].filter(Boolean).join(' · '); l.category = /tv|speaker|audio|laptop|phone|electr|computer|tablet/i.test(l.name + l.category) ? (catOpts().includes('Electronics') ? 'Electronics' : defCat()) : (catOpts().includes('Other') ? 'Other' : defCat()); l.subcategory = subOpts(l.category)[0] || ''; }
+  });
+  // Total Tax = the tax printed on the receipt, typed on its first line (or the same amount on every line). It is shared
+  // over the receipt's lines by their cost (price × qty) — the purchase takes it as a tax amount. Different amounts on
+  // different lines = each line's own tax (older files), turned into that line's rate.
+  const r2 = (v) => Math.round(v * 100) / 100, near = (a, b) => Math.abs(a - b) <= (Number.isInteger(b) ? 0.5 : 0.011);
+  const addCk = (l, m) => { l.check = [l.check, m].filter(Boolean).join('; '); };
+  receiptGroups(lines).forEach((g, gi) => {
+    const given = g.filter((l) => l._tAmt != null); if (!given.length) return;
+    const sub = g.reduce((a, l) => a + l._lineV, 0);
+    if (given.every((l) => l._tAmt === given[0]._tAmt)) {
+      const T = given[0]._tAmt;
+      if (g.some((l) => l.taxPct !== '')) { const calc = r2(g.reduce((a, l) => a + l._lineV * num(l.taxPct) / 100, 0)); if (!near(calc, T)) addCk(g[0], 'CHECK [Tax]: the lines\' tax adds up to ' + calc + ', the receipt says ' + T); }
+      else if (sub > 0) g.forEach((l) => { l.receiptTax = T; l.receiptKey = gi; l.taxPct = String(Math.round(T / sub * 1e8) / 1e6); }); // the rate: used when several receipts share one purchase
+    } else given.forEach((l) => {
+      if (!(l._lineV > 0)) return;
+      if (l.taxPct === '') l.taxPct = String(Math.round(l._tAmt / l._lineV * 1e6) / 1e4);
+      else { const calc = r2(l._lineV * num(l.taxPct) / 100); if (!near(calc, l._tAmt)) addCk(l, 'CHECK [Tax]: ' + l.taxPct + '% of ' + r2(l._lineV) + ' is ' + calc + ', the file says ' + l._tAmt); }
+    });
   });
   return lines;
 }
@@ -491,8 +507,7 @@ function scanRows(list) {
     const lineV = (l) => (l.lineTotal != null ? l.lineTotal : l.unitPrice != null ? l.unitPrice * (l.quantity || 1) : 0);
     const sum = x.lines.reduce((a, l) => a + lineV(l), 0);
     const noLineTax = x.lines.every((l) => l.taxPct == null && l.taxAmount == null);
-    const base = x.subtotal != null ? x.subtotal : x.total != null && x.tax != null ? x.total - x.tax : null;
-    const rate = noLineTax && x.tax > 0 && (base || sum) > 0 ? Math.round(x.tax / (base || sum) * 1e6) / 1e4 : null; // one tax for the whole receipt: as a rate on every line
+    const rTax = noLineTax && x.tax > 0 ? x.tax : ''; // one tax for the whole receipt: its amount, shared over the lines by cost
     const rc = x.checks.slice();
     const tol = (v) => Math.max(Number.isInteger(v) ? 1 : 0.02, Math.abs(v) * 0.005);
     if (x.subtotal != null && Math.abs(sum - x.subtotal) > tol(x.subtotal)) rc.push('the lines add up to ' + r2(sum) + ', the receipt subtotal is ' + x.subtotal);
@@ -502,7 +517,7 @@ function scanRows(list) {
       if (i === 0) rc.forEach((m) => notes.push('CHECK [Receipt]: ' + String(m).replace(/[;|]/g, ',')));
       out.push({ __scanGroup: ri, Date: x.date, Seller: x.seller, Receipt: x.receiptNo, Currency: x.currency, Description: l.description, Brand: l.brand, Model: l.model, Category: l.category, Unit: l.unit,
         Quantity: l.quantity == null ? '' : l.quantity, 'Price Each': l.unitPrice == null ? '' : l.unitPrice, Total: l.lineTotal == null ? '' : l.lineTotal,
-        'Tax %': l.taxPct != null ? l.taxPct : rate != null ? rate : '', 'Total Tax': l.taxAmount == null ? '' : l.taxAmount, Notes: notes.join(' | ') });
+        'Tax %': l.taxPct != null ? l.taxPct : l.taxAmount != null && lineV(l) > 0 ? Math.round(l.taxAmount / lineV(l) * 1e6) / 1e4 : '', 'Total Tax': rTax, Notes: notes.join(' | ') });
     });
   });
   return out;
@@ -543,6 +558,9 @@ function puFill(sh, lines, intro) {
     if (known) pick.value = known.value; else { pick.value = '__new'; $('#puNewSel', sh).classList.remove('hide'); setIf('vendor', f0.vendor); }
   } setIf('poNumber', f0.poNumber); setIf('purchaseDate', f0.purchaseDate);
   if (f0.sourceType && KC.SOURCE_TYPES.includes(f0.sourceType)) $('#puSrc', sh).value = f0.sourceType; else if (/b-?stock|auction/i.test(f0.vendor)) $('#puSrc', sh).value = 'Auction';
+  if (lines[0].receiptTax != null && lines.every((l) => l.receiptKey === lines[0].receiptKey) && !sh._rows.some((r) => r.name.trim()) && !$('#puTax', sh).value) { // one receipt, its tax in money
+    A.puTaxMode($('#puTaxMode [data-v=amt]', sh)); $('#puTax', sh).value = String(lines[0].receiptTax); lines.forEach((l) => (l.taxPct = ''));
+  }
   const rates = [...new Set(lines.map((l) => l.taxPct).filter((t) => t !== ''))];
   const perLine = rates.length > 1; // different rates on different lines: each line keeps its own
   if (!perLine && rates.length && num(rates[0]) > 0 && !$('#puTax', sh).value) $('#puTax', sh).value = rates[0];
@@ -555,14 +573,19 @@ function puFill(sh, lines, intro) {
 /* the template: Total = Price Each × Quantity and Total Tax = the line's tax, as formulas that update while typing */
 A.tplPurch = () => {
   const ex = [
-    { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Quaker Oats Old Fashioned 2x2.6kg', Category: 'Food & Snacks', Subcategory: 'Cereal & Oats', Brand: 'Quaker', Model: 'Old Fashioned', Condition: 'New', 'Shelf Price': 12.99, 'Price Each': 9.98, Quantity: 10, 'Pack Of': 1, Unit: 'pack', Size: 2.6, 'Size Unit': 'kg', 'Expiry Date': '2027-06-30', Barcode: '', 'Weight (kg)': 2.6, 'Tax %': 8.25, Notes: '' },
-    { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Kirkland Olive Oil 2L', Category: 'Food & Snacks', Subcategory: '', Brand: 'Kirkland', Model: '', Condition: 'New', 'Shelf Price': 24.99, 'Price Each': 19.99, Quantity: 6, 'Pack Of': 1, Unit: 'bottle', Size: 2, 'Size Unit': 'L', 'Expiry Date': '', Barcode: '', 'Weight (kg)': 2, 'Tax %': '', Notes: '' },
+    { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Quaker Oats Old Fashioned 2x2.6kg', Category: 'Food & Snacks', Subcategory: 'Cereal & Oats', Brand: 'Quaker', Model: 'Old Fashioned', Condition: 'New', 'Shelf Price': 12.99, 'Price Each': 9.98, Quantity: 10, 'Pack Of': 1, Unit: 'pack', Size: 2.6, 'Size Unit': 'kg', 'Expiry Date': '2027-06-30', Barcode: '', 'Weight (kg)': 2.6, 'Total Tax': 18.13, Notes: '' },
+    { Date: todayStr(), 'Bought From': 'Store', Seller: 'Costco', Receipt: '', Description: 'Kirkland Olive Oil 2L', Category: 'Food & Snacks', Subcategory: '', Brand: 'Kirkland', Model: '', Condition: 'New', 'Shelf Price': 24.99, 'Price Each': 19.99, Quantity: 6, 'Pack Of': 1, Unit: 'bottle', Size: 2, 'Size Unit': 'L', 'Expiry Date': '', Barcode: '', 'Weight (kg)': 2, 'Total Tax': '', Notes: '' },
   ];
   const r2 = (v) => Math.round(v * 100) / 100;
-  const rows = ex.map((r) => { const o = {}; Object.entries(r).forEach(([k, v]) => { o[k] = v; if (k === 'Quantity') o.Total = r2(r['Price Each'] * r.Quantity); if (k === 'Tax %') o['Total Tax'] = r2(o.Total * num(r['Tax %']) / 100); }); return o; });
-  xlsxDownload('Purchase-template.xlsx', { Purchases: rows }, { _blank: 50, Purchases: {
+  const rows = ex.map((r) => { const o = {}; Object.entries(r).forEach(([k, v]) => { o[k] = v; if (k === 'Quantity') o.Total = r2(r['Price Each'] * r.Quantity); }); return o; });
+  const how = [
+    { Column: 'One row per item', 'How to fill it': 'Rows with the same Date, Seller and Receipt are one receipt (one purchase).' },
+    { Column: 'Total', 'How to fill it': 'Price Each × Quantity, worked out for you. If the receipt only shows the line total, type it here and leave Price Each empty.' },
+    { Column: 'Total Tax', 'How to fill it': 'The tax printed on the receipt, in money, typed once on the receipt\'s first row. It is shared over the receipt\'s items by their cost.' },
+    { Column: 'Notes', 'How to fill it': 'Anything to remember. "CHECK [Field]: reason" marks the line ⚠ Check.' },
+  ];
+  xlsxDownload('Purchase-template.xlsx', { Purchases: rows, 'How to fill': how }, { _blank: 50, Purchases: {
     Total: 'IF(OR({Price Each}="",{Quantity}=""),"",ROUND({Price Each}*{Quantity},2))',
-    'Total Tax': 'IF({Total}="","",ROUND({Total}*N({Tax %})/100,2))',
   } });
 };
 
