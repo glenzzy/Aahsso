@@ -564,12 +564,17 @@ VIEWS.menu = {
     const items = rMenu(); const cats = [...new Set((S().menuCats || []).concat(items.map((m) => m.category || 'Other')))]; const cur = K.ui.mnCat || ''; const q = (K.ui.mnQ || '').toLowerCase();
     const list = items.filter((m) => (!cur || (m.category || 'Other') === cur) && (!q || m.name.toLowerCase().includes(q))).sort((a, b) => cats.indexOf(a.category) - cats.indexOf(b.category) || a.name.localeCompare(b.name));
     const kind = { plain: '', stock: 'From stock', portion: 'Glass / shot', recipe: 'Recipe' };
-    return '<div class="row wrap mb">' + (can('menu') ? '<button class="btn pri" data-a="mnEdit">' + ic('plus') + 'New item</button><button class="btn" data-a="dkMenu">' + ic('glass') + 'Add drinks</button>' + '<button class="btn" data-a="flyer">' + ic('cam') + 'Daily menu flyer</button>' + '<button class="btn" data-a="mnCats">' + ic('tag') + 'Categories</button>' : '') + (S().menuKey ? '<button class="btn ghost" data-a="mnLink">' + ic('copy') + 'Menu link</button>' : '') + '</div>' +
+    // the same drink twice (same name, or the same stock item sold the same way): flagged, to delete the extra one
+    const keyOf = (m) => { const u = stockUse(m); return u ? 's:' + u.productId + ':' + num(u.qty) : 'n:' + String(m.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
+    const seen = {}; items.forEach((m) => { const k = keyOf(m); seen[k] = (seen[k] || 0) + 1; const n = 'n:' + String(m.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); if (k !== n) seen[n] = (seen[n] || 0) + 1; });
+    const twice = (m) => seen[keyOf(m)] > 1 || seen['n:' + String(m.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()] > 1;
+    const dupN = items.filter(twice).length;
+    return (dupN && can('menu') ? '<div class="alert bad mb">' + ic('alert', 'sm') + ' ' + dupN + ' items are on the menu more than once (marked “twice”) — open the extra one and delete it.</div>' : '') + '<div class="row wrap mb">' + (can('menu') ? '<button class="btn pri" data-a="mnEdit">' + ic('plus') + 'New item</button><button class="btn" data-a="dkMenu">' + ic('glass') + 'Add drinks</button>' + '<button class="btn" data-a="flyer">' + ic('cam') + 'Daily menu flyer</button>' + '<button class="btn" data-a="mnCats">' + ic('tag') + 'Categories</button>' : '') + (S().menuKey ? '<button class="btn ghost" data-a="mnLink">' + ic('copy') + 'Menu link</button>' : '') + '</div>' +
       (hhLive() ? '<div class="alert ok mb">Happy hour now: −' + num(S().happyHour.pct) + '% until ' + esc(S().happyHour.to) + '</div>' : '') +
       '<div class="search mb">' + ic('search') + '<input class="inp" placeholder="Search the menu" value="' + esc(K.ui.mnQ || '') + '" data-c="mnQ"></div>' +
       '<div class="chips mb">' + [['', 'All']].concat(cats.map((c) => [c, c])).map(([k, l]) => '<button class="chip' + (cur === k ? ' on' : '') + '" data-a="mnCat" data-v="' + esc(k) + '">' + esc(l) + '</button>').join('') + '</div>' +
       (list.length ? '<div class="card list">' + list.map((m) => { const u = m.uses && m.uses.length ? KC.menuUnits(K.C, m, K.loc) : null; const out = m.soldOut || u === 0; return '<div class="li mn-i' + (m.active === false ? ' off' : '') + '"' + (can('menu') ? ' data-a="mnEdit" data-id="' + m.id + '"' : '') + '>' + (m.photo ? '<img class="mn-ph" src="' + esc(imgSrc(m.photo)) + '" alt="">' : '<div class="av">' + esc(initials(m.name)) + '</div>') +
-        '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(m.name) + '</div><div class="tiny muted">' + [esc(m.category || 'Other'), stations().length > 1 ? STATION[KC.stationOf(m, venue())] : '', kind[KC.menuKind(m)], u !== null && u !== Infinity ? (u === 0 ? 'no stock' : u + ' left') : '', m.active === false ? 'hidden' : ''].filter(Boolean).join(' · ') + (KC.menuKind(m) === 'recipe' ? (() => { const sh = KC.recipeShort(K.C, m, K.loc); return sh.length ? '<div class="tiny rc-short">' + ic('alert', 'sm') + 'Out: ' + esc(sh.map((x) => (byId('products', x.productId) || {}).name || '?').join(', ')) + '</div>' : ''; })() : '') + '</div></div>' +
+        '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(m.name) + (twice(m) ? ' <span class="mn-twice">twice</span>' : '') + '</div><div class="tiny muted">' + [esc(m.category || 'Other'), stations().length > 1 ? STATION[KC.stationOf(m, venue())] : '', kind[KC.menuKind(m)], u !== null && u !== Infinity ? (u === 0 ? 'no stock' : u + ' left') : '', m.active === false ? 'hidden' : ''].filter(Boolean).join(' · ') + (KC.menuKind(m) === 'recipe' ? (() => { const sh = KC.recipeShort(K.C, m, K.loc); return sh.length ? '<div class="tiny rc-short">' + ic('alert', 'sm') + 'Out: ' + esc(sh.map((x) => (byId('products', x.productId) || {}).name || '?').join(', ')) + '</div>' : ''; })() : '') + '</div></div>' +
         '<b class="money">' + fmt(m.price) + '</b>' + (can('menu') || can('serve') ? '<label class="sw" title="Sold out" data-stop><input type="checkbox" data-c="mnOut" data-id="' + m.id + '"' + (out ? '' : ' checked') + (u === 0 ? ' disabled' : '') + '><span></span></label>' : '') + '</div>'; }).join('') + '</div>'
         : '<div class="card empty"><div class="big">🍹</div>' + (items.length ? 'Nothing here.' : 'Your menu is empty.') + (can('menu') && !items.length ? '<div class="mt row wrap" style="justify-content:center"><button class="btn pri" data-a="dkMenu">' + ic('glass') + 'Add drinks in stock</button><button class="btn" data-a="mnEdit">' + ic('plus') + 'Add your own item</button></div><div class="hint mt">Drinks go on the menu once they are bought and in stock — buy them in Stock → Buy drinks.</div>' : '') + '</div>') +
       '<p class="hint mt">The switch on each item: on = served, off = sold out (hidden from the QR menu).</p>';
@@ -587,18 +592,35 @@ A.mnCats = () => {
   const sh = openSheet({ title: 'Menu categories', body: '<p class="hint">In the order customers see them. One per line.</p><textarea class="inp" id="mcT" rows="10">' + esc(cats.join('\n')) + '</textarea>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="mcGo">Save</button>' });
   $('#mcGo', sh).onclick = async () => { const v = [...new Set($('#mcT', sh).value.split('\n').map((x) => x.trim()).filter(Boolean))].slice(0, 40); if (await saveSettings({ menuCats: v })) { closeSheet(); render(true); } };
 };
+/* ----- one selling price per drink: the bottle price is the stock item's selling price, the crate price its crate price.
+   Set either in Stock or here on the menu — every menu line selling that stock item follows, and so do the till,
+   the QR menu and the flyer. A crate is its own menu line ("33 Export — crate of 12") that takes 12 bottles out. ----- */
+const stockUse = (m) => (m && KC.menuKind(m) === 'stock' && m.uses && m.uses.length === 1 && m.uses[0].productId ? m.uses[0] : null);
+const crateOf = (p) => (p && (p.packs || []).find((k) => num(k.size) > 1)) || null;
+const isCrateLine = (m) => { const u = stockUse(m); return !!u && num(u.qty) > 1; };
+/** the price a menu line selling a stock item as it is gets: a bottle → its selling price, a crate → the crate price */
+function stockPriceFor(m) { const u = stockUse(m); const p = u && byId('products', u.productId); if (!p) return 0; if (num(u.qty) === 1) return num(p.priceMax); const pk = crateOf(p); return pk && num(u.qty) === num(pk.size) ? num(pk.price) : 0; }
+/** after a stock item's price changed (anywhere): its menu lines take it */
+async function syncMenuPrices(p) {
+  if (!isResto() || !can('menu') || !p) return;
+  for (const m of rMenu()) { const u = stockUse(m); if (!u || u.productId !== p.id) continue; const want = stockPriceFor(m); if (want > 0 && want !== num(m.price)) await save('menu', Object.assign({}, m, { price: want })); }
+  if (K.route === 'menu') render(true);
+}
+/** the drink already on the menu: same drinks-list code, same name, or the same stock item sold by the bottle */
+const onMenu = (d, but) => { const p = d.pack === 'Served' ? null : Drinks.productOf(d); return rMenu().find((m) => m.id !== but && !isCrateLine(m) && (m.drink === d.sku || Drinks.norm(m.name) === Drinks.norm(d.name) || (p && stockUse(m) && stockUse(m).productId === p.id))); };
+const ownPrice = (d) => { const p = d.pack === 'Served' ? null : Drinks.productOf(d); return p && num(p.priceMax) > 0 ? num(p.priceMax) : null; };
+const crateName = (name, pk) => name + ' — ' + (pk.name || 'crate') + ' of ' + num(pk.size);
 /** a menu item made from a catalog drink: its stock item (made if needed), price and category */
 function dkMenuItem(d, price, prod) {
   const cats = S().menuCats || []; const served = d.pack === 'Served';
   return { id: uid('mn_'), name: d.name, price: num(price) || num(d.priceBar), category: Drinks.menuCat(d, cats), desc: [Drinks.size(d.ml), d.abv ? d.abv + '%' : '', d.country && d.country !== 'Cameroon' ? d.country : ''].filter(Boolean).join(' · '),
     kind: served || !prod ? 'plain' : 'stock', uses: served || !prod ? [] : [{ productId: prod.id, qty: 1 }], active: true, drink: d.sku };
 }
-const onMenu = (d) => rMenu().find((m) => m.drink === d.sku || Drinks.norm(m.name) === Drinks.norm(d.name));
 /** the line above the list and the empty state: on the menu only what is in stock — buy the rest first */
 const dkLead = (shown) => '<div class="dk-lead">' + ic('info', 'sm') + '<span>Showing the ' + shown + ' drink' + (shown === 1 ? '' : 's') + ' you have in stock. Not here? <button type="button" class="linkish" data-a="dkBuy">Buy it first</button> — it appears once it is in stock.</span></div>';
 const dkEmpty = '<div class="empty dk-empty"><div class="big">📦</div><b>No drinks in stock yet</b><p class="small muted">Buy your drinks first: pick them from the list, type how many and what you paid. Then add them to the menu.</p><div class="mt"><button type="button" class="btn pri" data-a="dkBuy">' + ic('buy', 'sm') + 'Buy drinks</button></div></div>';
 A.dkMenu = () => Drinks.picker({
-  title: 'Add drinks to your menu', many: true, prices: ['bar', 'lounge'],
+  title: 'Add drinks to your menu', many: true, prices: ['bar', 'lounge'], priceFor: ownPrice,
   only: Drinks.servable, lead: can('purchases') ? dkLead : null, empty: dkEmpty,
   note: (d) => (d.pack === 'Served' ? 'Prepared to order' : Drinks.inStock(d) + ' in stock'),
   taken: (d) => (onMenu(d) ? 'On your menu' : null),
@@ -611,6 +633,8 @@ A.dkMenu = () => Drinks.picker({
       const prod = d.pack === 'Served' ? null : Drinks.productOf(d);
       const m = dkMenuItem(d, o.priceOf(d), prod); if (!cats.includes(m.category)) cats.push(m.category);
       if (await save('menu', m)) n++;
+      if (prod && !(num(prod.priceMax) > 0) && can('costs')) await save('products', Object.assign({}, prod, { priceMax: m.price })); // the menu price becomes the drink's selling price
+      const pk = crateOf(prod); if (pk && num(pk.price) > 0) await save('menu', Object.assign(dkMenuItem(d, pk.price, prod), { name: crateName(d.name, pk), uses: [{ productId: prod.id, qty: num(pk.size) }], crateOf: m.id }));
     }
     if (cats.length !== (S().menuCats || []).length) await saveSettings({ menuCats: cats });
     render(true); toast(n === 1 ? list[0].name + ' is on your menu' : n + ' drinks added to your menu — tap one to change its price');
@@ -625,11 +649,23 @@ A.mnEdit = (el) => {
   const pOpts = [['', 'Choose a stock item…']].concat(prods.map((p) => [p.id, p.name + ' — ' + (left(p) ? left(p) + ' ' + (p.unit && p.unit !== 'piece' ? p.unit + ' ' : '') + 'in stock' : 'none in stock')]));
   const unitOf = (pid) => { const p = byId('products', pid); return p ? p.unit || 'piece' : ''; };
   const sh = openSheet({ title: id ? 'Edit ' + m.name : 'New menu item', wide: true, body: '' });
+  // a drink sold from stock: its price per bottle (and per crate) is the stock item's selling price — the same everywhere
+  const prodOf = () => { const u = stockUse(m); return u ? byId('products', u.productId) : null; };
+  const crateSize = () => { const p = prodOf(); const pk = crateOf(p); const dk = m.drink && Drinks.ready() ? Drinks.bySku(m.drink) : null; return pk ? num(pk.size) : dk && dk.perCase > 1 ? dk.perCase : 0; };
+  const unitWord = () => { const p = prodOf(); return p && p.unit && p.unit !== 'piece' ? p.unit : 'bottle'; };
+  const crateLine = () => { const u = stockUse(m); const sz = crateSize(); return u && sz ? rMenu().find((x) => x.id !== id && stockUse(x) && stockUse(x).productId === u.productId && num(stockUse(x).qty) === sz) : null; };
+  const priceLbl = () => (isCrateLine(m) ? 'Price per crate (' + baseSym() + ')' : stockUse(m) ? 'Price per ' + unitWord() + ' (' + baseSym() + ')' : 'Price (' + baseSym() + ')');
+  const crateHtml = () => {
+    if (!stockUse(m) || isCrateLine(m) || !crateSize()) return stockUse(m) ? '<div class="hint mn-same">' + ic('check', 'sm') + 'Same selling price as in Stock — change it here or there.</div>' : '';
+    const pk = crateOf(prodOf()); const cl = crateLine(); const v = m._crate !== undefined ? m._crate : cl ? cl.price : pk && num(pk.price) > 0 ? pk.price : '';
+    return '<div class="grid2 mn-crate">' + field('Price per ' + ((pk && pk.name) || 'crate') + ' of ' + crateSize() + ' (' + baseSym() + ') <span class="hint">optional</span>', inp('crate', v, 'inputmode="numeric" placeholder="Not sold by the crate"')) +
+      '<div class="hint mn-same">' + ic('check', 'sm') + 'Same selling prices as in Stock. A crate price puts “' + esc(crateName(m.name || 'it', { name: (pk && pk.name) || 'crate', size: crateSize() })) + '” on the menu too.</div></div>';
+  };
   const draw = () => {
     const dk = m.drink && Drinks.ready() ? Drinks.bySku(m.drink) : null;
     const per = m.kind === 'portion' && m.uses[0] ? Math.round(1 / num(m.uses[0].qty)) : (dk && dk.pours ? Math.floor(dk.pours) : 25);
     setSheetBody(sh, '<div class="col">' + (isResto() ? '<button type="button" class="dk-fill" id="dkFill">' + ic('glass', 'sm') + '<span><b>' + (dk ? esc(dk.name) : 'Choose from the drinks list') + '</b><span class="hint">' + (dk ? esc(Drinks.metaLine(dk)) + ' · tap to choose another' : 'Drinks you have in stock — name, price, category and stock item filled in') + '</span></span>' + ic('chev', 'sm') + '</button>' : '') +
-      '<div class="grid2">' + field('Name', inp('name', m.name, 'placeholder="e.g. Grilled fish, 33 Export, Glass of red"')) + field('Price (' + baseSym() + ')', inp('price', m.price, 'inputmode="numeric"')) + '</div>' +
+      '<div class="grid2">' + field('Name', inp('name', m.name, 'placeholder="e.g. Grilled fish, 33 Export, Glass of red"')) + field(priceLbl(), inp('price', m.price, 'inputmode="numeric"')) + '</div>' + crateHtml() +
       '<div class="grid2">' + field('Category', sel('category', [...new Set((S().menuCats || []).concat([m.category || 'Other']))], m.category || 'Other')) + (stations().length > 1 ? field('Prepared at', sel('station', [['', 'Automatic']].concat(stations().map((k) => [k, STATION[k]])), m.station || '')) : '<span></span>') + '</div>' +
       field('Description (optional)', inp('desc', m.desc, 'placeholder="What is in it, size…"')) +
       '<div class="lbl-t">Stock</div><div class="biz-pick">' + kinds.map(([k, l, h]) => '<label class="biz-opt"><input type="radio" name="kind" value="' + k + '"' + (m.kind === k ? ' checked' : '') + '><span><b>' + l + '</b><span class="hint">' + h + '</span></span></label>').join('') + '</div>' +
@@ -638,8 +674,10 @@ A.mnEdit = (el) => {
       (m.kind === 'recipe' ? '<div id="rcp">' + (m.uses.length ? m.uses : [{ productId: '', qty: '' }]).map((u, i) => '<div class="grid2 rcp-r">' + field(i ? '' : 'Ingredient', sel('rp' + i, pOpts, u.productId || '')) + field(i ? '' : 'Quantity per serving', '<div class="in-unit"><input class="inp" name="rq' + i + '" value="' + esc(u.qty) + '" inputmode="decimal" placeholder="e.g. 0.25"><span>' + esc(unitOf(u.productId)) + '</span></div>') + '</div>').join('') + '</div><div class="row wrap gap6"><button type="button" class="btn sm" id="rcAdd">' + ic('plus', 'sm') + 'Add ingredient</button>' + (can('purchases') && hasStation('kitchen') ? '<button type="button" class="btn sm ghost" data-a="rcBuy">' + ic('buy', 'sm') + 'Buy ingredients</button>' : '') + '</div><p class="hint">Quantities are in each ingredient\'s unit: 150 g of beef = <b>0.15</b> kg, 2 Maggi cubes = <b>2</b> cube. They leave stock when the dish is served. A missing ingredient never stops the dish being ordered — the menu shows what is short.</p>' : '') +
       '<div class="row wrap">' + (has('photos') ? '<button type="button" class="btn sm" id="mnPh">' + ic('cam', 'sm') + (m.photo ? 'Change photo' : 'Add photo') + '</button>' : '') + '<label class="toggle"><input type="checkbox" name="active"' + (m.active !== false ? ' checked' : '') + '>On the menu</label></div></div>');
     sh.querySelectorAll('[name=kind]').forEach((r) => (r.onchange = () => { keep(); const pid = (m.uses[0] || {}).productId; m.kind = r.value; m.uses = pid && ['stock', 'portion'].includes(r.value) ? [{ productId: pid, qty: r.value === 'stock' ? 1 : 1 / Math.max(1, (dk && dk.pours) || 25) }] : []; draw(); }));
-    if ($('#dkFill', sh)) $('#dkFill', sh).onclick = () => Drinks.picker({ title: 'Choose a drink', prices: ['bar', 'lounge'], only: Drinks.servable, lead: can('purchases') ? dkLead : null, empty: dkEmpty,
+    if ($('#dkFill', sh)) $('#dkFill', sh).onclick = () => Drinks.picker({ title: 'Choose a drink', prices: ['bar', 'lounge'], priceFor: ownPrice, only: Drinks.servable, lead: can('purchases') ? dkLead : null, empty: dkEmpty,
+      taken: (d) => (onMenu(d, id) ? 'Already on your menu' : null),
       note: (d) => (d.pack === 'Served' ? 'Prepared to order' : Drinks.inStock(d) + ' in stock'), onOwn: (q) => { if (q) { keep(); m.name = q; draw(); } }, onPick: ([d], o) => {
+      const dup = onMenu(d, id); if (dup) { toast(dup.name + ' is already on your menu — open it there to change it', true); return; }
       keep(); m.name = d.name; m.price = o.price || d.priceBar || m.price; m.drink = d.sku; m.category = Drinks.menuCat(d, S().menuCats || []);
       m.desc = m.desc || [Drinks.size(d.ml), d.abv ? d.abv + '%' : ''].filter(Boolean).join(' · ');
       if (d.pack === 'Served') { m.kind = 'plain'; m.uses = []; }
@@ -648,10 +686,12 @@ A.mnEdit = (el) => {
     } });
     if ($('#rcAdd', sh)) $('#rcAdd', sh).onclick = () => { keep(); m.uses.push({ productId: '', qty: '' }); draw(); };
     sh.querySelectorAll('[name^=rp]').forEach((x) => (x.onchange = () => { keep(); draw(); })); // the unit follows the ingredient
+    if ($('[name=p0]', sh) && m.kind === 'stock') $('[name=p0]', sh).onchange = () => { keep(); const p = prodOf(); if (p && num(p.priceMax) > 0 && !isCrateLine(m)) m.price = p.priceMax; draw(); }; // the stock item's own price
     if ($('#mnPh', sh)) $('#mnPh', sh).onclick = async () => { const f = await photoPicker(); if (!f) return; keep(); m.photo = await storePhoto(f); draw(); toast('Photo added'); };
   };
   const keep = () => { const v = formVals(sh); ['name', 'price', 'category', 'station', 'desc'].forEach((k) => { if (v[k] !== undefined) m[k] = v[k]; }); m.active = !!v.active;
-    if (m.kind === 'stock') m.uses = v.p0 ? [{ productId: v.p0, qty: 1 }] : [];
+    if (m.kind === 'stock') m.uses = v.p0 ? [{ productId: v.p0, qty: m.uses[0] && m.uses[0].productId === v.p0 && num(m.uses[0].qty) > 1 ? num(m.uses[0].qty) : 1 }] : [];
+    if (v.crate !== undefined) m._crate = v.crate;
     if (m.kind === 'portion') m.uses = v.p0 ? [{ productId: v.p0, qty: Math.round(10000 / Math.max(1, num(v.per) || 25)) / 10000 }] : [];
     if (m.kind === 'recipe') { const out = []; for (let i = 0; i < 40; i++) { if (v['rp' + i] === undefined) break; if (v['rp' + i]) out.push({ productId: v['rp' + i], qty: v['rq' + i] === '' ? '' : num(v['rq' + i]) }); } m.uses = out; } // rows stay while being filled in
     if (m.kind === 'plain') m.uses = []; };
@@ -660,8 +700,29 @@ A.mnEdit = (el) => {
   draw();
   $('#mnGo', sh).onclick = async () => { keep(); if (m.kind === 'recipe') m.uses = m.uses.filter((u) => u.productId && num(u.qty) > 0); m.name = (m.name || '').trim(); if (!m.name) return toast('Type the name', true); if (!(num(m.price) > 0)) return toast('Type the price', true); if (['stock', 'portion'].includes(m.kind) && !m.uses.length) return toast('Choose the stock item', true); if (m.kind === 'recipe' && !m.uses.length) return toast('Add at least one ingredient', true);
     m.price = num(m.price);
+    const nm = (x) => (typeof Drinks !== 'undefined' ? Drinks.norm(x) : String(x).toLowerCase().trim());
+    const su = stockUse(m); const dupe = rMenu().find((x) => x.id !== id && (nm(x.name) === nm(m.name) || (su && stockUse(x) && stockUse(x).productId === su.productId && num(stockUse(x).qty) === num(su.qty))));
+    if (dupe) return toast(dupe.name + ' is already on the menu — open it to change it', true);
+    const crateV = m._crate === undefined || m._crate === '' ? 0 : num(m._crate); delete m._crate;
     if (m.category && !(S().menuCats || []).includes(m.category)) await saveSettings({ menuCats: (S().menuCats || []).concat([m.category]) });
-    if (await save('menu', Object.assign(m, { id: id || uid('mn_') }))) { closeSheet(); render(true); toast(id ? 'Saved' : m.name + ' added to the menu'); } };
+    const p = prodOf(); const sz = crateSize(); const cl = crateLine();
+    if (p && can('costs')) { // the drink's selling price(s), kept on the stock item: the same everywhere
+      const np = JSON.parse(JSON.stringify(p)); let ch = false;
+      if (isCrateLine(m)) { const pk = crateOf(np); if (pk && num(pk.price) !== m.price) { pk.price = m.price; ch = true; } }
+      else {
+        if (num(np.priceMax) !== m.price) { np.priceMax = m.price; ch = true; }
+        if (sz && crateV) { let pk = crateOf(np); if (!pk) { const dk = m.drink && Drinks.ready() ? Drinks.bySku(m.drink) : null; pk = { name: dk && !dk.returnable ? 'case' : 'crate', size: sz, price: null }; np.packs = (np.packs || []).concat([pk]); } if (num(pk.price) !== crateV) { pk.price = crateV; ch = true; } }
+      }
+      if (ch) await save('products', typeof withPriceLog === 'function' ? withPriceLog(p, np, 'Menu price') : np);
+    }
+    if (await save('menu', Object.assign(m, { id: id || uid('mn_') }))) {
+      if (!isCrateLine(m) && sz && su) { // the crate line: made, kept in step, or taken off
+        const pk = crateOf(byId('products', su.productId)) || { name: 'crate', size: sz };
+        if (crateV) await save('menu', Object.assign({}, cl || { id: uid('mn_'), kind: 'stock', uses: [{ productId: su.productId, qty: sz }] }, { name: crateName(m.name, pk), price: crateV, category: m.category, station: m.station || '', desc: m.desc || '', active: m.active, drink: m.drink || '', crateOf: m.id }));
+        else if (cl && cl.crateOf === m.id) await remove('menu', cl.id);
+      }
+      closeSheet(); render(true); toast(id ? 'Saved' : m.name + ' added to the menu');
+    } };
   if (id) $('#mnDel', sh).onclick = async () => { if (await confirmBox('Delete ' + m.name + ' from the menu?', 'Delete', true)) { await remove('menu', id); closeSheet(); render(true); } };
 };
 

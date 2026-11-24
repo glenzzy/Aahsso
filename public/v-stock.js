@@ -703,6 +703,7 @@ A.priceSet = (el) => {
   const sh = openSheet({ title: 'Change price · ' + p.name, body: '<div class="col">' +
     (seeCost() ? '<div class="hint">' + costWord(true) + ': <b>' + F(x.avgCost) + '</b> per unit</div>' : '') +
     '<div class="grid3">' + field('Selling price (' + baseSym() + ')', inp('pmax', x.priceMax, 'inputmode="numeric" id="psMax"')) + field('Lowest allowed', inp('pmin', x.priceMin, 'inputmode="numeric"')) + field('Wholesale', inp('pws', x.priceWholesale, 'inputmode="numeric"')) + '</div>' +
+    ((p.packs || []).filter((k) => num(k.size) > 1).length ? '<div class="grid3">' + (p.packs || []).map((k, i) => num(k.size) > 1 ? field('Price per ' + esc(k.name || 'pack') + ' of ' + num(k.size) + ' (' + baseSym() + ')', inp('pk' + i, k.price || '', 'inputmode="numeric" placeholder="Not sold by the ' + esc(k.name || 'pack') + '"')) : '').join('') + '</div>' : '') +
     '<div class="hint" id="psMargin"></div>' +
     field('Reason <span class="hint">(optional)</span>', inp('note', '', 'placeholder="e.g. new stock cost more, market price, clearing old stock"')) + '</div>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="psSave">Save price</button>' });
@@ -714,9 +715,10 @@ A.priceSet = (el) => {
     if (!(mx > 0)) return toast('Type the selling price', true);
     if (mn > mx) return toast('The lowest price cannot be above the selling price', true);
     if (ws > mx) return toast('The wholesale price cannot be above the selling price', true);
-    const np = Object.assign({}, p, { priceMax: mx, priceMin: mn || null, priceWholesale: ws || null });
+    const packs = (p.packs || []).map((k, i) => (v['pk' + i] === undefined ? k : Object.assign({}, k, { price: num(v['pk' + i]) > 0 ? num(v['pk' + i]) : null }))); // per crate / case
+    const np = Object.assign({}, p, { priceMax: mx, priceMin: mn || null, priceWholesale: ws || null, packs });
     const logged = withPriceLog(p, np, 'Price change', v.note);
-    if (logged === np) { closeSheet(); return toast('No change'); }
+    if (logged === np && JSON.stringify(packs) === JSON.stringify(p.packs || [])) { closeSheet(); return toast('No change'); }
     if (await save('products', logged)) { closeSheet(); scheduleRender(); reopenHistory(p.id); toast('Price saved · ' + F(mx)); }
   };
 };

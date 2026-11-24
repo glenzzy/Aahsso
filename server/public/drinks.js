@@ -90,7 +90,7 @@ const Drinks = (() => {
     sh.classList.add('dk-sheet');
     try { await SRC.load(); } catch (e) { setSheetBody(sh, '<div class="alert bad">' + esc(e.message) + '</div>'); return; }
     const st = { q: '', cat: '', sel: new Map(), open: null, price: (opt.prices || ['bar'])[0], limit: 60 };
-    const priceOf = (d) => (st.price === 'lounge' ? d.priceLounge : st.price === 'bar' ? d.priceBar : null);
+    const priceOf = (d) => (opt.priceFor && opt.priceFor(d)) || (st.price === 'lounge' ? d.priceLounge : st.price === 'bar' ? d.priceBar : null); // your price first, else the list's
     setSheetBody(sh, '<div class="dk-top"><div class="search">' + ic('search') + '<input class="inp" id="dkQ" placeholder="' + esc(SRC.placeholder) + '" autocomplete="off" aria-label="Search ' + SRC.nouns + '"></div>' +
       '<div class="chips dk-cats" id="dkCats"></div></div><div id="dkList" class="dk-list" role="list"></div>');
     const foot = document.createElement('div'); foot.className = 'sf dk-foot'; sh.querySelector('.sheet').appendChild(foot);

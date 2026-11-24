@@ -152,7 +152,7 @@ function purchaseForm(pre) {
         '<div class="pu-under"><div class="col" style="gap:10px"><button type="button" class="btn sm" data-a="puAdd" style="align-self:flex-start">' + ic('plus', 'sm') + 'Add item</button><span class="hint">Tip: press Enter in the price to add the next item.</span>' +
           '<div id="puSpread" class="hide"><div class="hint mb">Paid one price for the items without a price?</div><div class="row gap6"><input class="inp" id="puLot" inputmode="decimal" placeholder="Total paid" style="width:140px"><button type="button" class="btn sm" data-a="puSpread">Spread it</button></div></div></div>' +
           '<div class="pu-tot"><div class="row between"><span>Items</span><span class="money" id="puSub"></span></div>' +
-            '<div class="row between pu-taxrow"><span class="row gap6"><span>Tax</span><input class="inp" id="puTax" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="Tax"><span class="seg sm" id="puTaxMode"><button type="button" class="on" data-a="puTaxMode" data-v="pct">%</button><button type="button" data-a="puTaxMode" data-v="amt" id="puTaxCur">$</button></span></span><span class="money" id="puTaxV"></span></div>' +
+            '<div class="row between pu-taxrow"><span class="row gap6"><span>Tax</span><input class="inp" id="puTax" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="Tax"><span class="seg sm" id="puTaxMode"><button type="button"' + (st ? '' : ' class="on"') + ' data-a="puTaxMode" data-v="pct">%</button><button type="button"' + (st ? ' class="on"' : '') + ' data-a="puTaxMode" data-v="amt" id="puTaxCur">$</button></span></span><span class="money" id="puTaxV"></span></div>' +
             '<div class="row between hide"><span>Total weight</span><span id="puWt"></span></div><div class="row between pu-grand"><b>Total</b><b class="money" id="puGrand"></b></div><div class="pu-local hint" id="puLocal"></div><div class="hint" id="puTaxHint"></div></div></div></section>' +
       // payment
       '<section class="pu-sec"><h3 class="pu-t3">Payment</h3>' +
@@ -161,7 +161,7 @@ function purchaseForm(pre) {
         '<div id="puPay"></div></section>',
     foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="puSave">Review purchase</button>',
   });
-  sh._rows = pre && pre.rows && pre.rows.length ? pre.rows.map((r) => puRow(r)) : [puRow()]; sh._taxMode = 'pct'; sh._paid = 'paid'; sh._where = 'abroad';
+  sh._rows = pre && pre.rows && pre.rows.length ? pre.rows.map((r) => puRow(r)) : [puRow()]; sh._taxMode = st ? 'amt' : 'pct'; sh._paid = 'paid'; sh._where = 'abroad';
   const cur = () => $('#puCur', sh).value;
   const lineVal = (r) => num(r.qty) * num(r.unitCost);
   const lineTax = () => sh._rows.some((r) => r.taxPct !== '' && r.taxPct !== undefined); // each line its own rate (from an imported receipt)
@@ -177,7 +177,7 @@ function purchaseForm(pre) {
   const totals = () => {
     const s = sums();
     const fx0 = cur() === baseCode() ? 1 : KC.rateOf(S(), cur());
-    $$('#puRows tr[data-r]', sh).forEach((tr) => { const i = +tr.dataset.r, r = sh._rows[i]; const uo = $('[data-out=units]', tr); if (uo) { const n = Math.floor(num(r.qty)) * Math.max(1, Math.floor(num(r.packOf) || 1)); uo.textContent = num(r.packOf) > 1 && n ? '= ' + fmt(n) + ' ' + plural3(r.unitName, n) + ' in stock' : ''; } $('[data-out=total]', tr).textContent = lineVal(r) ? m(lineVal(r)) : '—'; $('[data-out=tax]', tr).textContent = s.shares[i] ? '+ ' + m(s.shares[i]) + ' tax' : ''; const cb = $('#puRows tr[data-c="' + i + '"] [data-out=cost]', sh); if (cb) cb.innerHTML = puCostHTML(r, s.shares[i] || 0, cur(), fx0); });
+    $$('#puRows tr[data-r]', sh).forEach((tr) => { const i = +tr.dataset.r, r = sh._rows[i]; const uo = $('[data-out=units]', tr); if (uo) { const n = Math.floor(num(r.qty)) * Math.max(1, Math.floor(num(r.packOf) || 1)); uo.textContent = num(r.packOf) > 1 && n ? fmt(num(r.qty)) + ' ' + plural3(r.packName, num(r.qty)) + ' = ' + fmt(n) + ' ' + plural3(r.unitName, n) + ' in stock' : r.perCase && n ? fmt(n) + ' ' + plural3(r.unitName, n) + ' (not crates)' : ''; } $('[data-out=total]', tr).textContent = lineVal(r) ? m(lineVal(r)) : '—'; $('[data-out=tax]', tr).textContent = s.shares[i] ? '+ ' + m(s.shares[i]) + ' tax' : ''; const cb = $('#puRows tr[data-c="' + i + '"] [data-out=cost]', sh); if (cb) cb.innerHTML = puCostHTML(r, s.shares[i] || 0, cur(), fx0); });
     const wt = sh._rows.reduce((a, r) => a + num(r.qty) * num(r.weight), 0); const we = $('#puWt', sh); if (we) { we.textContent = wt ? fmtKg(wt) : '—'; we.parentNode.classList.toggle('hide', !wt); }
     const rate = s.sub ? s.tax / s.sub * 100 : 0;
     $('#puSub', sh).textContent = m(s.sub); $('#puTaxV', sh).textContent = m(s.tax); $('#puGrand', sh).textContent = m(s.total);
@@ -186,7 +186,7 @@ function purchaseForm(pre) {
     const lt = lineTax(); $('#puTax', sh).classList.toggle('hide', lt); $('#puTaxMode', sh).classList.toggle('hide', lt);
     $('#puTaxHint', sh).textContent = lt ? 'Tax set on each line (from the file) · change it under ⋯' : s.tax && s.sub ? (sh._taxMode === 'pct' ? '' : (Math.round(rate * 100) / 100) + '% · ') + 'shared over the items by value' : '';
     $('#puPriceH', sh).textContent = 'Price each (' + curSym(cur()) + ')'; $('#puTaxCur', sh).textContent = curSym(cur());
-    $$('#puRows [data-unit]', sh).forEach((u) => (u.textContent = curSym(cur())));
+    $$('#puRows [data-unit]', sh).forEach((u) => (u.textContent = u.dataset.per || curSym(cur()))); // a crate / bottle row: "/crate" (the money is in the column title)
     $('#puSpread', sh).classList.toggle('hide', !(sh._rows.length > 1 && sh._rows.some((r) => r.name && r.unitCost === '')));
     const short = matchMedia('(max-width: 600px)').matches;
     $('#puSave', sh).textContent = s.total ? (short ? 'Review · ' : 'Review purchase · ') + m(s.total) : 'Review purchase';
@@ -194,16 +194,18 @@ function purchaseForm(pre) {
   };
   const rs = typeof isResto === 'function' && isResto(); // Bar & Resto: drinks — no condition, working, shelf price or client
   const byPack = (r) => !!r.perCase && num(r.packOf) > 1;
-  const byHtml = (r, i) => !r.perCase ? '' : '<div class="pu-by"><div class="seg sm" role="group" aria-label="Bought by"><button type="button"' + (byPack(r) ? ' class="on"' : '') + ' data-a="puBy" data-i="' + i + '" data-v="pack" aria-pressed="' + byPack(r) + '">' + esc(r.packName[0].toUpperCase() + r.packName.slice(1)) + 's of ' + r.perCase + '</button><button type="button"' + (byPack(r) ? '' : ' class="on"') + ' data-a="puBy" data-i="' + i + '" data-v="unit" aria-pressed="' + !byPack(r) + '">' + esc(r.unitName[0].toUpperCase() + r.unitName.slice(1)) + 's</button></div><span class="pu-units" data-out="units"></span></div>';
+  const byHtml = (r, i) => !r.perCase ? '' : '<div class="pu-by ' + (byPack(r) ? 'is-pk' : 'is-un') + '"><div class="seg sm" role="group" aria-label="Bought by"><button type="button"' + (byPack(r) ? ' class="on"' : '') + ' data-a="puBy" data-i="' + i + '" data-v="pack" aria-pressed="' + byPack(r) + '">' + esc(r.packName[0].toUpperCase() + r.packName.slice(1)) + 's of ' + r.perCase + '</button><button type="button"' + (byPack(r) ? '' : ' class="on"') + ' data-a="puBy" data-i="' + i + '" data-v="unit" aria-pressed="' + !byPack(r) + '">' + esc(r.unitName[0].toUpperCase() + r.unitName.slice(1)) + 's</button></div><span class="pu-units" data-out="units"></span></div>';
   const qtyL = (r) => (r.perCase ? (byPack(r) ? r.packName[0].toUpperCase() + r.packName.slice(1) + 's' : r.unitName[0].toUpperCase() + r.unitName.slice(1) + 's') : r.unitName ? 'Qty (' + r.unitName + ')' : 'Qty');
   const priceL = (r) => (r.perCase ? 'Price per ' + (byPack(r) ? r.packName : r.unitName) : r.unitName ? 'Price per ' + r.unitName : 'Price each');
-  const unitTag = (r) => (r.unitName && !byPack(r) && !/^(bottle|can|carton)$/.test(r.unitName) ? '<span class="pu-u">' + esc(r.unitName) + '</span>' : ''); // kg, bunch, cube…
+  // crates / bottles: the coloured toggle, "3 crates = 36 bottles in stock" and "/crate" on the price say it (no tag in the narrow quantity box)
+  const unitTag = (r) => (!r.perCase && r.unitName && !/^(bottle|can|carton)$/.test(r.unitName) ? '<span class="pu-u">' + esc(r.unitName) + '</span>' : ''); // kg, bunch, cube…
+  const perTag = (r) => (r.perCase ? '/' + (byPack(r) ? r.packName : r.unitName) : '');
   const rowHtml = (r, i) => '<tr data-r="' + i + '"><td><input class="inp" data-f="name" value="' + esc(r.name) + '" placeholder="' + (typeof isResto === 'function' && isResto() ? 'Search a drink or item' : 'Item name') + '" autocomplete="off" autocapitalize="words" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-label="Item">' + byHtml(r, i) +
       (r.brand || r.model ? '<div class="pu-bm">' + esc([r.brand, r.model].filter(Boolean).join(' · ')) + '</div>' : '') +
       (r.check ? '<div class="pu-check" title="' + esc(r.check) + '">⚠ Check: ' + esc([...new Set((r.check.match(/\[([^\]]+)\]/g) || []).map((x) => x.slice(1, -1)))].join(', ') || 'see notes') + '</div>' : '') + '</td>' +
     '<td data-l="' + qtyL(r) + '"><div class="pu-qw' + (unitTag(r) ? ' has-u' : '') + '"><input class="inp r" data-f="qty" inputmode="decimal" value="' + esc(r.qty) + '" placeholder="' + (r.perCase || r.unitName ? '0' : '') + '" aria-label="' + qtyL(r) + '">' + unitTag(r) + '</div></td>' +
     (st ? '' : '<td data-l="Weight each"><div class="in-unit"><input class="inp r" data-f="weight" inputmode="decimal" value="' + esc(r.weight) + '" placeholder="0" aria-label="Weight of one item in kg"><span>kg</span></div></td>') +
-    '<td data-l="' + priceL(r) + '"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="' + esc(r.hint || '0') + '" aria-label="' + priceL(r) + '"><span data-unit>' + esc(curSym(cur())) + '</span></div></td>' +
+    '<td data-l="' + priceL(r) + '"><div class="in-unit"><input class="inp r" data-f="unitCost" inputmode="decimal" value="' + esc(r.unitCost) + '" placeholder="' + esc(r.hint || '0') + '" aria-label="' + priceL(r) + '"><span data-unit data-per="' + esc(perTag(r)) + '">' + esc(perTag(r) || curSym(cur())) + '</span></div></td>' +
     '<td class="r pu-ltot" data-l="Total"><b class="money" data-out="total">—</b><span class="pu-tx" data-out="tax"></span></td>' +
     '<td class="nowrap r"><button type="button" class="icon-btn' + (r.open ? ' on' : '') + '" data-a="puMore" data-i="' + i + '" title="Category, condition, expiry, barcode, photo…" aria-label="Item details">' + ic('more', 'sm') + '</button><button type="button" class="icon-btn" data-a="puRm" data-i="' + i + '" aria-label="Remove item">' + ic('x', 'sm') + '</button></td></tr>' +
     '<tr class="pu-cost" data-c="' + i + '"><td colspan="' + (st ? 5 : 6) + '"><div class="pu-cb" data-out="cost"></div></td></tr>' +
@@ -563,7 +565,7 @@ function puFill(sh, lines, intro) {
   }
   const rates = [...new Set(lines.map((l) => l.taxPct).filter((t) => t !== ''))];
   const perLine = rates.length > 1; // different rates on different lines: each line keeps its own
-  if (!perLine && rates.length && num(rates[0]) > 0 && !$('#puTax', sh).value) $('#puTax', sh).value = rates[0];
+  if (!perLine && rates.length && num(rates[0]) > 0 && !$('#puTax', sh).value) { if (sh._taxMode !== 'pct') A.puTaxMode($('#puTaxMode [data-v=pct]', sh)); $('#puTax', sh).value = rates[0]; } // a rate from the file
   sh._rows = sh._rows.filter((r) => r.name.trim()).concat(lines.map((l) => puRow({ name: l.name, brand: l.brand, model: l.model, taxPct: perLine ? l.taxPct || '0' : '', check: l.check, category: l.category, subcategory: l.subcategory, qty: String(l.qty), unitCost: l.unitCost === '' ? '' : String(num(l.unitCost)), condition: l.condition, regularPrice: l.regularPrice === '' ? '' : String(l.regularPrice), weight: l.weight === '' ? '' : String(l.weight), packOf: String(l.packOf), expiry: l.expiry, barcode: l.barcode, notes: l.notes, unit: l.unit, size: l.size, sizeUnit: l.sizeUnit })));
   sh._draw();
   const noPrice = lines.filter((l) => l.unitCost === '').length;

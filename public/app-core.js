@@ -231,8 +231,9 @@ async function save(col, obj) {
   const logIt = (off) => logActivity(col, prevCopy, JSON.parse(JSON.stringify(obj)), off);
   if (col !== 'settings') { const arr = K.raw[col]; const i = arr.findIndex((x) => x.id === obj.id); if (i >= 0) arr[i] = obj; else arr.push(obj); recompute(); }
   const copy = JSON.parse(JSON.stringify(obj));
-  if (K.outbox.length || navigator.onLine === false) { enqueue(col, obj.id, copy); flushOutbox(); cacheSoon(); logIt(true); return true; }
-  try { await putWithApprovals(col, obj, copy); cacheSoon(); logIt(); return true; }
+  const after = () => { if (col === 'products' && typeof syncMenuPrices === 'function' && (!prevCopy || prevCopy.priceMax !== obj.priceMax || JSON.stringify(prevCopy.packs || []) !== JSON.stringify(obj.packs || []))) syncMenuPrices(obj); }; // one selling price everywhere
+  if (K.outbox.length || navigator.onLine === false) { enqueue(col, obj.id, copy); flushOutbox(); cacheSoon(); logIt(true); after(); return true; }
+  try { await putWithApprovals(col, obj, copy); cacheSoon(); logIt(); after(); return true; }
   catch (e) {
     if (e && e.code === 'not_approved') { if (K.store._refresh) K.store._refresh(col); toast('Not saved — no manager approved it', true); return false; }
     if (isNetErr(e)) { enqueue(col, obj.id, copy); toast('Saved on this phone — will sync when the network is back'); cacheSoon(); logIt(true); return true; }

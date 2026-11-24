@@ -256,7 +256,10 @@ A.lvDecide = async (el) => {
 };
 
 /* ================= EMPLOYEE FILES ================= */
-const payLabel = (p) => p && num(p.rate) ? F(p.rate) + ' / ' + ({ monthly: 'month', daily: 'day', hourly: 'hour' }[p.type || 'monthly']) : '';
+const payLabel = (p) => p && num(p.rate) ? F(p.rate) + ' / ' + ({ monthly: 'month', weekly: 'week', daily: 'day', hourly: 'hour' }[p.type || 'monthly']) + (['daily', 'hourly'].includes(p.type) && KC.payEvery(p) === 'week' ? ' · paid weekly' : '') : '';
+/** a pay period's name: 'November 2026', or 'week 23 Nov – 29 Nov 2026' */
+const periodLabel = (p) => (KC.isWeekKey(p) ? 'week ' + fmtDate(p).replace(/ \d{4}$/, '') + ' – ' + fmtDate(KC.addDays(p, 6)) : monthLabel(p));
+const thisWeek = () => KC.weekOf(todayStr());
 VIEWS.employees = {
   render() {
     const rows = roster(K.ui.empAll);
@@ -279,24 +282,26 @@ A.empOpen = (el) => empSheet(staffFile(el.dataset.id));
 function empSheet(f0) {
   const f = Object.assign({}, f0); const p = Object.assign({ type: 'monthly', rate: '', overtime: false }, f.pay || {}); const R = KC.staffRules(S());
   const sh = openSheet({ title: f._new && f._manual ? 'Add an employee' : f.name || 'Employee', body: '', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn pri grow" id="empSave">Save</button>' });
-  const rateLbl = (t) => ({ monthly: 'Monthly salary', daily: 'Pay per day worked', hourly: 'Pay per hour worked' }[t]) + ' (' + baseSym() + ')';
+  const rateLbl = (t) => ({ monthly: 'Monthly salary', weekly: 'Pay per week', daily: 'Pay per day worked', hourly: 'Pay per hour worked' }[t]) + ' (' + baseSym() + ')';
+  const everyHtml = (t) => (['daily', 'hourly'].includes(t) ? field('Paid every', sel('pEvery', [['month', 'Month'], ['week', 'Week (Monday – Sunday)']], KC.payEvery(Object.assign({}, p, { type: t })))) : '<div class="hint" style="align-self:end">' + (t === 'weekly' ? 'Paid every week, Monday – Sunday.' : 'Paid every month.') + '</div>');
   setSheetBody(sh, '<div class="col">' +
     '<div class="grid2">' + field('Name', inp('eName', f.name || '', f.userId ? 'disabled title="Change the name in Team"' : '')) + field('Job / title', inp('eTitle', f.title || '', 'placeholder="e.g. Cashier, Driver, Warehouse"')) + '</div>' +
     '<div class="grid2">' + field('Phone', inp('ePhone', f.phone || '', 'inputmode="tel"')) + field('Start date', '<input type="date" class="inp" name="eStart" value="' + esc(f.startDate || '') + '">') + '</div>' +
     (allLocs().length > 1 ? field('Works at', sel('eLoc', allLocs().map((l) => [l.id, l.name]), f.locationId || 'main')) : '') +
     '<div class="tiny muted">' + (f.userId ? 'Has a login — clocks in from the app.' : 'No login — a manager records their time in Attendance.') + '</div>' +
     (can('payroll') ? '<div class="card pad"><h3 class="mb">Pay</h3><div class="grid2">' + field('Paid by', sel('pType', KC.PAY_TYPES, p.type, 'id="pType"')) + field('<span id="pRateL">' + rateLbl(p.type) + '</span>', inp('pRate', p.rate || '', 'inputmode="numeric"')) + '</div>' +
+      '<div class="grid2" id="pEveryW">' + everyHtml(p.type) + '<span></span></div>' +
       '<div class="grid2">' + field('Hours in a normal day', inp('pHours', p.hoursPerDay || '', 'inputmode="decimal" placeholder="' + R.hoursPerDay + '"')) + field('Overtime pay rate', inp('pOtRate', p.overtimeRate || '', 'inputmode="decimal" placeholder="× ' + R.overtimeRate + '"')) + '</div>' +
       '<label class="toggle"><input type="checkbox" name="pOt"' + (p.overtime ? ' checked' : '') + '>Pay overtime (hours beyond a normal day)</label></div>' : '') +
     field('Paid vacation days per year', inp('eLeave', f.leavePerYear || '', 'inputmode="decimal" placeholder="' + R.leavePerYear + ' (business default)"')) +
     field('Notes', inp('eNotes', f.notes || '')) +
     (!(f._new && f._manual) ? '<label class="toggle"><input type="checkbox" name="eActive"' + (f.active === false ? '' : ' checked') + '>Still works here</label>' : '') + '</div>');
-  if ($('#pType', sh)) $('#pType', sh).onchange = (e) => ($('#pRateL', sh).textContent = rateLbl(e.target.value));
+  if ($('#pType', sh)) $('#pType', sh).onchange = (e) => { $('#pRateL', sh).textContent = rateLbl(e.target.value); $('#pEveryW', sh).innerHTML = everyHtml(e.target.value) + '<span></span>'; };
   $('#empSave', sh).onclick = async () => {
     const v = formVals(sh); const name = f.userId ? f.name : v.eName;
     if (!name) return toast('Type a name', true);
     const doc = Object.assign({}, f, { name, title: v.eTitle, phone: v.ePhone, startDate: v.eStart, locationId: v.eLoc || f.locationId || 'main', leavePerYear: v.eLeave === '' ? null : num(v.eLeave), notes: v.eNotes, active: v.eActive === undefined ? true : v.eActive });
-    if (can('payroll')) doc.pay = { type: v.pType, rate: num(v.pRate), hoursPerDay: v.pHours === '' ? null : num(v.pHours), overtime: !!v.pOt, overtimeRate: v.pOtRate === '' ? null : num(v.pOtRate.replace(/[^\d.]/g, '')) };
+    if (can('payroll')) doc.pay = { type: v.pType, every: v.pType === 'weekly' ? 'week' : v.pType === 'monthly' ? 'month' : v.pEvery || 'month', rate: num(v.pRate), hoursPerDay: v.pHours === '' ? null : num(v.pHours), overtime: !!v.pOt, overtimeRate: v.pOtRate === '' ? null : num(v.pOtRate.replace(/[^\d.]/g, '')) };
     delete doc._new; delete doc._manual;
     if (await save('staff', doc)) { closeSheet(); scheduleRender(); toast('Saved'); }
   };
@@ -310,14 +315,18 @@ const slipBadge = (s) => s.status === 'paid' ? '<span class="badge ok">Paid ' + 
 VIEWS.payroll = {
   render() {
     if (!can('payroll')) return myPay();
-    const m = K.ui.payMonth || monthStr();
-    const all = roster(); const withPay = all.filter((f) => !f._new && num((f.pay || {}).rate) > 0); const noPay = all.filter((f) => !withPay.includes(f));
+    const all = roster(); const paid0 = all.filter((f) => !f._new && num((f.pay || {}).rate) > 0); const noPay = all.filter((f) => !paid0.includes(f));
+    const anyWeekly = paid0.some((f) => KC.payEvery(f.pay) === 'week'), anyMonthly = paid0.some((f) => KC.payEvery(f.pay) !== 'week');
+    const wk = anyWeekly && (K.ui.payEvery === 'week' || !anyMonthly); const m = wk ? K.ui.payWeek || thisWeek() : K.ui.payMonth || monthStr();
+    const withPay = paid0.filter((f) => (KC.payEvery(f.pay) === 'week') === wk);
     const rows = withPay.map((f) => ({ f, s: slipFor(f, m) }));
-    const adv = K.raw.payroll.filter((p) => p.type === 'advance' && (p.deductMonth || String(p.date).slice(0, 7)) === m && p.status !== 'cancelled');
+    const adv = K.raw.payroll.filter((p) => p.type === 'advance' && p.status !== 'cancelled' && (wk ? p.deductWeek === m || (!p.deductWeek && KC.inPeriod(p.date, m) && withPay.some((f) => f.id === p.staffId)) : !p.deductWeek && (p.deductMonth || String(p.date).slice(0, 7)) === m));
+    const weeks = Array.from({ length: 26 }, (_, i) => KC.addDays(thisWeek(), -7 * i));
     const net = rows.reduce((a, r) => a + r.s.net, 0), paid = rows.filter((r) => r.s.status === 'paid');
-    let html = '<div class="row wrap between mb"><div class="row wrap"><input type="month" class="inp" style="width:auto" value="' + m + '" data-c="payMonth"><button class="btn" data-a="advNew">' + ic('wallet') + 'Give an advance</button>' + (rows.length && can('export') ? '<button class="btn" data-a="payXlsx">' + ic('dl') + 'Excel</button>' : '') + '</div></div>' +
-      statChips([['To pay in ' + monthLabel(m), F(net)], ['Paid', paid.length + ' / ' + rows.length, paid.length === rows.length && rows.length ? 'ok' : ''], ['Advances this month', F(adv.reduce((a, p) => a + num(p.amount), 0))]]);
-    html += '<div class="mt mb">' + dataTable({ id: 'payList', rows, noun: 'payslip', empty: 'Set each person\'s pay in <a href="#employees">Employees</a> to start.', rowAttr: (r) => ' data-a="payOpen" data-id="' + r.f.id + '"',
+    let html = (anyWeekly && anyMonthly ? '<div class="seg mb">' + [['month', 'Monthly pay'], ['week', 'Weekly pay']].map(([k, l]) => '<button class="' + ((k === 'week') === wk ? 'on' : '') + '" data-a="payEvery" data-v="' + k + '">' + l + '</button>').join('') + '</div>' : '') +
+      '<div class="row wrap between mb"><div class="row wrap">' + (wk ? '<select class="inp" style="width:auto" data-c="payWeek" aria-label="Week">' + (weeks.includes(m) ? weeks : [m].concat(weeks)).map((w) => '<option value="' + w + '"' + (w === m ? ' selected' : '') + '>' + esc((w === thisWeek() ? 'This week · ' : '') + periodLabel(w)) + '</option>').join('') + '</select>' : '<input type="month" class="inp" style="width:auto" value="' + m + '" data-c="payMonth">') + '<button class="btn" data-a="advNew">' + ic('wallet') + 'Give an advance</button>' + (rows.length && can('export') ? '<button class="btn" data-a="payXlsx">' + ic('dl') + 'Excel</button>' : '') + '</div></div>' +
+      statChips([['To pay for ' + periodLabel(m), F(net)], ['Paid', paid.length + ' / ' + rows.length, paid.length === rows.length && rows.length ? 'ok' : ''], ['Advances ' + (wk ? 'this week' : 'this month'), F(adv.reduce((a, p) => a + num(p.amount), 0))]]);
+    html += '<div class="mt mb">' + dataTable({ id: 'payList', rows, noun: 'payslip', empty: 'Set each person\'s pay in <a href="#employees">Employees</a> to start.', rowAttr: (r) => ' data-a="slipOpen" data-id="' + r.f.id + '"',
       cols: [
         { k: 'n', label: 'Name', core: true, v: (r) => r.f.name },
         { k: 'p', label: 'Pay', v: (r) => r.s.rate, html: (r) => payLabel(r.f.pay) },
@@ -328,28 +337,33 @@ VIEWS.payroll = {
         { k: 's', label: 'Status', core: true, v: (r) => r.s.status || 'z', html: (r) => slipBadge(r.s) },
       ] }) + '</div>';
     if (noPay.length) html += '<p class="hint">No pay set yet for: ' + noPay.map((f) => '<a href="#" data-a="empOpen" data-id="' + f.id + '">' + esc(f.name) + '</a>').join(', ') + '.</p>';
-    if (adv.length) html += '<h2 class="mb mt2">Advances deducted in ' + monthLabel(m) + '</h2>' + dataTable({ id: 'advList', rows: adv, noun: 'advance', rowAttr: (p) => ' data-a="advOpen" data-id="' + p.id + '"', cols: [
+    if (adv.length) html += '<h2 class="mb mt2">Advances deducted for ' + periodLabel(m) + '</h2>' + dataTable({ id: 'advList', rows: adv, noun: 'advance', rowAttr: (p) => ' data-a="advOpen" data-id="' + p.id + '"', cols: [
       { k: 'n', label: 'Who', core: true, v: (p) => p.staffName || staffName(p.staffId) }, { k: 'd', label: 'Given', core: true, v: (p) => p.date, html: (p) => fmtDate(p.date) },
       { k: 'a', label: 'Amount', core: true, money: true, v: (p) => num(p.amount) }, { k: 'm', label: 'Paid by', v: (p) => p.method || '' }, { k: 'no', label: 'Note', v: (p) => p.note || '', cls: 'mut' }] });
     return html;
   },
 };
 CH.payMonth = (el) => { K.ui.payMonth = el.value || monthStr(); render(true); };
+CH.payWeek = (el) => { K.ui.payWeek = el.value || thisWeek(); render(true); };
+A.payEvery = (el) => { K.ui.payEvery = el.dataset.v; render(true); };
+/** the period being looked at in Payroll, for this person: the week or the month */
+const payPeriodFor = (f) => (KC.payEvery(f.pay) === 'week' ? K.ui.payWeek || thisWeek() : K.ui.payMonth || monthStr());
 function myPay() {
   const sid = meStaffId();
   const slips = K.raw.payroll.filter((p) => p.staffId === sid && p.type !== 'advance' && p.status === 'paid').sort((a, b) => b.month.localeCompare(a.month));
   const adv = K.raw.payroll.filter((p) => p.staffId === sid && p.type === 'advance' && p.status !== 'cancelled').sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
   return '<h2 class="mb">My payslips</h2>' + dataTable({ id: 'mySlips', rows: slips, noun: 'payslip', empty: 'No payslips yet.', rowAttr: (p) => ' data-a="payView" data-id="' + p.id + '"', cols: [
-    { k: 'm', label: 'Month', core: true, v: (p) => p.month, html: (p) => monthLabel(p.month) }, { k: 'g', label: 'Gross', money: true, v: (p) => p.gross },
+    { k: 'm', label: 'Period', core: true, v: (p) => p.month, html: (p) => periodLabel(p.month) }, { k: 'g', label: 'Gross', money: true, v: (p) => p.gross },
     { k: 'd', label: 'Deductions', money: true, v: (p) => p.deductionsTotal }, { k: 'n', label: 'Net pay', core: true, money: true, v: (p) => p.net }, { k: 'p', label: 'Paid', core: true, v: (p) => p.paidAt, html: (p) => fmtDate(String(p.paidAt).slice(0, 10)) }] }) +
-    (adv.length ? '<h2 class="mb mt2">My advances</h2>' + dataTable({ id: 'myAdv', rows: adv, noun: 'advance', cols: [{ k: 'd', label: 'Given', core: true, v: (p) => p.date, html: (p) => fmtDate(p.date) }, { k: 'a', label: 'Amount', core: true, money: true, v: (p) => num(p.amount) }, { k: 'm', label: 'Taken from pay of', core: true, v: (p) => monthLabel(p.deductMonth || p.date.slice(0, 7)) }] }) : '');
+    (adv.length ? '<h2 class="mb mt2">My advances</h2>' + dataTable({ id: 'myAdv', rows: adv, noun: 'advance', cols: [{ k: 'd', label: 'Given', core: true, v: (p) => p.date, html: (p) => fmtDate(p.date) }, { k: 'a', label: 'Amount', core: true, money: true, v: (p) => num(p.amount) }, { k: 'm', label: 'Taken from pay of', core: true, v: (p) => periodLabel(p.deductWeek || p.deductMonth || p.date.slice(0, 7)) }] }) : '');
 }
 A.payView = (el) => slipSheet(byId('payroll', el.dataset.id), true);
-A.payOpen = (el) => { const f = staffFile(el.dataset.id); const m = K.ui.payMonth || monthStr(); const saved = byId('payroll', slipId(m, f.id)); slipSheet(saved && saved.status === 'paid' ? saved : null, false, f, m); };
+/* (not "payOpen": that name opens a plan payment in Billing, which loads later and took over this one) */
+A.slipOpen = (el) => { const f = staffFile(el.dataset.id); const m = payPeriodFor(f); const saved = byId('payroll', slipId(m, f.id)); slipSheet(saved && saved.status === 'paid' ? saved : null, false, f, m); };
 function slipLines(list, cls) { return list.map((x) => '<div class="row between cl ' + (cls || '') + '"><span>' + esc(x.label) + '</span><span class="money">' + fmt(x.amount) + '</span></div>').join(''); }
 function slipSheet(paid, readOnly, f, m) {
   if (paid) {
-    const sh = openSheet({ title: 'Payslip · ' + (paid.staffName || staffName(paid.staffId)) + ' · ' + monthLabel(paid.month), body: slipSummary(paid) + '<div class="alert info mt">Paid on ' + esc(fmtDate(String(paid.paidAt).slice(0, 10))) + (paid.payMethod ? ' by ' + esc(paid.payMethod) : '') + (paid.paidBy ? ' · ' + esc(paid.paidBy) : '') + '</div>',
+    const sh = openSheet({ title: 'Payslip · ' + (paid.staffName || staffName(paid.staffId)) + ' · ' + periodLabel(paid.month), body: slipSummary(paid) + '<div class="alert info mt">Paid on ' + esc(fmtDate(String(paid.paidAt).slice(0, 10))) + (paid.payMethod ? ' by ' + esc(paid.payMethod) : '') + (paid.paidBy ? ' · ' + esc(paid.paidBy) : '') + '</div>',
       foot: (!readOnly && can('payroll') ? '<button class="btn" id="psUndo">Undo payment</button>' : '') + '<button class="btn grow" data-a="sheetClose">Close</button><button class="btn pri grow" id="psPdf">' + ic('dl') + 'PDF</button>' });
     $('#psPdf', sh).onclick = () => payslipPDF(paid);
     if ($('#psUndo', sh)) $('#psUndo', sh).onclick = async () => {
@@ -361,17 +375,17 @@ function slipSheet(paid, readOnly, f, m) {
   }
   const saved = byId('payroll', slipId(m, f.id)); const o = payOpts(saved);
   const extra = { earnings: (o.extra.earnings || []).slice(), deductions: (o.extra.deductions || []).slice() };
-  const sh = openSheet({ title: 'Pay · ' + f.name + ' · ' + monthLabel(m), wide: true, body: '',
+  const sh = openSheet({ title: 'Pay · ' + f.name + ' · ' + periodLabel(m), wide: true, body: '',
     foot: '<button class="btn" id="psDraft">Save draft</button><button class="btn grow" id="psPdf">' + ic('dl') + 'PDF</button><button class="btn pri grow" id="psPay">' + ic('check') + 'Mark as paid</button>' });
   const calc = () => KC.payslipDraft(K.raw, f, m, S(), { deductAbsences: o.deductAbsences, deductShortages: o.deductShortages, extra }, nowIso());
   const exRows = (k) => extra[k].map((x, i) => '<div class="ps-ex"><input class="inp" data-ex="' + k + '" data-i="' + i + '" data-f="label" value="' + esc(x.label || '') + '" placeholder="' + (k === 'earnings' ? 'Bonus, commission, transport…' : 'Loan, damage, other…') + '"><input class="inp price-in" inputmode="numeric" data-ex="' + k + '" data-i="' + i + '" data-f="amount" value="' + esc(x.amount || '') + '"><button type="button" class="btn ghost sm" data-exrm="' + k + '" data-i="' + i + '">' + ic('x', 'sm') + '</button></div>').join('');
   const draw = () => {
     const p = calc(); const x = p.stats;
     setSheetBody(sh, statChips([['Worked', p.payType === 'hourly' ? x.hours + ' h' : x.worked + ' / ' + x.scheduled + ' days'], ['Late', x.late, x.late ? 'warn' : ''], ['Absent', x.tracked ? x.absent : '—', x.absent && x.tracked ? 'bad' : ''], ['Leave', x.paidLeave + x.unpaidLeave + ' days'], ['Overtime', x.overtimeH + ' h']]) +
-      (!x.tracked ? '<div class="alert mt small">No clock-ins this month — days worked and absences can\'t be counted from Attendance.</div>' : '') +
+      (!x.tracked ? '<div class="alert mt small">No clock-ins this ' + (KC.isWeekKey(m) ? 'week' : 'month') + '  — days worked and absences can\'t be counted from Attendance.</div>' : '') +
       '<div class="ps-grid mt"><div class="card pad"><h3 class="mb">Earnings</h3>' + slipLines(p.earnings.filter((e) => e.auto)) + '<div class="ps-exs" id="exE">' + exRows('earnings') + '</div><button type="button" class="btn sm mt" data-exadd="earnings">' + ic('plus', 'sm') + 'Bonus or other pay</button><div class="row between b cl mt"><span>Gross</span><span class="money">' + fmt(p.gross) + '</span></div></div>' +
       '<div class="card pad"><h3 class="mb">Deductions</h3>' + (p.deductions.filter((e) => e.auto).length ? slipLines(p.deductions.filter((e) => e.auto)) : '<div class="muted small">None</div>') + '<div class="ps-exs">' + exRows('deductions') + '</div><button type="button" class="btn sm mt" data-exadd="deductions">' + ic('plus', 'sm') + 'Other deduction</button>' +
-      (p.payType === 'monthly' && x.absent && x.tracked ? '<label class="toggle mt"><input type="checkbox" id="psAbs"' + (o.deductAbsences ? ' checked' : '') + '>Deduct ' + x.absent + ' absent day' + (x.absent === 1 ? '' : 's') + ' (' + F(x.absent * p.dayRate) + ')</label>' : '') +
+      (['monthly', 'weekly'].includes(p.payType) && x.absent && x.tracked ? '<label class="toggle mt"><input type="checkbox" id="psAbs"' + (o.deductAbsences ? ' checked' : '') + '>Deduct ' + x.absent + ' absent day' + (x.absent === 1 ? '' : 's') + ' (' + F(x.absent * p.dayRate) + ')</label>' : '') +
       (f.userId ? '<label class="toggle"><input type="checkbox" id="psShort"' + (o.deductShortages ? ' checked' : '') + '>Deduct confirmed cash and stock shortages</label>' : '') +
       '<div class="row between b cl mt"><span>Total deductions</span><span class="money">' + fmt(p.deductionsTotal) + '</span></div></div></div>' +
       '<div class="card pad mt ps-net"><div class="row between"><span class="b">Net pay</span><b class="money big">' + F(p.net) + '</b></div></div>' +
@@ -393,9 +407,9 @@ function slipSheet(paid, readOnly, f, m) {
   $('#psPdf', sh).onclick = () => payslipPDF(record(saved ? saved.status : 'draft', formVals(sh)));
   $('#psPay', sh).onclick = async () => {
     const v = formVals(sh); const p = calc();
-    if (!(await confirmBox('Pay ' + f.name + ' ' + F(p.net) + ' for ' + monthLabel(m) + ' by ' + v.psMethod + '? It is recorded as a salary expense.', 'Mark as paid'))) return;
+    if (!(await confirmBox('Pay ' + f.name + ' ' + F(p.net) + ' for ' + periodLabel(m) + ' by ' + v.psMethod + '? It is recorded as a salary expense.', 'Mark as paid'))) return;
     const expId = uid('e_');
-    const ok = await save('expenses', { id: expId, date: v.psDate || todayStr(), category: 'Salaries & wages', amount: p.net, method: v.psMethod, description: 'Salary ' + monthLabel(m) + ' — ' + f.name, stage: 'general', locationId: f.locationId || K.loc, by: K.me.name || '', byId: K.me.id || '', payrollId: slipId(m, f.id) });
+    const ok = await save('expenses', { id: expId, date: v.psDate || todayStr(), category: 'Salaries & wages', amount: p.net, method: v.psMethod, description: 'Salary ' + periodLabel(m) + ' — ' + f.name, stage: 'general', locationId: f.locationId || K.loc, by: K.me.name || '', byId: K.me.id || '', payrollId: slipId(m, f.id) });
     if (!ok) return;
     if (await save('payroll', Object.assign(record('paid', v), { paidAt: (v.psDate || todayStr()) + 'T' + new Date().toTimeString().slice(0, 8), paidBy: K.me.name || '', expenseId: expId }))) { closeSheet(); scheduleRender(); toast('Paid — ' + F(p.net) + ' recorded as a salary expense'); }
   };
@@ -414,8 +428,8 @@ function payslipPDF(p) {
   y += 3; doc.setDrawColor(200); doc.line(12, y, W - 12, y); y += 6;
   doc.setFontSize(9);
   const kv = (k, v, x) => { doc.setTextColor(120); doc.text(k, x, y); doc.setTextColor(20); doc.text(String(v || '—'), x + 26, y); };
-  kv('Employee', p.staffName || f.name, 12); kv('Month', monthLabel(p.month), 80); y += 5;
-  kv('Job', f.title, 12); kv('Pay', ({ monthly: 'Monthly', daily: 'Daily', hourly: 'Hourly' }[p.payType]) + ' · ' + fmt(p.rate), 80); y += 5;
+  kv('Employee', p.staffName || f.name, 12); kv(KC.isWeekKey(p.month) ? 'Week' : 'Month', periodLabel(p.month).replace(/^week /, ''), 80); y += 5;
+  kv('Job', f.title, 12); kv('Pay', ({ monthly: 'Monthly', weekly: 'Weekly', daily: 'Daily', hourly: 'Hourly' }[p.payType]) + ' · ' + fmt(p.rate), 80); y += 5;
   const x = p.stats || {}; kv('Worked', p.payType === 'hourly' ? x.hours + ' h' : (x.worked || 0) + ' of ' + (x.scheduled || 0) + ' days', 12); kv('Leave', (x.paidLeave || 0) + (x.unpaidLeave || 0) + ' days', 80); y += 8;
   const block = (title, list, total, label) => {
     doc.setFont('helvetica', 'bold'); doc.text(title, 12, y); y += 5; doc.setFont('helvetica', 'normal');
@@ -440,27 +454,31 @@ function advSheet(a) {
   const sh = openSheet({ title: a ? 'Advance · ' + (a.staffName || staffName(a.staffId)) : 'Give a salary advance', body: '<div class="col">' +
     field('Who', sel('aWho', ppl.map((f) => [f.id, f.name]), v0.staffId || '', a ? 'disabled' : '')) +
     '<div class="grid2">' + field('Amount (' + baseSym() + ')', inp('aAmount', v0.amount || '', 'inputmode="numeric"' + (a ? ' disabled' : ''))) + field('Date', '<input type="date" class="inp" name="aDate" value="' + esc(v0.date) + '"' + (a ? ' disabled' : '') + '>') + '</div>' +
-    '<div class="grid2">' + field('Paid by', sel('aMethod', ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer'], v0.method, a ? 'disabled' : '')) + field('Take it back from the pay of', '<input type="month" class="inp" name="aMonth" value="' + esc(v0.deductMonth || monthStr()) + '">') + '</div>' +
+    '<div class="grid2">' + field('Paid by', sel('aMethod', ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer'], v0.method, a ? 'disabled' : '')) + '<div id="aWhenW"></div></div>' +
     field('Note', inp('aNote', v0.note || '', 'placeholder="e.g. school fees"')) + '<div class="tiny muted">Recorded as a salary expense now, and deducted automatically from that month\'s payslip.</div></div>',
     foot: (a ? '<button class="btn danger" id="aDel">Cancel advance</button>' : '') + '<button class="btn grow" data-a="sheetClose">Close</button><button class="btn pri grow" id="aSave">Save</button>' });
+  const weeklyOf = (sid) => { const f = staffFile(sid); return !!f && KC.payEvery(f.pay) === 'week'; };
+  const whenHtml = (sid) => weeklyOf(sid) ? field('Take it back from the pay of', sel('aWeek', Array.from({ length: 8 }, (_, i) => KC.addDays(thisWeek(), 7 * i)).map((w) => [w, periodLabel(w)]), v0.deductWeek || KC.weekOf(v0.date || todayStr())))
+    : field('Take it back from the pay of', '<input type="month" class="inp" name="aMonth" value="' + esc(v0.deductMonth || monthStr()) + '">');
+  const drawWhen = () => { $('#aWhenW', sh).innerHTML = whenHtml($('[name=aWho]', sh).value); }; drawWhen(); $('[name=aWho]', sh).onchange = drawWhen;
   $('#aSave', sh).onclick = async () => {
-    const v = formVals(sh);
-    if (a) { if (await save('payroll', Object.assign({}, a, { deductMonth: v.aMonth, note: v.aNote }))) { closeSheet(); scheduleRender(); } return; }
+    const v = formVals(sh); const when = v.aWeek ? { deductWeek: v.aWeek, deductMonth: v.aWeek.slice(0, 7) } : { deductWeek: null, deductMonth: v.aMonth || monthStr() };
+    if (a) { if (await save('payroll', Object.assign({}, a, when, { note: v.aNote }))) { closeSheet(); scheduleRender(); } return; }
     const amount = num(v.aAmount); if (!amount) return toast('Enter the amount', true);
     const f = staffFile(v.aWho); const expId = uid('e_'); const id = uid('adv_');
     if (!(await save('expenses', { id: expId, date: v.aDate || todayStr(), category: 'Salaries & wages', amount, method: v.aMethod, description: 'Salary advance — ' + f.name + (v.aNote ? ' (' + v.aNote + ')' : ''), stage: 'general', locationId: f.locationId || K.loc, by: K.me.name || '', byId: K.me.id || '', payrollId: id }))) return;
-    if (await save('payroll', { id, type: 'advance', staffId: f.id, staffName: f.name, date: v.aDate || todayStr(), amount, method: v.aMethod, deductMonth: v.aMonth || monthStr(), note: v.aNote, expenseId: expId, by: K.me.name || '' })) { closeSheet(); scheduleRender(); toast('Advance of ' + F(amount) + ' recorded'); }
+    if (await save('payroll', { id, type: 'advance', staffId: f.id, staffName: f.name, date: v.aDate || todayStr(), amount, method: v.aMethod, ...when, note: v.aNote, expenseId: expId, by: K.me.name || '' })) { closeSheet(); scheduleRender(); toast('Advance of ' + F(amount) + ' recorded'); }
   };
   if ($('#aDel', sh)) $('#aDel', sh).onclick = async () => {
-    const slip = byId('payroll', slipId(a.deductMonth || a.date.slice(0, 7), a.staffId));
-    if (slip && slip.status === 'paid') return toast('That month is already paid — undo the payslip first', true);
+    const slip = byId('payroll', slipId(a.deductWeek || a.deductMonth || a.date.slice(0, 7), a.staffId));
+    if (slip && slip.status === 'paid') return toast('That pay is already paid — undo the payslip first', true);
     if (!(await confirmBox('Cancel this advance? Its expense is removed.', 'Cancel advance', true))) return;
     if (a.expenseId && byId('expenses', a.expenseId)) await remove('expenses', a.expenseId);
     if (await save('payroll', Object.assign({}, a, { status: 'cancelled' }))) { closeSheet(); scheduleRender(); }
   };
 }
 A.payXlsx = () => {
-  const m = K.ui.payMonth || monthStr();
-  const rows = roster().filter((f) => !f._new && num((f.pay || {}).rate) > 0).map((f) => { const s = slipFor(f, m); return { Name: f.name, Job: f.title || '', Pay: payLabel(f.pay), 'Days worked': s.stats.worked, Hours: s.stats.hours, Late: s.stats.late, Absent: s.stats.absent, 'Leave days': s.stats.paidLeave + s.stats.unpaidLeave, Gross: s.gross, Deductions: s.deductionsTotal, 'Net pay': s.net, Status: s.status || 'not saved', 'Paid on': s.paidAt ? String(s.paidAt).slice(0, 10) : '' }; });
+  const wk = K.ui.payEvery === 'week' || !roster().some((f) => !f._new && num((f.pay || {}).rate) > 0 && KC.payEvery(f.pay) !== 'week'); const m = wk ? K.ui.payWeek || thisWeek() : K.ui.payMonth || monthStr();
+  const rows = roster().filter((f) => !f._new && num((f.pay || {}).rate) > 0 && (KC.payEvery(f.pay) === 'week') === wk).map((f) => { const s = slipFor(f, m); return { Name: f.name, Job: f.title || '', Pay: payLabel(f.pay), 'Days worked': s.stats.worked, Hours: s.stats.hours, Late: s.stats.late, Absent: s.stats.absent, 'Leave days': s.stats.paidLeave + s.stats.unpaidLeave, Gross: s.gross, Deductions: s.deductionsTotal, 'Net pay': s.net, Status: s.status || 'not saved', 'Paid on': s.paidAt ? String(s.paidAt).slice(0, 10) : '' }; });
   xlsxDownload('Payroll-' + m + '.xlsx', { Payroll: rows });
 };

@@ -583,7 +583,7 @@ const FAQ = [
   ['Staff', [
     ['How do I clock in and take a break?', 'Use the card at the top of Home: Clock in, Start break, Back to work, Clock out. A wrong time can be corrected by a manager in Staff → Attendance.'],
     ['How do I ask for leave?', 'Staff → Leave → <b>Ask for leave</b>. Your manager approves or declines it; you see your vacation days left.'],
-    ['How does payroll work?', 'Set each person’s pay in Staff → Employees (monthly, daily or hourly). Staff → Payroll then prepares each payslip from attendance, leave, advances and cash shortages. “Mark as paid” records the salary as an expense.'],
+    ['How does payroll work?', 'Set each person’s pay in Staff → Employees (monthly, weekly, daily or hourly — paid every week or month). Staff → Payroll then prepares each payslip from attendance, leave, advances and cash shortages. “Mark as paid” records the salary as an expense.'],
   ]],
   ['Online shop', [
     ['How do I open my online shop?', 'Settings → Online shop: turn it on, choose your shop address (your store name, e.g. /s/your-shop) and share the link. Orders arrive in Sell → Online orders.'],

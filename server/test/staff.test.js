@@ -69,3 +69,22 @@ test('till takeover moves the expected cash from one cashier to the other', () =
   assert.equal(b.by.Cash, 37000, 'B answers for what they accepted + their own sales'); assert.equal(b.total, 37000);
   assert.equal(a.moves.length, 1, 'pending takeovers do not move money yet');
 });
+test('payroll: weekly pay — one slip per Monday–Sunday week, with the week\'s leave, absences, advances and overtime', () => {
+  const d = (x, out) => ({ staffId: 'u_w', date: x, events: [ev('in', '08:00', x), ev('out', out || '16:00', x)] });
+  const raw = {
+    attendance: [d('2026-11-23', '18:00'), d('2026-11-24'), d('2026-11-25'), d('2026-11-26'), d('2026-11-30')],
+    leaves: [{ staffId: 'u_w', type: 'unpaid', from: '2026-11-27', to: '2026-11-27', status: 'approved' }],
+    payroll: [{ type: 'advance', staffId: 'u_w', date: '2026-11-24', amount: 5000, deductWeek: '2026-11-23' }, { type: 'advance', staffId: 'u_w', date: '2026-11-10', amount: 7000, deductMonth: '2026-11' }],
+  };
+  const staff = { id: 'u_w', name: 'Wes', pay: { type: 'weekly', rate: 30000, overtime: true } };
+  assert.equal(KC.weekOf('2026-11-29'), '2026-11-23', 'Sunday belongs to the week of Monday 23');
+  assert.equal(KC.payEvery(staff.pay), 'week'); assert.equal(KC.payEvery({ type: 'hourly', every: 'week' }), 'week'); assert.equal(KC.payEvery({ type: 'monthly', every: 'week' }), 'month');
+  const p = KC.payslipDraft(raw, staff, '2026-11-23', S, { deductAbsences: true }, '2026-12-01T09:00:00');
+  assert.equal(p.stats.scheduled, 6); assert.equal(p.stats.worked, 4, 'the 30th is next week'); assert.equal(p.dayRate, 5000);
+  assert.deepEqual(p.earnings.map((e) => e.amount), [30000, 1875], 'weekly pay, 2 h overtime at 30000/6/8 × 1.5');
+  assert.deepEqual(p.deductions.map((e) => e.amount), [5000, 5000, 5000], 'unpaid leave day, absent Saturday, this week\'s advance (not the monthly one)');
+  const hourly = KC.payslipDraft(raw, { id: 'u_w', name: 'Wes', pay: { type: 'hourly', rate: 500, every: 'week' } }, '2026-11-23', S, {}, '2026-12-01T09:00:00');
+  assert.equal(hourly.stats.hours, 34); assert.equal(hourly.gross, 17000);
+  const month = KC.payslipDraft(raw, { id: 'u_w', name: 'Wes', pay: { type: 'monthly', rate: 120000 } }, '2026-11', S, {}, '2026-12-01T09:00:00');
+  assert.ok(month.deductions.some((x) => x.amount === 7000) && !month.deductions.some((x) => x.amount === 5000), 'a monthly slip takes the monthly advance only');
+});

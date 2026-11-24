@@ -23,19 +23,23 @@ function vbars(rows, labelFn, valKey) {
 const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /* Aahsso Store: five plain reports */
 const ST_RTABS = { overview: 'Summary', daily: 'Daily close', items: 'Best sellers', monthly: 'Profit & loss', forecast: 'What to buy' };
-const RTABS = [['overview', 'Overview'], ['daily', 'Daily close'], ['items', 'Items & categories'], ['timing', 'Best times'], ['people', 'Staff & customers'], ['inventory', 'Fast / slow stock'], ['forecast', 'Forecast'], ['containers', 'Containers'], ['monthly', 'Profit & loss'], ['expiry', 'Expiry'], ['losses', 'Losses']];
+/* Aahsso Bar & Resto: what a bar owner reads */
+const RS_RTABS = { overview: 'Summary', daily: 'Daily close', items: 'Best sellers', timing: 'Peak times', people: 'Customers & staff', suppliers: 'Suppliers', inventory: 'Stock', monthly: 'Profit & loss', forecast: 'What to buy' };
+const RTABS = [['overview', 'Overview'], ['daily', 'Daily close'], ['items', 'Items & categories'], ['timing', 'Best times'], ['people', 'Staff & customers'], ['inventory', 'Fast / slow stock'], ['suppliers', 'Suppliers'], ['forecast', 'Forecast'], ['containers', 'Containers'], ['monthly', 'Profit & loss'], ['expiry', 'Expiry'], ['losses', 'Losses']];
 VIEWS.reports = {
   render() {
     const costTabs = ['monthly', 'losses', 'containers'];
-    const tabs = RTABS.filter(([k]) => (can('costs') || !costTabs.includes(k)) && (k !== 'containers' || hasAny('ship', 'receive')) && (!isStore() || ST_RTABS[k])) // a store has no containers, and only the reports a shop owner reads
-      .map(([k, l]) => [k, (isStore() && ST_RTABS[k]) || l]);
-    let tab = isStore() && !K.ui.repPicked ? 'overview' : K.ui.repTab; // a store opens on the summary if (!tabs.find((t) => t[0] === tab)) tab = K.ui.repTab = 'overview';
-    const needsRange = ['overview', 'items', 'timing', 'people'].includes(tab);
+    const rs = typeof isResto === 'function' && isResto(); const own = rs ? RS_RTABS : isStore() ? ST_RTABS : null;
+    const tabs = (rs ? Object.keys(RS_RTABS).map((k) => [k, RS_RTABS[k]]) : RTABS).filter(([k]) => (can('costs') || !costTabs.includes(k)) && (k !== 'containers' || hasAny('ship', 'receive')) && (k !== 'suppliers' || can('suppliers') || can('purchases')) && (!own || own[k])) // a store has no containers, and only the reports a shop owner reads
+      .map(([k, l]) => [k, (own && own[k]) || l]);
+    let tab = own && !K.ui.repPicked ? 'overview' : K.ui.repTab; // a store / bar opens on the summary
+    if (!tabs.find((t) => t[0] === tab)) tab = K.ui.repTab = 'overview';
+    const needsRange = ['overview', 'items', 'timing', 'people', 'suppliers'].includes(tab);
     if (tab === 'daily' && allLocs().length > 1) K._dailyLocSel = true;
     const r = repRange();
     let body = '';
     try {
-      body = ({ overview: repOverview, daily: repDaily, items: repItems, timing: repTiming, people: repPeople, inventory: repInventory, forecast: repForecast, containers: repContainers, monthly: repMonthly, expiry: repExpiry, losses: repLosses })[tab](r);
+      body = ({ overview: repOverview, daily: repDaily, items: repItems, timing: repTiming, people: repPeople, suppliers: repSuppliers, inventory: repInventory, forecast: repForecast, containers: repContainers, monthly: repMonthly, expiry: repExpiry, losses: repLosses })[tab](r);
     } catch (e) { console.error(e); body = '<div class="alert bad">Report error: ' + esc(e.message) + '</div>'; }
     return '<div class="chips mb">' + tabs.map(([k, l]) => '<button class="chip' + (tab === k ? ' on' : '') + '" data-a="repTab" data-v="' + k + '">' + l + '</button>').join('') + '</div>' +
       (needsRange ? '<div class="row wrap mb"><select class="inp" style="width:auto" data-c="rp">' + RP.map(([k, l]) => '<option value="' + k + '"' + ((K.ui.rp || '30d') === k ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' +
@@ -56,6 +60,10 @@ function repOverview(r) {
   let series, lab;
   if (byDay.length <= 31 && r.span && r.span <= 31) { series = []; for (let d = r.from; d <= r.to; d = KC.addDays(d, 1)) { const g = byDay.find((x) => x.key === d); series.push({ key: d, revenue: g ? g.revenue : 0 }); } lab = (x) => String(+x.key.slice(8)); }
   else { series = KC.groupBy(f, (x) => x.date.slice(0, 7)).sort((a, b) => a.key.localeCompare(b.key)).slice(-18); lab = (x) => MONTHS[+x.key.slice(5) - 1]; }
+  let prevSeries = null; // the same days of the period before, for the dashed line
+  if (r.prevFrom && r.span <= 31 && series.length === r.span) { const pf = facts(r.prevFrom, r.prevTo); const pd = KC.groupBy(pf, (x) => x.date); prevSeries = series.map((_, i) => { const d = KC.addDays(r.prevFrom, i); const g = pd.find((x) => x.key === d); return { value: g ? g.revenue : 0 }; }); }
+  const rsx = typeof isResto === 'function' && isResto(); const drinks = rsx ? KC.groupBy(f.filter(isDrinkFact), (x) => x.productId, (x) => x.name).sort((a, b) => b.revenue - a.revenue) : [];
+  const food = rsx ? KC.groupBy(f.filter((x) => !isDrinkFact(x) && !/^(svc|tip)$/.test(x.productId)), (x) => x.productId, (x) => x.name).sort((a, b) => b.revenue - a.revenue) : [];
   const items = KC.groupBy(f, (x) => x.productId, (x) => x.name).sort((a, b) => b.revenue - a.revenue);
   const cats = KC.groupBy(f, (x) => x.category).sort((a, b) => b.revenue - a.revenue);
   const pays = {}; let feesTot = 0;
@@ -67,43 +75,68 @@ function repOverview(r) {
   }));
   K._repRows = { Summary: [{ From: r.from, To: r.to, Receipts: s.n, Units: s.qty, ['Revenue (' + baseSym() + ')']: Math.round(s.revenue), ...(can('costs') ? { ['Gross profit (' + baseSym() + ')']: Math.round(s.profit), 'Margin %': Math.round(s.margin) } : {}), ['Average sale (' + baseSym() + ')']: Math.round(s.avgTicket), ['MoMo charges (' + baseSym() + ')']: Math.round(feesTot) }], 'By day': byDay.map((x) => ({ Date: x.key, Receipts: x.n, Units: x.qty, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue), ...(can('costs') ? { ['Profit (' + baseSym() + ')']: Math.round(x.profit) } : {}) })), Items: items.map(itemRow), Categories: cats.map(itemRow) };
   return '<div class="kpis mb">' + kpi('Sales', F(s.revenue), pv ? delta(s.revenue, pv.revenue) : s.n + ' receipts', true) + (can('costs') ? kpi('Gross profit', F(s.profit), pct(s.margin) + ' margin' + (pv ? ' · ' + delta(s.profit, pv.profit) : '')) : kpi('Receipts', fmt(s.n))) + kpi('Average sale', F(s.avgTicket), s.n + ' receipts') + kpi('Units sold', fmt(s.qty)) + '</div>' +
-    '<div class="card pad mb"><h3>Sales trend</h3>' + (series.length ? vbars(series, lab, 'revenue') : '<div class="muted small mt">No sales in this period.</div>') + '</div>' +
-    '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3 class="mb">Top items</h3>' + hbars(items.slice(0, 8), 'revenue', fmt, (x) => fmt(x.qty) + ' sold') + '</div><div class="card pad"><h3 class="mb">Top categories</h3>' + hbars(cats.slice(0, 8), 'revenue', fmt, (x) => can('costs') ? pct(x.margin) + ' margin' : fmt(x.qty) + ' units') + '</div></div>' +
-    '<div class="card pad mb"><h3 class="mb">Money in by method</h3>' + (Object.keys(pays).length ? Object.entries(pays).sort((a, b) => b[1] - a[1]).map(([k, v]) => '<div class="row between cl"><span>' + esc(k) + '</span><b class="money">' + F(v) + '</b></div>').join('') + (feesTot > 0 ? '<div class="row between cl mt"><span class="muted">MoMo / OM charges (separate)</span><b class="money">' + F(feesTot) + '</b></div>' : '') : '<div class="muted small">No payments in this period.</div>') + '</div>';
+    '<div class="card pad mb"><h3>Sales trend</h3>' + (series.length ? Charts.trend(series.map((x) => ({ label: lab(x), value: x.revenue })), { prev: prevSeries, fmt: F, title: 'Sales trend', nowLabel: r.label || 'This period', prevLabel: 'The ' + (r.span || '') + ' days before' }) : '<div class="muted small mt">No sales in this period.</div>') + '</div>' +
+    (rsx ? '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3 class="mb">🍺 Best drinks</h3>' + hbars(drinks.slice(0, 8), 'revenue', fmt, (x) => fmt(x.qty) + ' sold') + '</div><div class="card pad"><h3 class="mb">🍽 Best dishes</h3>' + hbars(food.slice(0, 8), 'revenue', fmt, (x) => fmt(x.qty) + ' sold') + '</div></div>'
+      : '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3 class="mb">Top items</h3>' + hbars(items.slice(0, 8), 'revenue', fmt, (x) => fmt(x.qty) + ' sold') + '</div><div class="card pad"><h3 class="mb">Top categories</h3>' + hbars(cats.slice(0, 8), 'revenue', fmt, (x) => can('costs') ? pct(x.margin) + ' margin' : fmt(x.qty) + ' units') + '</div></div>') +
+    '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3>Sales by category</h3>' + Charts.donut(cats.map((x) => ({ label: x.label, value: x.revenue })), { fmt: F, centre: baseSym() }) + '</div>' +
+    '<div class="card pad"><h3>Money in by method</h3>' + Charts.donut(Object.entries(pays).map(([k, v]) => ({ label: k, value: v })), { fmt: F, centre: 'collected', empty: 'No payments in this period.' }) + (feesTot > 0 ? '<div class="row between cl mt"><span class="muted">MoMo / OM charges (separate)</span><b class="money">' + F(feesTot) + '</b></div>' : '') + '</div></div>';
 }
 function itemRow(x) { return Object.assign({ Name: x.label, Receipts: x.n, Units: x.qty, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue) }, can('costs') ? { ['Cost (' + baseSym() + ')']: Math.round(x.cogs), ['Profit (' + baseSym() + ')']: Math.round(x.profit), 'Margin %': Math.round(x.margin) } : {}); }
 function repItems(r) {
-  const f = facts(r.from, r.to); const g = K.ui.rgroup || 'item'; let m = K.ui.rmetric || 'revenue'; if (!can('costs') && (m === 'profit' || m === 'margin')) m = 'revenue';
+  const rsx = typeof isResto === 'function' && isResto(); const kindF = rsx ? K.ui.rkind || 'drinks' : 'all';
+  const f = facts(r.from, r.to).filter((x) => !/^(svc|tip)$/.test(x.productId) && (kindF === 'all' || (kindF === 'drinks') === isDrinkFact(x))); const g = K.ui.rgroup || 'item'; let m = K.ui.rmetric || 'revenue'; if (!can('costs') && (m === 'profit' || m === 'margin')) m = 'revenue';
   const key = g === 'item' ? (x) => x.productId : g === 'category' ? (x) => x.category : (x) => x.category + ' › ' + (x.subcategory || '—');
   const lab = g === 'item' ? (x) => x.name : null;
   const rows = KC.groupBy(f, key, lab).sort((a, b) => (m === 'qty' ? b.qty - a.qty : m === 'profit' ? b.profit - a.profit : m === 'margin' ? b.margin - a.margin : b.revenue - a.revenue));
   const M = [['revenue', 'Sales value'], ['qty', 'Units sold']].concat(can('costs') ? [['profit', 'Profit'], ['margin', 'Margin %']] : []);
   K._repRows = { [g]: rows.map(itemRow) };
   const fmtM = m === 'margin' ? (v) => pct(v) : m === 'qty' ? fmt : F;
-  return '<div class="row wrap mb"><div class="seg">' + [['item', 'Item'], ['category', 'Category'], ['sub', 'Subcategory']].map(([k, l]) => '<button class="' + (g === k ? 'on' : '') + '" data-a="rgroup" data-v="' + k + '">' + l + '</button>').join('') + '</div><div class="seg">' + M.map(([k, l]) => '<button class="' + (m === k ? 'on' : '') + '" data-a="rmetric" data-v="' + k + '">' + l + '</button>').join('') + '</div></div>' +
+  const lead = rows[0] ? rows[0] : null;
+  return (rsx ? '<div class="seg mb">' + [['drinks', '🍺 Drinks'], ['food', '🍽 Food'], ['all', 'Everything']].map(([k, l]) => '<button class="' + (kindF === k ? 'on' : '') + '" data-a="rkind" data-v="' + k + '">' + l + '</button>').join('') + '</div>' : '') +
+    (lead ? '<div class="rp-ins">' + [['Best ' + (kindF === 'drinks' ? 'drink' : kindF === 'food' ? 'dish' : 'seller'), esc(lead.label), fmt(lead.qty) + ' sold · ' + F(lead.revenue)], ['Sold', fmt(rows.reduce((a, x) => a + x.qty, 0)), rows.length + ' different'], ['Sales', F(rows.reduce((a, x) => a + x.revenue, 0)), r.label]].concat(can('costs') && rows.length ? [['Most profit', esc(rows.slice().sort((a, b) => b.profit - a.profit)[0].label), F(rows.slice().sort((a, b) => b.profit - a.profit)[0].profit)]] : []).map(([l, v, s]) => '<div class="rp-in"><div class="l">' + l + '</div><div class="v ellipsis">' + v + '</div><div class="s">' + s + '</div></div>').join('') + '</div>' : '') +
+    '<div class="row wrap mb"><div class="seg">' + [['item', 'Item'], ['category', 'Category'], ['sub', 'Subcategory']].map(([k, l]) => '<button class="' + (g === k ? 'on' : '') + '" data-a="rgroup" data-v="' + k + '">' + l + '</button>').join('') + '</div><div class="seg">' + M.map(([k, l]) => '<button class="' + (m === k ? 'on' : '') + '" data-a="rmetric" data-v="' + k + '">' + l + '</button>').join('') + '</div></div>' +
     (rows.length && can('costs') ? '<div class="alert info mb">' + ic('chart', 'sm') + '<div>Most profitable ' + (g === 'item' ? 'item' : 'category') + ': <b>' + esc(rows.slice().sort((a, b) => b.profit - a.profit)[0].label) + '</b> · Best margin: <b>' + esc(rows.filter((x) => x.qty > 0).sort((a, b) => b.margin - a.margin)[0].label) + '</b></div></div>' : '') +
-    '<div class="card pad mb">' + hbars(rows.slice(0, 15), m, fmtM, (x) => fmt(x.qty) + ' sold · ' + F(x.revenue) + (can('costs') ? ' · ' + pct(x.margin) : '')) + '</div>' +
+    '<div class="grid2 mb" style="align-items:start;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)"><div class="card pad"><h3 class="mb">Top ' + Math.min(15, rows.length) + '</h3>' + hbars(rows.slice(0, 15), m, fmtM, (x) => fmt(x.qty) + ' sold · ' + F(x.revenue) + (can('costs') ? ' · ' + pct(x.margin) : '')) + '</div>' +
+    '<div class="card pad"><h3>Share of sales</h3>' + Charts.donut(rows.map((x) => ({ label: x.label, value: m === 'qty' ? x.qty : x.revenue })), { fmt: m === 'qty' ? fmt : F, centre: m === 'qty' ? 'sold' : baseSym() }) + '</div></div>' +
     '<div class="card tw"><table class="t"><thead><tr><th>' + (g === 'item' ? 'Item' : 'Category') + '</th><th class="r">Units</th><th class="r">Sales</th>' + (can('costs') ? '<th class="r">Profit</th><th class="r">Margin</th>' : '') + '<th class="r">Share</th></tr></thead><tbody>' +
     (() => { const tot = rows.reduce((a, x) => a + x.revenue, 0) || 1; return rows.map((x) => '<tr><td>' + esc(x.label) + '</td><td class="r">' + fmt(x.qty) + '</td><td class="r money">' + fmt(x.revenue) + '</td>' + (can('costs') ? '<td class="r money" style="color:' + (x.profit < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + fmt(x.profit) + '</td><td class="r">' + pct(x.margin) + '</td>' : '') + '<td class="r">' + pct(x.revenue / tot * 100) + '</td></tr>').join(''); })() + '</tbody></table></div>';
 }
+A.rkind = (el) => { K.ui.rkind = el.dataset.v; render(true); };
 A.rgroup = (el) => { K.ui.rgroup = el.dataset.v; render(true); };
 A.rmetric = (el) => { K.ui.rmetric = el.dataset.v; render(true); };
+/** a sale's hour and weekday on the venue's clock (its time zone), not the phone's */
+const venueHW = (() => { let tz, fm; return (iso) => {
+  const d = new Date(iso); if (isNaN(d)) return null; const z = (S() && S().timezone) || 'Africa/Douala';
+  if (tz !== z) { tz = z; try { fm = new Intl.DateTimeFormat('en-GB', { timeZone: z, hour: '2-digit', hourCycle: 'h23', weekday: 'short' }); } catch (e) { fm = null; } }
+  if (!fm) return { h: d.getHours(), wd: d.getDay() }; const p = Object.fromEntries(fm.formatToParts(d).map((x) => [x.type, x.value]));
+  return { h: +p.hour % 24, wd: WD.indexOf(p.weekday) };
+}; })();
 function repTiming(r) {
-  const f = facts(r.from, r.to);
+  const f0 = facts(r.from, r.to); const when = {}; repSales().forEach((s) => { if (s.createdAt) when[s.id] = venueHW(s.createdAt); });
+  const f = f0.map((x) => { const w = when[x.saleId]; return w && w.wd >= 0 ? Object.assign({}, x, { hour: w.h, weekday: w.wd }) : x; });
   const wd = [1, 2, 3, 4, 5, 6, 0].map((d) => { const g = f.filter((x) => x.weekday === d); return { d, revenue: g.reduce((a, x) => a + x.revenue, 0), n: new Set(g.map((x) => x.saleId)).size }; });
-  const hrs = []; for (let h = 6; h <= 22; h++) { const g = f.filter((x) => x.hour === h); hrs.push({ h, revenue: g.reduce((a, x) => a + x.revenue, 0) }); }
+  const H0 = 6, HOURS = Array.from({ length: 24 }, (_, i) => (H0 + i) % 24); // the day starts at 6 am: a late night stays one night
+  const hrs = HOURS.map((h) => { const g = f.filter((x) => x.hour === h); return { h, revenue: g.reduce((a, x) => a + x.revenue, 0), n: new Set(g.map((x) => x.saleId)).size }; });
+  const grid = [1, 2, 3, 4, 5, 6, 0].map((d) => HOURS.map((h) => f.filter((x) => x.weekday === d && x.hour === h).reduce((a, x) => a + x.revenue, 0)));
+  const orders = (K.raw.rorders || []).filter((o) => o.createdAt && (o.createdAt.slice(0, 10) >= r.from && o.createdAt.slice(0, 10) <= r.to) && o.status !== 'void');
+  const ordH = HOURS.map((h) => ({ h, n: orders.filter((o) => { const w = venueHW(o.createdAt); return w && w.h === h; }).length }));
   const dom = []; for (let d = 1; d <= 31; d++) { const g = f.filter((x) => +x.date.slice(8) === d); dom.push({ d, revenue: g.reduce((a, x) => a + x.revenue, 0) }); }
   const all = KC.saleFacts(K.raw, K.C, { sales: visibleSales() });
   const months = KC.groupBy(all, (x) => x.date.slice(0, 7)).sort((a, b) => a.key.localeCompare(b.key)).slice(-12);
   const years = KC.groupBy(all, (x) => x.date.slice(0, 4)).sort((a, b) => a.key.localeCompare(b.key));
   const best = wd.slice().sort((a, b) => b.revenue - a.revenue)[0]; const bestH = hrs.slice().sort((a, b) => b.revenue - a.revenue)[0];
   const weeks = [1, 2, 3, 4].map((w) => ({ w, revenue: dom.filter((x) => Math.min(4, Math.ceil(x.d / 7.75)) === w).reduce((a, x) => a + x.revenue, 0) }));
-  K._repRows = { Weekday: wd.map((x) => ({ Day: WD[x.d], Receipts: x.n, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue) })), Hour: hrs.map((x) => ({ Hour: x.h + ':00', ['Revenue (' + baseSym() + ')']: Math.round(x.revenue) })), 'Day of month': dom.map((x) => ({ Day: x.d, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue) })), Months: months.map((x) => ({ Month: x.key, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue), ...(can('costs') ? { ['Profit (' + baseSym() + ')']: Math.round(x.profit) } : {}) })), Years: years.map((x) => ({ Year: x.key, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue), ...(can('costs') ? { ['Profit (' + baseSym() + ')']: Math.round(x.profit) } : {}) })) };
-  return (f.length ? '<div class="alert info mb">' + ic('clock', 'sm') + '<div>Your best day is <b>' + WD[best.d] + '</b>' + (bestH.revenue ? ' and the busiest time is <b>' + bestH.h + ':00–' + (bestH.h + 1) + ':00</b>' : '') + '. Plan staff and restocking around these.</div></div>' : '') +
-    '<div class="card pad mb"><h3>By day of the week</h3>' + vbars(wd, (x) => WD[x.d], 'revenue') + '</div>' +
-    '<div class="card pad mb"><h3>By time of day</h3>' + vbars(hrs, (x) => x.h + 'h', 'revenue') + '</div>' +
-    '<div class="card pad mb"><h3>By week of the month</h3><div class="tiny muted">Many customers buy around payday — check if week 4 or week 1 is stronger.</div>' + vbars(weeks, (x) => 'Week ' + x.w, 'revenue') + '</div>' +
-    '<div class="card pad mb"><h3>By month (all time, last 12)</h3>' + (months.length ? vbars(months, (x) => MONTHS[+x.key.slice(5) - 1] + ' ' + x.key.slice(2, 4), 'revenue') : '<div class="muted small">No data.</div>') + '</div>' +
+  K._repRows = { Weekday: wd.map((x) => ({ Day: WD[x.d], Receipts: x.n, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue) })), Hour: hrs.map((x) => ({ Hour: x.h + ':00', Receipts: x.n, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue) })), 'Day × hour': [1, 2, 3, 4, 5, 6, 0].map((d, i) => Object.assign({ Day: WD[d] }, Object.fromEntries(HOURS.map((h, j) => [h + ':00', Math.round(grid[i][j])])))), 'Day of month': dom.map((x) => ({ Day: x.d, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue) })), Months: months.map((x) => ({ Month: x.key, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue), ...(can('costs') ? { ['Profit (' + baseSym() + ')']: Math.round(x.profit) } : {}) })), Years: years.map((x) => ({ Year: x.key, ['Revenue (' + baseSym() + ')']: Math.round(x.revenue), ...(can('costs') ? { ['Profit (' + baseSym() + ')']: Math.round(x.profit) } : {}) })) };
+  const hh = (h) => pad2(h) + ':00'; const quiet = wd.filter((x) => x.revenue > 0).sort((a, b) => a.revenue - b.revenue)[0];
+  const bestCell = (() => { let b = null; grid.forEach((row, i) => row.forEach((v, j) => { if (v > 0 && (!b || v > b.v)) b = { v, d: [1, 2, 3, 4, 5, 6, 0][i], h: HOURS[j] }; })); return b; })();
+  return (f.length ? '<div class="rp-ins">' + [['Busiest day', WD[best.d], F(best.revenue) + ' · ' + best.n + ' bills'], ['Busiest hour', bestH.revenue ? hh(bestH.h) + '–' + hh((bestH.h + 1) % 24) : '—', bestH.revenue ? F(bestH.revenue) : ''], ['Peak of the week', bestCell ? WD[bestCell.d] + ' ' + hh(bestCell.h) : '—', bestCell ? F(bestCell.v) : ''], ['Quietest day', quiet ? WD[quiet.d] : '—', quiet ? F(quiet.revenue) : '']].map(([l, v, s]) => '<div class="rp-in"><div class="l">' + l + '</div><div class="v">' + v + '</div><div class="s">' + s + '</div></div>').join('') + '</div>' +
+      '<div class="alert info mb">' + ic('clock', 'sm') + '<div>Put your best staff on <b>' + WD[best.d] + '</b>' + (bestH.revenue ? ' around <b>' + hh(bestH.h) + '</b>' : '') + ' and restock before then' + (quiet ? '; try a promotion on <b>' + WD[quiet.d] + '</b>' : '') + '. Times are ' + esc(((KC.venueClock(S()) || {}).city || 'local')) + ' time.</div></div>' : '') +
+    '<div class="card pad mb"><h3>When the money comes in</h3><div class="tiny muted">Each square is one hour of one weekday, over ' + esc(r.label || 'the period') + '. Darker = more sales.</div>' + Charts.heat(grid, [1, 2, 3, 4, 5, 6, 0].map((d) => WD[d]), HOURS.map((h) => String(h)), { fmt: F, title: 'Sales by day and hour' }) + '</div>' +
+    '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3>By day of the week</h3>' + Charts.columns(wd.map((x) => ({ label: WD[x.d], value: x.revenue, tip: x.n + ' bills' })), { fmt: F }) + '</div>' +
+    '<div class="card pad"><h3>By hour</h3>' + Charts.columns(hrs.map((x) => ({ label: x.h + 'h', value: x.revenue, tip: x.n + ' bills' })), { fmt: F, maxLabels: 8 }) + '</div></div>' +
+    (orders.length ? '<div class="card pad mb"><h3>Orders placed, by hour</h3><div class="tiny muted">When waiters and customers send orders (' + orders.length + ' orders) — the real rush, before the bills are paid.</div>' + Charts.columns(ordH.map((x) => ({ label: x.h + 'h', value: x.n })), { fmt: (v) => fmt(v) + ' orders', maxLabels: 8 }) + '</div>' : '') +
+    '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3>By week of the month</h3><div class="tiny muted">Payday weeks are often stronger.</div>' + Charts.columns(weeks.map((x) => ({ label: 'Week ' + x.w, value: x.revenue })), { fmt: F }) + '</div>' +
+    '<div class="card pad"><h3>By month (last 12)</h3>' + Charts.trend(months.map((x) => ({ label: MONTHS[+x.key.slice(5) - 1], value: x.revenue })), { fmt: F, empty: 'No data.' }) + '</div></div>' +
     '<div class="card pad mb"><h3 class="mb">By year</h3>' + hbars(years.map((y) => Object.assign(y, { label: y.key })), 'revenue', F, (x) => can('costs') ? 'profit ' + fmt(x.profit) : fmt(x.qty) + ' units') + '</div>';
 }
 function repPeople(r) {
@@ -113,9 +146,42 @@ function repPeople(r) {
   const owing = {}; visibleSales().forEach((s) => { const x = K.C.saleX[s.id]; if (x.status !== 'cancelled' && x.balance > 0) { const k = s.customerId || s.customerName; owing[k] = owing[k] || { label: s.customerName, balance: 0, n: 0 }; owing[k].balance += x.balance; owing[k].n++; } });
   const ow = Object.values(owing).sort((a, b) => b.balance - a.balance);
   K._repRows = { Staff: sellers.map(itemRow), Customers: custs.map(itemRow), Owing: ow.map((o) => ({ Customer: o.label, 'Open sales': o.n, ['Balance (' + baseSym() + ')']: Math.round(o.balance) })) };
-  return '<div class="card pad mb"><h3 class="mb">Sales by staff member</h3>' + hbars(sellers, 'revenue', F, (x) => x.n + ' receipts · avg ' + fmt(x.revenue / Math.max(1, x.n)) + (can('costs') ? ' · ' + pct(x.margin) + ' margin' : '')) + '</div>' +
+  const named = f.filter((x) => x.customerId).reduce((a, x) => a + x.revenue, 0), walk = f.filter((x) => !x.customerId).reduce((a, x) => a + x.revenue, 0);
+  const owedT = ow.reduce((a, o) => a + o.balance, 0); const back = custs.filter((c) => c.n > 1).length;
+  return '<div class="rp-ins">' + [['Customers served', fmt(custs.length), back + ' came back more than once'], ['Best customer', custs[0] ? esc(custs[0].label) : '—', custs[0] ? F(custs[0].revenue) : ''], ['Owed to you', F(owedT), ow.length + ' customer' + (ow.length === 1 ? '' : 's')], ['Best staff', sellers[0] ? esc(sellers[0].label) : '—', sellers[0] ? F(sellers[0].revenue) : '']].map(([l, v, s]) => '<div class="rp-in"><div class="l">' + l + '</div><div class="v ellipsis">' + v + '</div><div class="s">' + s + '</div></div>').join('') + '</div>' +
+    '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3>Known customers vs walk-ins</h3>' + Charts.donut([{ label: 'Known customers', value: named }, { label: 'Walk-ins', value: walk }], { fmt: F, centre: baseSym() }) + '</div>' +
+    '<div class="card pad"><h3>Who owes you</h3>' + Charts.donut(ow.map((o) => ({ label: o.label, value: o.balance })), { fmt: F, centre: 'owed', empty: 'Nobody owes you. 🎉' }) + '</div></div>' +
+    '<div class="card pad mb"><h3 class="mb">Sales by staff member</h3>' + hbars(sellers, 'revenue', F, (x) => x.n + ' receipts · avg ' + fmt(x.revenue / Math.max(1, x.n)) + (can('costs') ? ' · ' + pct(x.margin) + ' margin' : '')) + '</div>' +
     '<div class="card pad mb"><h3 class="mb">Top customers</h3>' + hbars(custs.slice(0, 15), 'revenue', F, (x) => x.n + ' purchase(s)') + '</div>' +
     '<div class="card pad mb"><h3 class="mb">Who owes you (all time)</h3>' + (ow.length ? ow.map((o) => '<div class="row between cl"><span>' + esc(o.label) + ' <span class="tiny faint">' + o.n + ' sale(s)</span></span><b class="money" style="color:var(--bad)">' + F(o.balance) + '</b></div>').join('') : '<div class="muted small">Nobody owes you. 🎉</div>') + '</div>';
+}
+/** a sold line is a drink: a bar menu item (or a drink category), or a stock item from the drinks list */
+function isDrinkFact(x) {
+  const id = String(x.productId || '');
+  if (id.startsWith('m:')) { const m = typeof menuById === 'function' ? menuById(id.slice(2)) : null; return m ? KC.stationOf(m, typeof venue === 'function' ? venue() : 'both') === 'bar' : KC.DRINK_CATS.includes(x.category); }
+  const p = byId('products', id); return !!(p && p.drink) || /beer|wine|spirit|soft|water|juice|drink|champagne|liqueur|malt|energy|cider/i.test(x.category || '');
+}
+/* Suppliers: what was bought from whom over the period, what is still owed, and the drinks bought most */
+function repSuppliers(r) {
+  const lots = K.raw.lots.filter((l) => (l.purchaseDate || '') >= r.from && (l.purchaseDate || '') <= r.to);
+  const groups = purchaseGroups(lots); const c = can('costs');
+  const by = {}; groups.forEach((g) => { const k = supKey(g.vendor) || '—'; const o = (by[k] = by[k] || { label: (g.vendor || 'No supplier').trim(), value: 0, n: 0, last: '', units: 0 }); o.value += g.totalX; o.n++; o.units += g.units; if ((g.date || '') > o.last) o.last = g.date || ''; });
+  const sup = Object.values(by).sort((a, b) => b.value - a.value);
+  const owed = (K.raw.suppliers || []).map((s) => ({ label: s.name, value: supplierOwed(s.id) })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
+  const monthly = r.span && r.span <= 62; const keyOf = (d) => (monthly ? KC.addDays(d, -((new Date(d + 'T12:00:00').getDay() + 6) % 7)) : d.slice(0, 7)); // by week (from Monday) or by month
+  const per = {}; groups.forEach((g) => { if (!g.date) return; const k = keyOf(g.date); per[k] = (per[k] || 0) + g.totalX; });
+  const series = Object.keys(per).sort().map((k) => ({ label: monthly ? fmtDate(k).split(' ').slice(0, 2).join(' ') : MONTHS[+k.slice(5) - 1] + ' ' + k.slice(2, 4), value: per[k] }));
+  const items = {}; lots.forEach((l) => { const p = byId('products', l.productId); const o = (items[l.productId] = items[l.productId] || { label: (p && p.name) || '?', qty: 0, value: 0 }); o.qty += num(l.qty); o.value += K.C.lotX[l.id].paidX * num(l.qty); });
+  const top = Object.values(items).sort((a, b) => (c ? b.value - a.value : b.qty - a.qty)).slice(0, 10);
+  const total = sup.reduce((a, x) => a + x.value, 0), owedT = owed.reduce((a, x) => a + x.value, 0);
+  K._repRows = { Suppliers: sup.map((x) => ({ Supplier: x.label, Purchases: x.n, Units: x.units, ...(c ? { ['Bought (' + baseSym() + ')']: Math.round(x.value) } : {}), 'Last purchase': x.last })), Owed: owed.map((x) => ({ Supplier: x.label, ['Owed (' + baseSym() + ')']: Math.round(x.value) })), 'Bought most': top.map((x) => ({ Item: x.label, Units: x.qty, ...(c ? { ['Cost (' + baseSym() + ')']: Math.round(x.value) } : {}) })) };
+  if (!groups.length && !owed.length) return '<div class="card empty"><div class="big">🚚</div>No purchases in this period.</div>';
+  return '<div class="rp-ins">' + [c ? ['Bought', F(total), groups.length + ' purchases'] : ['Purchases', fmt(groups.length), r.label], ['Suppliers used', fmt(sup.length), sup[0] ? 'Most: ' + esc(sup[0].label) : ''], ['You owe suppliers', F(owedT), owed.length + ' supplier' + (owed.length === 1 ? '' : 's')], ['Units bought', fmt(sup.reduce((a, x) => a + x.units, 0)), top[0] ? 'Most: ' + esc(top[0].label) : '']].map(([l, v, s]) => '<div class="rp-in"><div class="l">' + l + '</div><div class="v ellipsis">' + v + '</div><div class="s ellipsis">' + s + '</div></div>').join('') + '</div>' +
+    (c ? '<div class="card pad mb"><h3>Buying ' + (monthly ? 'by week' : 'by month') + '</h3>' + Charts.columns(series, { fmt: F, empty: 'No purchases.' }) + '</div>' : '') +
+    '<div class="grid2 mb" style="align-items:start"><div class="card pad"><h3>' + (c ? 'Spend by supplier' : 'Purchases by supplier') + '</h3>' + (c ? Charts.donut(sup.map((x) => ({ label: x.label, value: x.value })), { fmt: F, centre: baseSym() }) : hbars(sup.map((x) => Object.assign({}, x, { value: x.n })), 'value', fmt)) + '</div>' +
+    '<div class="card pad"><h3 class="mb">What you owe (today)</h3>' + (owed.length ? hbars(owed, 'value', F) : '<div class="muted small">You owe no supplier. 🎉</div>') + '</div></div>' +
+    '<div class="card pad mb"><h3 class="mb">Bought most</h3>' + hbars(top.map((x) => Object.assign({}, x, { v: c ? x.value : x.qty })), 'v', c ? F : fmt, (x) => fmt(x.qty) + ' units') + '</div>' +
+    '<div class="card tw mb"><table class="t"><thead><tr><th>Supplier</th><th class="r">Purchases</th><th class="r">Units</th>' + (c ? '<th class="r">Bought</th>' : '') + '<th>Last</th></tr></thead><tbody>' + sup.map((x) => '<tr><td>' + esc(x.label) + '</td><td class="r">' + x.n + '</td><td class="r">' + fmt(x.units) + '</td>' + (c ? '<td class="r money">' + fmt(x.value) + '</td>' : '') + '<td class="nowrap">' + (x.last ? fmtDate(x.last) : '—') + '</td></tr>').join('') + '</tbody></table></div>';
 }
 const STATUS_INFO = { fast: ['Fast mover', 'ok', 'Sells out in under 30 days — buy more next container.'], steady: ['Steady', 'brand', '1–3 months of stock left at current speed.'], slow: ['Slow mover', 'warn', 'Over 3 months of stock or no recent sales — discount or bundle.'], dead: ['Not selling', 'bad', 'In stock 45+ days and never sold — clear it out.'], new: ['New arrival', 'info', 'Just arrived; give it a week.'], out: ['Sold out', '', ''], incoming: ['Incoming', 'info', ''] };
 function repInventory() {
@@ -132,7 +198,7 @@ function repInventory() {
     '<div class="chips mb">' + F_.map(([k, l]) => '<button class="chip' + (f === k ? ' on' : '') + '" data-a="invF" data-v="' + k + '">' + l + (counts[k] ? ' · ' + counts[k] : '') + '</button>').join('') + '</div>' +
     (STATUS_INFO[f] && STATUS_INFO[f][2] ? '<div class="alert info mb">' + esc(STATUS_INFO[f][2]) + '</div>' : '') +
     '<div class="card list mb">' + (list.length ? list.slice(0, 200).map((x) => { const p = byId('products', x.id); const si = STATUS_INFO[x.status]; return '<div class="li" style="cursor:default">' + thumb(p, 40, 10) + '<div class="grow" style="min-width:0"><div class="t ellipsis">' + esc(x.name) + '</div><div class="tiny muted">' + x.sold30 + ' sold in 30 days · ' + (x.velocity ? (Math.round(x.velocity * 10) / 10) + '/day' : 'no recent sales') + ' · in stock ' + x.ageDays + ' days</div></div><div class="right"><span class="badge ' + si[1] + '">' + si[0] + '</span><div class="tiny muted mt" style="margin-top:4px">' + fmt(x.available) + ' left · ' + (isFinite(x.daysOfStock) ? '≈' + Math.round(x.daysOfStock) + ' days' : '—') + '</div></div></div>'; }).join('') : '<div class="empty small">Nothing in this group.</div>') + '</div>' +
-    '<div class="grid2" style="align-items:start"><div class="card pad"><h3 class="mb">Stock age (' + (can('costs') ? 'value at cost' : 'value at price') + ')</h3>' + hbars(aging, 'value', F, (x) => x.n + ' item(s)') + '</div><div class="card pad"><h3 class="mb">Stock by category</h3>' + hbars(Object.values(byCat).sort((a, b) => b.value - a.value), 'value', F, (x) => fmt(x.units) + ' units') + '</div></div>';
+    '<div class="grid2" style="align-items:start"><div class="card pad"><h3>How long it has been in stock</h3><div class="tiny muted">' + (can('costs') ? 'Value at cost' : 'Value at selling price') + '</div>' + Charts.columns(aging.map((x) => ({ label: x.label.replace(' days', 'd').replace('Over 90d', '90d+'), value: x.value, tip: x.n + ' item(s)' })), { fmt: F }) + '</div><div class="card pad"><h3>Stock by category</h3>' + Charts.donut(Object.values(byCat).map((x) => ({ label: x.label, value: x.value })), { fmt: F, centre: baseSym() }) + '</div></div>';
 }
 A.invF = (el) => { K.ui.invF = el.dataset.v; render(true); };
 function repForecast() {

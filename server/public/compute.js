@@ -1010,7 +1010,14 @@
   /* ================= STAFF: attendance, leave, payroll, till takeovers ================= */
   // Employees with a login have the staff id 'u_<userId>'; people without a login get their own id.
   const staffIdOf = (userId) => 'u_' + String(userId || '').replace(/[^A-Za-z0-9_\-]/g, '');
-  const PAY_TYPES = [['monthly', 'Monthly salary'], ['daily', 'Daily rate'], ['hourly', 'Hourly rate']];
+  const PAY_TYPES = [['monthly', 'Monthly salary'], ['weekly', 'Weekly pay'], ['daily', 'Daily rate'], ['hourly', 'Hourly rate']];
+  /* A pay period is a month ('2026-11') or a week, named by its Monday ('2026-11-23'). Weekly pay is paid every week; daily and
+     hourly pay every week or every month (pay.every); a monthly salary every month. */
+  const isWeekKey = (p) => /^\d{4}-\d{2}-\d{2}$/.test(String(p || ''));
+  const weekOf = (ymd) => addDays(ymd, -((dowOf(ymd) + 6) % 7)); // its Monday
+  const inPeriod = (ymd, p) => { ymd = String(ymd || '').slice(0, 10); return isWeekKey(p) ? ymd >= p && ymd <= addDays(p, 6) : ymd.slice(0, 7) === p; };
+  const payEvery = (pay) => { const t = (pay && pay.type) || 'monthly'; return t === 'weekly' ? 'week' : t === 'monthly' ? 'month' : (pay && pay.every) === 'week' ? 'week' : 'month'; };
+  const periodOf = (pay, ymd) => (payEvery(pay) === 'week' ? weekOf(ymd) : String(ymd).slice(0, 7));
   const LEAVE_TYPES = [['vacation', 'Paid vacation', true], ['sick', 'Sick leave (paid)', true], ['unpaid', 'Unpaid leave', false], ['other', 'Other paid leave', true]];
   const LEAVE_STATUS = [['requested', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Declined'], ['cancelled', 'Cancelled']];
   const CLOCK = { in: 'Clocked in', break: 'Break', back: 'Back from break', out: 'Clocked out' };
@@ -1021,7 +1028,7 @@
   const hmMin = (hm) => { const [h, m] = String(hm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
   const minOfDay = (iso) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
   function datesBetween(from, to) { const out = []; if (!from || !to || to < from) return out; let d = from; for (let i = 0; i < 400 && d <= to; i++) { out.push(d); d = addDays(d, 1); } return out; }
-  const monthDays = (month) => { const [y, m] = month.split('-').map(Number); const last = new Date(y, m, 0).getDate(); return datesBetween(month + '-01', month + '-' + String(last).padStart(2, '0')); };
+  const monthDays = (month) => { if (isWeekKey(month)) return datesBetween(month, addDays(month, 6)); const [y, m] = month.split('-').map(Number); const last = new Date(y, m, 0).getDate(); return datesBetween(month + '-01', month + '-' + String(last).padStart(2, '0')); };
   const isWorkDay = (ymd, R) => R.workWeek.includes(dowOf(ymd));
   /** One person's day from their clock events → state now, worked and break minutes. nowIso: the current time (for someone still working). */
   function dayState(att, nowIso, S) {
@@ -1066,8 +1073,8 @@
   function staffMonth(raw, staff, month, S, nowIso) {
     const R = staffRules(S); const today = nowIso ? ymdOf(new Date(nowIso)) : ymdOf(new Date());
     const days = monthDays(month); const sched = days.filter((d) => isWorkDay(d, R));
-    const att = {}; (raw.attendance || []).forEach((a) => { if (a.staffId === staff.id && a.date && a.date.slice(0, 7) === month) att[a.date] = a; });
-    const leaveOn = {}; (raw.leaves || []).filter((l) => l.staffId === staff.id && l.status === 'approved').forEach((l) => leaveDates(l, S).forEach((d) => { if (d.slice(0, 7) === month) leaveOn[d] = l; }));
+    const att = {}; (raw.attendance || []).forEach((a) => { if (a.staffId === staff.id && a.date && inPeriod(a.date, month)) att[a.date] = a; });
+    const leaveOn = {}; (raw.leaves || []).filter((l) => l.staffId === staff.id && l.status === 'approved').forEach((l) => leaveDates(l, S).forEach((d) => { if (inPeriod(d, month)) leaveOn[d] = l; }));
     let worked = 0, minutes = 0, ot = 0, late = 0, open = 0, paidLeave = 0, unpaidLeave = 0, absent = 0; const absentDays = [];
     days.forEach((d) => {
       const a = att[d]; const st = a ? dayState(a, nowIso, S) : null;
@@ -1082,23 +1089,25 @@
   function payslipDraft(raw, staff, month, S, opts = {}, nowIso) {
     const R = staffRules(S); const pay = staff.pay || {}; const rate = num(pay.rate); const type = pay.type || 'monthly';
     const m = staffMonth(raw, staff, month, S, nowIso); const hpd = num(pay.hoursPerDay) || R.hoursPerDay;
-    const dayRate = type === 'monthly' ? (m.scheduled ? rate / m.scheduled : 0) : type === 'daily' ? rate : rate * hpd;
+    const fixed = type === 'monthly' || type === 'weekly'; // a salary for the period, whatever the days worked
+    const dayRate = fixed ? (m.scheduled ? rate / m.scheduled : 0) : type === 'daily' ? rate : rate * hpd;
     const hourRate = type === 'hourly' ? rate : dayRate / hpd;
     const E = [], D = []; const r0 = (v) => Math.round(v);
     if (type === 'monthly') E.push({ label: 'Monthly salary', amount: r0(rate), auto: true });
+    if (type === 'weekly') E.push({ label: 'Weekly pay', amount: r0(rate), auto: true });
     if (type === 'daily') E.push({ label: m.worked + ' day' + (m.worked === 1 ? '' : 's') + ' worked × ' + r0(rate), amount: r0(m.worked * rate), auto: true });
     if (type === 'hourly') E.push({ label: m.hours + ' h worked × ' + r0(rate), amount: r0(m.hours * rate), auto: true });
-    if (type !== 'monthly' && m.paidLeave) E.push({ label: m.paidLeave + ' paid leave day' + (m.paidLeave === 1 ? '' : 's'), amount: r0(m.paidLeave * dayRate), auto: true });
+    if (!fixed && m.paidLeave) E.push({ label: m.paidLeave + ' paid leave day' + (m.paidLeave === 1 ? '' : 's'), amount: r0(m.paidLeave * dayRate), auto: true });
     if (pay.overtime && m.overtimeH > 0) { const mult = num(pay.overtimeRate) || R.overtimeRate; E.push({ label: 'Overtime ' + m.overtimeH + ' h × ' + mult, amount: r0(m.overtimeH * hourRate * (type === 'hourly' ? mult - 1 : mult)), auto: true }); }
-    if (type === 'monthly' && m.unpaidLeave) D.push({ label: 'Unpaid leave (' + m.unpaidLeave + ' day' + (m.unpaidLeave === 1 ? '' : 's') + ')', amount: r0(m.unpaidLeave * dayRate), auto: true });
-    if (type === 'monthly' && m.absent && opts.deductAbsences) D.push({ label: 'Absent without leave (' + m.absent + ' day' + (m.absent === 1 ? '' : 's') + ')', amount: r0(m.absent * dayRate), auto: true });
-    (raw.payroll || []).filter((p) => p.type === 'advance' && p.staffId === staff.id && (p.deductMonth || String(p.date).slice(0, 7)) === month && p.status !== 'cancelled')
+    if (fixed && m.unpaidLeave) D.push({ label: 'Unpaid leave (' + m.unpaidLeave + ' day' + (m.unpaidLeave === 1 ? '' : 's') + ')', amount: r0(m.unpaidLeave * dayRate), auto: true });
+    if (fixed && m.absent && opts.deductAbsences) D.push({ label: 'Absent without leave (' + m.absent + ' day' + (m.absent === 1 ? '' : 's') + ')', amount: r0(m.absent * dayRate), auto: true });
+    (raw.payroll || []).filter((p) => p.type === 'advance' && p.staffId === staff.id && p.status !== 'cancelled' && (isWeekKey(month) ? (p.deductWeek ? p.deductWeek === month : inPeriod(p.date, month)) : !p.deductWeek && (p.deductMonth || String(p.date).slice(0, 7)) === month))
       .forEach((p) => D.push({ label: 'Advance ' + p.date + (p.note ? ' (' + p.note + ')' : ''), amount: r0(num(p.amount)), auto: true, ref: p.id }));
     if (staff.userId && opts.deductShortages !== false) {
-      const sh = (raw.handovers || []).filter((h) => h.userId === staff.userId && h.status === 'confirmed' && String(h.date).slice(0, 7) === month && num(h.diff) <= -1);
+      const sh = (raw.handovers || []).filter((h) => h.userId === staff.userId && h.status === 'confirmed' && inPeriod(h.date, month) && num(h.diff) <= -1);
       const tot = sh.reduce((a, h) => a - num(h.diff), 0);
       if (tot) D.push({ label: 'Cash shortages (' + sh.length + ' day' + (sh.length === 1 ? '' : 's') + ')', amount: r0(tot), auto: true });
-      (raw.audits || []).filter((a) => a.status === 'applied' && a.charge && a.charge.deduct && a.charge.userId === staff.userId && a.charge.month === month && num(a.charge.amount) > 0)
+      (raw.audits || []).filter((a) => a.status === 'applied' && a.charge && a.charge.deduct && a.charge.userId === staff.userId && (isWeekKey(month) ? inPeriod(a.appliedAt || a.submittedAt, month) : a.charge.month === month) && num(a.charge.amount) > 0)
         .forEach((a) => D.push({ label: 'Stock shortage (count ' + String(a.appliedAt || a.submittedAt || '').slice(0, 10) + ')', amount: r0(num(a.charge.amount)), auto: true, ref: a.id }));
     }
     ((opts.extra && opts.extra.earnings) || []).forEach((x) => num(x.amount) && E.push({ label: x.label || 'Bonus', amount: r0(num(x.amount)) }));
@@ -1434,7 +1443,7 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
     servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, recipeShort, takeawayOf, validateTakeaway, takeawayStage, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });
