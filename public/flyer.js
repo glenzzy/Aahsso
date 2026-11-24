@@ -25,6 +25,11 @@ const Flyer = (() => {
     fresh: { name: 'Fresh mint', bg: '#fffdf7', bg2: '#f1ece0', ink: '#1d2a26', accent: '#0f766e', onAccent: '#ffffff', surface: '#ffffff', surfInk: '#1d2a26' },
     royal: { name: 'Royal', bg: '#1e1b4b', bg2: '#312e81', ink: '#eef2ff', accent: '#fbbf24', onAccent: '#1e1b4b', surface: '#2a2766', surfInk: '#eef2ff' },
     mono: { name: 'Clean white', bg: '#ffffff', bg2: '#f4f4f2', ink: '#18181b', accent: '#e8590c', onAccent: '#ffffff', surface: '#f4f4f5', surfInk: '#18181b' },
+    kente: { name: 'Kente', bg: '#fffaf0', bg2: '#f6ecd6', ink: '#1a1a1a', accent: '#b5121b', onAccent: '#ffffff', surface: '#ffffff', surfInk: '#1a1a1a' },
+    neon: { name: 'Neon night', bg: '#0b0b1a', bg2: '#1a0b2e', ink: '#f5f3ff', accent: '#ff3ea5', onAccent: '#0b0b1a', surface: '#16162b', surfInk: '#f5f3ff' },
+    retro: { name: 'Retro', bg: '#f6e7c8', bg2: '#efd9ad', ink: '#2b1d14', accent: '#d9480f', onAccent: '#ffffff', surface: '#fff4dc', surfInk: '#2b1d14' },
+    tropic: { name: 'Tropical', bg: '#f3fbf4', bg2: '#ddf1e1', ink: '#123524', accent: '#e76f51', onAccent: '#ffffff', surface: '#ffffff', surfInk: '#123524' },
+    paper: { name: 'Paper', bg: '#d9d2c5', bg2: '#c9c0b0', ink: '#222222', accent: '#b3261e', onAccent: '#ffffff', surface: '#fffdf7', surfInk: '#222222' },
   };
   const FONTS = {
     modern: { name: 'Modern', head: 'Plus Jakarta Sans', hw: 800, body: 'Plus Jakarta Sans', bw: [500, 700] },
@@ -35,8 +40,11 @@ const Flyer = (() => {
     chalk: { name: 'Chalk', head: 'Caveat', hw: 700, body: 'Patrick Hand', bw: [400, 400] },
     fun: { name: 'Fun', head: 'Pacifico', hw: 400, body: 'Poppins', bw: [500, 700] },
     script: { name: 'Script', head: 'Great Vibes', hw: 400, body: 'Lato', bw: [400, 700] },
+    retro: { name: 'Retro', head: 'Abril Fatface', hw: 400, body: 'Poppins', bw: [500, 700] },
+    mono: { name: 'Typewriter', head: 'Space Mono', hw: 700, body: 'Space Mono', bw: [400, 700], caps: true },
+    neon: { name: 'Neon', head: 'Righteous', hw: 400, body: 'Poppins', bw: [500, 700] },
   };
-  const FONT_CSS = 'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Caveat:wght@700&family=DM+Sans:wght@500;700&family=DM+Serif+Display&family=Great+Vibes&family=Lato:wght@400;700&family=Oswald:wght@700&family=Pacifico&family=Patrick+Hand&family=Playfair+Display:ital,wght@1,700&family=Poppins:wght@500;700&display=swap';
+  const FONT_CSS = 'https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Bebas+Neue&family=Caveat:wght@700&family=DM+Sans:wght@500;700&family=DM+Serif+Display&family=Great+Vibes&family=Lato:wght@400;700&family=Oswald:wght@700&family=Pacifico&family=Patrick+Hand&family=Playfair+Display:ital,wght@1,700&family=Poppins:wght@500;700&family=Righteous&family=Space+Mono:wght@400;700&display=swap';
   const BGS = [['gradient', 'Gradient'], ['solid', 'Plain'], ['dots', 'Dots'], ['stripes', 'Stripes'], ['waves', 'Waves'], ['grain', 'Grain']];
   const BADGES = { delivery: ['truck', 'Delivery available'], takeaway: ['bag', 'Takeaway'], newd: ['star', 'New dishes'], open: ['clock', 'Open every day'] };
   const TITLES = ["Today's menu", 'Menu du jour', 'Plat du jour', 'Lunch menu', 'Weekend specials', 'Our menu'];
@@ -200,7 +208,7 @@ const Flyer = (() => {
     const { cols, fsz, Pn } = best; const colW = (R.w - (cols - 1) * gap) / cols;
     const rowsUsed = Math.max(1, ...Pn.placed.map((p) => p.n + 1), Pn.more ? Pn.endN + 1 : 0);
     const lh = Pn.more ? fsz * lhK : Math.min(fsz * lhK * 1.45, Math.max(fsz * lhK, R.h / rowsUsed)); const xOf = (col) => R.x + col * (colW + gap);
-    Pn.placed.forEach(({ e, col, n }) => {
+    let nI = 0; Pn.placed.forEach(({ e, col, n }) => {
       const px = xOf(col), cy = R.y + n * lh, base = cy + lh / 2 + fsz * 0.36, center = style === 'center';
       if (e.h) {
         const t = String(e.h || 'Menu'); ctx.fillStyle = o.catColor || acc;
@@ -219,9 +227,11 @@ const Flyer = (() => {
       ctx.font = bf(F, fsz, true); const tw = pr ? ctx.measureText(pr).width : 0; const pw = style === 'pill' && pr ? tw + fsz * 1.1 : tw;
       if (style === 'card') { ctx.fillStyle = o.cardBg || rgba(ink, 0.06); rr(ctx, px, cy + lh * 0.08, colW, lh * 0.84, fsz * 0.45); ctx.fill(); }
       const pad = style === 'card' ? fsz * 0.7 : 0;
-      ctx.fillStyle = ink; ctx.font = bf(F, fsz, style !== 'plain'); ctx.textAlign = 'left'; const nm = clip(ctx, it.name, colW - pw - fsz * 1.2 - pad * 2); ctx.fillText(nm, px + pad, base);
+      const nx = px + pad + (o.num ? fsz * 1.75 : 0); ctx.textAlign = 'left';
+      if (o.num) { ctx.fillStyle = acc; ctx.font = bf(F, fsz * 0.72, true); ctx.fillText(String(++nI).padStart(2, '0'), px + pad, base); }
+      ctx.fillStyle = ink; ctx.font = bf(F, fsz, style !== 'plain'); const nm = clip(ctx, it.name, colW - pw - fsz * 1.2 - pad * 2 - (nx - px - pad)); ctx.fillText(nm, nx, base);
       if (!pr) return;
-      if (style === 'leader') { const nw = ctx.measureText(nm).width; ctx.fillStyle = o.leader || P.line; for (let d = px + nw + fsz * 0.45; d < px + colW - pw - fsz * 0.4; d += fsz * 0.42) { ctx.beginPath(); ctx.arc(d, base - fsz * 0.12, Math.max(1.6, fsz * 0.05), 0, Math.PI * 2); ctx.fill(); } }
+      if (style === 'leader') { const nw = ctx.measureText(nm).width; ctx.fillStyle = o.leader || P.line; for (let d = nx + nw + fsz * 0.45; d < px + colW - pw - fsz * 0.4; d += fsz * 0.42) { ctx.beginPath(); ctx.arc(d, base - fsz * 0.12, Math.max(1.6, fsz * 0.05), 0, Math.PI * 2); ctx.fill(); } }
       if (style === 'plain') hline(ctx, px, cy + lh - 2, px + colW, rgba(ink, 0.1), 1.2);
       if (style === 'pill') { const ph = fsz * 1.55; ctx.fillStyle = o.pillBg || acc; rr(ctx, px + colW - pw, base - fsz * 0.36 - ph / 2, pw, ph, ph / 2); ctx.fill(); ctx.fillStyle = o.pillInk || P.onAccent; ctx.font = bf(F, fsz * 0.92, true); ctx.textAlign = 'center'; ctx.fillText(pr, px + colW - pw / 2, base - fsz * 0.05); return; }
       ctx.textAlign = 'right'; ctx.fillStyle = acc; ctx.font = bf(F, fsz, true); ctx.fillText(pr, px + colW - pad, base);
@@ -458,6 +468,169 @@ const Flyer = (() => {
     if (fh) { hline(ctx, m, fy - U * 0.025, W - m, P.faint, 2); footer(D, m, fy, iw, fo); }
     return r;
   }
+  /* ---------- 12 more designs ---------- */
+  /** logo · name · tagline · title · date · stickers, centred; returns the y under them */
+  function head(D, cx, y, w, o = {}) {
+    const { U, F, c, k, P } = D; const ink = o.ink || P.ink, soft = o.soft || rgba(ink, 0.74);
+    if (o.logo !== false) { const L = U * (o.L || 0.1) * k; if (logo(D, cx, y + L / 2, L / 2, o.ring, o.logoBg)) y += L + U * 0.024 * k; }
+    y = txt(D, o.caps ? String(c.name || '').toUpperCase() : c.name, cx, y, w, (s) => bf(F, s, true), U * (o.ns || 0.044) * k, o.nameInk || ink, { track: o.caps ? 0.14 : 0, hit: ['text', 'name'] });
+    if (c.tagline && o.tag !== false) y = txt(D, c.tagline, cx, y, w, (s) => bf(F, s), U * 0.025 * Math.max(0.85, k), soft, { lh: 1.5, hit: ['text', 'tagline'] });
+    if (o.titleFn) y = o.titleFn(y + U * 0.012 * k); else y = title(D, c.title, cx, y + U * 0.012 * k, w, U * (o.ts || 0.095) * k, o.title || P.accent, { lines: o.lines || 1 });
+    y = txt(D, o.dateCaps ? String(c.date || '').toUpperCase() : c.date, cx, y + U * 0.004, w, (s) => bf(F, s, true), U * 0.025, soft, { track: o.dateCaps ? 0.12 : 0, lh: 1.6, hit: ['text', 'date'] });
+    const bo = o.badge || {}; const bh = badges(D, cx - w / 2, y, w, bo, true); if (bh) { badges(D, cx - w / 2, y + U * 0.006, w, bo); y += bh + U * 0.028; }
+    return y;
+  }
+  /** the dish of the day, the dishes, then the contacts at the foot (yEnd); returns the list's result */
+  function body(D, x, y, w, yEnd, o = {}) {
+    const { U, k } = D; const fo = o.foot || {}; const fh = footer(D, x, 0, w, fo, true);
+    const so = o.special || {}; const sh = special(D, x, y, w, so, true); if (sh) { special(D, x, y, w, so); y += sh + U * 0.032 * k; }
+    const fy = yEnd - fh; const r = menuList(D, { x, y, w, h: (fh ? fy - U * 0.04 : yEnd) - y }, o.list || {});
+    if (fh) { if (o.rule !== false) hline(D.ctx, x, fy - U * 0.018, x + w, o.ruleColor || D.P.line, 1.5); footer(D, x, fy, w, fo); }
+    return r;
+  }
+  function kenteBand(D, y, h) {
+    const { ctx, W } = D; const K4 = ['#b5121b', '#f4b400', '#0b8a4a', '#111111']; const s = h * 1.15;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, y, W, h); ctx.clip();
+    for (let i = 0, x = 0; x < W + s; i++, x += s) {
+      ctx.fillStyle = K4[i % 4]; ctx.fillRect(x, y, s, h);
+      ctx.fillStyle = K4[(i + 1) % 4]; ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + s / 2, y + h * 0.3); ctx.lineTo(x + s, y + h); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = K4[(i + 2) % 4]; ctx.fillRect(x + s * 0.4, y + h * 0.08, s * 0.2, h * 0.16);
+    }
+    ctx.restore(); hline(ctx, 0, y === 0 ? h + 3 : y - 3, W, '#f4b400', 3);
+  }
+  function tKente(D) {
+    const { W, H, U, M, P, k } = D; bgFill(D); const bh = U * 0.065; kenteBand(D, 0, bh); kenteBand(D, H - bh, bh);
+    const y = head(D, W / 2, bh + M * (0.35 + 0.3 * k), W - M * 2, { caps: true, ns: 0.038, dateCaps: true });
+    return body(D, M, y + U * 0.012, W - M * 2, H - bh - M * 0.55, { list: { style: 'leader', catRule: true } });
+  }
+  function tCard(D) {
+    const { ctx, W, H, U, M, P, k, s } = D; bgFill(D); const L = U * 0.12 * k; const x = M * 0.6, y = M * 0.6 + L * 0.5, w = W - M * 1.2, h = H - y - M * 0.6;
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.3)'; ctx.shadowBlur = U * 0.04 * s; ctx.shadowOffsetY = U * 0.012 * s; ctx.fillStyle = P.surface; rr(ctx, x, y, w, h, U * 0.03); ctx.fill(); ctx.restore();
+    ctx.strokeStyle = rgba(P.accent, 0.45); ctx.lineWidth = 2; rr(ctx, x + U * 0.016, y + U * 0.016, w - U * 0.032, h - U * 0.032, U * 0.022); ctx.stroke();
+    let yy = y + L * 0.5 + U * 0.03; if (!logo(D, W / 2, y, L / 2, P.surface)) yy = y + U * 0.05;
+    const ink = P.surfInk, iw = w - U * 0.1, ix = x + U * 0.05;
+    yy = head(D, W / 2, yy, iw, { logo: false, ink, ns: 0.04 });
+    return body(D, ix, yy + U * 0.01, iw, y + h - U * 0.05, { special: { ink, bg: rgba(ink, 0.05) }, list: { style: 'leader', ink, cat: 'head' }, foot: { ink, soft: rgba(ink, 0.72) } });
+  }
+  function tDiagonal(D) {
+    const { ctx, W, H, U, M, P, F, c, k } = D; bgFill(D); const on = P.onAccent, L = U * 0.075, tw = W - M * 2;
+    const tf = titleFit(D, c.title, tw, U * 0.13 * k, 2); const yh = M * 0.7 + L + U * 0.02 + tf.L.length * tf.s * 0.96 + tf.s * 0.12 + U * 0.04;
+    ctx.fillStyle = P.accent; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(W, 0); ctx.lineTo(W, yh - U * 0.08); ctx.lineTo(0, yh + U * 0.1); ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.clip(); pattern(D, 'stripes', on, 0, 0, W, yh + U * 0.1); ctx.restore();
+    ctx.strokeStyle = P.accent; ctx.lineWidth = U * 0.008; ctx.beginPath(); ctx.moveTo(0, yh + U * 0.15); ctx.lineTo(W, yh - U * 0.03); ctx.stroke();
+    logo(D, W - M - L / 2, M * 0.7 + L / 2, L / 2, on, P.bg);
+    txt(D, String(c.name || '').toUpperCase(), M, M * 0.7 + L / 2 - U * 0.017, tw - L - U * 0.03, (s) => bf(F, s, true), U * 0.03, on, { align: 'left', track: 0.1, hit: ['text', 'name'] });
+    let y = title(D, c.title, M, M * 0.7 + L + U * 0.02, tw, U * 0.13 * k, on, { align: 'left', lines: 2, lh: 0.96 });
+    txt(D, c.date, M, y, tw * 0.7, (s) => bf(F, s, true), U * 0.026, rgba(on, 0.88), { align: 'left', hit: ['text', 'date'] });
+    y = yh + U * 0.16; const bh = badges(D, M, y, tw, { align: 'right' }, true); if (bh) { badges(D, M, y, tw, { align: 'right' }); y += bh + U * 0.03; }
+    return body(D, M, y, tw, H - M * 0.8, { list: { style: 'leader', catRule: true } });
+  }
+  function tPlate(D) {
+    const { ctx, W, H, U, M, P, F, c, k, A } = D; bgFill(D); const R = U * 0.19 * Math.max(0.6, k), cx = W / 2;
+    let y = M * 0.7; y = txt(D, String(c.name || '').toUpperCase(), cx, y, W - M * 2, (s) => bf(F, s, true), U * 0.032 * Math.max(0.8, k), P.ink, { track: 0.16, lh: 1.5, hit: ['text', 'name'] });
+    const cy = y + R * 1.14; ctx.save(); ctx.setLineDash([U * 0.012, U * 0.012]); ctx.strokeStyle = P.accent; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(cx, cy, R * 1.12, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.22)'; ctx.shadowBlur = U * 0.03 * D.s; ctx.fillStyle = P.surface; ctx.beginPath(); ctx.arc(cx, cy, R * 1.03, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R * 0.9, 0, Math.PI * 2); ctx.clip();
+    if (A.photo) cover(ctx, A.photo, cx - R, cy - R, R * 2, R * 2); else { const g = ctx.createRadialGradient(cx, cy - R * 0.3, R * 0.1, cx, cy, R); g.addColorStop(0, mix(P.accent, '#ffffff', 0.2)); g.addColorStop(1, P.accent); ctx.fillStyle = g; ctx.fillRect(cx - R, cy - R, R * 2, R * 2); }
+    ctx.restore(); hit(D, cx - R, cy - R, R * 2, R * 2, 'photos');
+    if (!A.photo) { const f = titleFit(D, c.title, R * 1.5, U * 0.08 * k, 2); const th = f.L.length * f.s; title(D, c.title, cx, cy - th / 2 - f.s * 0.05, R * 1.5, U * 0.08 * k, P.onAccent, { lines: 2, lh: 1.0 }); y = cy + R * 1.14 + U * 0.02; }
+    else { y = title(D, c.title, cx, cy + R * 1.14 + U * 0.02, W - M * 2, U * 0.085 * k, P.accent); }
+    y = txt(D, c.date, cx, y + U * 0.004, W - M * 2, (s) => bf(F, s, true), U * 0.025, P.soft, { lh: 1.6, hit: ['text', 'date'] });
+    const bh = badges(D, M, y, W - M * 2, {}, true); if (bh) { badges(D, M, y, W - M * 2); y += bh + U * 0.028; }
+    return body(D, M, y + U * 0.01, W - M * 2, H - M * 0.8, { list: { style: 'leader', catRule: true } });
+  }
+  function tMagazine(D) {
+    const { ctx, W, H, U, M, P, F, c, k } = D; bgFill(D); const m = M * 1.05, iw = W - m * 2; let y = m * 0.85;
+    txt(D, String(c.name || '').toUpperCase(), m, y, iw * 0.6, (s) => bf(F, s, true), U * 0.024, P.ink, { align: 'left', track: 0.2, hit: ['text', 'name'] });
+    txt(D, c.date, W - m, y, iw * 0.4, (s) => bf(F, s), U * 0.024, P.soft, { align: 'right', hit: ['text', 'date'] });
+    y += U * 0.045; hline(ctx, m, y, W - m, P.ink, 4); hline(ctx, m, y + U * 0.01, W - m, P.ink, 1.2); y += U * 0.035 * k;
+    y = title(D, c.title, m, y, iw, U * 0.15 * k, P.ink, { align: 'left', lines: 2, lh: 0.95 });
+    ctx.fillStyle = P.accent; ctx.fillRect(m, y + U * 0.006, U * 0.12, U * 0.012); y += U * 0.03;
+    if (c.tagline) y = txt(D, c.tagline, m, y, iw, (s) => 'italic ' + bf(F, s), U * 0.026, P.soft, { align: 'left', lh: 1.3, hit: ['text', 'tagline'] });
+    y += U * 0.03 * k; const bh = badges(D, m, y, iw, { align: 'left', bg: P.ink, fg: P.bg }, true); if (bh) { badges(D, m, y, iw, { align: 'left', bg: P.ink, fg: P.bg }); y += bh + U * 0.03; }
+    return body(D, m, y, iw, H - m * 0.85, { special: { bg: rgba(P.accent, 0.1), stroke: false }, list: { style: 'plain', num: true, cat: 'head' }, foot: { align: 'left' }, ruleColor: P.ink });
+  }
+  function tNeon(D) {
+    const { ctx, W, H, U, M, P, F, c, k, s } = D;
+    const g = ctx.createRadialGradient(W / 2, H * 0.3, U * 0.05, W / 2, H / 2, Math.max(W, H) * 0.8); g.addColorStop(0, P.bg2); g.addColorStop(1, P.bg); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    pattern(D, 'grain', P.ink, 0, 0, W, H); if (D.A.bg) { cover(ctx, D.A.bg, 0, 0, W, H); ctx.fillStyle = rgba(P.bg, c.overlay == null ? 0.7 : c.overlay); ctx.fillRect(0, 0, W, H); }
+    const glow = (fn, color, blur) => { ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = blur * s; fn(); ctx.shadowBlur = blur * 0.4 * s; fn(); ctx.restore(); };
+    const cyan = mix(P.accent, '#22d3ee', 0.85);
+    glow(() => { ctx.strokeStyle = cyan; ctx.lineWidth = U * 0.006; rr(ctx, M * 0.45, M * 0.45, W - M * 0.9, H - M * 0.9, U * 0.04); ctx.stroke(); }, cyan, U * 0.025);
+    const y = head(D, W / 2, M * (0.75 + 0.35 * k), W - M * 2, { caps: true, ns: 0.034, nameInk: cyan, logo: !!D.A.logo, ring: cyan, titleFn: (yy) => {
+      const tf = titleFit(D, c.title, W - M * 2.4, U * 0.115 * k, 1); ctx.font = hf(F, tf.s); ctx.textAlign = 'center'; const t = tf.L[0] || '';
+      glow(() => { ctx.fillStyle = P.accent; ctx.fillText(t, W / 2, yy + tf.s * 0.84); }, P.accent, U * 0.04);
+      ctx.fillStyle = mix(P.accent, '#ffffff', 0.6); ctx.fillText(t, W / 2, yy + tf.s * 0.84); hit(D, M, yy, W - M * 2, tf.s * 1.1, 'text', 'title'); return yy + tf.s * 1.14;
+    } });
+    return body(D, M, y + U * 0.015, W - M * 2, H - M * 0.85, { special: { bg: rgba(P.accent, 0.08), line: rgba(P.accent, 0.7) }, list: { style: 'leader', leader: rgba(cyan, 0.5), catColor: cyan }, foot: { icon: cyan }, ruleColor: rgba(cyan, 0.4) });
+  }
+  function leaf(ctx, x, y, len, ang, color) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(len * 0.3, -len * 0.34, len * 0.75, -len * 0.3, len, 0); ctx.bezierCurveTo(len * 0.75, len * 0.3, len * 0.3, len * 0.34, 0, 0); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = Math.max(1.5, len * 0.018); ctx.beginPath(); ctx.moveTo(len * 0.04, 0); ctx.lineTo(len * 0.92, 0); ctx.stroke();
+    for (let i = 1; i < 5; i++) { const t = i / 5; ctx.beginPath(); ctx.moveTo(len * t, 0); ctx.lineTo(len * (t + 0.08), -len * 0.12); ctx.moveTo(len * t, 0); ctx.lineTo(len * (t + 0.08), len * 0.12); ctx.stroke(); }
+    ctx.restore();
+  }
+  function tTropical(D) {
+    const { ctx, W, H, U, M, P } = D; bgFill(D); const greens = ['#1f7a4d', '#2d9a5f', '#145c3a', '#3fae6e', '#0f5132']; const s = U * 0.3;
+    [[0.1, 1], [0.55, 0.85], [1.05, 1.0], [1.5, 0.75], [0.8, 0.6]].forEach(([a, l], i) => leaf(ctx, -U * 0.02, -U * 0.02, s * l, a, greens[i]));
+    [[3.25, 1], [3.7, 0.85], [4.2, 1.0], [4.65, 0.75], [3.95, 0.6]].forEach(([a, l], i) => leaf(ctx, W + U * 0.02, H + U * 0.02, s * l, a, greens[(i + 2) % 5]));
+    ctx.fillStyle = P.accent; [[U * 0.2, U * 0.06, U * 0.016], [U * 0.17, U * 0.1, U * 0.012], [W - U * 0.2, H - U * 0.07, U * 0.016], [W - U * 0.16, H - U * 0.11, U * 0.011]].forEach(([x, y, r]) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); });
+    const y = head(D, W / 2, M * 0.85, W - M * 2.6, { ns: 0.04 });
+    return body(D, M * 1.1, y + U * 0.01, W - M * 2.2, H - M * 1.15, { special: { bg: P.surface, line: rgba(P.accent, 0.5) }, list: { style: 'leader', cat: 'head' } });
+  }
+  function tSunburst(D) {
+    const { ctx, W, H, U, M, P, F, c, k } = D; bgFill(D);
+    const tf = titleFit(D, c.title, W - M * 2, U * 0.13 * k, 2); const cyT = M * 0.7 + U * 0.09 + (tf.L.length * tf.s) / 2;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, cyT + tf.L.length * tf.s * 0.5 + U * 0.14); ctx.clip(); ctx.fillStyle = rgba(P.accent, 0.11); const n = 28, r = Math.max(W, H);
+    for (let i = 0; i < n; i++) { const a0 = (i * 2 * Math.PI) / n, a1 = a0 + Math.PI / n; ctx.beginPath(); ctx.moveTo(W / 2, cyT); ctx.arc(W / 2, cyT, r, a0, a1); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+    let y = M * 0.7; y = txt(D, '★  ' + String(c.name || '').toUpperCase() + '  ★', W / 2, y, W - M * 2, (s) => bf(F, s, true), U * 0.03 * Math.max(0.8, k), P.ink, { track: 0.1, lh: 1.6, hit: ['text', 'name'] });
+    const off = U * 0.008; title(D, c.title, W / 2 + off, y + off, W - M * 2, U * 0.13 * k, P.ink, { lines: 2, lh: 0.98 }); y = title(D, c.title, W / 2, y, W - M * 2, U * 0.13 * k, P.accent, { lines: 2, lh: 0.98 });
+    y = txt(D, String(c.date || '').toUpperCase(), W / 2, y + U * 0.01, W - M * 2, (s) => bf(F, s, true), U * 0.026, P.ink, { track: 0.14, lh: 1.6, hit: ['text', 'date'] });
+    if (c.tagline) y = txt(D, c.tagline, W / 2, y, W - M * 2, (s) => 'italic ' + bf(F, s), U * 0.024, P.soft, { lh: 1.5, hit: ['text', 'tagline'] });
+    const bh = badges(D, M, y + U * 0.01, W - M * 2, {}, true); if (bh) { badges(D, M, y + U * 0.01, W - M * 2); y += bh + U * 0.035; }
+    ctx.strokeStyle = P.ink; ctx.lineWidth = 3; rr(ctx, M * 0.4, M * 0.4, W - M * 0.8, H - M * 0.8, U * 0.012); ctx.stroke();
+    return body(D, M, y + U * 0.02, W - M * 2, H - M * 0.8, { special: { bg: P.surface, line: P.ink }, list: { style: 'pill', catColor: P.ink }, ruleColor: P.ink });
+  }
+  function tTicket(D) {
+    const { ctx, W, H, U, M, P, F, c, k, s } = D;
+    ctx.fillStyle = P.bg2; ctx.fillRect(0, 0, W, H); pattern(D, 'grain', P.ink, 0, 0, W, H);
+    const pw = Math.min(W - M * 1.2, W / H > 1.3 ? W * 0.62 : W), x = (W - pw) / 2, y0 = M * 0.45, y1 = H - M * 0.45, t = U * 0.018;
+    const paper = () => { ctx.beginPath(); ctx.moveTo(x, y0 + t); for (let xx = x; xx < x + pw; xx += t * 2) { ctx.lineTo(xx + t, y0); ctx.lineTo(Math.min(xx + t * 2, x + pw), y0 + t); } ctx.lineTo(x + pw, y1 - t); for (let xx = x + pw; xx > x; xx -= t * 2) { ctx.lineTo(xx - t, y1); ctx.lineTo(Math.max(xx - t * 2, x), y1 - t); } ctx.closePath(); };
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.28)'; ctx.shadowBlur = U * 0.03 * s; ctx.shadowOffsetY = U * 0.01 * s; ctx.fillStyle = P.surface; paper(); ctx.fill(); ctx.restore();
+    const ink = P.surfInk, iw = pw - U * 0.1, ix = x + U * 0.05; const dash = (yy) => { ctx.save(); ctx.setLineDash([U * 0.012, U * 0.009]); hline(ctx, ix, yy, ix + iw, rgba(ink, 0.55), 2); ctx.restore(); };
+    let y = head(D, W / 2, y0 + U * 0.05, iw, { ink, caps: true, ns: 0.034, L: 0.085, title: ink, ts: 0.085, dateCaps: true, badge: { bg: ink, fg: P.surface } });
+    dash(y + U * 0.005); y += U * 0.03;
+    const bars = U * 0.055, r = body(D, ix, y, iw, y1 - U * 0.04 - bars, { special: { ink, bg: rgba(ink, 0.05), line: rgba(ink, 0.5), dash: true }, list: { style: 'leader', ink, leader: rgba(ink, 0.45) }, foot: { ink, soft: rgba(ink, 0.72), icon: P.accent }, ruleColor: rgba(ink, 0.4) });
+    const R = rnd(5); let bx = x + pw / 2 - U * 0.16; const by = y1 - U * 0.035 - bars; ctx.fillStyle = ink; while (bx < x + pw / 2 + U * 0.16) { const bw = (1 + Math.floor(R() * 3)) * U * 0.0035; ctx.fillRect(bx, by, bw, bars * 0.8); bx += bw + (1 + Math.floor(R() * 2)) * U * 0.0035; }
+    return r;
+  }
+  function tGlass(D) {
+    const { ctx, W, H, U, M, P, c, A } = D; const pic = A.photo || A.bg;
+    if (pic) { cover(ctx, pic, 0, 0, W, H); ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, 0, W, H); hit(D, 0, 0, W, H, 'photos'); } else { const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, P.accent); g.addColorStop(1, P.bg); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); pattern(D, 'waves', P.ink, 0, 0, W, H); }
+    const px = M * 0.6, py = M * 0.6, pw = W - M * 1.2, ph = H - M * 1.2;
+    ctx.fillStyle = rgba(P.bg, 0.84); rr(ctx, px, py, pw, ph, U * 0.035); ctx.fill(); ctx.strokeStyle = rgba(P.ink, 0.25); ctx.lineWidth = 2; ctx.stroke();
+    const y = head(D, W / 2, py + U * 0.05, pw - U * 0.12, { ns: 0.04, L: 0.09 });
+    return body(D, px + U * 0.06, y + U * 0.01, pw - U * 0.12, py + ph - U * 0.05, { special: { photo: false }, list: { style: 'leader', cat: 'head' } });
+  }
+  function tTiles(D) {
+    const { ctx, W, H, U, M, P, F, c, k, A } = D; bgFill(D); const iw = W - M * 2, L = U * 0.085; let y = M * 0.8;
+    if (c.showLogo !== false && (A.logo || true)) logo(D, W - M - L / 2, y + L / 2, L / 2);
+    txt(D, String(c.name || '').toUpperCase(), M, y + L / 2 - U * 0.016, iw - L - U * 0.03, (s) => bf(F, s, true), U * 0.028, P.accent, { align: 'left', track: 0.14, hit: ['text', 'name'] });
+    y += L + U * 0.02 * k; y = title(D, c.title, M, y, iw, U * 0.115 * k, P.ink, { align: 'left', lines: 2, lh: 0.98 });
+    y = txt(D, c.date, M, y, iw, (s) => bf(F, s), U * 0.027, P.soft, { align: 'left', lh: 1.6, hit: ['text', 'date'] });
+    const bh = badges(D, M, y, iw, { align: 'left' }, true); if (bh) { badges(D, M, y, iw, { align: 'left' }); y += bh + U * 0.03; }
+    y += U * 0.015;
+    return body(D, M, y, iw, H - M * 0.8, { special: { bg: P.accent, ink: P.onAccent, accent: P.onAccent, stroke: false }, list: { style: 'card', cardBg: P.surface === P.bg ? rgba(P.ink, 0.06) : P.surface, catRule: true }, foot: { align: 'left' } });
+  }
+  function tArch(D) {
+    const { ctx, W, H, U, M, P, k } = D; bgFill(D); const x = M * 0.7, w = W - M * 1.4, y = M * 0.6, h = H - y - M * 0.6, r = Math.min(w / 2, h * 0.3);
+    ctx.fillStyle = P.surface; rrTop(ctx, x, y, w, h, r); ctx.fill();
+    ctx.strokeStyle = P.accent; ctx.lineWidth = 2; rrTop(ctx, x + U * 0.018, y + U * 0.018, w - U * 0.036, h - U * 0.018, Math.max(0, r - U * 0.018)); ctx.stroke();
+    const ink = P.surfInk; const yy = head(D, W / 2, y + r * 0.24 + U * 0.02, Math.min(w * 0.78, w - U * 0.12), { ink, ns: 0.036, L: 0.085, ts: 0.1 });
+    return body(D, x + U * 0.06, yy + U * 0.01, w - U * 0.12, y + h - U * 0.04, { special: { ink, bg: rgba(P.accent, 0.08), stroke: false }, list: { style: 'center', ink, cat: 'head' }, foot: { ink, soft: rgba(ink, 0.72) }, ruleColor: rgba(P.accent, 0.5) });
+  }
+
   const TEMPLATES = {
     classic: { name: 'Classic', palette: 'green', fonts: 'classic', bgStyle: 'gradient', draw: tClassic },
     elegant: { name: 'Elegant', palette: 'cream', fonts: 'elegant', bgStyle: 'gradient', draw: tElegant },
@@ -467,6 +640,18 @@ const Flyer = (() => {
     chalk: { name: 'Chalkboard', palette: 'chalk', fonts: 'chalk', bgStyle: 'grain', draw: tChalk },
     street: { name: 'Street food', palette: 'sunshine', fonts: 'fun', bgStyle: 'solid', draw: tStreet },
     minimal: { name: 'Minimal', palette: 'mono', fonts: 'modern', bgStyle: 'solid', draw: tMinimal },
+    kente: { name: 'Kente', palette: 'kente', fonts: 'strong', bgStyle: 'solid', draw: tKente },
+    card: { name: 'Menu card', palette: 'royal', fonts: 'classic', bgStyle: 'dots', draw: tCard },
+    diagonal: { name: 'Diagonal', palette: 'plantain', fonts: 'bold', bgStyle: 'solid', draw: tDiagonal },
+    plate: { name: 'Plate', palette: 'tomato', fonts: 'elegant', bgStyle: 'solid', draw: tPlate },
+    magazine: { name: 'Magazine', palette: 'cream', fonts: 'classic', bgStyle: 'solid', draw: tMagazine },
+    neon: { name: 'Neon', palette: 'neon', fonts: 'neon', bgStyle: 'grain', draw: tNeon },
+    tropical: { name: 'Tropical', palette: 'tropic', fonts: 'fun', bgStyle: 'gradient', draw: tTropical },
+    sunburst: { name: 'Sunburst', palette: 'retro', fonts: 'retro', bgStyle: 'solid', draw: tSunburst },
+    ticket: { name: 'Ticket', palette: 'paper', fonts: 'mono', bgStyle: 'grain', draw: tTicket },
+    glass: { name: 'Glass', palette: 'night', fonts: 'elegant', bgStyle: 'solid', draw: tGlass },
+    tiles: { name: 'Tiles', palette: 'fresh', fonts: 'modern', bgStyle: 'solid', draw: tTiles },
+    arch: { name: 'Arch', palette: 'rose', fonts: 'script', bgStyle: 'gradient', draw: tArch },
   };
 
   /* ---------- fonts, images, the QR code, rendering ---------- */
@@ -503,7 +688,7 @@ const Flyer = (() => {
     const Z = SIZES[c.size] || SIZES.square; cv.width = Math.round(Z.w * scale); cv.height = Math.round(Z.h * scale);
     const ctx = cv.getContext('2d'); ctx.setTransform(scale, 0, 0, scale, 0, 0); ctx.textBaseline = 'alphabetic';
     const W = Z.w, H = Z.h, U = Math.min(W, H);
-    const D = { ctx, W, H, U, M: Math.round(U * 0.07), P: pal(c), F: FONTS[c.fonts] || FONTS.modern, c, A, k, hits: [] };
+    const D = { ctx, W, H, U, M: Math.round(U * 0.07), P: pal(c), F: FONTS[c.fonts] || FONTS.modern, c, A, k, s: scale, hits: [] };
     const r = (TEMPLATES[c.template] || TEMPLATES.classic).draw(D) || {};
     if (scale === 1 || !c._hits) c._hits = D.hits;
     return { fits: r.fits !== false, fsz: r.fsz || U, U, shown: r.shown || 0, more: r.more || 0 };
@@ -597,13 +782,13 @@ const Flyer = (() => {
       fonts: () => '<div class="fs-h">Font pairing</div><div class="fs-fonts">' + Object.entries(FONTS).map(([k, f]) => '<button type="button" class="fs-font' + (c.fonts === k ? ' on' : '') + '" data-act="font" data-v="' + k + '"><b style="font-family:\'' + f.head + '\',Georgia,serif;font-weight:' + f.hw + ';font-style:' + (f.hs || 'normal') + '">' + (f.caps ? "TODAY'S MENU" : "Today's menu") + '</b><span style="font-family:\'' + f.body + '\',system-ui">' + esc(f.name) + ' · Ndolè 3 500 F</span></button>').join('') + '</div>',
       photos: () => { const withPh = menu.filter((m) => m.photo); const up = /^data:/.test(c.photoSrc || '');
         return '<div class="fs-h">Logo</div>' + (c.logo ? '<div class="fs-tg">' + tog('showLogo', 'Show my logo') + '</div>' : '<div class="hint">Add your logo in Settings → Business to put it on the flyer.</div><div class="fs-tg">' + tog('showLogo', 'Show my initials instead') + '</div>') +
-        '<div class="fs-h">Feature photo</div><div class="hint">Big in the Photo, Bold banner and Street food designs; next to the dish of the day in the others.</div><div class="fs-photos">' +
+        '<div class="fs-h">Feature photo</div><div class="hint">Shown big in the photo designs (Photo, Bold banner, Street food, Plate, Glass), next to the dish of the day in the others.</div><div class="fs-photos">' +
           '<button type="button" class="fs-pho none' + (!c.photoSrc ? ' on' : '') + '" data-act="photo" data-v="">None</button>' +
           withPh.map((m) => { const src = imgSrc(m.photo); return '<button type="button" class="fs-pho' + (c.photoSrc === src ? ' on' : '') + '" data-act="photo" data-v="' + esc(src) + '" title="' + esc(m.name) + '"><img src="' + esc(src) + '" alt=""><small>' + esc(m.name) + '</small></button>'; }).join('') +
           (up ? '<button type="button" class="fs-pho on" data-act="photo" data-v="' + esc(c.photoSrc) + '"><img src="' + esc(c.photoSrc) + '" alt=""><small>Your photo</small></button>' : '') +
           '<button type="button" class="fs-pho add" data-act="upPhoto">' + ic('cam') + '<small>Upload</small></button></div>' +
         '<div class="fs-h">Background photo</div><div class="row wrap gap6"><button type="button" class="btn sm" data-act="upBg">' + ic('up', 'sm') + (c.bgSrc ? 'Change photo' : 'Add a photo') + '</button>' + (c.bgSrc ? '<button type="button" class="btn sm ghost" data-act="rmBg">Remove</button>' : '') + '</div>' +
-          (c.bgSrc ? field('Darken the photo so the text reads well', '<input type="range" data-k="overlay" min="0.2" max="0.9" step="0.05" value="' + (c.overlay ?? 0.6) + '">') : '<div class="hint">Used behind the Classic, Elegant, Bold banner, Split, Street food and Minimal designs.</div>'); },
+          (c.bgSrc ? field('Darken the photo so the text reads well', '<input type="range" data-k="overlay" min="0.2" max="0.9" step="0.05" value="' + (c.overlay ?? 0.6) + '">') : '<div class="hint">Used behind most designs (not Photo, Chalkboard, Ticket).</div>'); },
       extras: () => '<div class="fs-h">Stickers</div><div class="fs-chips">' + Object.entries(BADGES).map(([k, b]) => chip('badge', k, esc(b[1]), (c.badges || []).includes(k))).join('') + '</div>' + tin('badgeText', 'Your own sticker', 'maxlength="28" placeholder="e.g. -10% today · Free drink"'),
     };
     const renderPanel = () => {
