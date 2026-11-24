@@ -674,15 +674,16 @@ A.mnEdit = (el) => {
   const crateHtml = () => { // the crate price, beside the bottle price
     if (!stockUse(m) || isCrateLine(m) || !crateSize()) return '';
     const pk = crateOf(prodOf()); const cl = crateLine(); const v = m._crate !== undefined ? m._crate : cl ? cl.price : pk && num(pk.price) > 0 ? pk.price : '';
-    return field('Price per ' + ((pk && pk.name) || 'crate') + ' of ' + crateSize() + ' (' + baseSym() + ')', inp('crate', v, 'inputmode="numeric" placeholder="Optional"'));
+    return field('Price per ' + ((pk && pk.name) || 'crate') + ' of ' + crateSize() + ' (' + baseSym() + ')', inp('crate', v, 'inputmode="numeric" placeholder="Optional"'), 'mn-num');
   };
   const draw = () => {
     const dk = m.drink && Drinks.ready() ? Drinks.bySku(m.drink) : null;
     const per = m.kind === 'portion' && m.uses[0] ? Math.round(1 / num(m.uses[0].qty)) : (dk && dk.pours ? Math.floor(dk.pours) : 25);
     setSheetBody(sh, '<div class="col">' + (isResto() ? '<button type="button" class="dk-fill" id="dkFill">' + ic('glass', 'sm') + '<span><b>' + (dk ? esc(dk.name) : 'Choose from the drinks list') + '</b><span class="hint">' + (dk ? esc(Drinks.metaLine(dk)) + ' · tap to choose another' : 'Drinks you have in stock — name, price, category and stock item filled in') + '</span></span>' + ic('chev', 'sm') + '</button>' : '') +
-      field('Name', inp('name', m.name, 'placeholder="e.g. Grilled fish, 33 Export, Glass of red"')) + '<div class="mn-prices">' + field(priceLbl(), inp('price', m.price, 'inputmode="numeric"')) + crateHtml() + '</div>' +
-      '<div class="grid2">' + field('Category', sel('category', [...new Set((S().menuCats || []).concat([m.category || 'Other']))], m.category || 'Other')) + (stations().length > 1 ? field('Prepared at', sel('station', [['', 'Automatic']].concat(stations().map((k) => [k, STATION[k]])), m.station || '')) : '<span></span>') + '</div>' +
-      field('Description (optional)', inp('desc', m.desc, 'placeholder="What is in it, size…"')) +
+      // one row: name · price per bottle · price per crate; the next: category · prepared at · description (they wrap on a phone)
+      '<div class="mn-row">' + field('Name', inp('name', m.name, 'placeholder="e.g. Grilled fish, 33 Export, Glass of red"'), 'mn-wide') + field(priceLbl(), inp('price', m.price, 'inputmode="numeric"'), 'mn-num') + crateHtml() + '</div>' +
+      '<div class="mn-row">' + field('Category', sel('category', [...new Set((S().menuCats || []).concat([m.category || 'Other']))], m.category || 'Other'), 'mn-mid') + (stations().length > 1 ? field('Prepared at', sel('station', [['', 'Automatic']].concat(stations().map((k) => [k, STATION[k]])), m.station || ''), 'mn-mid') : '') +
+        field('Description (optional)', inp('desc', m.desc, 'placeholder="What is in it, size…"'), 'mn-wide') + '</div>' +
       '<div class="lbl-t">Stock</div><div class="biz-pick">' + kinds.map(([k, l, h]) => '<label class="biz-opt"><input type="radio" name="kind" value="' + k + '"' + (m.kind === k ? ' checked' : '') + '><span><b>' + l + '</b><span class="hint">' + h + '</span></span></label>').join('') + '</div>' +
       (m.kind === 'stock' ? field('Stock item', sel('p0', pOpts, (m.uses[0] || {}).productId || '')) : '') +
       (m.kind === 'portion' ? '<div class="grid2">' + field('Bottle (stock item)', sel('p0', pOpts, (m.uses[0] || {}).productId || '')) + field('Servings per bottle', inp('per', per, 'inputmode="numeric"')) + '</div>' : '') +

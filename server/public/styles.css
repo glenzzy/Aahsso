@@ -2007,3 +2007,10 @@ table.pu-t2 .in-unit span[data-per^="/"]{font-weight:700;color:var(--ink2)}
 @media (max-width:600px){.pu-qw .pu-u.pu-pk,.pu-qw .pu-u.pu-un{display:none}.pu-qw:has(.pu-pk,.pu-un){display:block}.pu-qw:has(.pu-pk,.pu-un) .inp{width:100%}}
 .mn-prices{display:flex;flex-wrap:wrap;gap:10px}
 .mn-prices>.f{flex:1 1 140px;max-width:200px;min-width:0;margin:0}
+/* the menu editor: name and prices on one row, category and description on the next (wrapping on a phone) */
+.mn-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.mn-row>.f{margin:0;min-width:0}
+.mn-row>.mn-wide{flex:2 1 220px}
+.mn-row>.mn-num{flex:1 1 130px;max-width:190px}
+.mn-row>.mn-mid{flex:1 1 150px;max-width:230px}
+@media (max-width:600px){.mn-row>.mn-wide{flex-basis:100%}}
