@@ -285,6 +285,13 @@ function purchaseForm(pre) {
     if (!rows.length) { toast('Add at least one item', true); const n = $('[data-f=name]', sh); if (n) n.focus(); return; }
     const bad = rows.findIndex((r) => !r.name.trim() || !(num(r.qty) > 0) || r.unitCost === '');
     if (bad >= 0) { const r = rows[bad]; toast(!r.name.trim() ? 'Item ' + (bad + 1) + ': type the item name' : !(num(r.qty) > 0) ? r.name + ': quantity must be more than 0' : r.name + ': enter the price (0 if free)', true); return; }
+    // bought by the crate: one line to be sure it is crates, not bottles (3 crates of 12 = 36 bottles)
+    const crates = rows.filter((r) => r.perCase && num(r.packOf) > 1);
+    if (crates.length) {
+      const one = (r) => fmt(num(r.qty)) + ' ' + plural3(r.packName, num(r.qty)) + ' of ' + num(r.packOf) + ' (' + fmt(num(r.qty) * num(r.packOf)) + ' ' + plural3(r.unitName, num(r.qty) * num(r.packOf)) + ')' + (crates.length > 1 ? '' : ' of ' + r.name);
+      const msg = crates.length === 1 ? 'You are buying ' + one(crates[0]) + '.' : 'You are buying by the crate: ' + crates.map((r) => r.name + ' — ' + one(r)).join('; ') + '.';
+      if (!(await confirmBox(msg, 'Yes, ' + (crates.length === 1 ? plural3(crates[0].packName, 2) : 'crates') + ' — continue'))) return;
+    }
     const s = sums();
     if (s.tax < 0) return toast('Tax cannot be negative', true);
     const shares = lineTax() ? rows.map((r) => Math.round(num(r.qty) * num(r.unitCost) * num(r.taxPct)) / 100) : KC.allocTax(rows.map((r) => ({ unitCost: num(r.unitCost), qty: num(r.qty) })), s.tax);
