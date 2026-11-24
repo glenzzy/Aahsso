@@ -313,14 +313,15 @@ async function saveFile(filename, blob) {
 }
 /** Open the file chooser. Resolves with the file, or null if the person cancels (so buttons stop loading). */
 function chooseFile(accept, capture, multiple) { // multiple: resolves with an array of files
+  // The chosen file is delivered whenever 'change' fires. No guessing "cancelled" from the window getting focus back:
+  // on Linux (and some phones) focus returns BEFORE the file arrives, and the file was then thrown away. A cancelled
+  // pick resolves with null where the browser says so ('cancel' event); elsewhere it simply never resolves (harmless).
   return new Promise((res) => {
     const i = document.createElement('input'); i.type = 'file'; i.accept = accept; if (capture) i.setAttribute('capture', capture); if (multiple) i.multiple = true;
-    let done = false; const finish = (f) => { if (done) return; done = true; window.removeEventListener('focus', onFocus); res(f); };
-    // older browsers have no 'cancel' event: when the window gets focus back and nothing was chosen, treat it as cancel
-    const onFocus = () => setTimeout(() => { if (!i.files || !i.files.length) finish(null); }, 800);
-    i.onchange = () => finish(multiple ? (i.files.length ? [...i.files] : null) : i.files[0] || null);
+    i.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'; document.body.appendChild(i); // in the page: iPhone Safari may drop the file of a detached input
+    let done = false; const finish = (f) => { if (done) return; done = true; i.remove(); res(f); };
+    i.addEventListener('change', () => finish(multiple ? (i.files.length ? [...i.files] : null) : i.files[0] || null));
     i.addEventListener('cancel', () => finish(null));
-    setTimeout(() => window.addEventListener('focus', onFocus), 300);
     i.click();
   });
 }
