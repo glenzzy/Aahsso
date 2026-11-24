@@ -288,8 +288,10 @@ function purchaseForm(pre) {
     // bought by the crate: one line to be sure it is crates, not bottles (3 crates of 12 = 36 bottles)
     const crates = rows.filter((r) => r.perCase && num(r.packOf) > 1);
     if (crates.length) {
-      const one = (r) => fmt(num(r.qty)) + ' ' + plural3(r.packName, num(r.qty)) + ' of ' + num(r.packOf) + ' (' + fmt(num(r.qty) * num(r.packOf)) + ' ' + plural3(r.unitName, num(r.qty) * num(r.packOf)) + ')' + (crates.length > 1 ? '' : ' of ' + r.name);
-      const msg = crates.length === 1 ? 'You are buying ' + one(crates[0]) + '.' : 'You are buying by the crate: ' + crates.map((r) => r.name + ' — ' + one(r)).join('; ') + '.';
+      // "10 crates of Castel Beer 330ml Bottle (240 bottles)"
+      const one = (r) => fmt(num(r.qty)) + ' ' + plural3(r.packName, num(r.qty)) + ' of ' + r.name + ' (' + fmt(num(r.qty) * num(r.packOf)) + ' ' + plural3(r.unitName, num(r.qty) * num(r.packOf)) + ')';
+      const parts = crates.map(one);
+      const msg = 'You are buying ' + (parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0]) + '.';
       if (!(await confirmBox(msg, 'Yes, ' + (crates.length === 1 ? plural3(crates[0].packName, 2) : 'crates') + ' — continue'))) return;
     }
     const s = sums();
