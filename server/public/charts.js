@@ -43,7 +43,7 @@ const Charts = (() => {
     const tot = ps.reduce((a, p) => a + p.value, 0); let at = 0;
     const arcs = ps.map((p, i) => { const pc = (p.value / tot) * 100; const s = '<circle r="15.9155" cx="21" cy="21" fill="none" stroke="' + COLORS[i % COLORS.length] + '" stroke-width="6" stroke-dasharray="' + Math.max(0, pc - (ps.length > 1 ? 0.6 : 0)).toFixed(2) + ' ' + (100 - pc + (ps.length > 1 ? 0.6 : 0)).toFixed(2) + '" stroke-dashoffset="' + (25 - at).toFixed(2) + '"><title>' + esc(p.label + ': ' + f(p.value) + ' (' + Math.round(pc) + '%)') + '</title></circle>'; at += pc; return s; }).join('');
     return '<div class="ch-donut"><svg viewBox="0 0 42 42" role="img" aria-label="' + esc(o.title || 'Share') + '"><circle r="15.9155" cx="21" cy="21" fill="none" stroke="var(--line2)" stroke-width="6"/>' + arcs +
-      '<text x="21" y="20.5" class="ch-dt">' + esc(short(tot)) + '</text><text x="21" y="25.5" class="ch-ds">' + esc(o.centre || 'total') + '</text></svg>' +
+      '<text x="21" y="21.6" class="ch-dt" font-size="' + (short(tot).length > 4 ? 5.2 : 6) + '" font-weight="800">' + esc(short(tot)) + '</text><text x="21" y="26" class="ch-ds" font-size="2.6" font-weight="600">' + esc(String(o.centre || 'total').slice(0, 10)) + '</text></svg>' +
       '<div class="ch-legend">' + ps.map((p, i) => '<div class="ch-li"><i style="background:' + COLORS[i % COLORS.length] + '"></i><span class="ellipsis">' + esc(p.label) + '</span><b class="money">' + esc(f(p.value)) + '</b><span class="muted">' + Math.round((p.value / tot) * 100) + '%</span></div>').join('') + '</div></div>';
   }
   /** a heat map: cells[row][col] numbers; rowLabels (e.g. Mon…Sun), colLabels (e.g. hours) */

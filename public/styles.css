@@ -1850,7 +1850,7 @@ label.f,.settings label.f .lbl{font-weight:500}
 .fs-redo svg{transform:scaleX(-1)}
 .fs-sizes{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin-left:6px;padding:2px 0;min-width:0}
 .fs-sizes::-webkit-scrollbar{display:none}
-.fs-chip{flex:none;display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:6px 12px;font:600 13px/1.1 inherit;cursor:pointer;white-space:nowrap}
+.fs-chip{flex:none;display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:6px 12px;font-weight:600;font-size:13px;line-height:1.1;cursor:pointer;white-space:nowrap}
 .fs-chip.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 10%,var(--card));color:var(--brand)}
 .fs-ar{display:inline-block;height:14px;border:1.6px solid currentColor;border-radius:3px;opacity:.75}
 .fs-stage{grid-area:stage;position:relative;min-height:0;display:flex;flex-direction:column;background:repeating-conic-gradient(color-mix(in srgb,var(--ink) 6%,transparent) 0 25%,transparent 0 50%) 0 0/18px 18px,var(--bg)}
@@ -1866,14 +1866,14 @@ label.f,.settings label.f .lbl{font-weight:500}
 .fs-h{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin-top:4px}
 .fs-tabs{grid-area:tabs;display:flex;overflow-x:auto;scrollbar-width:none;background:var(--card);border-top:1px solid var(--line);padding:2px 4px}
 .fs-tabs::-webkit-scrollbar{display:none}
-.fs-tab{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 1px 7px;border:0;background:none;color:var(--ink3);font:600 11px/1 inherit;cursor:pointer;border-radius:10px}
+.fs-tab{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 1px 7px;border:0;background:none;color:var(--ink3);font-weight:600;font-size:11px;line-height:1;cursor:pointer;border-radius:10px}
 .fs-tab .i{width:22px;height:22px}
 .fs-tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px}
 .fs-tab.on{color:var(--brand);background:color-mix(in srgb,var(--brand) 9%,transparent)}
 .fs-chips{display:flex;flex-wrap:wrap;gap:6px}
 .fs-tg{display:flex;flex-wrap:wrap;gap:6px 18px}
 .fs-tpls{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
-.fs-tpl{display:flex;flex-direction:column;gap:6px;border:2px solid transparent;background:none;padding:4px;border-radius:12px;cursor:pointer;font:600 12.5px inherit;color:var(--ink)}
+.fs-tpl{display:flex;flex-direction:column;gap:6px;border:2px solid transparent;background:none;padding:4px;border-radius:12px;cursor:pointer;font-weight:600;font-size:12.5px;color:var(--ink)}
 .fs-tpl canvas{width:100%;height:auto;display:block;border-radius:7px;background:var(--bg);box-shadow:0 3px 10px rgba(20,32,46,.18)}
 .fs-tpl.on{border-color:var(--brand)}
 .fs-pals{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
@@ -1894,7 +1894,7 @@ label.f,.settings label.f .lbl{font-weight:500}
 .fs-ph{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center}
 .fs-ph .seg button{padding:7px 9px}
 .fs-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
-.fs-pho{position:relative;aspect-ratio:1;border:2px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg);cursor:pointer;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--ink2);font:600 12px inherit}
+.fs-pho{position:relative;aspect-ratio:1;border:2px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg);cursor:pointer;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--ink2);font-weight:600;font-size:12px}
 .fs-pho img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .fs-pho small{position:relative;font-size:11px;font-weight:600}
 .fs-pho img+small{position:absolute;left:0;right:0;bottom:0;padding:3px 5px;background:linear-gradient(transparent,rgba(0,0,0,.65));color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
@@ -1969,7 +1969,7 @@ table.pu-t2 .in-unit span[data-per^="/"]{font-weight:700;color:var(--ink2)}
 .ch-c b{display:block;width:min(100%,46px);background:var(--brand);border-radius:5px 5px 1px 1px;position:relative;min-height:0;opacity:.85;transition:opacity .15s}
 .ch-c:hover b{opacity:1}
 .ch-c.hi b{background:var(--accent);opacity:1}
-.ch-c b em{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);font:700 11px/1.6 inherit;font-style:normal;color:var(--ink);white-space:nowrap}
+.ch-c b em{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);font-weight:700;font-size:11px;line-height:1.6;font-style:normal;color:var(--ink);white-space:nowrap}
 .ch-x{display:flex;gap:3px;margin-top:5px}
 .ch-x span{flex:1;min-width:0;text-align:center;font-size:10.5px;color:var(--ink3);white-space:nowrap;overflow:visible}
 .ch-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
@@ -1986,8 +1986,8 @@ table.pu-t2 .in-unit span[data-per^="/"]{font-weight:700;color:var(--ink2)}
 .ch-none{padding:24px 0;text-align:center}
 .ch-donut{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:8px}
 .ch-donut svg{width:150px;height:150px;flex:none;transform:rotate(0)}
-.ch-dt{font:800 6.5px/1 inherit;fill:var(--ink);text-anchor:middle}
-.ch-ds{font:600 3px/1 inherit;fill:var(--ink3);text-anchor:middle}
+.ch-dt{fill:var(--ink);text-anchor:middle}
+.ch-ds{fill:var(--ink3);text-anchor:middle}
 .ch-legend{flex:1;min-width:180px;display:flex;flex-direction:column;gap:6px}
 .ch-li{display:grid;grid-template-columns:12px minmax(0,1fr) auto 40px;gap:8px;align-items:center;font-size:13.5px}
 .ch-li i{width:12px;height:12px;border-radius:3px}
@@ -2014,3 +2014,10 @@ table.pu-t2 .in-unit span[data-per^="/"]{font-weight:700;color:var(--ink2)}
 .mn-row>.mn-num{flex:1 1 130px;max-width:190px}
 .mn-row>.mn-mid{flex:1 1 150px;max-width:230px}
 @media (max-width:600px){.mn-row>.mn-wide{flex-basis:100%}}
+/* charts: the donut's total sized to sit inside the ring; on a phone, report charts take the full width (one per row) */
+.ch-donut svg{width:136px;height:136px}
+@media (max-width:600px){
+  .grid2:has(> .card .ch-donut),.grid2:has(> .card .ch),.grid2:has(> .card .hbar){grid-template-columns:minmax(0,1fr)!important}
+  .ch-donut svg{width:118px;height:118px}
+  .ch-li{font-size:13px}
+}
