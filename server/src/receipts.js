@@ -11,11 +11,18 @@
 // Testing through OpenRouter before having an Anthropic key (receipts then go to OpenRouter as well as Anthropic):
 //   ANTHROPIC_BASE_URL=https://openrouter.ai/api   ANTHROPIC_AUTH_TOKEN=<OpenRouter key>   (leave ANTHROPIC_API_KEY empty)
 //   RECEIPT_MODEL=anthropic/claude-opus-5.5        — the model name defaults to this when the address is OpenRouter
+//
+// Cheap testing: RECEIPT_MODEL=anthropic/claude-haiku-5.5 (or claude-haiku-5-5 direct) costs ~40× less than Opus 5.5.
+//   RECEIPT_MAX_TOKENS caps the answer (default: 6000 for one file, +2000 per extra file, at most 16000). OpenRouter holds
+//   back credit for the whole cap before reading, so a low balance needs a lower cap or a cheaper model.
 const Anthropic = require('@anthropic-ai/sdk');
 
 const VIA_OPENROUTER = /openrouter\.ai/i.test(process.env.ANTHROPIC_BASE_URL || '') || process.env.RECEIPT_PROVIDER === 'openrouter';
 const MODEL = process.env.RECEIPT_MODEL || (VIA_OPENROUTER ? 'anthropic/claude-opus-5.5' : 'claude-opus-5-5');
 const EFFORT = process.env.RECEIPT_EFFORT || 'low';
+const IS_DEFAULT_MODEL = !process.env.RECEIPT_MODEL; // the refusal fallback only for the default (Opus): a cheap test model must not fall back to a 40× dearer one
+/* room for the answer: a receipt of ~40 lines is ~3000 tokens of JSON plus a little thinking at low effort */
+const maxTokensFor = (files) => Math.min(Number(process.env.RECEIPT_MAX_TOKENS) || 16000, 6000 + 2000 * (files - 1), 16000);
 const MAX_FILES = 8; // several photos of one long receipt, or a few receipts at once
 const MAX_BYTES = 4 * 1024 * 1024; // all files together (the hosting platform takes ~4.5 MB per request)
 const DEADLINE_MS = Number(process.env.RECEIPT_DEADLINE_MS || 55e3); // the hosting platform stops a request at 60 s
@@ -117,24 +124,24 @@ async function readReceipts(files, { categories = [], currency = '' } = {}) {
   let r;
   try {
     const body = {
-      model: MODEL, max_tokens: 16000, system: SYSTEM,
+      model: MODEL, max_tokens: maxTokensFor(blocks.length), system: SYSTEM,
       output_config: { effort: EFFORT, format: { type: 'json_schema', schema: SCHEMA } },
       messages: [{ role: 'user', content: blocks.concat([{ type: 'text', text: hint }]) }],
     };
     r = VIA_OPENROUTER
       // OpenRouter: its own fallback list, and the schema repeated in the prompt in case the format is not enforced there
-      ? await api().messages.create(Object.assign(body, {
-        fallbacks: [{ model: 'anthropic/claude-opus-5' }],
+      ? await api().messages.create(Object.assign(body, IS_DEFAULT_MODEL ? { fallbacks: [{ model: 'anthropic/claude-opus-5' }] } : {}, {
         system: SYSTEM + '\n\nReply with only a JSON object (no other text) that follows this JSON schema:\n' + JSON.stringify(SCHEMA),
       }), { signal: ac.signal })
-      : await api().beta.messages.create(Object.assign(body, {
+      : await (IS_DEFAULT_MODEL ? api().beta.messages.create(Object.assign(body, {
         betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', // a false-positive safety decline is retried on another model instead of failing
-      }), { signal: ac.signal });
+      }), { signal: ac.signal }) : api().messages.create(body, { signal: ac.signal }));
   } catch (e) {
     if (e instanceof Anthropic.RateLimitError) throw Object.assign(new Error('Receipt reading is busy — try again in a minute'), { status: 503, cause: e });
     if (e instanceof Anthropic.BadRequestError) throw Object.assign(new Error('These files could not be read — try a clearer photo or a smaller PDF'), { status: 422, cause: e });
     if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw Object.assign(new Error('Receipt scanning is not set up correctly — please contact support'), { status: 503, cause: e });
     if (e instanceof Anthropic.APIUserAbortError || e instanceof Anthropic.APIConnectionTimeoutError) throw Object.assign(new Error('Reading took too long — try fewer pages at a time'), { status: 504, cause: e });
+    if (e instanceof Anthropic.APIError && e.status === 402) throw Object.assign(new Error('Receipt reading is out of credit — please contact support'), { status: 503, cause: e }); // OpenRouter: balance too low
     if (e instanceof Anthropic.APIError) throw Object.assign(new Error('Receipt reading is not available right now — try again in a moment'), { status: 502, cause: e });
     throw e;
   } finally { clearTimeout(timer); }
@@ -163,4 +170,4 @@ function clean(list) {
   })).filter((x) => x.lines.length);
 }
 
-module.exports = { readReceipts, configured, sniff, SCHEMA, MODEL, VIA_OPENROUTER };
+module.exports = { readReceipts, configured, sniff, SCHEMA, MODEL, VIA_OPENROUTER, maxTokensFor };

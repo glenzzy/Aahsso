@@ -33,7 +33,8 @@ npm run migrate && npm start
 | SMS_HTTP_URL, SMS_HTTP_AUTH, SMS_SENDER | | Any SMS gateway accepting POST JSON `{to, message, sender}` (local gateways in Cameroon, Africa's Talking via a small adapter…) |
 | REMINDERS_DISABLED | | `1` to switch the scheduler off (e.g. on extra instances) |
 | ANTHROPIC_API_KEY | | Turns on **receipt scanning** (photo / PDF of a receipt → purchase lines, read by Claude). Without it the Scan buttons are hidden. |
-| RECEIPT_MODEL, RECEIPT_EFFORT | | Model and effort for receipt scanning (default `claude-opus-5-5`, `low`) |
+| RECEIPT_MODEL, RECEIPT_EFFORT | | Model and effort for receipt scanning (default `claude-opus-5-5`, `low`). For cheap testing: `claude-haiku-5-5` (OpenRouter: `anthropic/claude-haiku-5.5`), about 40× cheaper; the refusal fallback is then off. |
+| RECEIPT_MAX_TOKENS | | Cap on the answer per scan (default 6000 for one file, +2000 per extra file, at most 16000). OpenRouter holds back credit for the whole cap, so lower it when the balance is low. |
 | ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN | | For testing **through OpenRouter** before an Anthropic key: `ANTHROPIC_BASE_URL=https://openrouter.ai/api`, `ANTHROPIC_AUTH_TOKEN=<OpenRouter key>`, `ANTHROPIC_API_KEY` left empty. The model then defaults to `anthropic/claude-opus-5.5`. Receipts are then also sent to OpenRouter. |
 | RECEIPT_SCANS_PER_MONTH | | Scans per business per month when its plan sets no "Receipt scans a month" limit (default 200) |
 | RECEIPT_SCANS_PER_10MIN | | Burst limit per business (default 20) |
