@@ -80,6 +80,7 @@ const Drinks = (() => {
       (seeCost() ? row('Typical cost', d.cost ? fmt(d.cost) + ' F' : '') : '') + row('Bar price', d.priceBar ? fmt(d.priceBar) + ' F' + (seeCost() && mg(d.priceBar) ? ' · margin ' + mg(d.priceBar) : '') : '') + row('Lounge / hotel price', d.priceLounge ? fmt(d.priceLounge) + ' F' + (seeCost() && mg(d.priceLounge) ? ' · margin ' + mg(d.priceLounge) : '') : '') +
       row('By the glass / shot', d.byGlass ? (d.pourMl ? d.pourMl + ' ml' : 'Yes') + (d.pours ? ' · ' + d.pours + ' per bottle' : '') : '') +
       row('Reliability', esc(d.confidence || '') + (d.confidence && data ? ' <span class="muted" style="font-weight:400">— ' + esc((data.confidence.find((c) => c.key === d.confidence) || {}).desc || '') + '</span>' : '')) +
+      (d.img ? '<div class="dk-photo"><img src="' + esc(d.img) + '" alt="" loading="lazy"><span>' + esc(d.imgBy || '') + '</span></div>' : '') +
       (d.notes ? '<div class="dk-note">' + esc(d.notes) + '</div>' : '') + '</div>';
   }
   function about() {

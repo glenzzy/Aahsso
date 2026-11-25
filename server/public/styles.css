@@ -2024,3 +2024,5 @@ table.pu-t2 .in-unit span[data-per^="/"]{font-weight:700;color:var(--ink2)}
 /* the drinks picker: a small photo of each drink */
 .dk-ph{width:44px;height:44px;flex:none;border-radius:10px;object-fit:contain;background:#fff;border:1px solid var(--line);padding:2px}
 .dk-ph0{display:grid;place-items:center;font-size:20px;background:var(--line2);padding:0}
+.dk-photo{display:flex;align-items:flex-end;gap:10px;margin-top:8px;font-size:11px;color:var(--ink3)}
+.dk-photo img{width:96px;height:96px;object-fit:contain;background:#fff;border-radius:10px;border:1px solid var(--line)}
