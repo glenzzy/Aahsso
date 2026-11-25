@@ -404,7 +404,7 @@ function xlsxDownload(filename, sheets, formulas) { // sheets: {name: rows[]}; f
 
 /* ---------- navigation ---------- */
 const NAV = [
-  ['home', 'Home', 'home', () => true], ['sell', 'Sell', 'sell', () => can('sell')], ['sales', 'Sales', 'sales', () => can('sell') || can('salesAll') || can('payments')],
+  ['home', 'Home', 'home', () => true], ['sell', 'Sell', 'sell', () => can('sell')], ['sales', 'Sales', 'sales', () => can('sell') || can('salesAll') || can('payments')], ['pos', 'POS', 'sell', () => can('sell')],
   ['orders', 'Online orders', 'sell', () => can('sell') || can('payments'), () => (K.raw.orders || []).filter((o) => o.status === 'new').length],
   ['stock', 'Stock & prices', 'stock', () => can('stockView') || can('stockEdit')], ['buy', 'Buy', 'buy', () => can('purchases')], ['ship', 'Ship', 'ship', () => can('containers')], ['receive', 'Receive', 'check', () => can('containers')],
   ['customers', 'Customers', 'users', () => can('customers') || can('sell')], ['reports', 'Reports', 'chart', () => can('reports')], ['expenses', 'Expenses', 'wallet', () => can('expenses')],
@@ -439,7 +439,7 @@ const SECTIONS = [
   ['buy', 'Buy', 'buy', ['buy']],
   ['ship', 'Ship', 'ship', ['ship']],
   ['receive', 'Receive', 'check', ['receive']],
-  ['sell', 'Sell', 'sell', ['sales', 'orders']],
+  ['sell', 'Sell', 'sell', ['sales', 'pos', 'orders']],
   ['stock', 'Stock', 'stock', ['stock', 'promos', 'audit', 'losses', 'transfers']],
   ['customers', 'Customers', 'users', ['customers', 'reminders']],
   ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'claims', 'reports', 'assets']],
@@ -449,7 +449,7 @@ const SECTIONS = [
 /* Aahsso Store: buy, sell and keep records — a short menu. Any other tool the plan includes waits under "More tools". */
 const STORE_SECTIONS = [
   ['home', 'Home', 'home', ['home']],
-  ['sell', 'Sell', 'sell', ['sales']],
+  ['sell', 'Sell', 'sell', ['sales', 'pos']],
   ['buy', 'Buy', 'buy', ['buy']],
   ['stock', 'Stock', 'stock', ['stock']],
   ['customers', 'Customers', 'users', ['customers']],
@@ -468,7 +468,7 @@ const RESTO_SECTIONS = [
   ['buy', 'Buy', 'buy', ['buy']],
   ['suppliers', 'Suppliers', 'truck', ['suppliers']],
   ['customers', 'Customers', 'users', ['customers']],
-  ['records', 'Records', 'wallet', ['sales', 'expenses', 'reports', 'rstats']],
+  ['records', 'Records', 'wallet', ['sales', 'pos', 'expenses', 'reports', 'rstats']],
   ['tools', 'More tools', 'more', STORE_SECTIONS.find((x) => x[0] === 'tools')[3]],
   ['settings', 'Settings', 'gear', ['settings', 'team']],
 ];
@@ -502,6 +502,7 @@ function route() {
   else if (!navOk(r)) r = 'home';
   // a real page change closes open windows; re-checking access on the same page (e.g. just after loading) keeps them
   if (K.route !== r || openSale || !K.sheets.length) closeAll();
+  document.body.classList.toggle('pos-on', r === 'pos'); if (r !== 'pos' && typeof posWake === 'function') posWake(false);
   const same = K.route === r && openSale; K.route = r; if (!same) { window.scrollTo(0, 0); render(true); }
   if (openSale && K.member && can('sell')) A.newSale();
 }
@@ -525,7 +526,7 @@ function shell() {
     ? '<a href="#" data-a="moreMenu" class="' + (moreOn ? 'on' : '') + '">' + ic('more') + '<span>More</span></a>'
     : '<a href="#' + n[0] + '" class="' + (n[0] === mid ? 'sell ' : '') + (cur === n[0] || K.route === n[0] ? 'on' : '') + '"><div class="ic">' + ic(n[2]) + (n[0] === 'tickets' ? navCount(NAV.find((x) => x[0] === 'tickets')) : '') + '</div><span>' + n[1] + '</span></a>').join('');
   $('#tlogo').outerHTML = logoHTML('logo tlogo').replace('class="logo tlogo"', 'class="logo tlogo" id="tlogo"' + (sw ? ' data-a="bizSheet" role="button" title="Switch or add a business"' : ''));
-  $('#title').textContent = (secOf(K.route)[1] === 'Home' && K.route !== 'home') || (secOf(K.route)[0] === 'tools' && K.route !== 'tools') ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
+  $('#title').textContent = K.route === 'pos' ? 'POS · ' + (S().businessName || '') : (secOf(K.route)[1] === 'Home' && K.route !== 'home') || (secOf(K.route)[0] === 'tools' && K.route !== 'tools') ? TITLES[K.route] || '' : K.route === 'pending' ? 'Access' : secOf(K.route)[1];
   shellSync();
   if (K.tour && typeof tourMark === 'function') setTimeout(tourMark, 0);
   const lb = $('#locBtn'); if (lb) { const L = myLocs(); lb.classList.toggle('hide', allLocs().length < 2 || !has('branches')); lb.disabled = L.length < 2; lb.innerHTML = ic('home', 'sm') + '<span class="ellipsis" style="max-width:110px">' + esc(locName(K.loc)) + '</span>'; }

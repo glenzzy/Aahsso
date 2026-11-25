@@ -90,6 +90,7 @@ function refreshPOS() {
   if (sh) { $('#nsList', sh).innerHTML = nsListHTML(); $('#nsCart', sh).innerHTML = cartHTML(true, true); nsFoot(sh); }
   const c = K.sheets.find((s) => s._cart); if (c) setSheetBody(c, cartHTML(true));
   saveCart();
+  if (K.route === 'pos' && typeof posRefresh === 'function') posRefresh(); // the POS screen (v-pos.js)
 }
 A.newSale = () => {
   if (!can('sell')) return toast('You cannot record sales', true);
@@ -454,7 +455,7 @@ async function completeSale(v) {
   K.cart = { lines: [], customerId: null, editingId: null, discount: 0 }; saveCart();
   refreshPOS(); scheduleRender();
   while (K.sheets.length) closeSheet();
-  showReceipt(sale.id, true);
+  if (K.route === 'pos' && typeof posDone === 'function') posDone(sale); else showReceipt(sale.id, true); // POS: change, print, next customer
   return true;
 }
 
@@ -500,7 +501,7 @@ function showReceipt(id, fresh) {
   const el = openSheet({
     title: fresh ? '✓ Sale recorded' : 'Receipt ' + s.no,
     body: receiptHTML(s) + '<div class="tiny faint center mt">Tip: take a screenshot, or use the buttons below.</div>',
-    foot: '<a class="btn grow" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(receiptText(s)) + '">' + ic('wa') + 'WhatsApp</a><button class="btn" data-a="rcCopy" data-id="' + id + '">' + ic('copy') + '<span class="desk-only">Copy</span></button><button class="btn" data-a="rcPdf" data-id="' + id + '">' + ic('dl') + 'PDF</button>' + (K.info.mode === 'saas' ? '<button class="btn" data-a="rcMail" data-id="' + id + '">' + ic('mail') + '<span class="desk-only">Email</span></button>' : '') + (fresh ? '<button class="btn pri" data-a="rcNew">New sale</button>' : ''),
+    foot: '<a class="btn grow" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(receiptText(s)) + '">' + ic('wa') + 'WhatsApp</a><button class="btn" data-a="rcCopy" data-id="' + id + '">' + ic('copy') + '<span class="desk-only">Copy</span></button><button class="btn" data-a="rcPdf" data-id="' + id + '">' + ic('dl') + 'PDF</button><button class="btn" data-a="rcPrint" data-id="' + id + '">' + ic('dl') + 'Print</button>' + (K.info.mode === 'saas' ? '<button class="btn" data-a="rcMail" data-id="' + id + '">' + ic('mail') + '<span class="desk-only">Email</span></button>' : '') + (fresh ? '<button class="btn pri" data-a="rcNew">New sale</button>' : ''),
   });
   return el;
 }
