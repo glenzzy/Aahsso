@@ -188,8 +188,14 @@ function formVals(root) {
 
 /* ---------- persistence (with offline outbox) ---------- */
 const OB_KEY = () => 'aahsso-outbox-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '');
-function loadOutbox() { try { K.outbox = JSON.parse(localStorage.getItem(OB_KEY()) || '[]'); } catch (e) { K.outbox = []; } }
-function persistOutbox() { if (K.info && K.info.supportView) { shellSync(); return; } try { localStorage.setItem(OB_KEY(), JSON.stringify(K.outbox)); } catch (e) { } shellSync(); }
+const FAIL_KEY = () => 'aahsso-failed-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '');
+async function loadOutbox() {
+  if (K.info && K.info.supportView) return;
+  const [ob, fl] = await Promise.all([LocalDB.get(OB_KEY()), LocalDB.get(FAIL_KEY())]);
+  K.outbox = Array.isArray(ob) ? ob : []; K.failed = Array.isArray(fl) ? fl : [];
+}
+function persistOutbox() { if (K.info && K.info.supportView) { shellSync(); return; } LocalDB.set(OB_KEY(), JSON.parse(JSON.stringify(K.outbox))); shellSync(); }
+function persistFailed() { if (!(K.info && K.info.supportView)) LocalDB.set(FAIL_KEY(), JSON.parse(JSON.stringify(K.failed))); shellSync(); }
 const isNetErr = (e) => !e || ['unavailable', 'timeout', 'network'].includes(e.code) || e.name === 'TypeError' || /failed to fetch|network|load failed/i.test(String(e.message || ''));
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej({ code: 'timeout' }), ms))]);
 function enqueue(col, id, data) {
@@ -206,8 +212,9 @@ async function flushOutbox() {
       catch (e) {
         if (isNetErr(e)) break;
         K.outbox.shift(); persistOutbox();
-        K.failed.push({ col: o.col, id: o.id, data: o.data, error: e.message || e.code, details: e.details });
-        toast('A change made offline could not be saved: ' + (e.message || e.code) + (o.col === 'sales' && o.data ? ' (sale ' + o.data.no + ')' : ''), true);
+        // kept (never thrown away): a manager approves it, or it is tried again / discarded — see "need attention"
+        K.failed.push({ col: o.col, id: o.id, data: o.data, error: e.message || e.code, code: e.code || '', details: e.details, at: o.at }); persistFailed();
+        toast(e.code === 'approval_required' ? 'A change made offline needs a manager\'s approval — tap “need attention” at the top' : 'A change made offline could not be saved: ' + (e.message || e.code) + (o.col === 'sales' && o.data ? ' (sale ' + o.data.no + ')' : ''), true);
         if (K.store._refresh) K.store._refresh(o.col);
       }
     }
@@ -290,11 +297,16 @@ async function remove(col, id) {
 }
 /* cached copy of the data so the app opens instantly and keeps working when the connection drops */
 const CACHE_KEY = () => 'aahsso-cache-' + (K.info.mode || '') + '-' + ((K.info.tenant && K.info.tenant.id) || '') + '-' + (K.me.id || '');
-let _ct; function cacheSoon() { if (K.info && K.info.supportView) return; clearTimeout(_ct); _ct = setTimeout(() => { try { localStorage.setItem(CACHE_KEY(), JSON.stringify({ at: new Date().toISOString(), raw: K.raw })); } catch (e) { try { const lite = Object.assign({}, K.raw, { products: K.raw.products.map((p) => Object.assign({}, p, { image: String(p.image || '').startsWith('data:') ? '' : p.image })) }); localStorage.setItem(CACHE_KEY(), JSON.stringify({ at: new Date().toISOString(), raw: lite })); } catch (e2) { } } }, 1500); }
-function loadCache() { if (K.info && K.info.supportView) return null; try { const c = JSON.parse(localStorage.getItem(CACHE_KEY()) || 'null'); if (c && c.raw) { Object.keys(K.raw).forEach((k) => { if (c.raw[k] !== undefined) K.raw[k] = c.raw[k]; }); return c.at; } } catch (e) { } return null; }
+/* the offline copy of everything (IndexedDB: no 5 MB limit) — the app opens and works from it without network */
+let _ct; function cacheSoon() { if (K.info && K.info.supportView) return; clearTimeout(_ct); _ct = setTimeout(() => { let raw; try { raw = JSON.parse(JSON.stringify(K.raw)); } catch (e) { return; } LocalDB.set(CACHE_KEY(), { at: new Date().toISOString(), raw }); }, 1500); }
+async function loadCache() { if (K.info && K.info.supportView) return null; try { const c = await LocalDB.get(CACHE_KEY()); if (c && c.raw) { Object.keys(K.raw).forEach((k) => { if (c.raw[k] !== undefined) K.raw[k] = c.raw[k]; }); return c.at; } } catch (e) { } return null; }
+/** changes the server did not accept after coming back online: approve, try again or discard */
+const COL_NAME = { sales: 'Sale', products: 'Stock item', menu: 'Menu item', rorders: 'Order', tabs: 'Tab', expenses: 'Expense', customers: 'Customer', suppliers: 'Supplier', bills: 'Bill', adjustments: 'Stock change', payroll: 'Payslip', attendance: 'Attendance', losses: 'Loss', settings: 'Settings' };
+const failLabel = (f) => (COL_NAME[f.col] || f.col) + (f.data ? ' ' + (f.data.no || f.data.name || f.data.title || '') : ' (deleted)');
 function shellSync() {
   const el = document.getElementById('sync'); if (!el) return;
   const n = K.outbox.length;
+  if (K.failed && K.failed.length) { el.innerHTML = '<button type="button" class="sync-att" data-a="syncIssues"><span class="dot bad"></span>' + K.failed.length + ' need attention</button>'; el.title = 'Changes made offline that the server did not accept yet'; return; }
   if (n) { el.innerHTML = '<span class="dot warn"></span>' + n + ' to sync'; el.title = 'Saved on this phone. Will upload automatically when online.'; return; }
   const dot = K.sync === 'ok' ? '' : K.sync === 'local' ? 'warn' : K.sync === 'err' || K.sync === 'offline' ? 'bad' : 'warn';
   el.innerHTML = (K.sync === 'loading' ? '<span class="ld-c sm" role="status" aria-label="Loading"></span>' : '<span class="dot ' + dot + '"></span>' + ({ ok: 'Synced', local: 'This device only', err: 'Offline', offline: 'Offline copy' }[K.sync] || ''));
@@ -706,3 +718,21 @@ A.dtSort = (el) => {
 const dtDate = (d) => d ? '<span class="nowrap">' + esc(fmtDate(d)) + '</span>' : '<span class="dt-nil">—</span>';
 const dtNil = '<span class="dt-nil">—</span>';
 const dtSum = (rows, f) => rows.reduce((a, r) => a + (num(f(r)) || 0), 0);
+A.syncIssues = () => {
+  const draw = () => K.failed.length ? K.failed.map((f, i) => '<div class="card pad mb"><b>' + esc(failLabel(f)) + '</b><div class="small muted">' + esc(f.at ? fmtDT(f.at) : '') + '</div><div class="small mt">' + esc(f.error || '') + '</div><div class="row wrap mt">' +
+    '<button class="btn pri sm" data-fx="retry" data-i="' + i + '">' + (f.code === 'approval_required' ? ic('key', 'sm') + 'Ask a manager to approve' : ic('undo', 'sm') + 'Try again') + '</button><button class="btn ghost sm" data-fx="drop" data-i="' + i + '">Discard</button></div></div>').join('')
+    : '<div class="empty">' + ic('check') + ' Everything is synced.</div>';
+  const sh = openSheet({ title: 'Changes that need attention', body: '<p class="small muted">These were made without internet. The server did not accept them yet — nothing is lost until you discard it.</p><div id="fxList">' + draw() + '</div>', foot: '<button class="btn grow" data-a="sheetClose">Close</button>' });
+  $('#fxList', sh).addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-fx]'); if (!b) return; const i = +b.dataset.i; const f = K.failed[i]; if (!f) return;
+    if (b.dataset.fx === 'drop') { if (!(await confirmBox('Discard this change? ' + failLabel(f) + ' stays as it is on the server.', 'Discard'))) return; K.failed.splice(i, 1); persistFailed(); }
+    else {
+      b.disabled = true;
+      try {
+        if (f.data) await putWithApprovals(f.col, Object.assign({ id: f.id }, f.data), f.data); else await K.store.del(f.col, f.id);
+        K.failed.splice(i, 1); persistFailed(); toast('Saved'); if (K.store._refresh) K.store._refresh(f.col);
+      } catch (x) { b.disabled = false; if (x && x.code === 'not_approved') return; f.error = x.message || x.code; f.code = x.code || ''; persistFailed(); toast(isNetErr(x) ? OFFLINE_MSG : 'Still not accepted: ' + (x.message || x.code), true); }
+    }
+    $('#fxList', sh).innerHTML = draw();
+  });
+};

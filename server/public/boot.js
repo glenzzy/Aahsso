@@ -155,8 +155,8 @@ A.reqAccess = async () => {
   if (info.mode === 'signedout') { $('#view').innerHTML = '<div class="card pad2" style="max-width:520px;margin:20px auto"><h2>Please sign in</h2><p class="muted">Sign in to claude.ai, then open this link again.</p></div>'; $('#title').textContent = 'Aahsso'; return; }
   K.store = store; K.info = info; K.me = info.me || { id: null, name: '' };
   K.sync = info.mode === 'local' ? 'local' : 'loading';
-  loadOutbox();
-  const cachedAt = info.mode === 'local' ? null : loadCache();
+  await loadOutbox();
+  const cachedAt = info.mode === 'local' ? null : await loadCache();
   if (cachedAt) K.sync = 'offline';
   if (info.mode === 'saas') A.logout = () => { if (info.supportView) { sessionStorage.removeItem('aahsso-imp'); window.close(); return location.reload(); } localStorage.removeItem('aahsso-token'); location.reload(); };
   if (info.supportView) supportBanner(info.supportView);

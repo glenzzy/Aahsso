@@ -8,13 +8,21 @@ const Drinks = (() => {
     if (data) return data;
     const KEY = 'aahsso-drinks';
     if (!loading) loading = K.store.req('GET', '/api/drinks')
-      .then((d) => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { /* full: just not offline */ } return d; })
-      .catch((e) => { let d = null; try { d = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (x) { } if (d && d.items) return d; throw new Error('The drinks list could not be loaded — check the internet'); })
-      .then((d) => { if (!d.items || !d.items.length) throw new Error('The drinks list is empty for now. Add your drinks yourself, or ask the Aahsso team.'); d.items.forEach((x) => { x._q = norm([x.name, x.brand, x.variant, x.sub, x.cat, x.country, x.grape].join(' ')); x._n = norm(x.name); }); data = d; setTimeout(() => fillPhotos().catch(() => {}), 1500); return d; })
+      .then((d) => { LocalDB.set(KEY, d); return d; })
+      .catch(async (e) => { const d = await LocalDB.get(KEY); if (d && d.items) return d; throw new Error('The drinks list could not be loaded — connect to the internet once to get it'); })
+      .then((d) => { if (!d.items || !d.items.length) throw new Error('The drinks list is empty for now. Add your drinks yourself, or ask the Aahsso team.'); d.items.forEach((x) => { x._q = norm([x.name, x.brand, x.variant, x.sub, x.cat, x.country, x.grape].join(' ')); x._n = norm(x.name); }); data = d; setTimeout(() => fillPhotos().catch(() => {}).then(() => warmPhotos()), 1500); return d; })
       .catch((e) => { loading = null; throw e; });
     return loading;
   }
   const ready = () => data;
+  /** the photos of what the business sells, fetched once while online so they still show offline (the app keeps them) */
+  let warmed = false;
+  async function warmPhotos() {
+    if (warmed || !navigator.onLine || !('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return; warmed = true;
+    const refs = new Set(); (K.raw.products || []).forEach((p) => !p.archived && p.image && refs.add(p.image)); (K.raw.menu || []).forEach((m) => m.photo && refs.add(m.photo));
+    if (data) data.items.forEach((d) => d.img && refs.add(d.img));
+    for (const ref of refs) { const u = imgSrc(ref); if (!u || u.startsWith('data:')) continue; try { await fetch(u, { mode: /^https:/.test(u) && !u.startsWith(location.origin) ? 'no-cors' : 'same-origin', credentials: 'omit' }); } catch (e) { } await new Promise((r) => setTimeout(r, 150)); }
+  }
   /** drinks bought or put on the menu before the catalog had photos get its photo — once per catalog version, never over a photo the bar chose */
   async function fillPhotos() {
     if (!data || !data.version || !K.raw || !K.raw.settings || S().drinkPhotos === data.version || !(can('stockEdit') || can('menu')) || !navigator.onLine) return;
@@ -167,5 +175,5 @@ const Drinks = (() => {
     drawCats(); drawList(); drawFoot(); setTimeout(() => qEl.focus(), 50);
     return sh;
   }
-  return { load, ready, fillPhotos, find, byName, bySku, norm, size, packLabel, metaLine, toProduct, menuCat, productOf, inStock, servable, addStockCats, picker, about };
+  return { load, ready, fillPhotos, warmPhotos, find, byName, bySku, norm, size, packLabel, metaLine, toProduct, menuCat, productOf, inStock, servable, addStockCats, picker, about };
 })();

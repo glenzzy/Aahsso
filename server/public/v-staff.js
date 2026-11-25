@@ -8,7 +8,9 @@ const meStaffId = () => KC.staffIdOf(K.me.id);
 function loadPeople(force) {
   if (K.info.mode !== 'saas') return Promise.resolve();
   if (K._peopleP && !force) return K._peopleP;
-  K._peopleP = K.store.req('GET', '/api/team-names').then((r) => { K._people = r.people; scheduleRender(); refreshSheets(); }, () => { K._people = K._people || []; K._peopleP = null; });
+  const KEY = 'aahsso-people-' + ((K.info.tenant && K.info.tenant.id) || '');
+  K._peopleP = K.store.req('GET', '/api/team-names').then((r) => { K._people = r.people; LocalDB.set(KEY, r.people); scheduleRender(); refreshSheets(); },
+    async () => { const kept = await LocalDB.get(KEY); K._people = K._people || kept || []; K._peopleP = null; if (kept) { scheduleRender(); refreshSheets(); } }); // offline: the last list
   return K._peopleP;
 }
 /** Everyone with a login (pick who takes over the till; staff lists). */

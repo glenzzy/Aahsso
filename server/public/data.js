@@ -11,6 +11,33 @@
   });
   if (window.AAHSSO_CONFIG === undefined && window.KARGO_CONFIG !== undefined) window.AAHSSO_CONFIG = window.KARGO_CONFIG; // an older cached config.js
 })();
+/* The phone's own storage for the offline copy, the changes waiting to sync and the drinks list: IndexedDB (room for
+ * years of records), else localStorage (about 5 MB). Values written by older versions to localStorage move over once. */
+const LocalDB = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((ok) => {
+    try { const r = indexedDB.open('aahsso', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => ok(r.result); r.onerror = () => ok(null); r.onblocked = () => ok(null); }
+    catch (e) { ok(null); }
+  }));
+  const idb = async (mode, fn) => { const db = await open(); if (!db) return { ok: false };
+    return new Promise((res) => { try { const t = db.transaction('kv', mode); const r = fn(t.objectStore('kv')); let v; if (r) r.onsuccess = () => { v = r.result; }; t.oncomplete = () => res({ ok: true, v }); t.onerror = t.onabort = () => res({ ok: false }); } catch (e) { res({ ok: false }); } }); };
+  async function get(key) {
+    const r = await idb('readonly', (st) => st.get(key));
+    if (r.ok && r.v !== undefined) return r.v;
+    let s = null; try { s = localStorage.getItem(key); } catch (e) { }
+    if (s === null) return undefined;
+    let v; try { v = JSON.parse(s); } catch (e) { return undefined; }
+    if (r.ok && (await idb('readwrite', (st) => st.put(v, key))).ok) try { localStorage.removeItem(key); } catch (e) { } // moved to the bigger storage
+    return v;
+  }
+  async function set(key, val) {
+    if ((await idb('readwrite', (st) => st.put(val, key))).ok) return true;
+    try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch (e) { return false; }
+  }
+  async function del(key) { await idb('readwrite', (st) => st.delete(key)); try { localStorage.removeItem(key); } catch (e) { } }
+  return { get, set, del };
+})();
+const OFFLINE_MSG = 'No internet — this needs a connection. Everything else you do is saved on this phone and syncs later.';
 const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims', 'menu', 'areas', 'tables', 'tabs', 'rorders', 'reservations'];
 const TEAM_COLLECTIONS = ['members', 'requests']; // hosted mode only (SaaS keeps users in its own table)
 
@@ -67,7 +94,9 @@ class RestStore {
   async req(method, path, body, raw) {
     const headers = { Authorization: 'Bearer ' + this.token };
     if (!raw) headers['Content-Type'] = 'application/json';
-    const r = await fetch(this.api + path, { method, headers, body: raw ? body : body ? JSON.stringify(body) : undefined });
+    if (navigator.onLine === false) throw Object.assign(new Error(OFFLINE_MSG), { code: 'network' });
+    let r; try { r = await fetch(this.api + path, { method, headers, body: raw ? body : body ? JSON.stringify(body) : undefined }); }
+    catch (e) { throw Object.assign(new Error(OFFLINE_MSG), { code: 'network' }); } // no network: the same clear message everywhere
     if (r.status === 401) { if (this.supportView) { sessionStorage.removeItem('aahsso-imp'); alert('The support view has ended.'); window.close(); } else localStorage.removeItem('aahsso-token'); location.reload(); }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { code: j.code || 'error', details: j.details });

@@ -1,14 +1,26 @@
 /* Aahsso service worker (SaaS version): the app opens without network; data writes are queued by the app itself. */
-const CACHE = 'aahsso-v117';
+const CACHE = 'aahsso-v119';
+const MEDIA = 'aahsso-media'; // photos and the font: kept across app updates, so they still show offline
 const SHELL = ['./', 'index.html', 'styles.css', 'config.js', 'compute.js', 'data.js', 'app-core.js', 'v-sell.js', 'v-stock.js', 'v-flow.js', 'v-tour.js', 'v-promo.js', 'v-other.js', 'charts.js', 'v-reports.js', 'v-team.js', 'v-money.js', 'v-loss.js', 'v-count.js', 'v-claims.js', 'v-assets.js', 'v-staff.js', 'v-account.js', 'v-activity.js', 'bell.js', 'bell.mp3', 'drinks.js', 'ingredients.js', 'flyer.js', 'v-resto.js', 'boot.js', 'manifest.json',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => {})))).then(() => self.skipWaiting())); });
-self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
+self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE && k !== MEDIA).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
-  if (url.pathname.startsWith('/api/images/')) { // photos: cache forever
-    e.respondWith(caches.open(CACHE).then(async (c) => (await c.match(e.request)) || fetch(e.request).then((r) => { if (r.ok) c.put(e.request, r.clone()); return r; })));
+  if (url.origin === location.origin && url.pathname.startsWith('/api/images/')) { // uploaded photos never change: kept forever
+    e.respondWith(caches.open(MEDIA).then(async (c) => (await c.match(e.request)) || fetch(e.request).then((r) => { if (r.ok) c.put(e.request, r.clone()); return r; })));
+    return;
+  }
+  // the font and the drinks' photos (other sites that allow it): from the phone first, refreshed in the background
+  if (/(^|\.)(wikimedia\.org|gstatic\.com|googleapis\.com)$/.test(url.hostname) && !url.hostname.startsWith('commons.')) {
+    const key = new Request(url.href);
+    e.respondWith(caches.open(MEDIA).then(async (c) => {
+      const hit = await c.match(key);
+      const net = fetch(url.href, { mode: 'cors', credentials: 'omit' }).then((r) => { if (r.ok) c.put(key, r.clone()); return r; });
+      if (hit) { net.catch(() => {}); return hit; }
+      return net.catch(() => fetch(e.request));
+    }));
     return;
   }
   if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) return; // the platform admin is never cached or served by the app
