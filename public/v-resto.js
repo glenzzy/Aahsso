@@ -561,6 +561,7 @@ A.qrMenuPrint = async () => {
 /* ================= MENU ================= */
 VIEWS.menu = {
   render() {
+    if (!Drinks.ready()) Drinks.load().then(() => scheduleRender()).catch(() => {}); // photos for drinks added before the catalog had them
     const items = rMenu(); const cats = [...new Set((S().menuCats || []).concat(items.map((m) => m.category || 'Other')))]; const cur = K.ui.mnCat || ''; const q = (K.ui.mnQ || '').toLowerCase();
     const list = items.filter((m) => (!cur || (m.category || 'Other') === cur) && (!q || m.name.toLowerCase().includes(q))).sort((a, b) => cats.indexOf(a.category) - cats.indexOf(b.category) || a.name.localeCompare(b.name));
     const kind = { plain: '', stock: 'From stock', portion: 'Glass / shot', recipe: 'Recipe' };
@@ -630,7 +631,7 @@ const crateName = (name, pk) => name + ' — ' + (pk.name || 'crate') + ' of ' +
 function dkMenuItem(d, price, prod) {
   const cats = S().menuCats || []; const served = d.pack === 'Served';
   return { id: uid('mn_'), name: d.name, price: num(price) || num(d.priceBar), category: Drinks.menuCat(d, cats), desc: [Drinks.size(d.ml), d.abv ? d.abv + '%' : '', d.country && d.country !== 'Cameroon' ? d.country : ''].filter(Boolean).join(' · '),
-    kind: served || !prod ? 'plain' : 'stock', uses: served || !prod ? [] : [{ productId: prod.id, qty: 1 }], active: true, drink: d.sku };
+    kind: served || !prod ? 'plain' : 'stock', uses: served || !prod ? [] : [{ productId: prod.id, qty: 1 }], active: true, drink: d.sku, photo: (prod && prod.image) || d.img || null };
 }
 /** the line above the list and the empty state: on the menu only what is in stock — buy the rest first */
 const dkLead = (shown) => '<div class="dk-lead">' + ic('info', 'sm') + '<span>Showing the ' + shown + ' drink' + (shown === 1 ? '' : 's') + ' you have in stock. Not here? <button type="button" class="linkish" data-a="dkBuy">Buy it first</button> — it appears once it is in stock.</span></div>';

@@ -111,7 +111,7 @@ const locName = (id) => (allLocs().find((l) => l.id === (id || 'main')) || { nam
 const myLocs = () => can('allLocations') ? allLocs() : allLocs().filter((l) => l.id === ((K.member && K.member.locationId) || 'main'));
 function fixLoc() { const ok = myLocs(); if (!ok.find((l) => l.id === K.loc)) K.loc = (ok[0] || { id: 'main' }).id; try { localStorage.setItem('aahsso-loc', K.loc); } catch (e) { } }
 try { K.loc = localStorage.getItem('aahsso-loc') || 'main'; } catch (e) { }
-const imgSrc = (ref) => !ref ? '' : String(ref).startsWith('data:') ? ref : (K.store && K.store.imageUrl ? K.store.imageUrl(ref) : '');
+const imgSrc = (ref) => !ref ? '' : /^(data:|https:\/\/)/.test(String(ref)) ? ref : (K.store && K.store.imageUrl ? K.store.imageUrl(ref) : '');
 const CAT_COLORS = ['#0d5c63', '#b7791f', '#2f6fb3', '#7a4bb3', '#c2412d', '#1f8a4c', '#8a5a12', '#4a5868'];
 const catColor = (c) => { let h = 0; String(c || '').split('').forEach((ch) => (h = (h * 31 + ch.charCodeAt(0)) >>> 0)); return CAT_COLORS[h % CAT_COLORS.length]; };
 const thumb = (p, size = 40, radius = 10) => { const src = imgSrc(p && p.image); return src ? '<img class="thumb" src="' + esc(src) + '" alt="" loading="lazy" style="width:' + size + 'px;height:' + size + 'px;border-radius:' + radius + 'px">' : '<div class="thumb ph" style="width:' + size + 'px;height:' + size + 'px;border-radius:' + radius + 'px;background:' + catColor(p && p.category) + '">' + esc(initials(p && p.name)) + '</div>'; };

@@ -24,6 +24,7 @@ function stockList() {
 }
 VIEWS.stock = {
   render() {
+    if (typeof isResto === 'function' && isResto() && !Drinks.ready()) Drinks.load().catch(() => {}); // the drinks' photos
     const tabs = '<div class="seg st-tabs mb" role="tablist" aria-label="Stock"><button type="button" role="tab" aria-selected="' + (K.ui.stockTab !== 'moves') + '"' + (K.ui.stockTab !== 'moves' ? ' class="on"' : '') + ' data-a="stTab" data-v="items">' + ic('stock', 'sm') + 'Items</button><button type="button" role="tab" aria-selected="' + (K.ui.stockTab === 'moves') + '"' + (K.ui.stockTab === 'moves' ? ' class="on"' : '') + ' data-a="stTab" data-v="moves">' + ic('chart', 'sm') + 'Movements</button></div>';
     if (K.ui.stockTab === 'moves') return tabs + movesView();
     return tabs + VIEWS.stock.items();

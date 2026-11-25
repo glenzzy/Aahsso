@@ -263,7 +263,12 @@ let drinksCache = null; // { at, etag, body } — the list changes only when it 
 let drinksSeeding = null;
 /** a new database (local, Neon, a fresh deploy) has an empty catalog: fill it once from server/data/drinks-cm.json */
 async function drinksEnsure(market) {
-  if ((await pool.query('SELECT 1 FROM drinks_catalog WHERE market=$1 LIMIT 1', [market])).rowCount) return;
+  if ((await pool.query('SELECT 1 FROM drinks_catalog WHERE market=$1 LIMIT 1', [market])).rowCount) {
+    // a newer file (new drinks, photos…) is seeded again on its own: no manual step after a deploy
+    let fileVer = null; try { fileVer = require('./drinks-seed').loadDrinksFile(require('./drinks-seed').DEFAULT_FILE).d.version || null; } catch (e) { return; }
+    const v = (await pool.query("SELECT value FROM drinks_catalog_meta WHERE market=$1 AND key='version'", [market])).rows[0];
+    if (!fileVer || (v && v.value === fileVer)) return;
+  }
   if (!drinksSeeding) drinksSeeding = require('./drinks-seed').seedDrinks({ log: (m) => console.log('[drinks]', m) }).finally(() => { drinksSeeding = null; });
   await drinksSeeding;
 }
@@ -280,7 +285,7 @@ app.get('/api/drinks', auth, wrap(async (req, res) => {
     const items = rows.rows.map((r) => {
       const x = { sku: r.sku, name: r.name, cat: r.category, sub: r.subcategory, brand: r.brand, variant: r.variant, ml: r.volume_ml, pack: r.packaging, returnable: r.returnable || undefined, perCase: r.units_per_case, abv: n(r.abv),
         country: r.origin_country, region: r.region, grape: r.grape_style, sweetness: r.sweetness, producer: r.producer, supplier: r.supplier, tier: r.price_tier, cost: r.cost_xaf, priceBar: r.price_bar_xaf, priceLounge: r.price_lounge_xaf,
-        byGlass: r.by_glass || undefined, pourMl: r.pour_ml, pours: n(r.pours_per_unit), barcode: r.barcode, confidence: r.confidence, notes: r.notes };
+        byGlass: r.by_glass || undefined, pourMl: r.pour_ml, pours: n(r.pours_per_unit), barcode: r.barcode, confidence: r.confidence, notes: r.notes, img: r.image_url, imgBy: r.image_credit };
       Object.keys(x).forEach((k) => (x[k] === null || x[k] === undefined) && delete x[k]); return x;
     });
     const cats = (m.categories || []).map((c) => c.name).concat([...new Set(items.map((i) => i.cat))].filter((c) => !(m.categories || []).some((x) => x.name === c)));

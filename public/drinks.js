@@ -10,11 +10,24 @@ const Drinks = (() => {
     if (!loading) loading = K.store.req('GET', '/api/drinks')
       .then((d) => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { /* full: just not offline */ } return d; })
       .catch((e) => { let d = null; try { d = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (x) { } if (d && d.items) return d; throw new Error('The drinks list could not be loaded — check the internet'); })
-      .then((d) => { if (!d.items || !d.items.length) throw new Error('The drinks list is empty for now. Add your drinks yourself, or ask the Aahsso team.'); d.items.forEach((x) => { x._q = norm([x.name, x.brand, x.variant, x.sub, x.cat, x.country, x.grape].join(' ')); x._n = norm(x.name); }); data = d; return d; })
+      .then((d) => { if (!d.items || !d.items.length) throw new Error('The drinks list is empty for now. Add your drinks yourself, or ask the Aahsso team.'); d.items.forEach((x) => { x._q = norm([x.name, x.brand, x.variant, x.sub, x.cat, x.country, x.grape].join(' ')); x._n = norm(x.name); }); data = d; setTimeout(() => fillPhotos().catch(() => {}), 1500); return d; })
       .catch((e) => { loading = null; throw e; });
     return loading;
   }
   const ready = () => data;
+  /** drinks bought or put on the menu before the catalog had photos get its photo — once per catalog version, never over a photo the bar chose */
+  async function fillPhotos() {
+    if (!data || !data.version || !K.raw || !K.raw.settings || S().drinkPhotos === data.version || !(can('stockEdit') || can('menu')) || !navigator.onLine) return;
+    const img = (sku) => { const d = sku && bySku(sku); return d && d.img ? d.img : ''; };
+    let n = 0;
+    if (can('stockEdit')) for (const p of K.raw.products.slice()) { const u = !p.archived && p.image == null && p.drink && img(p.drink.sku); if (u && await save('products', Object.assign({}, p, { image: u }))) n++; }
+    if (can('menu')) for (const m of (K.raw.menu || []).slice()) {
+      if (!m.name || m.photo) continue; const p = m.uses && m.uses.length === 1 ? K.raw.products.find((x) => x.id === m.uses[0].productId) : null;
+      const u = img(m.drink) || (p && p.drink && img(p.drink.sku)); if (u && await save('menu', Object.assign({}, m, { photo: u }))) n++;
+    }
+    await saveSettings({ drinkPhotos: data.version });
+    if (n && typeof scheduleRender === 'function') scheduleRender();
+  }
   const byName = (name) => { if (!data) return null; const n = norm(name); return data.items.find((x) => x._n === n) || null; };
   const bySku = (sku) => (data && sku ? data.items.find((x) => x.sku === sku) || null : null);
   /** every word must match, in any order: "hennessy vs", "castel 33cl", "mutzig" */
@@ -30,7 +43,7 @@ const Drinks = (() => {
     const unit = d.pack === 'Can' ? 'can' : d.pack === 'Carton' ? 'carton' : d.pack === 'Served' ? 'piece' : 'bottle';
     const p = { id: uid('pr_'), name: d.name, category: d.cat, subcategory: d.sub || '', condition: 'New', barcode: '', markup: null, minMarkup: null, priceMax: price > 0 ? price : null, priceMin: null,
       unit, size: d.ml ? (d.ml >= 1000 ? d.ml / 1000 : d.ml) : null, sizeUnit: d.ml ? (d.ml >= 1000 ? 'L' : 'mL') : '',
-      packs: d.perCase > 1 ? [{ name: d.returnable ? 'crate' : 'case', size: d.perCase, price: null }] : [],
+      packs: d.perCase > 1 ? [{ name: d.returnable ? 'crate' : 'case', size: d.perCase, price: null }] : [], image: d.img || null,
       drink: { sku: d.sku, brand: d.brand || '', pack: d.pack, returnable: !!d.returnable, abv: d.abv || null, country: d.country || '', producer: d.producer || '', supplier: d.supplier || '', pourMl: d.pourMl || null, pours: d.pours || null } };
     return p;
   }
@@ -89,7 +102,7 @@ const Drinks = (() => {
     const sh = openSheet({ title: opt.title || 'Choose', wide: true, body: LOADER_IN });
     sh.classList.add('dk-sheet');
     try { await SRC.load(); } catch (e) { setSheetBody(sh, '<div class="alert bad">' + esc(e.message) + '</div>'); return; }
-    const st = { q: '', cat: '', sel: new Map(), open: null, price: (opt.prices || ['bar'])[0], limit: 60 };
+    const st = { q: '', cat: '', sel: new Map(), open: null, price: (opt.prices || ['bar'])[0], limit: 60, ph: SRC.data().items.some((x) => x.img) }; // ph: this list has photos
     const priceOf = (d) => (opt.priceFor && opt.priceFor(d)) || (st.price === 'lounge' ? d.priceLounge : st.price === 'bar' ? d.priceBar : null); // your price first, else the list's
     setSheetBody(sh, '<div class="dk-top"><div class="search">' + ic('search') + '<input class="inp" id="dkQ" placeholder="' + esc(SRC.placeholder) + '" autocomplete="off" aria-label="Search ' + SRC.nouns + '"></div>' +
       '<div class="chips dk-cats" id="dkCats"></div></div><div id="dkList" class="dk-list" role="list"></div>');
@@ -125,6 +138,7 @@ const Drinks = (() => {
         const taken = opt.taken ? opt.taken(d) : null; const on = st.sel.has(d.sku); const p = priceOf(d);
         return '<div class="dk-row' + (on ? ' on' : '') + (taken ? ' taken' : '') + '" role="listitem" data-sku="' + esc(d.sku) + '">' +
           (opt.many ? '<span class="dk-check" aria-hidden="true">' + (taken ? ic('check', 'sm') : on ? ic('check', 'sm') : '') + '</span>' : '') +
+          (d.img ? '<img class="dk-ph" src="' + esc(d.img) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">' : st.ph ? '<span class="dk-ph dk-ph0" aria-hidden="true">' + SRC.icon + '</span>' : '') +
           '<div class="grow dk-main"><div class="dk-name">' + esc(d.name) + (d.confidence === 'Verify' ? ' <span class="dk-tag" title="Check this drink before selling it">to check</span>' : '') + '</div><div class="dk-meta">' + esc(SRC.metaLine(d)) + '</div>' +
           (taken ? '<div class="dk-taken">' + esc(taken) + '</div>' : opt.note && opt.note(d) ? '<div class="dk-stock">' + esc(opt.note(d)) + '</div>' : '') + '</div>' +
           '<div class="dk-side">' + (p ? '<b class="money">' + fmt(p) + '</b>' : '') + '<button type="button" class="icon-btn dk-info" data-dk-info aria-label="Details" aria-expanded="' + (st.open === d.sku) + '">' + ic('info', 'sm') + '</button></div>' +
@@ -152,5 +166,5 @@ const Drinks = (() => {
     drawCats(); drawList(); drawFoot(); setTimeout(() => qEl.focus(), 50);
     return sh;
   }
-  return { load, ready, find, byName, bySku, norm, size, packLabel, metaLine, toProduct, menuCat, productOf, inStock, servable, addStockCats, picker, about };
+  return { load, ready, fillPhotos, find, byName, bySku, norm, size, packLabel, metaLine, toProduct, menuCat, productOf, inStock, servable, addStockCats, picker, about };
 })();
