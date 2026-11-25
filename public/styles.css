@@ -2027,3 +2027,10 @@ table.pu-t2 .in-unit span[data-per^="/"]{font-weight:700;color:var(--ink2)}
 .dk-photo{display:flex;align-items:flex-end;gap:10px;margin-top:8px;font-size:11px;color:var(--ink3)}
 .dk-photo img{width:96px;height:96px;object-fit:contain;background:#fff;border-radius:10px;border:1px solid var(--line)}
 .sync-att{display:inline-flex;align-items:center;gap:6px;border:0;background:none;color:var(--bad);font:inherit;font-weight:700;cursor:pointer;padding:0}
+/* online / offline status at the top */
+.net{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);color:var(--ink2);font:inherit;font-size:12px;font-weight:600;border-radius:999px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+.net .dot{background:var(--ok)}.net.off{color:var(--ink);background:color-mix(in srgb,var(--warn) 14%,var(--card));border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.dot.off{background:var(--ink3)}.net.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}.net.bad .dot{background:var(--bad)}.net.warn .dot{background:var(--warn)}
+.net .ld-c.sm{width:11px;height:11px}
+@media (max-width:380px){.net{padding:4px 8px;gap:5px}.net .net-n{font-size:11px}}
+.net-row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:13.5px}.net-row b{display:inline-flex;align-items:center;gap:6px}

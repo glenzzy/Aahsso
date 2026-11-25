@@ -188,6 +188,7 @@ A.reqAccess = async () => {
   }, (e) => { console.warn(col, e); if (waiting.has(col)) { waiting.delete(col); if (col === 'requests') return; } K.sync = 'err'; scheduleRender(); }));
   window.addEventListener('hashchange', route);
   route();
+  if (typeof isResto === 'function' && isResto()) setTimeout(() => Drinks.load().catch(() => {}), 2500); // the drinks list kept on the phone for offline
   if (info.mode === 'saas' && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { }); // app opens even with no network
   if (info.mode === 'local') setTimeout(() => toast('Not connected — data is saved on this device only. Use Backup often.'), 800);
 })();

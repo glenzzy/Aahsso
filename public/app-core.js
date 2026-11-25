@@ -204,7 +204,7 @@ function enqueue(col, id, data) {
 }
 let _flushing = false;
 async function flushOutbox() {
-  if (_flushing || !K.outbox.length || !K.store) return; _flushing = true;
+  if (_flushing || !K.outbox.length || !K.store) return; _flushing = true; shellSync();
   try {
     while (K.outbox.length) {
       const o = K.outbox[0];
@@ -303,14 +303,52 @@ async function loadCache() { if (K.info && K.info.supportView) return null; try 
 /** changes the server did not accept after coming back online: approve, try again or discard */
 const COL_NAME = { sales: 'Sale', products: 'Stock item', menu: 'Menu item', rorders: 'Order', tabs: 'Tab', expenses: 'Expense', customers: 'Customer', suppliers: 'Supplier', bills: 'Bill', adjustments: 'Stock change', payroll: 'Payslip', attendance: 'Attendance', losses: 'Loss', settings: 'Settings' };
 const failLabel = (f) => (COL_NAME[f.col] || f.col) + (f.data ? ' ' + (f.data.no || f.data.name || f.data.title || '') : ' (deleted)');
+/* ---------- online / offline: one simple status at the top ----------
+ * Online · Synced  |  Syncing 3…  |  Offline · 3 saved  |  1 need attention. Tap it for details and "Sync now".
+ * "Online" means the Aahsso server answers (a Wi-Fi with no internet counts as offline). */
+var A_LATE = {}; // click handlers defined before A
+const NET = { online: navigator.onLine !== false, at: null, told: false };
+function setNet(on) {
+  if (on) NET.at = new Date().toISOString();
+  if (NET.online === on) { shellSync(); return; }
+  NET.online = on; shellSync();
+  if (!K.store || (K.info && K.info.mode === 'local')) return;
+  if (!on) toast('You are offline — keep working, everything is saved on this phone');
+  else {
+    const n = K.outbox.length; toast(n ? 'Back online — sending ' + n + ' saved change' + (n === 1 ? '' : 's') + '…' : 'Back online');
+    setTimeout(flushOutbox, 300); if (K.store._refresh) COLLECTIONS.forEach((c) => K.store._refresh(c)); // fresh data from the other phones
+  }
+}
+window.addEventListener('aahsso-net', (e) => setNet(!!e.detail));
+window.addEventListener('offline', () => setNet(false));
+window.addEventListener('online', () => probeNet());
+/** is the server really there? (asked every 10 s while offline, so "Back online" shows as soon as it is) */
+async function probeNet() {
+  if (!K.store || !K.store.api) return;
+  try { const r = await fetch(K.store.api + '/healthz', { cache: 'no-store' }); setNet(r.ok); } catch (e) { setNet(false); }
+}
+setInterval(() => { if (!NET.online) probeNet(); }, 10000);
 function shellSync() {
   const el = document.getElementById('sync'); if (!el) return;
-  const n = K.outbox.length;
-  if (K.failed && K.failed.length) { el.innerHTML = '<button type="button" class="sync-att" data-a="syncIssues"><span class="dot bad"></span>' + K.failed.length + ' need attention</button>'; el.title = 'Changes made offline that the server did not accept yet'; return; }
-  if (n) { el.innerHTML = '<span class="dot warn"></span>' + n + ' to sync'; el.title = 'Saved on this phone. Will upload automatically when online.'; return; }
-  const dot = K.sync === 'ok' ? '' : K.sync === 'local' ? 'warn' : K.sync === 'err' || K.sync === 'offline' ? 'bad' : 'warn';
-  el.innerHTML = (K.sync === 'loading' ? '<span class="ld-c sm" role="status" aria-label="Loading"></span>' : '<span class="dot ' + dot + '"></span>' + ({ ok: 'Synced', local: 'This device only', err: 'Offline', offline: 'Offline copy' }[K.sync] || ''));
+  const n = K.outbox.length; const f = (K.failed || []).length;
+  const pill = (cls, inner, title, act) => { el.innerHTML = '<button type="button" class="net ' + cls + '" data-a="' + (act || 'syncInfo') + '" title="' + esc(title) + '">' + inner + '</button>'; el.removeAttribute('title'); };
+  if (K.info && K.info.mode === 'local') return pill('warn', '<span class="dot warn"></span>This phone only', 'Not connected to an account: data is saved on this phone only');
+  if (f) return pill('bad', '<span class="dot bad"></span>' + f + ' need attention', 'Changes made offline that the server did not accept yet', 'syncIssues');
+  if (!NET.online) return pill('off', '<span class="dot off"></span>Offline' + (n ? '<span class="net-n"> · ' + n + ' saved</span>' : ''), n ? n + ' change' + (n === 1 ? '' : 's') + ' saved on this phone — sent automatically when back online' : 'No connection — you can keep working, everything is saved on this phone');
+  if (n || _flushing) return pill('busy', '<span class="ld-c sm" aria-hidden="true"></span>Syncing' + (n ? ' ' + n : '') + '…', 'Sending your changes to the server');
+  if (K.sync === 'loading') return pill('busy', '<span class="ld-c sm" aria-hidden="true"></span>Loading…', 'Getting your data');
+  return pill('on', '<span class="dot"></span>Online<span class="net-n"> · Synced</span>', 'Online — everything is saved on the server');
 }
+A_LATE.syncInfo = () => {
+  const n = K.outbox.length; const ago = NET.at ? fmtDT(NET.at) : '';
+  const row = (k, v) => '<div class="net-row"><span>' + k + '</span><b>' + v + '</b></div>';
+  const sh = openSheet({ title: NET.online ? 'Online' : 'Offline',
+    body: '<p class="small">' + (NET.online ? 'Connected. Everything you do is saved on the server and on this phone.' : 'No connection. Keep working — sales, orders, stock and the rest are saved on this phone and sent as soon as the internet is back.') + '</p>' +
+      '<div class="card pad mt">' + row('Connection', NET.online ? '<span class="dot"></span> Online' : '<span class="dot off"></span> Offline') + row('Waiting to be sent', n ? n + ' change' + (n === 1 ? '' : 's') : 'Nothing — all synced') + (ago ? row('Last contact with the server', esc(ago)) : '') + '</div>' +
+      (NET.online ? '' : '<p class="tiny muted mt">Needs the internet: billing, adding logins, scanning receipts, emailing receipts.</p>'),
+    foot: '<button class="btn grow" data-a="sheetClose">Close</button><button class="btn pri grow" id="netNow">' + ic('undo', 'sm') + (NET.online ? 'Sync now' : 'Try to connect') + '</button>' });
+  $('#netNow', sh).onclick = async () => { const b = $('#netNow', sh); b.disabled = true; b.textContent = 'Checking…'; await probeNet(); if (NET.online) { await flushOutbox(); if (K.store._refresh) COLLECTIONS.forEach((c) => K.store._refresh(c)); } closeSheet(); toast(NET.online ? (K.outbox.length ? 'Still sending…' : 'All synced') : 'Still offline — your work is saved on this phone', !NET.online); };
+};
 async function saveMany(col, list) { let ok = 0; for (const o of list) { if (await save(col, o)) ok++; } return ok; }
 
 /* ---------- files (download / upload) ---------- */
@@ -513,7 +551,7 @@ function refreshSheets() { K.sheets.forEach((s) => s._refresh && s._refresh()); 
 document.addEventListener('focusout', () => setTimeout(() => { if (!K.sheets.length) flush(); }, 250));
 
 /* ---------- event delegation ---------- */
-const A = {}; const I = {}; const CH = {};
+const A = Object.assign({}, A_LATE); const I = {}; const CH = {};
 
 /* ---------- loading state for EVERY button ----------
  * Whenever a click handler returns a promise (saving, signing in, uploading, exporting, waiting for a confirm…)

@@ -9,12 +9,21 @@ const Drinks = (() => {
     const KEY = 'aahsso-drinks';
     if (!loading) loading = K.store.req('GET', '/api/drinks')
       .then((d) => { LocalDB.set(KEY, d); return d; })
-      .catch(async (e) => { const d = await LocalDB.get(KEY); if (d && d.items) return d; throw new Error('The drinks list could not be loaded — connect to the internet once to get it'); })
+      .catch(async (e) => { const d = await LocalDB.get(KEY); if (d && d.items) return d; return bundled(); }) // offline: the last copy, else the one that ships with the app
       .then((d) => { if (!d.items || !d.items.length) throw new Error('The drinks list is empty for now. Add your drinks yourself, or ask the Aahsso team.'); d.items.forEach((x) => { x._q = norm([x.name, x.brand, x.variant, x.sub, x.cat, x.country, x.grape].join(' ')); x._n = norm(x.name); }); data = d; setTimeout(() => fillPhotos().catch(() => {}).then(() => warmPhotos()), 1500); return d; })
       .catch((e) => { loading = null; throw e; });
     return loading;
   }
   const ready = () => data;
+  /** the drinks list that ships with the app (same file the server seeds from), shaped like /api/drinks */
+  async function bundled() {
+    let f; try { const r = await fetch('drinks-catalog.json'); if (r.ok) f = await r.json(); } catch (e) { }
+    if (!f || !Array.isArray(f.items)) throw new Error('The drinks list is not on this phone yet — connect to the internet once.');
+    const items = f.items.filter((x) => x.active !== false);
+    const names = (f.categories || []).map((c) => c.name).concat([...new Set(items.map((i) => i.cat))].filter((c) => !(f.categories || []).some((x) => x.name === c)));
+    const categories = names.map((c) => ({ name: c, subs: [...new Set(items.filter((i) => i.cat === c && i.sub).map((i) => i.sub))], count: items.filter((i) => i.cat === c).length })).filter((c) => c.count);
+    return { title: f.title || 'Drinks catalog', country: f.country || 'CM', currency: f.currency || 'XAF', version: f.version || null, notes: f.notes || [], categories, packaging: f.packaging || [], priceTiers: f.priceTiers || [], sweetness: f.sweetness || [], confidence: f.confidence || [], suppliers: f.suppliers || [], items };
+  }
   /** the photos of what the business sells, fetched once while online so they still show offline (the app keeps them) */
   let warmed = false;
   async function warmPhotos() {

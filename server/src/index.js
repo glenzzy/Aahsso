@@ -1349,7 +1349,9 @@ app.get('/s/:key', wrap(async (req, res) => {
 }));
 
 /* ---------- frontend ---------- */
-app.get('/healthz', (req, res) => res.json({ ok: true }));
+app.get('/healthz', (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ ok: true }); });
+// the drinks list ships with the app (the service worker keeps it), so picking drinks works offline even before /api/drinks was ever reached
+app.get('/drinks-catalog.json', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(require('./drinks-seed').DEFAULT_FILE); });
 // App code (html/js/css) must never be served stale after an update: browsers revalidate every time
 // (a cheap 304 when unchanged). Icons/images can still be cached for an hour.
 app.use(express.static(path.join(__dirname, '..', 'public'), {

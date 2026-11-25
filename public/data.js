@@ -94,9 +94,11 @@ class RestStore {
   async req(method, path, body, raw) {
     const headers = { Authorization: 'Bearer ' + this.token };
     if (!raw) headers['Content-Type'] = 'application/json';
-    if (navigator.onLine === false) throw Object.assign(new Error(OFFLINE_MSG), { code: 'network' });
+    const net = (on) => { try { window.dispatchEvent(new CustomEvent('aahsso-net', { detail: on })); } catch (e) { } };
+    if (navigator.onLine === false) { net(false); throw Object.assign(new Error(OFFLINE_MSG), { code: 'network' }); }
     let r; try { r = await fetch(this.api + path, { method, headers, body: raw ? body : body ? JSON.stringify(body) : undefined }); }
-    catch (e) { throw Object.assign(new Error(OFFLINE_MSG), { code: 'network' }); } // no network: the same clear message everywhere
+    catch (e) { net(false); throw Object.assign(new Error(OFFLINE_MSG), { code: 'network' }); } // no network: the same clear message everywhere
+    net(r.status < 502); // the server answered: online (502/503/504: a proxy says it is not there)
     if (r.status === 401) { if (this.supportView) { sessionStorage.removeItem('aahsso-imp'); alert('The support view has ended.'); window.close(); } else localStorage.removeItem('aahsso-token'); location.reload(); }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { code: j.code || 'error', details: j.details });
