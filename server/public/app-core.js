@@ -439,7 +439,8 @@ const SECTIONS = [
   ['buy', 'Buy', 'buy', ['buy']],
   ['ship', 'Ship', 'ship', ['ship']],
   ['receive', 'Receive', 'check', ['receive']],
-  ['sell', 'Sell', 'sell', ['sales', 'pos', 'orders']],
+  ['pos', 'POS', 'card', ['pos']],
+  ['sell', 'Sell', 'sell', ['sales', 'orders']],
   ['stock', 'Stock', 'stock', ['stock', 'promos', 'audit', 'losses', 'transfers']],
   ['customers', 'Customers', 'users', ['customers', 'reminders']],
   ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'claims', 'reports', 'assets']],
@@ -449,7 +450,8 @@ const SECTIONS = [
 /* Aahsso Store: buy, sell and keep records — a short menu. Any other tool the plan includes waits under "More tools". */
 const STORE_SECTIONS = [
   ['home', 'Home', 'home', ['home']],
-  ['sell', 'Sell', 'sell', ['sales', 'pos']],
+  ['pos', 'POS', 'card', ['pos']],
+  ['sell', 'Sell', 'sell', ['sales']],
   ['buy', 'Buy', 'buy', ['buy']],
   ['stock', 'Stock', 'stock', ['stock']],
   ['customers', 'Customers', 'users', ['customers']],
@@ -462,13 +464,14 @@ const STORE_SECTIONS = [
 const RESTO_SECTIONS = [
   ['home', 'Home', 'home', ['home']],
   ['floor', 'Tables', 'table', ['floor', 'bookings']],
+  ['pos', 'POS', 'card', ['pos']],
   ['tickets', 'Orders', 'bell', ['tickets', 'kds', 'barscreen']],
   ['menu', 'Menu', 'tag', ['menu']],
   ['stock', 'Stock', 'stock', ['stock']],
   ['buy', 'Buy', 'buy', ['buy']],
   ['suppliers', 'Suppliers', 'truck', ['suppliers']],
   ['customers', 'Customers', 'users', ['customers']],
-  ['records', 'Records', 'wallet', ['sales', 'pos', 'expenses', 'reports', 'rstats']],
+  ['records', 'Records', 'wallet', ['sales', 'expenses', 'reports', 'rstats']],
   ['tools', 'More tools', 'more', STORE_SECTIONS.find((x) => x[0] === 'tools')[3]],
   ['settings', 'Settings', 'gear', ['settings', 'team']],
 ];

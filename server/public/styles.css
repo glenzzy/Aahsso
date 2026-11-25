@@ -2105,17 +2105,30 @@ body.pos-on .top{padding-top:calc(6px + var(--safeT));padding-bottom:6px}
   .pos-sheet .pos-lines{max-height:none}
 }
 /* the printed receipt (print.js): only the receipt goes to the printer */
+/* the receipt (print.js): the same look on paper and in the Receipt design preview */
+.rcp{font:12px/1.4 "Courier New",ui-monospace,monospace;color:#000;background:#fff;width:72mm;max-width:100%;margin:0 auto;padding:3mm 0}
+.rcp.rcp-58{width:48mm;font-size:11px}
+.rcp .pr-l{white-space:pre-wrap;word-break:break-word;margin:1px 0}.rcp .pr-c{text-align:center}.rcp .pr-r{text-align:right}.rcp .pr-b{font-weight:700}
+.rcp .pr-big{font-size:17px;line-height:1.25;margin:2px 0}.rcp.rcp-58 .pr-big{font-size:14px}.rcp .pr-s{font-size:10.5px}.rcp.rcp-58 .pr-s{font-size:9.5px}
+.rcp .pr-2{display:flex;justify-content:space-between;gap:8px}.rcp .pr-2>span:last-child{white-space:nowrap;text-align:right}
+.rcp .pr-rule{border-top:1px dashed #000;margin:6px 0}.rcp .pr-gap{height:6px}
+.rcp .pr-logo{text-align:center;margin-bottom:4px}.rcp .pr-logo img{max-width:55%;max-height:30mm;object-fit:contain;filter:grayscale(1) contrast(1.2)}
+.rcp .pr-inv{background:#000;color:#fff!important;letter-spacing:.12em;padding:2px 0;margin:8px 0 6px}
+.rcp .pr-total{border-top:2px solid #000;border-bottom:2px solid #000;padding:3px 0;margin:4px 0}
+.rcp .pr-stamp{display:block;width:max-content;margin:8px auto 4px;border:2px solid #000;border-radius:4px;padding:1px 14px;letter-spacing:.2em}
+.rcp .pr-qr{text-align:center;margin:8px 0 2px;font-size:10.5px}.rcp .pr-qr img{width:28mm;height:28mm;image-rendering:pixelated;display:block;margin:0 auto 3px}
+.rcp .pr-brand{letter-spacing:.04em}
 #printArea{display:none}
 @media print{
   body.printing>*:not(#printArea){display:none!important}
-  body.printing #printArea{display:block;font:12px/1.35 "Courier New",ui-monospace,monospace;color:#000;background:#fff;padding:2mm 0;margin:0 auto}
+  body.printing #printArea{display:block;margin:0 auto}
   body.printing{background:#fff!important}
-  body.printing #printArea *{color:#000!important}
-  .pr-l{white-space:pre-wrap;word-break:break-word;margin:1px 0}.pr-c{text-align:center}.pr-r{text-align:right}.pr-b{font-weight:700}.pr-big{font-size:16px}
-  .pr-2{display:flex;justify-content:space-between;gap:8px}.pr-2>span:last-child{white-space:nowrap;text-align:right}
-  .pr-rule{border-top:1px dashed #000;margin:5px 0}
-  #printArea.pr-58{font-size:11px}#printArea.pr-58 .pr-big{font-size:14px}
+  body.printing #printArea *:not(.pr-inv){color:#000!important}
 }
+/* Receipt design: the form beside a paper preview */
+.rd{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;align-items:start}
+.rd-prev{position:sticky;top:0}.rd-paper{background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.08);padding:4px 10px;max-height:62vh;overflow-y:auto}
+@media (max-width:899px){.rd{grid-template-columns:1fr}.rd-prev{position:static}}
 .pr-opt{display:flex;flex-direction:column;gap:8px}
 .pr-ch{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}.pr-ch>span{display:flex;flex-direction:column;gap:2px}
 .pos-pk,.pos-lr .tiny{white-space:nowrap}
