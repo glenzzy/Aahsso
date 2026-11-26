@@ -33,30 +33,34 @@ const Printer = (() => {
     const rule = () => L({ t: '-'.repeat(W), rule: true });
     // the business
     if (d.logo && st.logo) L({ logo: st.logo });
-    L(st.businessName || 'Receipt', { a: 'c', b: true, big: true });
+    L(st.businessName || 'Receipt', { a: 'c', b: true, big: true, name: true });
     if (st.tagline) L(st.tagline, { a: 'c', small: true });
-    [st.address, [st.phone ? 'Tel ' + st.phone : '', d.whatsapp ? 'WhatsApp ' + d.whatsapp : ''].filter(Boolean).join(' · '), d.web].filter(Boolean).forEach((x) => L(x, { a: 'c', small: true }));
-    const ids = [d.niu ? 'NIU ' + d.niu : '', d.rccm ? 'RCCM ' + d.rccm : ''].filter(Boolean).join(' · '); if (ids) L(ids, { a: 'c', small: true });
-    if (d.header) { L({ t: '', gap: true }); L(d.header, { a: 'c', b: true }); }
+    // on a 58 mm roll each detail gets its own line, so a phone number is never cut in two
+    const join = (xs) => { xs = xs.filter(Boolean); return W < 40 ? xs : [xs.join(' · ')]; };
+    [st.address, ...join([st.phone ? 'Tel ' + st.phone : '', d.whatsapp ? 'WhatsApp ' + d.whatsapp : '']), d.web, ...join([d.niu ? 'NIU ' + d.niu : '', d.rccm ? 'RCCM ' + d.rccm : ''])].filter(Boolean).forEach((x) => L(x, { a: 'c', small: true }));
+    if (d.header) { L({ t: '', gap: true }); L(d.header, { a: 'c', b: true, hi: true }); }
     L({ t: ' SALES RECEIPT ', a: 'c', b: true, inv: true });
     // the sale
-    two('Receipt', s.no || ''); two('Date', fmtDate(saleDate(s)) + (s.createdAt ? ' ' + new Date(s.createdAt).toTimeString().slice(0, 5) : ''));
-    if (d.showStaff && s.createdBy) two('Served by', s.createdBy);
-    if (d.showCustomer && s.customerName && s.customerName !== 'Walk-in customer') two('Customer', s.customerName);
+    const meta = { meta: true };
+    two('Receipt', s.no || '', meta); two('Date', fmtDate(saleDate(s)) + (s.createdAt ? ' ' + new Date(s.createdAt).toTimeString().slice(0, 5) : ''), meta);
+    if (d.showStaff && s.createdBy) two('Served by', s.createdBy, meta);
+    if (d.showCustomer && s.customerName && s.customerName !== 'Walk-in customer') two('Customer', s.customerName, meta);
     rule();
-    (s.lines || []).forEach((l) => { L(l.name, { b: true }); two('  ' + KC.lineQtyText(l, fmt), fmt(num(l.qty) * num(l.unitPrice))); });
+    // one item: the name, and under it the quantity × price with the amount on the right
+    (s.lines || []).forEach((l) => { const q = KC.lineQtyText(l, fmt), amt = fmt(num(l.qty) * num(l.unitPrice)), sp = W - 2 - q.length - amt.length;
+      L({ item: true, name: l.name, sub: q, amt, t: l.name + '\n' + (sp >= 1 ? '  ' + q + ' '.repeat(sp) + amt : '  ' + q + '\n' + ' '.repeat(Math.max(0, W - amt.length)) + amt) }); });
     rule();
-    if (t.discount) { two('Subtotal', fmt(t.subtotal)); two('Discount', '-' + fmt(t.discount)); }
-    if (t.returned) two('Returned', '-' + fmt(t.returned));
+    if (t.discount) { two('Subtotal', fmt(t.subtotal), meta); two('Discount', '-' + fmt(t.discount), meta); }
+    if (t.returned) two('Returned', '-' + fmt(t.returned), meta);
     two('TOTAL', F(t.net), { b: true, big: true, total: true });
-    if (t.deliveryFee > 0) { two('Delivery fee', fmt(t.deliveryFee)); two('TO PAY', F(t.due), { b: true }); }
-    (s.payments || []).forEach((p) => two(p.method, fmt(p.amount)));
-    if (extra.tendered) { two('Cash received', fmt(extra.tendered)); two('Change', F(extra.tendered - t.net), { b: true }); }
-    if (t.balance > 0) two('BALANCE DUE', F(t.balance), { b: true });
-    L({ paid: 'PAID', partial: 'DEPOSIT', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status] || '', { a: 'c', b: true, stamp: true });
+    if (t.deliveryFee > 0) { two('Delivery fee', fmt(t.deliveryFee), meta); two('TO PAY', F(t.due), { b: true }); }
+    (s.payments || []).forEach((p) => two(p.method, fmt(p.amount), meta));
+    if (extra.tendered) { two('Cash received', fmt(extra.tendered), meta); two('Change', F(extra.tendered - t.net), { b: true, chg: true }); }
+    if (t.balance > 0) two('BALANCE DUE', F(t.balance), { b: true, chg: true });
+    L({ paid: 'PAID', partial: 'DEPOSIT', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status] || '', { a: 'c', b: true, stamp: true, st: t.status });
     if (d.showTxn && t.txnId) L('Txn ' + t.txnId, { a: 'c', small: true });
     // the goodbye
-    if (st.receiptFooter) L(st.receiptFooter, { a: 'c' });
+    if (st.receiptFooter) L(st.receiptFooter, { a: 'c', thx: true });
     const q = qrLink(d); if (q) L({ qr: q, cap: d.qrText || QR_CAP[d.qr] || '' });
     rule();
     L('Powered by ' + product(), { a: 'c', small: true, brand: true });
@@ -75,7 +79,9 @@ const Printer = (() => {
       if (l.qr) { const src = await qrImg(l.qr); if (src) parts.push('<div class="pr-qr"><img src="' + src + '" alt=""><div>' + esc(l.cap || '') + '</div></div>'); continue; }
       if (l.rule) { parts.push('<div class="pr-rule"></div>'); continue; }
       if (l.gap) { parts.push('<div class="pr-gap"></div>'); continue; }
-      const cls = 'pr-l pr-' + (l.a || 'l') + (l.b ? ' pr-b' : '') + (l.big ? ' pr-big' : '') + (l.small ? ' pr-s' : '') + (l.inv ? ' pr-inv' : '') + (l.stamp ? ' pr-stamp' : '') + (l.total ? ' pr-total' : '') + (l.brand ? ' pr-brand' : '') + (l.left !== undefined ? ' pr-2' : '');
+      if (l.item) { parts.push('<div class="rcp-it"><div class="rcp-in">' + esc(l.name) + '</div><div class="rcp-ia">' + esc(l.amt) + '</div><div class="rcp-iq">' + esc(l.sub) + '</div></div>'); continue; }
+      if (l.brand) { const p = esc(l.t).replace(/^Powered by /, ''); parts.push('<div class="pr-brand"><span>Powered by</span> ' + p.replace(/^Aahsso/, '<b>Aahsso</b>') + '</div>'); continue; }
+      const cls = 'pr-l pr-' + (l.a || 'l') + (l.b ? ' pr-b' : '') + (l.big ? ' pr-big' : '') + (l.small ? ' pr-s' : '') + (l.inv ? ' pr-inv' : '') + (l.stamp ? ' pr-stamp' : '') + (l.total ? ' pr-total' : '') + (l.left !== undefined ? ' pr-2' : '') + (l.meta ? ' pr-m' : '') + (l.chg ? ' pr-chg' : '') + (l.name ? ' pr-name' : '') + (l.hi ? ' pr-hi' : '') + (l.thx ? ' pr-thx' : '') + (l.st ? ' pr-st-' + l.st : '');
       parts.push('<div class="' + cls + '">' + (l.left !== undefined ? '<span>' + esc(l.left) + '</span><span>' + esc(l.right) + '</span>' : esc(l.t.trim()).replace(/\n/g, '<br>')) + '</div>');
     }
     return parts.join('');
@@ -126,6 +132,7 @@ const Printer = (() => {
       if (l.logo) { const r = await raster(imgSrc(l.logo) || l.logo, Math.round(dots * 0.55)); if (r.length) { push(0x1b, 0x61, 1); push(...r); push(0x0a); } continue; }
       if (l.qr) { push(0x1b, 0x61, 1); push(...qrCmd(l.qr)); push(0x0a); if (l.cap) { text(l.cap); push(0x0a); } continue; }
       if (l.gap) { push(0x0a); continue; }
+      if (l.item) { const [n, ...rest] = l.t.split('\n'); push(0x1b, 0x61, 0, 0x1d, 0x21, 0, 0x1d, 0x42, 0, 0x1b, 0x45, 1); text(n); push(0x0a, 0x1b, 0x45, 0); text(rest.join('\n')); push(0x0a); continue; }
       push(0x1b, 0x61, l.a === 'c' ? 1 : l.a === 'r' ? 2 : 0); push(0x1b, 0x45, l.b ? 1 : 0); push(0x1d, 0x42, l.inv ? 1 : 0);
       const big = l.big && (l.a === 'c' || W >= 40); push(0x1d, 0x21, big ? 0x11 : 0x00);
       let s = l.t; if (big && l.left !== undefined) { const half = Math.floor(W / 2); const sp = half - l.left.length - l.right.length; s = sp >= 1 ? l.left + ' '.repeat(sp) + l.right : l.left + '\n' + l.right; }
