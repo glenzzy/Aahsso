@@ -94,8 +94,11 @@ const Printer = (() => {
     area.innerHTML = await html(ready || blocks(s, extra, mm));
     await Promise.all([...area.querySelectorAll('img')].map((i) => i.complete ? 0 : new Promise((r) => { i.onload = i.onerror = r; })));
     document.body.classList.add('printing');
-    // the page is exactly as long as the receipt: no metres of blank paper on roll printers
-    const hmm = Math.ceil(area.scrollHeight * 25.4 / 96) + 10;
+    // the page is exactly as long as the receipt: one piece of paper, no metres of blank roll.
+    // The print area is hidden on screen (it only shows when printing), so it is measured shown but out of sight.
+    const keep = area.style.cssText; area.style.cssText = 'display:block;position:absolute;left:-10000px;top:0;visibility:hidden';
+    const hpx = area.getBoundingClientRect().height; area.style.cssText = keep;
+    const hmm = Math.ceil(hpx * 25.4 / 96) + 12;
     let pg = document.getElementById('printPage'); if (!pg) { pg = document.createElement('style'); pg.id = 'printPage'; document.head.appendChild(pg); }
     pg.textContent = '@page{size:' + mm + 'mm ' + hmm + 'mm;margin:0}';
     const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
