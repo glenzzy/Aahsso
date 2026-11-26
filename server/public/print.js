@@ -13,15 +13,18 @@ const Printer = (() => {
   function setPrefs(p) { try { localStorage.setItem(KEY, JSON.stringify(Object.assign(prefs(), p))); } catch (e) { } }
   const cols = (paper) => ((paper || prefs().paper) === 58 ? 32 : 48); // characters per line on the roll (Bluetooth)
   /** the business's receipt design, with defaults */
-  const design = (st) => Object.assign({ logo: true, header: '', niu: '', rccm: '', whatsapp: '', web: '', showStaff: true, showCustomer: true, showTxn: true, qr: 'none', qrUrl: '', qrText: '' }, (st || S()).receipt || {});
+  const design = (st) => Object.assign({ logo: true, header: '', niu: '', rccm: '', whatsapp: '', web: '', showStaff: true, showCustomer: true, showTxn: true, qr: 'none', qrUrl: '', qrText: '', follow: true }, (st || S()).receipt || {});
   const product = () => KC.editionOf(K.info && K.info.edition).label; // "Aahsso Bar & Resto", "Aahsso Store"…
-  function qrLink(d) {
+  function qrLink(d, st) {
+    st = st || S();
     if (d.qr === 'menu' && typeof menuLink === 'function' && (S().menuSlug || S().menuKey)) return menuLink();
     if (d.qr === 'shop' && typeof shopLink === 'function' && (S().shopSlug || S().shopId)) return shopLink();
     if (d.qr === 'whatsapp' && (d.whatsapp || S().phone)) return 'https://wa.me/' + phoneWA(d.whatsapp || S().phone);
     if (d.qr === 'custom' && /^https?:\/\//.test(d.qrUrl || '')) return d.qrUrl;
+    if (/^so:/.test(d.qr || '')) { const x = KC.socialLinks(st || S()).find((y) => y.k === d.qr.slice(3)); return x ? x.url : ''; }
     return '';
   }
+  const qrCap = (d, st) => { if (/^so:/.test(d.qr || '')) { const x = KC.socialLinks(st || S()).find((y) => y.k === d.qr.slice(3)); return x ? (x.k === 'website' ? 'Scan to visit our website' : 'Scan to follow us on ' + x.label) : ''; } return QR_CAP[d.qr] || ''; };
   const QR_CAP = { menu: 'Scan to see our menu', shop: 'Scan to shop with us online', whatsapp: 'Scan to chat with us on WhatsApp', custom: 'Scan me' };
 
   /** the receipt as a list of blocks, one layout for both printers:
@@ -37,7 +40,7 @@ const Printer = (() => {
     if (st.tagline) L(st.tagline, { a: 'c', small: true });
     // on a 58 mm roll each detail gets its own line, so a phone number is never cut in two
     const join = (xs) => { xs = xs.filter(Boolean); return W < 40 ? xs : [xs.join(' · ')]; };
-    [st.address, ...join([st.phone ? 'Tel ' + st.phone : '', d.whatsapp ? 'WhatsApp ' + d.whatsapp : '']), d.web, ...join([d.niu ? 'NIU ' + d.niu : '', d.rccm ? 'RCCM ' + d.rccm : ''])].filter(Boolean).forEach((x) => L(x, { a: 'c', small: true }));
+    [st.address, ...join([st.phone ? 'Tel ' + st.phone : '', d.whatsapp ? 'WhatsApp ' + d.whatsapp : '']), KC.socialLinks(st).length ? '' : d.web, ...join([d.niu ? 'NIU ' + d.niu : '', d.rccm ? 'RCCM ' + d.rccm : ''])].filter(Boolean).forEach((x) => L(x, { a: 'c', small: true }));
     if (d.header) { L({ t: '', gap: true }); L(d.header, { a: 'c', b: true, hi: true }); }
     L({ t: ' SALES RECEIPT ', a: 'c', b: true, inv: true });
     // the sale
@@ -53,15 +56,20 @@ const Printer = (() => {
     if (t.discount) { two('Subtotal', fmt(t.subtotal), meta); two('Discount', '-' + fmt(t.discount), meta); }
     if (t.returned) two('Returned', '-' + fmt(t.returned), meta);
     two('TOTAL', F(t.net), { b: true, big: true, total: true });
-    if (t.deliveryFee > 0) { two('Delivery fee', fmt(t.deliveryFee), meta); two('TO PAY', F(t.due), { b: true }); }
+    if (t.deliveryFee > 0) two('Delivery fee', fmt(t.deliveryFee), meta);
+    if (t.tip > 0) two('Tip — thank you!', fmt(t.tip), meta);
+    if (t.deliveryFee > 0 || t.tip > 0) two('TO PAY', F(t.due), { b: true });
     (s.payments || []).forEach((p) => two(p.method, fmt(p.amount), meta));
-    if (extra.tendered) { two('Cash received', fmt(extra.tendered), meta); two('Change', F(extra.tendered - t.net), { b: true, chg: true }); }
+    if (extra.tendered) { two('Cash received', fmt(extra.tendered), meta); two('Change', F(extra.tendered - t.due), { b: true, chg: true }); }
     if (t.balance > 0) two('BALANCE DUE', F(t.balance), { b: true, chg: true });
     L({ paid: 'PAID', partial: 'DEPOSIT', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status] || '', { a: 'c', b: true, stamp: true, st: t.status });
     if (d.showTxn && t.txnId) L('Txn ' + t.txnId, { a: 'c', small: true });
     // the goodbye
     if (st.receiptFooter) L(st.receiptFooter, { a: 'c', thx: true });
-    const q = qrLink(d); if (q) L({ qr: q, cap: d.qrText || QR_CAP[d.qr] || '' });
+    // follow us: the social media pages from Settings → Business
+    const so = d.follow !== false ? KC.socialLinks(st) : [];
+    if (so.length) { L({ t: 'FOLLOW US', a: 'c', b: true, small: true, followH: true }); so.forEach((x) => L({ t: x.label + ': ' + x.handle, a: 'c', small: true, soc: x.k, label: x.label, handle: x.handle })); }
+    const q = qrLink(d, st); if (q) L({ qr: q, cap: d.qrText || qrCap(d, st) });
     rule();
     L('Powered by ' + product(), { a: 'c', small: true, brand: true });
     return out;
@@ -80,6 +88,8 @@ const Printer = (() => {
       if (l.rule) { parts.push('<div class="pr-rule"></div>'); continue; }
       if (l.gap) { parts.push('<div class="pr-gap"></div>'); continue; }
       if (l.item) { parts.push('<div class="rcp-it"><div class="rcp-in">' + esc(l.name) + '</div><div class="rcp-ia">' + esc(l.amt) + '</div><div class="rcp-iq">' + esc(l.sub) + '</div></div>'); continue; }
+      if (l.followH) { parts.push('<div class="pr-fh"><span>Follow us</span></div>'); continue; }
+      if (l.soc) { parts.push('<div class="pr-so"><b>' + esc(l.label) + '</b> ' + esc(l.handle) + '</div>'); continue; }
       if (l.brand) { const p = esc(l.t).replace(/^Powered by /, ''); parts.push('<div class="pr-brand"><span>Powered by</span> ' + p.replace(/^Aahsso/, '<b>Aahsso</b>') + '</div>'); continue; }
       const cls = 'pr-l pr-' + (l.a || 'l') + (l.b ? ' pr-b' : '') + (l.big ? ' pr-big' : '') + (l.small ? ' pr-s' : '') + (l.inv ? ' pr-inv' : '') + (l.stamp ? ' pr-stamp' : '') + (l.total ? ' pr-total' : '') + (l.left !== undefined ? ' pr-2' : '') + (l.meta ? ' pr-m' : '') + (l.chg ? ' pr-chg' : '') + (l.name ? ' pr-name' : '') + (l.hi ? ' pr-hi' : '') + (l.thx ? ' pr-thx' : '') + (l.st ? ' pr-st-' + l.st : '');
       parts.push('<div class="' + cls + '">' + (l.left !== undefined ? '<span>' + esc(l.left) + '</span><span>' + esc(l.right) + '</span>' : esc(l.t.trim()).replace(/\n/g, '<br>')) + '</div>');
@@ -184,26 +194,29 @@ const Printer = (() => {
   function designer() {
     if (!can('settings')) return toast('Only someone who can change Settings can design the receipt', true);
     const d = design(); const st = S(); let paper = prefs().paper;
-    const qrOpts = [['none', 'No QR code']].concat(typeof menuLink === 'function' && (st.menuSlug || st.menuKey) ? [['menu', 'Our menu (customers order from their phone)']] : [], (st.shopSlug || st.shopId) && typeof shopLink === 'function' ? [['shop', 'Our online shop']] : [], [['whatsapp', 'Chat with us on WhatsApp'], ['custom', 'A link of my choice (Facebook, Instagram, website…)']]);
+    const qrOpts = [['none', 'No QR code']].concat(typeof menuLink === 'function' && (st.menuSlug || st.menuKey) ? [['menu', 'Our menu (customers order from their phone)']] : [], (st.shopSlug || st.shopId) && typeof shopLink === 'function' ? [['shop', 'Our online shop']] : [], [['whatsapp', 'Chat with us on WhatsApp']], KC.socialLinks(st).map((x) => ['so:' + x.k, x.k === 'website' ? 'Our website' : 'Follow us on ' + x.label]), [['custom', 'A link of my choice']]);
+    const so = KC.socialLinks(st);
     const sh = openSheet({ title: 'Receipt design', wide: true,
       body: '<div class="rd">' +
         '<div class="rd-form col">' +
           '<p class="small muted">Printed on every receipt, on every till. Business name, logo, tagline, address and phone come from <a href="#settings" data-a="sheetClose">Settings → Business</a>.</p>' +
           '<label class="toggle"><input type="checkbox" name="rdLogo"' + (d.logo ? ' checked' : '') + (st.logo ? '' : ' disabled') + '>Print the logo' + (st.logo ? '' : ' <span class="tiny muted">(add one in Settings → Business)</span>') + '</label>' +
           field('Welcome message (top)', inp('rdHeader', d.header, 'maxlength="60" placeholder="e.g. Bienvenue ! · Welcome to Chez Mado"')) +
-          '<div class="grid2">' + field('WhatsApp number', inp('rdWa', d.whatsapp, 'inputmode="tel" placeholder="e.g. 677 00 00 00"')) + field('Website / Facebook / Instagram', inp('rdWeb', d.web, 'placeholder="e.g. facebook.com/chezmado"')) + '</div>' +
+          field('WhatsApp number', inp('rdWa', d.whatsapp, 'inputmode="tel" placeholder="e.g. 677 00 00 00"')) +
           '<div class="grid2">' + field('Taxpayer number (NIU)', inp('rdNiu', d.niu, 'placeholder="Optional"')) + field('RCCM', inp('rdRccm', d.rccm, 'placeholder="Optional"')) + '</div>' +
           field('Thank-you message (bottom)', inp('rdFooter', st.receiptFooter || '', 'maxlength="120" placeholder="e.g. Merci et à bientôt ! Goods sold are not returned."')) +
+          '<div class="rd-follow">' + (so.length ? '<label class="toggle"><input type="checkbox" name="rdFollow"' + (d.follow !== false ? ' checked' : '') + '>“Follow us” — ' + esc(so.map((x) => x.label).join(', ')) + '</label>' : '<div class="small"><b>Follow us</b></div>') +
+            '<div class="tiny muted">Your social media pages are set in <a href="#settings" data-a="sheetClose">Settings → Business</a>' + (so.length ? '.' : ' — add them to print “Follow us” on every receipt.') + '</div></div>' +
           field('QR code at the bottom', sel('rdQr', qrOpts, qrOpts.some((o) => o[0] === d.qr) ? d.qr : 'none')) +
           '<div id="rdQrMore" class="' + (d.qr === 'custom' ? '' : 'hide') + '">' + field('Link', inp('rdQrUrl', d.qrUrl, 'placeholder="https://…"')) + '</div>' +
-          '<div id="rdQrCap" class="' + (d.qr === 'none' ? 'hide' : '') + '">' + field('Text under the QR code', inp('rdQrText', d.qrText, 'maxlength="50" placeholder="' + esc(QR_CAP[d.qr] || 'Scan me') + '"')) + '</div>' +
+          '<div id="rdQrCap" class="' + (d.qr === 'none' ? 'hide' : '') + '">' + field('Text under the QR code', inp('rdQrText', d.qrText, 'maxlength="50" placeholder="' + esc(qrCap(d, st) || 'Scan me') + '"')) + '</div>' +
           '<div class="row wrap gap6"><label class="toggle"><input type="checkbox" name="rdStaff"' + (d.showStaff ? ' checked' : '') + '>Who served</label><label class="toggle"><input type="checkbox" name="rdCust"' + (d.showCustomer ? ' checked' : '') + '>Customer name</label><label class="toggle"><input type="checkbox" name="rdTxn"' + (d.showTxn ? ' checked' : '') + '>Transaction ID</label></div>' +
         '</div>' +
         '<div class="rd-prev"><div class="row between mb"><b class="small">Preview</b><div class="seg sm" id="rdPaper">' + [58, 80].map((w) => '<button type="button" data-w="' + w + '" class="' + (paper === w ? 'on' : '') + '">' + w + ' mm</button>').join('') + '</div></div><div class="rd-paper"><div class="rcp" id="rdOut"></div></div><p class="tiny muted center mt">Every receipt ends with “Powered by ' + esc(product()) + '”.</p></div>' +
       '</div>',
       foot: '<button class="btn grow" id="rdTest">' + ic('check', 'sm') + 'Test print</button><button class="btn pri grow" id="rdSave">Save the design</button>' });
     sh.classList.add('rd-sheet');
-    const read = () => { const v = formVals(sh); return { receipt: { logo: !!v.rdLogo, header: v.rdHeader, whatsapp: v.rdWa, web: v.rdWeb, niu: v.rdNiu, rccm: v.rdRccm, qr: v.rdQr || 'none', qrUrl: v.rdQrUrl, qrText: v.rdQrText, showStaff: !!v.rdStaff, showCustomer: !!v.rdCust, showTxn: !!v.rdTxn }, receiptFooter: v.rdFooter }; };
+    const read = () => { const v = formVals(sh); return { receipt: { logo: !!v.rdLogo, header: v.rdHeader, whatsapp: v.rdWa, web: d.web || '', follow: so.length ? !!v.rdFollow : d.follow !== false, niu: v.rdNiu, rccm: v.rdRccm, qr: v.rdQr || 'none', qrUrl: v.rdQrUrl, qrText: v.rdQrText, showStaff: !!v.rdStaff, showCustomer: !!v.rdCust, showTxn: !!v.rdTxn }, receiptFooter: v.rdFooter }; };
     const draftBlocks = (p) => blocks(sample(), { tendered: 2000 }, p, read()); // the preview, before saving
     let tmr; const draw = () => { clearTimeout(tmr); tmr = setTimeout(async () => {
       const bs = draftBlocks(paper); const r = read();
@@ -221,7 +234,7 @@ const Printer = (() => {
     if (prefs().method === 'rawbt') { if (!/android/i.test(navigator.userAgent)) return toast('RawBT works on Android.', true); const bytes = await escpos(bs); let bin = ''; for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]); location.href = 'intent:base64,' + btoa(bin) + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;'; return; }
     await printBrowser(null, null, bs);
   }
-  return { prefs, setPrefs, print, settings, designer, blocks, escpos, html };
+  return { prefs, setPrefs, print, settings, designer, blocks, escpos, html, qrImg };
 })();
 A.rcPrint = (el) => Printer.print(byId('sales', el.dataset.id));
 A.printerSettings = () => Printer.settings();

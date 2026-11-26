@@ -391,7 +391,7 @@ A.tabPay = (el) => billSheet(el.dataset.id);
 function billSheet(tabId) {
   const tab0 = (K.raw.tabs || []).find((x) => x.id === tabId); if (!tab0) return;
   const svcPct = has('tabsPlus') ? num(S().serviceCharge) : 0; const loyal = has('loyalty') && S().loyaltyOn;
-  const ui = { pick: null, split: 1, cust: null, spend: 0 };
+  const ui = { pick: null, split: 1, cust: null, spend: 0, tip: 0, qc: {} };
   const sh = openSheet({ title: 'Bill · ' + (tab0.tableLabel || 'Counter'), wide: true, body: '' });
   if (!$('.sf', sh)) { const f = document.createElement('div'); f.className = 'sf'; sh.querySelector('.sheet').appendChild(f); }
   sh._refresh = () => {
@@ -412,15 +412,18 @@ function billSheet(tabId) {
     setSheetBody(sh,
       (has('tabsPlus') ? '<div class="seg mb"><button type="button" class="' + (!pickOn ? 'on' : '') + '" data-bm="all">Whole bill</button><button type="button" class="' + (pickOn ? 'on' : '') + '" data-bm="pick">Pay some items</button></div>' : '') +
       '<div class="card pad mb">' + due.map((l) => { const k = l.menuId + '|' + l.price; return '<div class="row between small bl-l"><span>' + (pickOn ? '<span class="stepper sm"><button type="button" data-pk="-" data-k="' + esc(k) + '">−</button><span>' + num(ui.pick[k] || 0) + '/' + l.qty + '</span><button type="button" data-pk="+" data-k="' + esc(k) + '" data-max="' + l.qty + '">+</button></span> ' : fmt(l.qty) + ' × ') + esc(l.name) + '</span><span class="money">' + fmt(l.qty * l.price) + '</span></div>'; }).join('') +
-        '<div class="bl-t"><div class="row between"><span>Items</span><span class="money">' + F(sub) + '</span></div>' + (svc ? '<div class="row between"><span>Service ' + svcPct + '%</span><span class="money">' + F(svc) + '</span></div>' : '') + (spendVal ? '<div class="row between"><span>Points (' + fmt(spend) + ')</span><span class="money">−' + F(spendVal) + '</span></div>' : '') + '<div class="row between b"><span>To pay</span><span class="money" style="font-size:17px">' + F(total) + '</span></div></div></div>' +
+        '<div class="bl-t"><div class="row between"><span>Items</span><span class="money">' + F(sub) + '</span></div>' + (svc ? '<div class="row between"><span>Service ' + svcPct + '%</span><span class="money">' + F(svc) + '</span></div>' : '') + (spendVal ? '<div class="row between"><span>Points (' + fmt(spend) + ')</span><span class="money">−' + F(spendVal) + '</span></div>' : '') + '<div class="row between' + (ui.tip ? '' : ' hide') + '" id="bTipRow"><span>Tip</span><span class="money" id="bTip">' + F(ui.tip) + '</span></div><div class="row between b"><span>To pay</span><span class="money" style="font-size:17px" id="bTot">' + F(total + ui.tip) + '</span></div></div></div>' +
       (loyal ? '<div class="card pad mb"><div class="row between"><b>Loyalty</b>' + (ui.cust ? '<span class="small">' + esc(ui.cust.name) + ' · <b>' + fmt(pts) + '</b> points</span>' : '') + '</div><div class="row mt">' + inp('lyQ', '', 'placeholder="Customer phone or name" id="lyQ"') + '<button type="button" class="btn sm" data-a="lyFind">Find</button></div>' + (ui.cust && pts ? field('Use points (1 point = ' + fmt(num(S().pointValue) || 10) + ')', inp('lySpend', ui.spend || '', 'inputmode="numeric" id="lySpend"')) : '') + (ui.cust ? '<div class="hint">Earns ' + fmt(Math.floor(total / (num(S().loyaltyPer) || 1000))) + ' points on this bill</div>' : '') + '</div>' : '') +
-      (has('tabsPlus') ? '<div class="grid2 mb">' + field('Tip (optional)', inp('tip', '', 'inputmode="numeric" placeholder="0"')) + field('Split equally between', sel('split', [1, 2, 3, 4, 5, 6, 8, 10].map((n) => [n, n === 1 ? 'No split' : n + ' people']), ui.split, 'id="bSplit"')) + '</div>' + (ui.split > 1 ? '<div class="alert info mb">Each pays <b>' + F(Math.ceil(total / ui.split)) + '</b>. Take the first payment now, the others one by one.</div>' : '') : '') +
+      tipPicker(total, ui.tip) +
+      (has('tabsPlus') ? field('Split equally between', sel('split', [1, 2, 3, 4, 5, 6, 8, 10].map((n) => [n, n === 1 ? 'No split' : n + ' people']), ui.split, 'id="bSplit"')) + (ui.split > 1 ? '<div class="alert info mb">Each pays <b>' + F(Math.ceil((total + ui.tip) / ui.split)) + '</b>. Take the first payment now, the others one by one.</div>' : '') : '') +
+      (loyal ? '' : custQuick(ui.qc.name, ui.qc.phone)) +
       (tab.deposit && num(tab.deposit.amount) > 0 && !tab.depositUsed ? '<div class="alert ok mb">Deposit from the reservation: ' + F(tab.deposit.amount) + ' (' + esc(tab.deposit.method || 'Cash') + ') — counted in this bill.</div>' : '') +
       (can('discount') ? field('Discount (optional)', inp('disc', '', 'inputmode="numeric" placeholder="0"')) : '') +
-      payFields(Math.max(0, Math.round((ui.split > 1 ? Math.ceil(total / ui.split) : total) - (tab.deposit && !tab.depositUsed ? num(tab.deposit.amount) : 0))), { kind: 'sale' }));
+      payFields(Math.max(0, Math.round((ui.split > 1 ? Math.ceil((total + ui.tip) / ui.split) : total + ui.tip) - (tab.deposit && !tab.depositUsed ? num(tab.deposit.amount) : 0))), { kind: 'sale' }));
+    sh._total = total; sh._dep = tab.deposit && !tab.depositUsed ? num(tab.deposit.amount) : 0;
     syncPayCharges(sh);
     $('.sf', sh).innerHTML = '<button class="btn grow" data-a="sheetClose">Later</button><button class="btn pri grow" id="bpGo"' + (chosen.length ? '' : ' disabled') + '>' + ic('check') + 'Take payment</button>';
-    $('#bpGo', sh).onclick = async () => { const done = await paySale(tab, chosen, { svc, spend, spendVal, cust: ui.cust, total }); if (done) { ui.pick = null; ui.spend = 0; if (K.sheets.includes(sh)) sh._refresh(); } }; // the rest: whole bill again
+    $('#bpGo', sh).onclick = async () => { const done = await paySale(tab, chosen, { svc, spend, spendVal, cust: ui.cust, total }); if (done) { ui.pick = null; ui.spend = 0; ui.tip = 0; ui.qc = {}; if (K.sheets.includes(sh)) sh._refresh(); } }; // the rest: whole bill again
   };
   sh.addEventListener('click', async (e) => {
     const m = e.target.closest('[data-bm]'); if (m) { ui.pick = m.dataset.bm === 'pick' ? {} : null; sh._refresh(); return; }
@@ -429,23 +432,28 @@ function billSheet(tabId) {
       if (!c && /\d{8,}/.test(qv.replace(/\D/g, '')) && can('customers')) { c = { id: uid('c_'), name: 'Customer ' + qv.slice(-4), phone: qv, type: 'Retail' }; await save('customers', c); toast('New loyalty customer added'); }
       ui.cust = c || null; if (!c) toast('No customer found', true); sh._refresh(); }
   });
+  sh.addEventListener('input', (e) => {
+    if (e.target.name === 'qcName' || e.target.name === 'qcPhone') { ui.qc = { name: ($('[name=qcName]', sh) || {}).value, phone: ($('[name=qcPhone]', sh) || {}).value }; return; }
+    if (e.target.name !== 'tip' || sh._total === undefined) return; // a tip: the amount to pay follows
+    ui.tip = tipOf(sh); const all = sh._total + ui.tip; const r = $('#bTipRow', sh); if (r) { r.classList.toggle('hide', !ui.tip); $('#bTip', sh).textContent = F(ui.tip); $('#bTot', sh).textContent = F(all); }
+    const pa = $('#payAmount', sh); if (pa) { pa.value = Math.max(0, Math.round((ui.split > 1 ? Math.ceil(all / ui.split) : all) - sh._dep)); const fe = $('#payFee', sh); if (fe) fe.dataset.auto = '1'; syncPayCharges(sh); }
+  });
   sh.addEventListener('change', (e) => { if (e.target.id === 'bSplit') { ui.split = num(e.target.value) || 1; sh._refresh(); } if (e.target.id === 'lySpend') { ui.spend = num(e.target.value); sh._refresh(); } });
   sh._refresh();
 }
 async function paySale(tab, chosen, o) {
   const sh = K.sheets[K.sheets.length - 1]; const v = formVals(sh);
   const p = readPayment(v, 'sale'); if (p === false) return;
-  const tip = has('tabsPlus') ? Math.max(0, Math.round(num(v.tip))) : 0; const disc = can('discount') ? Math.max(0, num(v.disc)) : 0;
+  const tip = tipsOn() ? Math.max(0, Math.round(num(v.tip))) : 0; const disc = can('discount') ? Math.max(0, num(v.disc)) : 0;
   const lines = chosen.map((l) => { const m = menuById(l.menuId) || { uses: [] }; return { productId: 'm:' + l.menuId, menuId: l.menuId, name: l.name, qty: l.qty, unitPrice: l.price, category: l.category || m.category || 'Menu', alloc: KC.allocMenu(K.C, K.raw.lots, m, l.qty, K.loc) }; });
   if (o.svc) lines.push({ productId: 'svc', name: 'Service charge', qty: 1, unitPrice: o.svc, category: 'Service', alloc: [] });
-  if (tip) lines.push({ productId: 'tip', name: 'Tip', qty: 1, unitPrice: tip, category: 'Tips', alloc: [], tipFor: tab.waiterId || K.me.id });
   const now = new Date(); const payments = [];
   if (tab.deposit && num(tab.deposit.amount) > 0 && !tab.depositUsed) payments.push({ id: uid('p_'), date: tab.deposit.date || todayStr(), method: tab.deposit.method || 'Cash', amount: num(tab.deposit.amount), fee: 0, ref: 'Reservation deposit', by: tab.deposit.by || '' });
   if (p) payments.push(p);
-  const cust = o.cust;
-  const sale = { id: uid('s_'), no: saleNo(), date: todayStr(), createdAt: now.toISOString(), status: 'open', createdBy: K.me.name || '', createdById: K.me.id || '', customerId: cust ? cust.id : null, customerName: cust ? cust.name : (tab.customerName || (tab.tableLabel ? 'Table ' + tab.tableLabel : 'Counter')), customerPhone: cust ? cust.phone || '' : '',
+  let cust = o.cust; const qc = !cust ? await quickCustomer(v) : null; if (qc && qc.cu) cust = qc.cu; // the bill's name / phone fields
+  const sale = { id: uid('s_'), no: saleNo(), date: todayStr(), createdAt: now.toISOString(), status: 'open', createdBy: K.me.name || '', createdById: K.me.id || '', customerId: cust ? cust.id : null, customerName: cust ? cust.name : (qc && qc.name !== 'Walk-in customer' && qc.name) || tab.customerName || (tab.tableLabel ? 'Table ' + tab.tableLabel : 'Counter'), customerPhone: cust ? cust.phone || '' : (qc && qc.phone) || '',
     lines, discount: disc + num(o.spendVal), payments, locationId: K.loc, delivered: true, source: 'resto', tabId: tab.id, tableLabel: tab.tableLabel || '', waiterId: tab.waiterId || K.me.id };
-  if (tip) sale.tip = tip;
+  if (tip) Object.assign(sale, { tip }, tipStaff(tab.waiterId || K.me.id));
   if (cust && has('loyalty') && S().loyaltyOn) sale.loyalty = { earn: Math.floor(Math.max(0, o.total - disc) / (num(S().loyaltyPer) || 1000)), spend: num(o.spend) };
   const t = KC.saleTotals(sale); if (!payments.length && !(await confirmBox('No payment entered. Keep this bill unpaid (the customer owes ' + F(t.due) + ')?', 'Keep unpaid'))) return;
   if (typeof applySaleTxnId === 'function') applySaleTxnId(sale, true);
@@ -466,16 +474,19 @@ async function closeTabIfDone(tabId, saleId, saved) {
 /* the counter (pay-first): pay now, then the ticket goes to the bar / kitchen */
 function payCounter(cart, sh0) {
   const lines0 = ticketLines(cart); const total = lines0.reduce((a, l) => a + l.qty * l.price, 0);
-  const sh = openSheet({ title: 'Counter sale · ' + F(total), body: payFields(total, { kind: 'sale' }), foot: '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow" id="cpGo">' + ic('check') + 'Paid · send</button>' });
+  const sh = openSheet({ title: 'Counter sale · ' + F(total), body: tipPicker(total, 0) + payFields(total, { kind: 'sale' }) + custQuick('', ''), foot: '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow" id="cpGo">' + ic('check') + 'Paid · send</button>' });
   syncPayCharges(sh);
+  sh.addEventListener('input', (e) => { if (e.target.name !== 'tip') return; const pa = $('#payAmount', sh); pa.value = total + tipOf(sh); const fe = $('#payFee', sh); if (fe) fe.dataset.auto = '1'; syncPayCharges(sh); });
   $('#cpGo', sh).onclick = async () => {
-    const p = readPayment(formVals(sh), 'sale'); if (p === false) return; if (!p) return toast('Enter the amount', true);
+    const v = formVals(sh); const tip = tipsOn() ? tipOf(sh) : 0; const qc = await quickCustomer(v);
+    const p = readPayment(v, 'sale'); if (p === false) return; if (!p) return toast('Enter the amount', true);
     const now = new Date().toISOString(); const tab = { id: uid('tb_'), tableId: '', tableLabel: 'Counter', status: 'open', openedAt: now, waiterId: K.me.id, source: 'counter' };
     const st = {}; lines0.forEach((l) => (st[l.station] = { s: 'todo' }));
     const o = { id: uid('ro_'), no: shortNo(), tabId: tab.id, tableId: '', tableLabel: 'Counter', source: 'counter', waiterIds: [K.me.id], waiterId: K.me.id, status: 'accepted', acceptedAt: now, createdAt: now, by: K.me.name || '', lines: lines0, st, paid: true };
     if (!(await save('tabs', tab)) || !(await save('rorders', o))) return;
     const lines = lines0.map((l) => { const m = menuById(l.menuId) || { uses: [] }; return { productId: 'm:' + l.menuId, menuId: l.menuId, name: l.name, qty: l.qty, unitPrice: l.price, category: l.category || 'Menu', alloc: KC.allocMenu(K.C, K.raw.lots, m, l.qty, K.loc) }; });
-    const sale = { id: uid('s_'), no: saleNo(), date: todayStr(), createdAt: now, status: 'open', createdBy: K.me.name || '', createdById: K.me.id || '', customerId: null, customerName: 'Counter', lines, discount: 0, payments: [p], locationId: K.loc, delivered: true, source: 'resto', tabId: tab.id, tableLabel: 'Counter', waiterId: K.me.id };
+    const sale = { id: uid('s_'), no: saleNo(), date: todayStr(), createdAt: now, status: 'open', createdBy: K.me.name || '', createdById: K.me.id || '', customerId: qc && qc.cu ? qc.cu.id : null, customerName: qc ? (qc.cu ? qc.cu.name : qc.name) : 'Counter', customerPhone: qc ? (qc.cu ? qc.cu.phone || '' : qc.phone) : '', lines, discount: 0, payments: [p], locationId: K.loc, delivered: true, source: 'resto', tabId: tab.id, tableLabel: 'Counter', waiterId: K.me.id };
+    if (tip) Object.assign(sale, { tip }, tipStaff(K.me.id));
     if (typeof applySaleTxnId === 'function') applySaleTxnId(sale, true);
     if (!(await save('sales', sale))) return;
     await save('tabs', Object.assign({}, tab, { saleIds: [sale.id], status: 'paid', closedAt: now }));
@@ -825,7 +836,7 @@ VIEWS.rstats = {
     const sales = visibleSales().filter((s) => s.source === 'resto' && s.status !== 'cancelled' && saleDate(s) >= from);
     const ords = (K.raw.rorders || []).filter((o) => String(o.createdAt).slice(0, 10) >= from);
     const W = {}; const w = (id) => (W[id] = W[id] || { id, sales: 0, bills: 0, tips: 0, serve: [], tickets: 0 });
-    sales.forEach((s) => { const x = w(s.waiterId || s.createdById || '?'); x.sales += K.C.saleX[s.id].net; x.bills++; (s.lines || []).forEach((l) => { if (l.productId === 'tip') x.tips += num(l.unitPrice) * num(l.qty); }); });
+    sales.forEach((s) => { const x = w(s.waiterId || s.createdById || '?'); x.sales += K.C.saleX[s.id].net; x.bills++; x.tips += KC.saleTip(s); });
     ords.forEach((o) => { if (!o.waiterId) return; const x = w(o.waiterId); x.tickets++; if (o.servedAt && (o.acceptedAt || o.createdAt)) x.serve.push((new Date(o.servedAt) - new Date(o.acceptedAt || o.createdAt)) / 60000); });
     const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null);
     const tabs = (K.raw.tabs || []).filter((t) => t.status === 'paid' && t.tableId && String(t.closedAt).slice(0, 10) >= from);

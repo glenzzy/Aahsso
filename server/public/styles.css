@@ -2092,6 +2092,35 @@ body.pos-on .top{padding-top:calc(6px + var(--safeT));padding-bottom:6px}
 .pos-okp{font-size:18px;font-weight:700}
 .pos-okc{display:flex;flex-direction:column;align-items:center;background:color-mix(in srgb,var(--ok) 12%,var(--card));border-radius:16px;padding:12px 28px}.pos-okc span{font-weight:600;color:var(--ink2)}.pos-okc b{font-size:40px;font-weight:800;color:var(--ok)}
 .pos-donesheet .sf .btn,.pos-paysheet .sf .btn{min-height:52px}
+.pos-due{flex-wrap:wrap}.pos-dtip{flex-basis:100%;text-align:right;color:var(--ink3);font-weight:600}.pos-dtip:empty{display:none}
+/* tips: quick amounts (every payment screen) */
+.tip-box{display:flex;flex-direction:column;gap:8px;margin:2px 0 14px}
+.tip-h{display:flex;align-items:baseline;gap:8px}.tip-h>span:first-child{font-weight:700;font-size:14px}
+.tip-ch{display:flex;flex-wrap:wrap;gap:6px}
+.tip-ch button{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--card);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink);cursor:pointer;font-variant-numeric:tabular-nums}
+.tip-ch button:hover{border-color:var(--ink3)}
+.tip-ch button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.pos-paysheet .tip-ch button{min-height:46px;font-size:14.5px}
+.tip-in{max-width:200px}
+/* the customer's name / phone: optional, two fields on one line */
+.qc{margin:14px 0 12px;padding-top:12px;border-top:1px solid var(--line)}
+.qc-h{font-weight:700;font-size:14px;margin-bottom:8px}.qc-h .tiny{font-weight:500;margin-left:4px}
+.qc-r{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.qc-hint{display:flex;align-items:center;gap:4px;margin-top:6px;color:var(--ok)}.qc-hint:empty{display:none}
+@media (max-width:420px){.qc-r{grid-template-columns:1fr}}
+/* after a POS sale: invite the customer to follow the business */
+.pos-follow{margin-top:14px;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.pos-fh{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;margin-bottom:10px}
+.pos-fl{display:flex;flex-wrap:wrap;gap:6px}
+.pos-fb{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--card);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink);cursor:pointer}
+.pos-fb.on{background:var(--ink);border-color:var(--ink);color:var(--card)}
+.pos-fq{display:flex;align-items:center;gap:14px;margin-top:12px}.pos-fq img{width:132px;height:132px;image-rendering:pixelated;background:#fff;padding:6px;border-radius:8px;border:1px solid var(--line)}
+/* "Follow us" on the on-screen receipt */
+.receipt .follow{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);text-align:center}
+.follow-h{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:6px}
+.follow-l{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+.follow-a{font-size:12.5px;padding:4px 10px;border-radius:999px;background:var(--bg);color:var(--ink);text-decoration:none}.follow-a b{font-weight:700}
+.rd-follow{display:flex;flex-direction:column;gap:4px}
 /* narrow screens (phones, small terminals in portrait): tiles full width, the cart opens from a bar at the bottom */
 @media (max-width:899px){
   .pos{grid-template-columns:1fr;height:calc(100dvh - 54px - var(--safeT))}
@@ -2129,6 +2158,8 @@ body.pos-on .top{padding-top:calc(6px + var(--safeT));padding-bottom:6px}
 .rcp .pr-stamp.pr-st-paid::before{content:"✓";letter-spacing:0;margin-right:.45em}
 .rcp .pr-thx{font-size:10.5px;font-weight:600;line-height:1.35;margin:8px 4px 2px}.rcp.rcp-58 .pr-thx{font-size:9.5px}
 .rcp .pr-qr{text-align:center;margin:8px 0 2px;font-size:9px}.rcp .pr-qr img{width:22mm;height:22mm;image-rendering:pixelated;display:block;margin:0 auto 3px}
+.rcp .pr-fh{display:flex;align-items:center;gap:8px;margin:10px 0 4px;font-size:9px;font-weight:700;letter-spacing:.2em;text-transform:uppercase}.rcp .pr-fh::before,.rcp .pr-fh::after{content:"";flex:1;border-top:1px solid #000}
+.rcp .pr-so{text-align:center;font-size:10px;line-height:1.5}.rcp .pr-so b{font-weight:600}.rcp.rcp-58 .pr-so{font-size:9px}
 .rcp .pr-brand{text-align:center;font-size:8.5px;margin-top:2px}.rcp .pr-brand b{font-weight:700}
 #printArea{display:none}
 @media print{

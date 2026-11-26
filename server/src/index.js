@@ -558,7 +558,7 @@ async function planGuard(c, u, col, body, old) {
   if (col === 'menu' && body.kind === 'portion' && !(old && old.kind === 'portion')) { const e = off(['portions']); if (e) return e; }
   if (col === 'menu' && body.kind === 'recipe' && !(old && old.kind === 'recipe')) { const e = off(['recipes']); if (e) return e; }
   if (col === 'sales' && body.loyalty && !(old && old.loyalty)) { const e = off(['loyalty']); if (e) return e; }
-  if (col === 'sales' && body.tabId && (num0(body.tip) > 0 || body.split) && !(old && old.tabId)) { const e = off(['tabsPlus']); if (e) return e; }
+  if (col === 'sales' && body.tabId && body.split && !(old && old.tabId)) { const e = off(['tabsPlus']); if (e) return e; } // tips: every edition
   if (col === 'settings') {
     if (body.happyHour && body.happyHour.on && !(old && old.happyHour && old.happyHour.on)) { const e = off(['happyHour']); if (e) return e; }
     if (body.payFirst && !(old && old.payFirst)) { const e = off(['payFirst']); if (e) return e; }
@@ -790,6 +790,8 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
     }
     if (col === 'sales') {
       if (body.delivery) body.delivery = KC.cleanDelivery(body.delivery); else delete body.delivery;
+      // a tip: a whole, positive amount (paid on top of the bill, for the person who served)
+      if (body.tip !== undefined) { const tp = Math.max(0, Math.round(Number(body.tip) || 0)); if (tp) { body.tip = tp; body.tipFor = String(body.tipFor || '').slice(0, 64); body.tipForName = String(body.tipForName || '').slice(0, 80); } else { delete body.tip; delete body.tipFor; delete body.tipForName; } }
       const old = prev ? prev.data : null;
       if (!P.allLocations && (body.locationId || 'main') !== (u.location_id || 'main')) return { status: 403, error: 'You can only sell at your own location' };
       if (!old) { body.createdById = u.id; body.createdBy = u.name; if (!P.sell) return { status: 403, error: 'You cannot make sales' }; }
@@ -1080,7 +1082,7 @@ app.post('/api/sales/:id/email', auth, requireFeature('emailReceipts'), wrap(asy
   const row = (await q("SELECT data FROM documents WHERE tenant_id=$1 AND collection='sales' AND id=$2", [req.user.tenant_id, req.params.id])).rows[0];
   if (!row) return err(res, 404, 'Sale not found');
   const sale = Object.assign({}, row.data, { id: req.params.id }); const st = await tenantSettings(pool, req.user.tenant_id);
-  const r = await mailer.sendEmail(Object.assign({ to, kind: 'receipt', tenantId: req.user.tenant_id, replyTo: cleanEmail(st.email) || undefined }, mailer.T.receipt({ business: st.businessName, sale, totals: KC.saleTotals(sale), sym: KC.currencySymbolOf(st), phone: st.phone, address: st.address, footer: st.receiptFooter })));
+  const r = await mailer.sendEmail(Object.assign({ to, kind: 'receipt', tenantId: req.user.tenant_id, replyTo: cleanEmail(st.email) || undefined }, mailer.T.receipt({ business: st.businessName, sale, totals: KC.saleTotals(sale), sym: KC.currencySymbolOf(st), phone: st.phone, address: st.address, footer: st.receiptFooter, socials: KC.socialLinks(st) })));
   if (r.status === 'failed') return err(res, 502, 'The email could not be sent: ' + r.error);
   res.json({ ok: true, status: r.status, to });
 }));

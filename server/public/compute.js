@@ -43,7 +43,7 @@
     fxRate: 600, currency: 'XAF', currencySymbol: 'FCFA', fxRates: { USD: 600, EUR: 655.957 }, defaultMarkup: 100, minMarkup: 50, roundTo: 50, lowStock: 3, expiryWarnDays: 60,
     staffSeeCosts: false, wholesaleMarkup: 60, bulkQty: 0, creditDays: 14,
     reminderTemplate: 'Hello {name}, this is a friendly reminder from {business}. Your balance is {balance} (due {due}). You can pay by Cash or Mobile Money: {momo}. Thank you!',
-    reminderEvery: 7, receiptFooter: 'Thank you for your business! Goods sold in good condition.',
+    tipsOn: true, socials: {}, reminderEvery: 7, receiptFooter: 'Thank you for your business! Goods sold in good condition.',
     momoAccounts: [], // [{label, method, number}]
     momoFeeTables: DEFAULT_MOMO_FEE_TABLES, // suggested withdrawal charges for MTN / Orange
     categories: CATEGORIES,
@@ -322,7 +322,7 @@
     ['tables', 'Tables & floor plan', 'Bar & Resto', 'Areas, labelled tables, QR codes and table bills'],
     ['qrOrders', 'QR menu ordering', 'Bar & Resto', 'Customers scan the table QR code, see the menu and order'],
     ['kds', 'Kitchen & bar screens', 'Bar & Resto', 'Order tickets on a screen in the kitchen and at the bar'],
-    ['tabsPlus', 'Split, merge, tips & service', 'Bar & Resto', 'Split or merge bills, move tables, tips and a service charge'],
+    ['tabsPlus', 'Split, merge & service', 'Bar & Resto', 'Split or merge bills, move tables and a service charge'],
     ['portions', 'Glasses & shots', 'Bar & Resto', 'Sell a bottle by the glass or shot; stock stays in bottles'],
     ['recipes', 'Recipes', 'Bar & Resto', 'Dishes use ingredients from stock'],
     ['reservations', 'Reservations', 'Bar & Resto', 'Book tables and areas for a time, with a deposit'],
@@ -445,6 +445,25 @@
     return { order: { customer: { name, phone, whatsapp: cut(c.whatsapp, 30).replace(/[^\d+ ]/g, '') || phone, city: cut(c.city, 60) }, lines, subtotal: lines.reduce((a, l) => a + l.qty * l.unitPrice, 0), delivery, note: cut(b.note, 500) } };
   }
 
+  /** the tip on a sale, whichever way it was saved (older bar bills: a "Tip" line) */
+  function saleTip(s) { const ln = (s.lines || []).filter((l) => l.productId === 'tip'); return ln.length ? ln.reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0) : Math.max(0, Math.round(num(s.tip))); }
+  /* the business's social media pages (Settings → Business): a handle or a link → { k, label, handle, url } */
+  const SOCIALS = [
+    ['facebook', 'Facebook', 'https://facebook.com/', 'facebook.com'], ['instagram', 'Instagram', 'https://instagram.com/', 'instagram.com'], ['tiktok', 'TikTok', 'https://www.tiktok.com/@', 'tiktok.com'],
+    ['youtube', 'YouTube', 'https://youtube.com/@', 'youtube.com'], ['x', 'X (Twitter)', 'https://x.com/', 'x.com|twitter.com'], ['website', 'Website', 'https://', ''],
+  ];
+  function socialLinks(st) {
+    const so = (st && st.socials) || {}; const out = [];
+    SOCIALS.forEach(([k, label, base, host]) => {
+      let v = String(so[k] || '').trim(); if (!v) return;
+      let url, handle;
+      if (k === 'website') { url = /^https?:\/\//i.test(v) ? v : 'https://' + v; handle = url.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, ''); }
+      else if (/^https?:\/\//i.test(v) || (host && new RegExp('^(www\\.|m\\.)?(' + host + ')/', 'i').test(v))) { url = /^https?:/i.test(v) ? v : 'https://' + v; handle = url.replace(/^https?:\/\/(www\.|m\.)?[^/]+\/?/i, '').replace(/[/?#].*$/, '').replace(/^@/, ''); handle = handle ? (k === 'facebook' ? handle : '@' + handle) : url.replace(/^https?:\/\//i, ''); }
+      else { const h = v.replace(/^@/, '').replace(/\s+/g, ''); url = base + h; handle = k === 'facebook' ? h : '@' + h; }
+      out.push({ k, label, handle, url });
+    });
+    return out;
+  }
   function saleTotals(s) {
     const lines = s.lines || [];
     const subtotal = lines.reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
@@ -457,10 +476,13 @@
     const paid = (s.payments || []).reduce((a, p) => a + num(p.amount), 0);
     const fees = paymentFees(s);
     // delivery fee the client owes us: separate from the sale amount (revenue), but part of what they must pay
-    const deliveryFee = deliveryFeeDue(s); const due = net + deliveryFee;
+    const deliveryFee = deliveryFeeDue(s);
+    // a tip: paid on top of the bill for the person who served — not sales revenue (older bills kept it as a "Tip" line)
+    const tip = lines.some((l) => l.productId === 'tip') ? 0 : Math.max(0, Math.round(num(s.tip)));
+    const due = net + deliveryFee + tip;
     const balance = Math.round(due - paid);
     let status = s.status === 'cancelled' ? 'cancelled' : balance <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
-    return { subtotal, discount, total, factor, returned, net, deliveryFee, due, paid, fees, balance, status, txnId: saleTxnId(s) };
+    return { subtotal, discount, total, factor, returned, net, deliveryFee, tip, due, paid, fees, balance, status, txnId: saleTxnId(s) };
   }
 
   /** Everything derived from raw collections. */
@@ -1443,7 +1465,7 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, computeAll, allocate, validateSale,
+    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
     servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, recipeShort, takeawayOf, validateTakeaway, takeawayStage, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

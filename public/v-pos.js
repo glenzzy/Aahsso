@@ -109,48 +109,67 @@ A.posDisc = () => {
   sh.addEventListener('click', (e) => { const b = e.target.closest('[data-pct]'); if (b) $('[name=posD]', sh).value = Math.round(sub * +b.dataset.pct / 100); });
   $('#posDOk', sh).onclick = () => { K.cart.discount = Math.min(sub, Math.max(0, num(formVals(sh).posD))); saveCart(); closeSheet(); posRefresh(); };
 };
-/** take the payment: cash (with change), or mobile money (receiving number + transaction ID) */
+/** take the payment: cash (with change), or mobile money (receiving number + transaction ID); a tip and the customer's name / phone, both optional */
 A.posPay = (el) => {
   const m = el.dataset.m; const total = Math.max(0, cartTotal() - num(K.cart.discount)); if (!total) return;
-  const mm = KC.isMobileMoney(m);
-  const notes = [...new Set([total, Math.ceil(total / 500) * 500, Math.ceil(total / 1000) * 1000, Math.ceil(total / 5000) * 5000, Math.ceil(total / 10000) * 10000])].filter((x) => x >= total).slice(0, 5);
-  const accs = accountOpts(m);
-  const body = '<div class="pos-due"><span>' + esc(m) + ' · to pay</span><b class="money">' + F(total) + '</b></div>' + (mm
+  const mm = KC.isMobileMoney(m); const accs = accountOpts(m);
+  const cu = K.cart.customerId && byId('customers', K.cart.customerId);
+  const notesFor = (due) => [...new Set([due, Math.ceil(due / 500) * 500, Math.ceil(due / 1000) * 1000, Math.ceil(due / 5000) * 5000, Math.ceil(due / 10000) * 10000])].filter((x) => x >= due).slice(0, 5);
+  const body = '<div class="pos-due"><span>' + esc(m) + ' · to pay</span><b class="money" id="posDue">' + F(total) + '</b><span class="pos-dtip tiny" id="posDueTip"></span></div>' +
+    tipPicker(total, 0) +
+    (mm
     ? '<div class="col">' + field('Money sent to (number)', '<select class="inp" name="payAccount">' + accs.slice(1).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>') +
       '<div class="hide" id="posOther">' + field('Other receiving number', inp('payAccountOther', '', 'inputmode="tel"')) + '</div>' +
       field('Transaction ID (from the customer’s SMS)', inp('payRef', '', 'id="posRef" autocomplete="off" placeholder="Required"')) +
-      (KC.calcMomoFee(m, total, S()) ? '<p class="tiny muted">Charges ' + F(KC.calcMomoFee(m, total, S())) + ' — customer sends ' + F(total + KC.calcMomoFee(m, total, S())) + '</p>' : '') + '</div>'
+      '<p class="tiny muted" id="posFee"></p></div>'
     : '<div class="col">' + field('Cash received', inp('posGiven', '', 'inputmode="numeric" id="posGiven" placeholder="' + fmt(total) + '" autocomplete="off"')) +
-      '<div class="pos-notes">' + notes.map((x) => '<button type="button" data-given="' + x + '">' + (x === total ? 'Exact' : fmt(x)) + '</button>').join('') + '</div>' +
-      '<div class="pos-change" id="posChange"><span>Change</span><b class="money">' + F(0) + '</b></div></div>');
+      '<div class="pos-notes" id="posNotes"></div>' +
+      '<div class="pos-change" id="posChange"><span>Change</span><b class="money">' + F(0) + '</b></div></div>') +
+    (cu ? '' : custQuick('', ''));
   const sh = openSheet({ title: 'Payment', body, foot: '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow lg" id="posOk">' + ic('check') + 'Paid — finish</button>' });
   sh.classList.add('pos-paysheet');
-  const given = () => num(($('#posGiven', sh) || {}).value) || total;
-  const showChange = () => { const c = $('#posChange', sh); if (!c) return; const ch = given() - total; c.classList.toggle('bad', ch < 0); c.innerHTML = '<span>' + (ch < 0 ? 'Missing' : 'Change') + '</span><b class="money">' + F(Math.abs(ch)) + '</b>'; };
+  const due = () => total + tipOf(sh);
+  const given = () => num(($('#posGiven', sh) || {}).value) || due();
+  const showChange = () => { const c = $('#posChange', sh); if (!c) return; const ch = given() - due(); c.classList.toggle('bad', ch < 0); c.innerHTML = '<span>' + (ch < 0 ? 'Missing' : 'Change') + '</span><b class="money">' + F(Math.abs(ch)) + '</b>'; };
+  const showDue = () => {
+    const d = due(), tp = tipOf(sh); $('#posDue', sh).textContent = F(d); $('#posDueTip', sh).textContent = tp ? 'incl. tip ' + fmt(tp) : '';
+    const n = $('#posNotes', sh); if (n) { n.innerHTML = notesFor(d).map((x) => '<button type="button" data-given="' + x + '">' + (x === d ? 'Exact' : fmt(x)) + '</button>').join(''); $('#posGiven', sh).placeholder = fmt(d); }
+    const f = $('#posFee', sh); if (f) { const fee = KC.calcMomoFee(m, d, S()); f.textContent = fee ? 'Charges ' + F(fee) + ' — customer sends ' + F(d + fee) : ''; }
+    showChange();
+  };
   sh.addEventListener('click', (e) => { const b = e.target.closest('[data-given]'); if (b) { $('#posGiven', sh).value = b.dataset.given; showChange(); } });
-  sh.addEventListener('input', (e) => { if (e.target.id === 'posGiven') showChange(); });
+  sh.addEventListener('input', (e) => { if (e.target.id === 'posGiven') showChange(); if (e.target.name === 'tip') showDue(); });
   sh.addEventListener('change', (e) => { if (e.target.name === 'payAccount') $('#posOther', sh).classList.toggle('hide', e.target.value !== '__other'); });
+  showDue();
   setTimeout(() => { const f = $('#posGiven', sh) || $('#posRef', sh); if (f && matchMedia('(pointer:fine)').matches) f.focus(); }, 80);
   $('#posOk', sh).onclick = async () => {
-    const v = formVals(sh);
-    if (!mm && given() < total) return toast('The cash received is less than the total — take more, or use “Credit, deposit…”', true);
+    const v = formVals(sh); const d = due(); const tip = tipOf(sh);
+    if (!mm && given() < d) return toast('The cash received is less than the total — take more, or use “Credit, deposit…”', true);
     if (mm && !accs.slice(1).length && v.payAccount !== '__other') return toast('Add your ' + m + ' receiving number in Settings, or choose “Other number”', true);
     const tendered = mm ? 0 : given();
-    const ok = await completeSale({ payAmount: total, payMethod: m, payDate: todayStr(), payAccount: mm ? v.payAccount : '', payAccountOther: v.payAccountOther || '', payRef: mm ? v.payRef : '', payFee: mm ? KC.calcMomoFee(m, total, S()) : 0, delivered: 'yes', saleDate: todayStr(), dueDate: '', notes: '' });
+    const ok = await completeSale({ payAmount: d, payMethod: m, payDate: todayStr(), payAccount: mm ? v.payAccount : '', payAccountOther: v.payAccountOther || '', payRef: mm ? v.payRef : '', payFee: mm ? KC.calcMomoFee(m, d, S()) : 0, delivered: 'yes', saleDate: todayStr(), dueDate: '', notes: '', tip, qcName: v.qcName, qcPhone: v.qcPhone });
     if (ok && tendered) POS.last = Object.assign(POS.last || {}, { tendered });
   };
 };
-/** after a sale: the change in big, print / WhatsApp, and straight back to the next customer */
+/** after a sale: the change in big, print / WhatsApp, "follow us" (a QR code the customer scans), and straight back to the next customer */
 function posDone(sale) {
   POS.last = { id: sale.id, tendered: 0 };
   setTimeout(() => { // completeSale tells us the cash given just after
-    const t = (K.C.saleX && K.C.saleX[sale.id]) || KC.saleTotals(sale); const tend = POS.last && POS.last.id === sale.id ? POS.last.tendered : 0; const extra = tend > t.net ? { tendered: tend } : {};
+    const t = (K.C.saleX && K.C.saleX[sale.id]) || KC.saleTotals(sale); const tend = POS.last && POS.last.id === sale.id ? POS.last.tendered : 0; const extra = tend > t.due ? { tendered: tend } : {};
     const pr = Printer.prefs(); if (pr.auto) Printer.print(sale, extra);
-    const wa = phoneWA(sale.customerPhone);
+    const wa = phoneWA(sale.customerPhone); const so = KC.socialLinks(S());
     const sh = openSheet({ title: '✓ Sale ' + sale.no,
-      body: '<div class="pos-ok"><div class="pos-okt">' + ic('check') + '</div><div class="pos-okp">' + esc(F(t.net)) + ' · ' + esc((sale.payments[0] || {}).method || '') + '</div>' + (extra.tendered ? '<div class="pos-okc"><span>Change to give</span><b class="money">' + F(extra.tendered - t.net) + '</b></div>' : '') + (pr.auto ? '<div class="tiny muted">Receipt sent to the printer</div>' : '') + '</div>',
+      body: '<div class="pos-ok"><div class="pos-okt">' + ic('check') + '</div><div class="pos-okp">' + esc(F(t.due)) + ' · ' + esc((sale.payments[0] || {}).method || '') + (t.tip ? ' <span class="tiny">(tip ' + esc(fmt(t.tip)) + ')</span>' : '') + '</div>' + (extra.tendered ? '<div class="pos-okc"><span>Change to give</span><b class="money">' + F(extra.tendered - t.due) + '</b></div>' : '') + (pr.auto ? '<div class="tiny muted">Receipt sent to the printer</div>' : '') + '</div>' +
+        (so.length ? '<div class="pos-follow"><div class="pos-fh">' + ic('users', 'sm') + '<span>Invite the customer to follow you</span></div><div class="pos-fl">' + so.map((x, i) => '<button type="button" class="pos-fb" data-fi="' + i + '">' + esc(x.label) + '</button>').join('') + '</div><div class="pos-fq" id="posFq" hidden></div></div>' : ''),
       foot: '<button class="btn grow" id="posPr">' + ic('dl', 'sm') + (pr.auto ? 'Print again' : 'Print receipt') + '</button>' + (wa ? '<a class="btn grow" target="_blank" rel="noopener" href="https://wa.me/' + wa + '?text=' + encodeURIComponent(receiptText(sale)) + '">' + ic('wa', 'sm') + 'WhatsApp</a>' : '') + '<button class="btn pri grow lg" id="posNext">Next customer</button>' });
     sh.classList.add('pos-donesheet');
+    sh.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-fi]'); if (!b) return; const x = so[+b.dataset.fi]; const q = $('#posFq', sh);
+      const on = b.classList.contains('on'); $$('.pos-fb', sh).forEach((y) => y.classList.toggle('on', !on && y === b));
+      if (on) { q.hidden = true; return; }
+      const src = await Printer.qrImg(x.url); q.hidden = false;
+      q.innerHTML = (src ? '<img src="' + src + '" alt="QR code to ' + esc(x.label) + '">' : '') + '<div><b>Scan to follow us on ' + esc(x.label) + '</b><div class="tiny muted">' + esc(x.handle) + '</div></div>';
+    });
     $('#posPr', sh).onclick = () => Printer.print(byId('sales', sale.id) || sale, extra);
     $('#posNext', sh).onclick = () => { closeSheet(); const q = $('#posQ'); if (q && matchMedia('(pointer:fine)').matches) q.focus(); };
     setTimeout(() => { const b = $('#posNext', sh); if (b) b.focus(); }, 60);

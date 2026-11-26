@@ -204,6 +204,48 @@ function accountOpts(method) {
 }
 /** Suggested charges only make sense in local currency (the MoMo tariff grid is in F). */
 const payFeeSuggest = (method, amount, cur) => (!cur || cur === baseCode()) ? KC.calcMomoFee(method, amount, S()) : 0;
+/* ---------- tips & the customer's name / phone: the same small blocks on every payment screen ---------- */
+const tipsOn = () => S().tipsOn !== false;
+/** quick tip buttons — No tip · Round up · 500 · 1,000 · 2,000 · Other — writing into the field `tip` */
+function tipPicker(base, value) {
+  if (!tipsOn()) return '';
+  const v = Math.max(0, Math.round(num(value))); const up = Math.ceil((base + 1) / 500) * 500 - base; // to the next 500: 1,200 → 1,500
+  const opts = [[0, 'No tip']].concat(up > 0 && up < 500 ? [[up, 'Round to ' + fmt(base + up)]] : [], [[500, '+500'], [1000, '+1,000'], [2000, '+2,000']]);
+  const other = v > 0 && !opts.some((o) => o[0] === v);
+  return '<div class="tip-box" data-tipbase="' + base + '"><div class="tip-h"><span>Tip</span><span class="tiny muted">optional · for the person who served</span></div>' +
+    '<div class="tip-ch" role="group" aria-label="Tip">' + opts.map(([x, l]) => '<button type="button" data-tipv="' + x + '" class="' + (!other && v === x ? 'on' : '') + '">' + esc(l) + '</button>').join('') + '<button type="button" data-tipv="other" class="' + (other ? 'on' : '') + '">Other</button></div>' +
+    '<input class="inp tip-in' + (other ? '' : ' hide') + '" name="tip" inputmode="numeric" placeholder="Tip amount" value="' + (v || '') + '" autocomplete="off" aria-label="Tip amount"></div>';
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-tipv]'); if (!b) return;
+  const box = b.closest('.tip-box'); const i = $('.tip-in', box); const o = b.dataset.tipv === 'other';
+  $$('[data-tipv]', box).forEach((x) => x.classList.toggle('on', x === b)); i.classList.toggle('hide', !o);
+  if (o) { i.value = ''; i.focus(); } else i.value = b.dataset.tipv === '0' ? '' : b.dataset.tipv;
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+});
+const tipOf = (root) => Math.max(0, Math.round(num(($('[name=tip]', root) || {}).value)));
+/** the customer's name and phone — optional, two fields; a known phone number fills the name */
+function custQuick(name, phone) {
+  return '<div class="qc"><div class="qc-h">Customer <span class="tiny muted">optional</span></div><div class="qc-r">' + inp('qcName', name || '', 'placeholder="Name" autocomplete="off" aria-label="Customer name"') + inp('qcPhone', phone || '', 'inputmode="tel" placeholder="Phone" autocomplete="off" aria-label="Customer phone"') + '</div><div class="qc-hint tiny muted"></div></div>';
+}
+const phoneDigits = (x) => String(x || '').replace(/\D/g, '').replace(/^237(?=\d{9}$)/, '');
+const custByPhone = (ph) => { const d = phoneDigits(ph); if (d.length < 8) return null; return K.raw.customers.find((c) => [c.phone, c.whatsapp].some((x) => { const y = phoneDigits(x); return y && (y === d || (y.length >= 8 && (y.endsWith(d) || d.endsWith(y)))); })) || null; };
+document.addEventListener('input', (e) => {
+  if (e.target.name !== 'qcPhone') return; const box = e.target.closest('.qc'); const c = custByPhone(e.target.value); const nm = $('[name=qcName]', box); const h = $('.qc-hint', box);
+  if (c) { if (!nm.value || nm.dataset.auto) { nm.value = c.name; nm.dataset.auto = '1'; } h.innerHTML = ic('check', 'sm') + ' ' + esc(c.name) + ' — already a customer'; } else { if (nm.dataset.auto) { nm.value = ''; delete nm.dataset.auto; } h.textContent = ''; }
+});
+document.addEventListener('input', (e) => { if (e.target.name === 'qcName') delete e.target.dataset.auto; });
+/** the customer from the quick fields: a known phone → that customer; a new phone → a new customer (when allowed); a name only → just the name */
+async function quickCustomer(v) {
+  const name = String(v.qcName || '').trim().slice(0, 80), phone = String(v.qcPhone || '').trim().slice(0, 30);
+  if (!name && !phone) return null;
+  const known = custByPhone(phone); if (known) return { cu: known };
+  if (phoneDigits(phone).length >= 8 && can('customers')) { const c = { id: uid('c_'), name: name || 'Customer ' + phoneDigits(phone).slice(-4), phone, type: 'Retail', createdAt: new Date().toISOString() }; if (await save('customers', c)) return { cu: c }; }
+  return { name: name || 'Walk-in customer', phone };
+}
+/** who the tip is for: the person who served */
+const tipStaff = (id) => { id = id || K.me.id || ''; const m = (K.raw.members || []).find((x) => x.id === id) || (K.raw.staff || []).find((x) => x.userId === id || x.id === id); return { tipFor: id, tipForName: (m && (m.name || m.label)) || (id === K.me.id ? K.me.name || '' : '') }; };
+
 function payFields(defAmount, opts = {}) {
   const kind = opts.kind || 'sale', cur = opts.currency || baseCode(), sym = esc(curSym(cur));
   const methods = opts.methods || payMethodsFor(kind); const defMethod = methods.indexOf(opts.method) >= 0 ? opts.method : 'Cash';
@@ -317,10 +359,10 @@ function syncCheckout(root, setPay) {
     const cu = K.cart.customerId && byId('customers', K.cart.customerId);
     [['recipientName', cu && cu.name], ['recipientPhone', cu && (cu.whatsapp || cu.phone)]].forEach(([k, v]) => { const i = $('[data-dl=' + k + ']', root); if (i && !i.value && v) { i.value = v; d[k] = v; } });
   }
-  const goods = cartTotal() - num(K.cart.discount); const fee = KC.deliveryFeeDue({ delivery: d });
+  const goods = cartTotal() - num(K.cart.discount); const fee = KC.deliveryFeeDue({ delivery: d }); const tip = tipOf(root);
   const tot = $('#totOut', root); if (tot) tot.textContent = F(goods);
-  const fr = $('#dlFeeRow', root); if (fr) { fr.classList.toggle('hide', !fee); $('#dlFeeOut', root).textContent = F(fee); $('#dueRow', root).classList.toggle('hide', !fee); $('#dueOut', root).textContent = F(goods + fee); }
-  if (setPay) { const pa = $('#payAmount', root); if (pa) { pa.value = Math.max(0, goods + fee - (root._paid || 0)); const feeEl = $('#payFee', root); if (feeEl) feeEl.dataset.auto = '1'; syncPayCharges(root); } }
+  const fr = $('#dlFeeRow', root); if (fr) { fr.classList.toggle('hide', !fee); $('#dlFeeOut', root).textContent = F(fee); $('#dueRow', root).classList.toggle('hide', !fee && !tip); $('#dueOut', root).textContent = F(goods + fee + tip); }
+  if (setPay) { const pa = $('#payAmount', root); if (pa) { pa.value = Math.max(0, goods + fee + tip - (root._paid || 0)); const feeEl = $('#payFee', root); if (feeEl) feeEl.dataset.auto = '1'; syncPayCharges(root); } }
   saveCart(); coSummaries(root);
 }
 ['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
@@ -370,19 +412,22 @@ A.checkout = () => {
     const t = editing ? KC.saleTotals(editing) : null;
     const dFee = KC.deliveryFeeDue({ delivery: cartDelivery() });
     el._paid = editing ? t.paid : 0;
-    const due = total + dFee - el._paid;
+    const due = total + dFee + (editing ? num(editing.tip) : 0) - el._paid;
     setSheetBody(el, '<div class="col">' +
       '<div class="cust-pill" data-a="pickCustomer">' + (cu ? '<div class="av">' + esc(initials(cu.name)) + '</div><div class="grow"><div class="b">' + esc(cu.name) + '</div><div class="tiny muted">' + esc(cu.phone || '') + creditTag(cu) + '</div></div>' : '<div class="av">' + ic('users', 'sm') + '</div><div class="grow b">Walk-in customer — tap to select</div>') + ic('chev', 'sm') + '</div>' +
       '<div class="card pad"><div class="row between"><span class="muted">Subtotal (' + cartCount() + ' items)</span><span class="money b">' + F(sub) + '</span></div>' +
       (canOrAsk('discount') ? '<div class="row between mt"><span class="muted">Discount (' + baseSym() + ')' + (can('discount') ? '' : ' <span class="tiny">· manager approves</span>') + '</span><input class="inp price-in" inputmode="numeric" id="discIn" value="' + (disc || '') + '" placeholder="0"></div>' : '') +
       '<hr class="sep"><div class="row between"><span class="b">Total</span><span class="money b" style="font-size:22px" id="totOut">' + F(total) + '</span></div>' +
-      '<div id="dlFeeRow" class="row between small mt hide"><span class="muted">Delivery fee</span><span class="money" id="dlFeeOut"></span></div><div id="dueRow" class="row between b mt hide"><span>Total to pay</span><span class="money" id="dueOut"></span></div>' +
+      '<div id="dlFeeRow" class="row between small mt hide"><span class="muted">Delivery fee</span><span class="money" id="dlFeeOut"></span></div>' +
+      (tipsOn() || (editing && num(editing.tip)) ? '<div class="row between mt"><span class="muted">Tip (optional)</span><input class="inp price-in" inputmode="numeric" name="tip" id="tipIn" value="' + (editing && num(editing.tip) ? num(editing.tip) : '') + '" placeholder="0"></div>' : '') +
+      '<div id="dueRow" class="row between b mt hide"><span>Total to pay</span><span class="money" id="dueOut"></span></div>' +
       (editing ? '<div class="row between small mt"><span class="muted">Already paid</span><span class="money">' + F(t.paid) + '</span></div>' : '') + '</div>' +
       (can('payments') ? '<div class="co-pay"><h3>Payment' + (editing ? ' <span class="hint">(additional)</span>' : '') + '</h3><span class="hint">Less than the total = deposit · 0 = unpaid order</span></div>' + payFields(Math.max(0, due)) : '<div class="alert info">The order will be saved unpaid. A cashier records the payment.</div>') +
       coSection('delivery', 'Delivery', '<div id="pickField">' + field('Collected by the customer?', sel('delivered', [['yes', 'Yes — collected now'], ['no', 'No — left at the shop, to pick up later']], editing ? (editing.delivered ? 'yes' : 'no') : 'yes')) + '</div>' + (has('delivery') ? deliveryFields(cartDelivery(), true) : '')) +
       coSection('cond', 'Item condition', cartConditionFields(true)) +
       coSection('more', 'Date, pay-by & note', '<div class="grid2">' + field('Sale date', inp('saleDate', editing ? saleDate(editing) : todayStr(), 'type="date"')) + field('If not fully paid: pay by', inp('dueDate', editing && editing.dueDate ? editing.dueDate : KC.addDays(todayStr(), num(S().creditDays) || 14), 'type="date"')) + '</div>' + field('Note (optional)', inp('notes', editing ? editing.notes : ''))) + '</div>');
     if ($('#discIn', el)) $('#discIn', el).addEventListener('input', (e) => { K.cart.discount = Math.max(0, num(e.target.value)); syncCheckout(el, true); });
+    if ($('#tipIn', el)) $('#tipIn', el).addEventListener('input', () => syncCheckout(el, true));
     syncPayCharges(el); syncCheckout(el, false); coSummaries(el);
   };
   el._refresh();
@@ -406,14 +451,16 @@ async function completeSale(v) {
     const pm = (K.C.prodX[l.productId] || {}).promo;
     lines.push(Object.assign({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), pack: l.pack && num(l.pack.size) > 1 ? { name: l.pack.name, size: num(l.pack.size) } : undefined, condition: lineCond(l), working: lineWork(l), alloc, returns: [] }, pm && num(l.unitPrice) === pm.price ? { promoId: pm.id, promoName: pm.name } : l.promoId ? { promoId: l.promoId, promoName: l.promoName } : {}));
   }
-  const cu = K.cart.customerId && byId('customers', K.cart.customerId);
+  let cu = K.cart.customerId && byId('customers', K.cart.customerId);
+  const qc = !cu ? await quickCustomer(v) : null; if (qc && qc.cu) cu = qc.cu; // the POS's name / phone fields
+  const tip = v.tip !== undefined ? Math.max(0, Math.round(num(v.tip))) : editing ? Math.max(0, Math.round(num(editing.tip))) : 0;
   const dl = readCartDelivery(); if (dl.error) { toast(dl.error, true); return false; }
   let pay = null;
   if (can('payments')) {
     if (num(v.payAmount)) { pay = readPayment(v); if (pay === false) return false; }
   }
   // what the client must pay = goods + delivery fee (when they pay it to us)
-  const total = cartTotal() - num(K.cart.discount) + KC.deliveryFeeDue({ delivery: dl.delivery });
+  const total = cartTotal() - num(K.cart.discount) + KC.deliveryFeeDue({ delivery: dl.delivery }) + tip;
   const alreadyPaid = editing ? KC.saleTotals(editing).paid : 0;
   const remaining = total - alreadyPaid - (pay ? pay.amount : 0);
   if (remaining > 0.5 && !cu) { toast('Select the customer — unpaid and deposit sales need a name and phone number', true); return false; }
@@ -430,12 +477,13 @@ async function completeSale(v) {
   const d = new Date();
   const sale = Object.assign({}, editing || {
     id: uid('s_'), no: 'S' + String(d.getFullYear()).slice(2) + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '-' + Math.random().toString(36).slice(2, 5).toUpperCase(),
-    payments: [], status: 'open', createdBy: K.me.name || K.info.userLabel || '', createdById: K.me.id || '',
+    payments: [], status: 'open', createdBy: K.me.name || K.info.userLabel || '', createdById: K.me.id || '', createdAt: d.toISOString(),
   });
   Object.assign(sale, {
-    date: v.saleDate || todayStr(), customerId: cu ? cu.id : null, customerName: cu ? cu.name : 'Walk-in customer', customerPhone: cu ? cu.whatsapp || cu.phone || '' : '',
+    date: v.saleDate || todayStr(), customerId: cu ? cu.id : null, customerName: cu ? cu.name : (qc && qc.name) || 'Walk-in customer', customerPhone: cu ? cu.whatsapp || cu.phone || '' : (qc && qc.phone) || '',
     lines, discount: num(K.cart.discount), notes: v.notes || '', locationId: K.loc,
   });
+  if (tip) Object.assign(sale, { tip }, editing && editing.tipFor ? { tipFor: editing.tipFor, tipForName: editing.tipForName } : tipStaff(sale.createdById || K.me.id)); else { delete sale.tip; delete sale.tipFor; delete sale.tipForName; }
   // delivery: pickup → "collected?" question; delivery → its status (to send / sent / delivered)
   const prevDl = (editing && editing.delivery) || {}; const now = new Date().toISOString();
   sale.delivery = dl.delivery;
@@ -470,7 +518,9 @@ function receiptText(s) {
   if (t.discount) L.push('Subtotal: ' + F(t.subtotal), 'Discount: −' + F(t.discount));
   if (t.returned) L.push('Returned: −' + F(t.returned));
   L.push('*TOTAL: ' + F(t.net) + '*');
-  if (t.deliveryFee > 0) L.push('Delivery fee: ' + F(t.deliveryFee), '*TOTAL TO PAY: ' + F(t.due) + '*');
+  if (t.deliveryFee > 0) L.push('Delivery fee: ' + F(t.deliveryFee));
+  if (t.tip > 0) L.push('Tip: ' + F(t.tip) + ' — thank you!');
+  if (t.deliveryFee > 0 || t.tip > 0) L.push('*TOTAL TO PAY: ' + F(t.due) + '*');
   L.push('Paid: ' + F(t.paid));
   if (t.balance > 0) L.push('*Balance due: ' + F(t.balance) + '*');
   (s.payments || []).forEach((p) => L.push('  ' + fmtDate(p.date) + ' ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : '')));
@@ -479,6 +529,7 @@ function receiptText(s) {
   if (KC.isDelivery(s)) L.push('', ...deliveryLines(s)); else L.push('Collected: ' + (s.delivered ? 'Yes' : 'No — to pick up at the shop'));
   if (!s.delivered) L.push('', '⏳ Items reserved — awaiting pickup');
   if (st.receiptFooter) L.push('', st.receiptFooter);
+  const so = KC.socialLinks(st); if (so.length) L.push('', '*Follow us*', ...so.map((x) => x.label + ': ' + x.url));
   return L.join('\n');
 }
 function receiptHTML(s) {
@@ -488,12 +539,17 @@ function receiptHTML(s) {
     '<div class="row between small"><span class="muted">Receipt</span><b>' + esc(s.no) + '</b></div><div class="row between small"><span class="muted">Date</span><span>' + fmtDate(saleDate(s)) + '</span></div><div class="row between small mb"><span class="muted">Customer</span><span class="b">' + esc(s.customerName) + '</span></div>' +
     '<table>' + (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td><div class="b">' + esc(l.name) + '</div><div class="tiny muted">' + KC.lineQtyText(l, fmt) + (l.promoName ? ' · ' + esc(l.promoName) : '') + (itemNote(l) ? ' · ' + esc(itemNote(l)) : '') + (rq ? ' · ' + rq + ' returned' : '') + '</div></td><td class="right money nowrap">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
     (t.discount ? '<tr><td class="muted">Discount</td><td class="right money">−' + fmt(t.discount) + '</td></tr>' : '') + (t.returned ? '<tr><td class="muted">Returns</td><td class="right money">−' + fmt(t.returned) + '</td></tr>' : '') +
-    '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr>' + (t.deliveryFee > 0 ? '<tr><td class="muted">Delivery fee</td><td class="right money">' + F(t.deliveryFee) + '</td></tr><tr class="tot"><td>TOTAL TO PAY</td><td class="right money">' + F(t.due) + '</td></tr>' : '') + '<tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
+    '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr>' + (t.deliveryFee > 0 ? '<tr><td class="muted">Delivery fee</td><td class="right money">' + F(t.deliveryFee) + '</td></tr>' : '') + (t.tip > 0 ? '<tr><td class="muted">Tip</td><td class="right money">' + F(t.tip) + '</td></tr>' : '') + (t.deliveryFee > 0 || t.tip > 0 ? '<tr class="tot"><td>TOTAL TO PAY</td><td class="right money">' + F(t.due) + '</td></tr>' : '') + '<tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
     (t.balance > 0 ? '<tr><td class="b" style="color:var(--bad)">Balance due</td><td class="right money b" style="color:var(--bad)">' + F(t.balance) + '</td></tr>' : '') + '</table>' +
     ((s.payments || []).length ? '<div class="tiny muted mt">' + s.payments.map((p) => esc(fmtDate(p.date) + ' · ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : ''))).join('<br>') + (t.fees > 0 ? '<br>MoMo charges total: ' + F(t.fees) : '') + '</div>' : '') +
     (KC.isDelivery(s) ? '<div class="tiny mt" style="border-top:1px dashed var(--line);padding-top:8px">' + deliveryLines(s).map(esc).join('<br>') + '</div>' : '') +
     '<div class="center mt"><span class="stamp ' + t.status + '">' + ({ paid: 'PAID', partial: 'DEPOSIT', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status]) + '</span>' + (!s.delivered && t.status !== 'cancelled' ? '<div class="tiny mt b" style="color:var(--warn)">Reserved — awaiting pickup</div>' : '') + '</div>' +
-    (st.receiptFooter ? '<div class="tiny muted center mt">' + esc(st.receiptFooter) + '</div>' : '') + '</div>';
+    (st.receiptFooter ? '<div class="tiny muted center mt">' + esc(st.receiptFooter) + '</div>' : '') + followHTML(st) + '</div>';
+}
+/** "Follow us": the business's social media pages, as links */
+function followHTML(st) {
+  const so = KC.socialLinks(st || S()); if (!so.length) return '';
+  return '<div class="follow"><div class="follow-h">Follow us</div><div class="follow-l">' + so.map((x) => '<a class="follow-a" href="' + esc(x.url) + '" target="_blank" rel="noopener"><b>' + esc(x.label) + '</b> ' + esc(x.handle) + '</a>').join('') + '</div></div>';
 }
 function showReceipt(id, fresh) {
   const s = byId('sales', id); if (!s) return;
@@ -551,13 +607,16 @@ function receiptPDF(s) {
   if (t.discount) row('Discount', '-' + fmt(t.discount));
   if (t.returned) row('Returns', '-' + fmt(t.returned));
   doc.setFontSize(11); row('TOTAL (' + baseCode() + ')', fmt(t.net), true); doc.setFontSize(8);
-  if (t.deliveryFee > 0) { row('Delivery fee', fmt(t.deliveryFee)); doc.setFontSize(10); row('TOTAL TO PAY', fmt(t.due), true); doc.setFontSize(8); }
+  if (t.deliveryFee > 0) row('Delivery fee', fmt(t.deliveryFee));
+  if (t.tip > 0) row('Tip', fmt(t.tip));
+  if (t.deliveryFee > 0 || t.tip > 0) { doc.setFontSize(10); row('TOTAL TO PAY', fmt(t.due), true); doc.setFontSize(8); }
   row('Paid', fmt(t.paid)); if (t.balance > 0) row('Balance due', fmt(t.balance), true);
   deliveryLines(s).forEach((ln) => { doc.text(doc.splitTextToSize(ln, 70)[0], 5, y); y += 4; });
   (s.payments || []).forEach((p) => { doc.text(fmtDate(p.date) + ' ' + p.method + (p.ref ? ' #' + p.ref : '') + ': ' + fmt(p.amount) + (num(p.fee) > 0 ? ' +fee ' + fmt(p.fee) : ''), 5, y); y += 4; });
   if (t.txnId) { doc.text('Txn ID: ' + t.txnId, 5, y); y += 4; }
   y += 3; doc.setFont('helvetica', 'bold'); doc.text(({ paid: 'PAID', partial: 'DEPOSIT PAID', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status]) + (!s.delivered ? ' - RESERVED' : ''), c, y, { align: 'center' }); y += 6;
-  doc.setFont('helvetica', 'normal'); if (st.receiptFooter) doc.text(doc.splitTextToSize(st.receiptFooter, 68), c, y, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); if (st.receiptFooter) { const fl = doc.splitTextToSize(st.receiptFooter, 68); doc.text(fl, c, y, { align: 'center' }); y += fl.length * 4 + 2; }
+  const so = KC.socialLinks(st); if (so.length) { doc.setFont('helvetica', 'bold'); doc.text('Follow us', c, y, { align: 'center' }); y += 4; doc.setFont('helvetica', 'normal'); so.forEach((x) => { doc.text(x.label + ': ' + x.handle, c, y, { align: 'center' }); y += 4; }); }
   saveFile('Receipt-' + s.no + '.pdf', doc.output('blob'));
 }
 
@@ -653,7 +712,7 @@ function openSale(id) {
       '<div class="card"><table class="t"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>' +
       (s.lines || []).map((l) => { const rq = (l.returns || []).reduce((a, r) => a + num(r.qty), 0); return '<tr><td>' + esc(l.name) + '<div class="tiny muted">' + esc(lineCond(l) + ' · ' + lineWork(l)) + '</div>' + (rq ? '<div class="tiny" style="color:var(--warn)">' + rq + ' returned</div>' : '') + '</td><td class="r">' + l.qty + '</td><td class="r money">' + fmt(l.unitPrice) + '</td><td class="r money">' + fmt(l.qty * l.unitPrice) + '</td></tr>'; }).join('') +
       '</tbody></table><div class="pad"><div class="row between small"><span class="muted">Subtotal</span><span class="money">' + F(x.subtotal) + '</span></div>' + (x.discount ? '<div class="row between small"><span class="muted">Discount</span><span class="money">−' + F(x.discount) + '</span></div>' : '') + (x.returned ? '<div class="row between small"><span class="muted">Returns</span><span class="money">−' + F(x.returned) + '</span></div>' : '') +
-      '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div>' + (x.deliveryFee > 0 ? '<div class="row between small"><span class="muted">Delivery fee</span><span class="money">' + F(x.deliveryFee) + '</span></div><div class="row between b"><span>Total to pay</span><span class="money">' + F(x.due) + '</span></div>' : '') + '<div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
+      '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div>' + (x.tip > 0 ? '<div class="row between small"><span class="muted">Tip' + (s.tipForName ? ' · for ' + esc(s.tipForName) : '') + '</span><span class="money">' + F(x.tip) + '</span></div>' : '') + (x.deliveryFee > 0 ? '<div class="row between small"><span class="muted">Delivery fee</span><span class="money">' + F(x.deliveryFee) + '</span></div>' : '') + (x.deliveryFee > 0 || x.tip > 0 ? '<div class="row between b"><span>Total to pay</span><span class="money">' + F(x.due) + '</span></div>' : '') + '<div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
       (seeCost() && !cancelled ? '<div class="row between small mt"><span class="muted">Cost of goods · profit</span><span class="money">' + F(x.cogs) + ' · <b style="color:var(--ok)">' + F(x.profit) + '</b></span></div>' : '') + '</div></div>' +
       (has('delivery') ? deliveryCard(s) : '') + '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.note ? ' &middot; ' + esc(p.note) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (canOrAsk('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
       (s.notes ? '<div class="alert info mt">' + esc(s.notes) + '</div>' : '') +

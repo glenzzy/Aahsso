@@ -170,13 +170,13 @@ const T = {
       intro: esc(text).replace(/\n/g, '<br>'), rows: [['Amount due', balance], ['Due date', due]],
       footnote: 'Sent by ' + esc(business) + (phone ? ' · ' + esc(phone) : '') + ', through Aahsso.' }));
   },
-  receipt({ business, sale, totals, sym, phone, address, footer }) {
+  receipt({ business, sale, totals, sym, phone, address, footer, socials }) {
     const lines = (sale.lines || []).map((l) => [l.name + ' × ' + l.qty, money(l.qty * l.unitPrice, sym)]);
     const pays = (sale.payments || []).filter((p) => Number(p.amount) > 0).map((p) => [(p.method || 'Cash') + (p.date ? ' · ' + p.date : ''), money(p.amount, sym)]);
     return Object.assign({ subject: 'Your receipt ' + sale.no + ' from ' + business }, layout({ business, title: 'Receipt ' + sale.no,
       intro: 'Thank you' + (sale.customerName ? ', ' + esc(sale.customerName) : '') + '! Here is your receipt from ' + esc(business) + '.',
-      rows: [['Date', sale.date], ...lines, totals.discount ? ['Discount', '−' + money(totals.discount, sym)] : null, totals.deliveryFee ? ['Delivery', money(totals.deliveryFee, sym)] : null, ['Total', money(totals.due, sym)], ...pays, ['Balance', totals.balance > 0.5 ? money(totals.balance, sym) : 'Paid in full']],
-      outro: esc(footer || ''), footnote: esc(business) + (address ? ' · ' + esc(address) : '') + (phone ? ' · ' + esc(phone) : '') }));
+      rows: [['Date', sale.date], ...lines, totals.discount ? ['Discount', '−' + money(totals.discount, sym)] : null, totals.deliveryFee ? ['Delivery', money(totals.deliveryFee, sym)] : null, totals.tip ? ['Tip', money(totals.tip, sym)] : null, ['Total', money(totals.due, sym)], ...pays, ['Balance', totals.balance > 0.5 ? money(totals.balance, sym) : 'Paid in full']],
+      outro: esc(footer || '') + ((socials || []).length ? (footer ? '<br><br>' : '') + '<b>Follow us</b><br>' + socials.map((x) => esc(x.label) + ': <a href="' + esc(x.url) + '">' + esc(x.handle) + '</a>').join('<br>') : ''), footnote: esc(business) + (address ? ' · ' + esc(address) : '') + (phone ? ' · ' + esc(phone) : '') }));
   },
   trialEnding({ name, business, daysLeft, url }) {
     return Object.assign({ subject: daysLeft > 0 ? 'Your Aahsso trial ends in ' + daysLeft + ' days' : 'Your Aahsso trial ends today' }, layout({ business, title: daysLeft > 0 ? 'Your free trial ends in ' + daysLeft + ' days' : 'Your free trial ends today',
