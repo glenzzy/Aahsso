@@ -411,6 +411,7 @@ const NAV = [
   ['customers', 'Customers', 'users', () => can('customers') || can('sell')], ['reports', 'Reports', 'chart', () => can('reports')], ['expenses', 'Expenses', 'wallet', () => can('expenses')],
   ['cash', 'Cash handover', 'wallet', () => can('payments') || can('handover'), () => (K.raw.tills || []).filter((t) => t.toId === K.me.id && t.status === 'pending').length], ['suppliers', 'Suppliers & bills', 'buy', () => can('suppliers')], ['reminders', 'Debt reminders', 'wa', () => can('reminders')],
   ['assets', 'Assets', 'truck', () => can('assets')],
+  ['finance', 'Financials', 'chart', () => can('reports') || can('capital'), () => { if (!can('capital') || !K.raw.loans.length) return 0; const c = KC.capitalSummary(K.raw, { today: todayStr() }); return Object.values(c.loans).filter((y) => y.late).length; }],
   ['capital', 'Capital & loans', 'chart', () => can('capital'), () => { if (!can('capital') || !K.raw.loans.length) return 0; const c = KC.capitalSummary(K.raw, { today: todayStr() }); return Object.values(c.loans).filter((y) => y.late).length; }],
   ['claims', 'Returns & claims', 'undo', () => can('suppliers') || can('purchases') || can('containers') || can('stockEdit'), () => (K.raw.claims || []).filter((c) => c.status !== 'closed').length],
   ['transfers', 'Branch transfers', 'ship', () => can('transfers') || (allLocs().length > 1 && K.raw.transfers.some((t) => t.status === 'in_transit' && t.to === K.loc))],
@@ -445,7 +446,8 @@ const SECTIONS = [
   ['sell', 'Sell', 'sell', ['sales', 'orders']],
   ['stock', 'Stock', 'stock', ['stock', 'promos', 'audit', 'losses', 'transfers']],
   ['customers', 'Customers', 'users', ['customers', 'reminders']],
-  ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'claims', 'reports', 'assets', 'capital']],
+  ['finance', 'Financials', 'chart', ['finance']],
+  ['money', 'Money', 'wallet', ['expenses', 'cash', 'suppliers', 'claims', 'reports', 'assets']],
   ['people', 'Staff', 'clock', ['staff', 'leave', 'payroll', 'employees']],
   ['settings', 'Settings', 'gear', ['settings', 'team', 'activity']],
 ];
@@ -458,7 +460,8 @@ const STORE_SECTIONS = [
   ['stock', 'Stock', 'stock', ['stock']],
   ['customers', 'Customers', 'users', ['customers']],
   ['suppliers', 'Suppliers', 'truck', ['suppliers']],
-  ['records', 'Records', 'wallet', ['expenses', 'reports', 'capital']],
+  ['records', 'Records', 'wallet', ['expenses', 'reports']],
+  ['finance', 'Financials', 'chart', ['finance']],
   ['tools', 'More tools', 'more', ['tools', 'orders', 'promos', 'audit', 'losses', 'transfers', 'reminders', 'cash', 'claims', 'assets', 'staff', 'leave', 'payroll', 'employees', 'activity']],
   ['settings', 'Settings', 'gear', ['settings', 'team']],
 ];
@@ -473,7 +476,8 @@ const RESTO_SECTIONS = [
   ['buy', 'Buy', 'buy', ['buy']],
   ['suppliers', 'Suppliers', 'truck', ['suppliers']],
   ['customers', 'Customers', 'users', ['customers']],
-  ['records', 'Records', 'wallet', ['sales', 'expenses', 'reports', 'rstats', 'capital']],
+  ['records', 'Records', 'wallet', ['sales', 'expenses', 'reports', 'rstats']],
+  ['finance', 'Financials', 'chart', ['finance']],
   ['tools', 'More tools', 'more', STORE_SECTIONS.find((x) => x[0] === 'tools')[3]],
   ['settings', 'Settings', 'gear', ['settings', 'team']],
 ];

@@ -18,13 +18,15 @@ async function capSave(col, doc) {
 }
 
 /* ================= the page ================= */
-VIEWS.capital = {
-  render() {
+VIEWS.capital = { render() { return capitalPage(false); } };
+/** the capital structure; embedded = inside Financials (its header and starting-capital line are the page's) */
+function capitalPage(embedded) {
+  {
     const c = capS(); const tab = K.ui.capTab || 'equity'; const owners = equityFunders(); const loans = Object.values(c.loans);
-    let html = '<div class="cap-head"><div><h2>Capital structure</h2><div class="hint">The owners, investors and loans that fund the business</div></div>' +
+    let html = embedded ? '' : '<div class="cap-head"><div><h2>Capital structure</h2><div class="hint">The owners, investors and loans that fund the business</div></div>' +
       '<div class="row"><button class="btn" data-a="capFunder">' + ic('users', 'sm') + 'Add provider</button><button class="btn pri" data-a="capNew">' + ic('plus', 'sm') + 'Record entry</button></div></div>';
     // starting capital
-    html += c.opening
+    if (!embedded) html += c.opening
       ? '<div class="cap-start">' + ic('check', 'sm') + '<span>Starting capital set on <b>' + fmtDate(c.opening.date) + '</b>' + (c.start ? ' · ' + (c.start.earlier >= 0 ? 'profit before: ' : 'loss before: ') + F(Math.abs(c.start.earlier)) : '') + '</span><button class="btn sm ghost" data-a="capOpening">Edit</button></div>'
       : '<div class="cap-cta"><div class="cap-cta-i">' + ic('wallet') + '</div><div class="grow"><b>Set your starting capital</b><div class="tiny muted">What the business had and owed when you started with Aahsso — takes 2 minutes.</div></div><button class="btn pri" data-a="capOpening">Set up</button></div>';
     const late = loans.filter((y) => y.late);
@@ -35,8 +37,8 @@ VIEWS.capital = {
     html += '<div class="cap-tabs mb">' + [['equity', 'Equity (' + owners.length + ')'], ['debt', 'Debt (' + loans.length + ')'], ['history', 'Transactions'], ['statement', 'Statement']].map(([k, l]) => '<button class="' + (tab === k ? 'on' : '') + '" data-a="capTab" data-v="' + k + '">' + l + '</button>').join('') + '</div>';
     if (tab === 'equity') html += capEquity(c); else if (tab === 'debt') html += capDebt(c); else if (tab === 'history') html += capHistory(); else html += capStatement();
     return html;
-  },
-};
+  }
+}
 A.capTab = (el) => { K.ui.capTab = el.dataset.v; render(true); };
 
 function capEquity(c) {

@@ -389,7 +389,7 @@
   const permFeatureOn = (features, perm) => !PERM_FEATURE[perm] || anyOn(features, PERM_FEATURE[perm]);
   // which feature each page (route) belongs to
   const ROUTE_FEATURE = { buy: ['buy'], ship: ['ship'], receive: ['receive'], sales: ['sell'], sell: ['sell'], orders: ['onlineShop'], customers: ['customers'], reminders: ['reminders'],
-    promos: ['promos'], audit: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], cash: ['cashHandover', 'tills'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'], capital: ['capital'],
+    promos: ['promos'], audit: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], cash: ['cashHandover', 'tills'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'], capital: ['capital'], finance: ['reports', 'capital'],
     staff: ['attendance'], leave: ['leave'], payroll: ['payroll'], employees: ['attendance', 'leave', 'payroll'], activity: ['activity'],
     floor: ['tables'], kds: ['kds'], barscreen: ['kds'], bookings: ['reservations'], menu: ['tables', 'payFirst', 'qrOrders'], tickets: ['tables', 'payFirst', 'qrOrders'] };
   const routeFeatureOn = (features, route) => !ROUTE_FEATURE[route] || anyOn(features, ROUTE_FEATURE[route]);
@@ -1296,6 +1296,114 @@
     }
     return '';
   }
+  /* ================= FINANCIALS: one cash ledger for every module =================
+   * Every movement of money in or out of the business, in the base currency, from what is already recorded:
+   * sale payments (and tips, refunds), supplier & stock payments (bills, with MoMo charges), expenses (salaries included),
+   * claims refunded by suppliers, equipment bought / sold, capital & loans. Moves between people (till, handover) are not cash flow.
+   * Row keys group the Cash Flow statement: section → row. */
+  const CF_SECTIONS = [
+    ['in', 'Cash in — operations'], ['out', 'Cash out — operations'], ['inv', 'Investing (equipment)'], ['fin', 'Financing (owners & loans)'],
+  ];
+  const CF_ROWS = {
+    sales: ['in', 'Sales collected'], tips: ['in', 'Tips collected (for staff)'], claims: ['in', 'Refunds from suppliers'],
+    stock: ['out', 'Stock & goods bought'], fees: ['out', 'Mobile money charges'], refunds: ['out', 'Refunds to customers'], interest: ['out', 'Loan interest'],
+    assetBuy: ['inv', 'Equipment bought'], assetSell: ['inv', 'Equipment sold'],
+    injection: ['fin', 'Capital injections'], loan: ['fin', 'Loan proceeds'], drawing: ['fin', 'Withdrawals by owners'], principal: ['fin', 'Loan principal repaid'],
+  };
+  const cfRow = (key) => CF_ROWS[key] || (String(key).startsWith('exp:') ? ['out', String(key).slice(4) || 'Other expenses'] : ['out', key]);
+  /** which account the money went through: Cash, MTN MoMo, Orange Money or Bank */
+  const accountOf = (method) => { const m = String(method || '').toLowerCase(); if (!m || m === 'cash' || m.includes('espèce')) return 'Cash'; if (m.includes('mtn') || m === 'momo') return 'MTN MoMo'; if (m.includes('orange') || m === 'om') return 'Orange Money'; if (m.includes('mobile')) return 'Mobile money'; return 'Bank'; };
+  function cashLedger(raw, S) {
+    S = S || raw.settings || {}; const out = []; const base = S.currency || 'XAF';
+    const push = (date, key, dir, amount, x) => { const a = Math.round(num(amount) * 100) / 100; if (!a || !date) return; out.push(Object.assign({ date: String(date).slice(0, 10), key, section: cfRow(key)[0], dir, amount: Math.abs(a), account: accountOf(x && x.method) }, x)); };
+    // sales: payments in (the tip part apart), refunds out
+    (raw.sales || []).forEach((s) => {
+      const t = saleTotals(s); const tipShare = t.due > 0 && t.tip > 0 ? t.tip / t.due : 0; const who = s.customerName || 'Walk-in customer';
+      (s.payments || []).forEach((p) => {
+        const a = num(p.amount); const base1 = { method: p.method, ref: p.ref || s.no || '', who, label: 'Sale ' + (s.no || ''), src: 'sales', id: s.id, locationId: s.locationId || 'main' };
+        if (a > 0) { const tp = Math.round(a * tipShare); push(p.date, 'sales', 1, a - tp, base1); if (tp) push(p.date, 'tips', 1, tp, Object.assign({}, base1, { label: 'Tip · sale ' + (s.no || '') })); }
+        else if (a < 0) push(p.date, 'refunds', -1, -a, Object.assign({}, base1, { label: 'Refund · sale ' + (s.no || '') }));
+      });
+    });
+    // supplier bills: stock, container costs, equipment bought on credit — and the MoMo charges we paid
+    const supName = (id) => ((raw.suppliers || []).find((x) => x.id === id) || {}).name || 'Supplier';
+    (raw.bills || []).forEach((b) => {
+      if (b.status === 'cancelled') return; const fx = num(b.fxRate) || rateOf(S, b.currency || base);
+      (b.payments || []).forEach((p) => {
+        const x = { method: p.method, ref: p.ref || b.txnId || '', who: supName(b.supplierId), label: b.description || 'Supplier bill', src: 'bills', id: b.id };
+        const a = num(p.amount) * fx; if (a > 0) push(p.date, b.assetId ? 'assetBuy' : 'stock', -1, a, x); else if (a < 0) push(p.date, 'claims', 1, -a, x);
+        if (num(p.fee) > 0) push(p.date, 'fees', -1, num(p.fee) * fx, Object.assign({}, x, { label: 'Charges · ' + x.label }));
+      });
+    });
+    // expenses (salaries, rent, transport…; running costs of equipment too)
+    (raw.expenses || []).forEach((e) => { if (e.deleted) return; push(e.date, 'exp:' + (e.category || 'Other expenses'), -1, e.amount, { method: e.method, ref: '', who: e.vendor || '', label: e.description || e.category || 'Expense', src: 'expenses', id: e.id, locationId: e.locationId || 'main' }); });
+    // supplier claims: money given back
+    (raw.claims || []).forEach((c) => (c.received || []).forEach((r) => push(r.date, 'claims', 1, r.amount, { method: r.method, ref: r.ref || '', who: c.supplierName || supName(c.supplierId), label: 'Claim refund', src: 'claims', id: c.id })));
+    // equipment paid on the spot (on credit it is a bill) and equipment sold
+    (raw.assets || []).forEach((a) => {
+      const onBill = (raw.bills || []).some((b) => b.assetId === a.id);
+      if (!onBill && a.paidBy && a.paidBy !== 'Not paid yet') push(a.purchaseDate, 'assetBuy', -1, assetCost(a, S), { method: a.paidBy, ref: a.tag || '', who: a.vendor || '', label: 'Bought ' + (a.name || 'equipment'), src: 'assets', id: a.id });
+      const d = a.disposal; if (d && d.type === 'sold' && num(d.amount) > 0) push(d.date, 'assetSell', 1, d.amount, { method: d.method, ref: a.tag || '', who: d.buyer || '', label: 'Sold ' + (a.name || 'equipment'), src: 'assets', id: a.id });
+    });
+    // capital & loans (the starting position is not a movement)
+    const fname = (id) => ((raw.funders || []).find((f) => f.id === id) || {}).name || '';
+    (raw.capital || []).forEach((e) => {
+      if (!isCapEntry(e) || e.opening) return; const x = { method: e.method, ref: e.ref || '', who: fname(e.funderId), label: CAPITAL_TYPES[e.type], src: 'capital', id: e.id };
+      if (e.type === 'injection') push(e.date, 'injection', 1, e.amount, x);
+      if (e.type === 'drawing') push(e.date, 'drawing', -1, e.amount, x);
+      if (e.type === 'loan') push(e.date, 'loan', 1, e.amount, Object.assign({}, x, { label: 'Loan received' }));
+      if (e.type === 'repayment') { const it = Math.min(num(e.amount), Math.max(0, num(e.interest))); push(e.date, 'principal', -1, num(e.amount) - it, x); if (it) push(e.date, 'interest', -1, it, Object.assign({}, x, { label: 'Interest · ' + x.label })); }
+    });
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+  /** money at the start (the starting capital's cash, bank and mobile money), by account */
+  function openingCash(raw) {
+    const op = (raw.capital || []).find((e) => e && e.id === 'opening' && e.type === 'opening' && !e.deleted); const acc = {};
+    if (!op) return { date: '', total: 0, accounts: acc };
+    const add = (k, v) => { if (num(v) > 0) acc[k] = (acc[k] || 0) + num(v); };
+    add('Cash', op.cash); (op.banks || []).forEach((r) => add('Bank', r.amount)); (op.wallets || []).forEach((r) => add(accountOf(r.name), r.amount));
+    return { date: op.date || '', total: Object.values(acc).reduce((a, v) => a + v, 0), accounts: acc };
+  }
+  /** periods between two dates: 'month' (YYYY-MM), 'quarter' (YYYY-Qn), 'year', 'week' (Monday YYYY-MM-DD) */
+  function cfPeriods(from, to, by) {
+    const out = []; const d = localDate(from), end = localDate(to); if (!d || !end || d > end) return out;
+    if (by === 'all') return [{ key: from + '…' + to, from, to }];
+    if (by === 'day') { while (d <= end) { const k = ymd(d); out.push({ key: k, from: k, to: k }); d.setDate(d.getDate() + 1); } return out; }
+    if (by === 'week') { d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); while (d <= end) { const k = ymd(d); const e = new Date(d); e.setDate(e.getDate() + 6); out.push({ key: k, from: k, to: ymd(e) }); d.setDate(d.getDate() + 7); } return out; }
+    d.setDate(1);
+    while (d <= end) {
+      const y = d.getFullYear(), m = d.getMonth();
+      if (by === 'year') { out.push({ key: String(y), from: y + '-01-01', to: y + '-12-31' }); d.setFullYear(y + 1, 0, 1); continue; }
+      if (by === 'quarter') { const q = Math.floor(m / 3); const s = new Date(y, q * 3, 1), e = new Date(y, q * 3 + 3, 0); out.push({ key: y + '-Q' + (q + 1), from: ymd(s), to: ymd(e) }); d.setFullYear(y, q * 3 + 3, 1); continue; }
+      const e = new Date(y, m + 1, 0); out.push({ key: y + '-' + String(m + 1).padStart(2, '0'), from: ymd(d), to: ymd(e) }); d.setMonth(m + 1, 1);
+    }
+    return out;
+  }
+  /** the Cash Flow statement: periods as columns; rows by section; opening → net → closing carried forward */
+  function cashFlow(raw, S, opts) {
+    opts = opts || {}; const L = opts.ledger || cashLedger(raw, S); const op = openingCash(raw);
+    const start = op.date || ''; // movements before the starting capital date are already in it
+    const live = L.filter((x) => !start || x.date >= start).filter((x) => !opts.account || x.account === opts.account);
+    const periods = cfPeriods(opts.from, opts.to, opts.by || 'month');
+    const openAcc = opts.account ? num(op.accounts[opts.account]) : op.total;
+    let bal = openAcc + live.filter((x) => x.date < opts.from).reduce((a, x) => a + x.dir * x.amount, 0);
+    const rows = {}; // key → {section, label, cells:[], total}
+    const cols = periods.map((p) => {
+      const inP = live.filter((x) => x.date >= p.from && x.date <= p.to); const c = { key: p.key, from: p.from, to: p.to, opening: bal, sec: { in: 0, out: 0, inv: 0, fin: 0 } };
+      inP.forEach((x) => { const r = rows[x.key] = rows[x.key] || { key: x.key, section: x.section, label: cfRow(x.key)[1], dir: x.dir, cells: periods.map(() => 0), total: 0 }; const i = periods.indexOf(p); r.cells[i] += x.dir * x.amount; r.total += x.dir * x.amount; c.sec[x.section] += x.dir * x.amount; });
+      c.operating = c.sec.in + c.sec.out; c.net = c.operating + c.sec.inv + c.sec.fin; c.closing = bal + c.net; bal = c.closing; return c;
+    });
+    const order = Object.keys(CF_ROWS); const sort = (a, b) => { const ia = order.indexOf(a.key), ib = order.indexOf(b.key); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || Math.abs(b.total) - Math.abs(a.total); };
+    const sections = CF_SECTIONS.map(([k, label]) => ({ key: k, label, rows: Object.values(rows).filter((r) => r.section === k).sort(sort), total: cols.reduce((a, c) => a + c.sec[k], 0) }));
+    return { periods: cols, sections, opening: cols.length ? cols[0].opening : bal, closing: cols.length ? cols[cols.length - 1].closing : bal,
+      totals: { in: sections[0].total, out: sections[1].total, operating: sections[0].total + sections[1].total, inv: sections[2].total, fin: sections[3].total, net: cols.reduce((a, c) => a + c.net, 0) }, startDate: start };
+  }
+  /** money on hand now (or at a date), by account */
+  function cashPosition(raw, S, asOf) {
+    const op = openingCash(raw); const acc = Object.assign({}, op.accounts); const to = asOf || '9999-12-31';
+    cashLedger(raw, S).forEach((x) => { if ((op.date && x.date < op.date) || x.date > to) return; acc[x.account] = (acc[x.account] || 0) + x.dir * x.amount; });
+    return { accounts: acc, total: Object.values(acc).reduce((a, v) => a + v, 0), since: op.date };
+  }
   const ACT_TYPES = { sales: 'Sales', payments: 'Payments', lots: 'Purchases', products: 'Items & prices', shipments: 'Containers', adjustments: 'Stock & losses', losses: 'Stock & losses', claims: 'Returns & claims', transfers: 'Transfers', audits: 'Stock counts', customers: 'Customers', handovers: 'Cash handover', bills: 'Suppliers & bills', suppliers: 'Suppliers & bills', expenses: 'Expenses', settings: 'Settings & team', members: 'Settings & team', locations: 'Settings & team', reminders: 'Reminders', assets: 'Assets', funders: 'Capital & loans', loans: 'Capital & loans', capital: 'Capital & loans', staff: 'Staff', attendance: 'Attendance', leaves: 'Leave', payroll: 'Payroll', tills: 'Cash handover' };
   /** L = lookups {product(id), customer(id), loc(id), ship(id), F(amount), money(v,cur)} → [{type, text, reason, amount, ref}] (one change can produce several lines) */
   function describeChange(col, b, a, L) {
@@ -1607,7 +1715,7 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, EQUITY_ROLES, LENDER_ROLES, CAPITAL_TYPES, CAPITAL_METHODS, loanSchedule, capitalSummary, openingTotals, capitalInterest, capitalCheck, isMobileMoney, momoNetwork, MOMO_USES, momoAccountsFor, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
+    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, EQUITY_ROLES, LENDER_ROLES, CAPITAL_TYPES, CAPITAL_METHODS, loanSchedule, capitalSummary, openingTotals, capitalInterest, capitalCheck, CF_SECTIONS, CF_ROWS, cfRow, accountOf, cashLedger, openingCash, cfPeriods, cashFlow, cashPosition, isMobileMoney, momoNetwork, MOMO_USES, momoAccountsFor, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
     servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, recipeShort, takeawayOf, validateTakeaway, takeawayStage, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

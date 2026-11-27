@@ -542,3 +542,34 @@ test('Capital & loans: monthly payment, owners and loans, starting capital, chec
   assert.match(KC.capitalCheck('loans', { principal: 1000, ratePct: 12, termMonths: 0, funderId: 'bk' }, raw), /between 1 and 600/);
   assert.equal(KC.capitalSummary({ funders: [], loans: [], capital: [] }).de, null);
 });
+
+test('Financials: cash ledger from every module, cash flow with carried balances, cash position by account', () => {
+  const raw = { settings: { currency: 'XAF' }, suppliers: [{ id: 'sp', name: 'Brasseries' }], funders: [{ id: 'a', name: 'Mado', kind: 'equity', stakePct: 100 }, { id: 'bk', name: 'Bank', kind: 'debt' }], loans: [{ id: 'l1', funderId: 'bk', principal: 100000, ratePct: 12, termMonths: 10, startDate: '2026-02-01' }],
+    sales: [{ id: 's1', no: 'S1', tip: 500, lines: [{ productId: 'p', qty: 1, unitPrice: 1000 }], payments: [{ date: '2026-02-03', amount: 1500, method: 'Cash' }] },
+      { id: 's2', no: 'S2', lines: [{ productId: 'p', qty: 2, unitPrice: 1000 }], payments: [{ date: '2026-02-05', amount: 2000, method: 'MTN MoMo' }, { date: '2026-03-01', amount: -500, method: 'Cash' }] },
+      { id: 's0', no: 'S0', lines: [{ productId: 'p', qty: 1, unitPrice: 9000 }], payments: [{ date: '2025-12-20', amount: 9000, method: 'Cash' }] }], // before the starting position: already in it
+    expenses: [{ id: 'e1', date: '2026-02-10', category: 'Rent', amount: 800, method: 'Cash' }, { id: 'e2', date: '2026-03-10', category: 'Salaries & wages', amount: 1200, method: 'Orange Money' }],
+    bills: [{ id: 'b1', supplierId: 'sp', amount: 3000, payments: [{ date: '2026-02-11', amount: 1000, method: 'Orange Money', fee: 20 }] }, { id: 'b2', supplierId: 'sp', amount: 50, currency: 'USD', fxRate: 600, payments: [{ date: '2026-03-12', amount: 10, method: 'Bank transfer' }] }, { id: 'bx', status: 'cancelled', payments: [{ date: '2026-02-12', amount: 999 }] }],
+    assets: [{ id: 'as', name: 'Freezer', price: 5000, purchaseDate: '2026-03-05', paidBy: 'Cash', disposal: null }],
+    claims: [{ id: 'cl', supplierId: 'sp', received: [{ date: '2026-03-15', amount: 300, method: 'Cash' }] }],
+    capital: [{ id: 'opening', type: 'opening', date: '2026-01-01', cash: 10000, banks: [{ name: 'UBA', amount: 5000 }], wallets: [{ name: 'Orange Money 69…', amount: 2000 }] },
+      { id: 'opi', type: 'injection', opening: true, date: '2026-01-01', funderId: 'a', amount: 17000 },
+      { id: 'c1', type: 'injection', date: '2026-03-02', funderId: 'a', amount: 4000, method: 'Bank' }, { id: 'c2', type: 'loan', date: '2026-02-01', loanId: 'l1', funderId: 'bk', amount: 100000, method: 'Bank' },
+      { id: 'c3', type: 'repayment', date: '2026-03-01', loanId: 'l1', amount: 10558, interest: 1000, method: 'Bank' }, { id: 'c4', type: 'drawing', date: '2026-03-20', funderId: 'a', amount: 700, method: 'Cash' }] };
+  const L = KC.cashLedger(raw, raw.settings);
+  assert.equal(L.filter((x) => x.key === 'sales').reduce((a, x) => a + x.amount, 0), 1000 + 2000 + 9000); assert.equal(L.find((x) => x.key === 'tips').amount, 500);
+  assert.equal(L.find((x) => x.key === 'refunds').amount, 500); assert.equal(L.find((x) => x.key === 'fees').amount, 20); assert.equal(L.filter((x) => x.key === 'stock').reduce((a, x) => a + x.amount, 0), 1000 + 6000);
+  assert.ok(!L.some((x) => x.id === 'bx') && !L.some((x) => x.id === 'opi')); assert.equal(L.find((x) => x.key === 'exp:Salaries & wages').account, 'Orange Money');
+  assert.equal(L.find((x) => x.key === 'assetBuy').amount, 5000); assert.equal(L.find((x) => x.key === 'claims').amount, 300);
+  assert.equal(L.find((x) => x.key === 'principal').amount, 9558); assert.equal(L.find((x) => x.key === 'interest').amount, 1000);
+  const cf = KC.cashFlow(raw, raw.settings, { from: '2026-01-01', to: '2026-03-31', by: 'month' });
+  assert.equal(cf.opening, 17000); // the starting money; the December sale is already in it
+  const [jan, feb, mar] = cf.periods; assert.equal(jan.net, 0); assert.equal(feb.opening, jan.closing); assert.equal(mar.opening, feb.closing);
+  assert.equal(feb.sec.in, 3500); assert.equal(feb.sec.out, -1820); assert.equal(feb.sec.fin, 100000); assert.equal(feb.net, 101680);
+  assert.equal(mar.sec.inv, -5000); assert.equal(mar.sec.fin, 4000 - 9558 - 700); assert.equal(Math.round(mar.sec.out), -(500 + 1200 + 6000 + 1000)); assert.equal(mar.sec.in, 300);
+  assert.equal(cf.closing, KC.cashPosition(raw, raw.settings).total); // the statement ends where the accounts are
+  assert.equal(cf.sections.find((s) => s.key === 'out').rows.find((r) => r.key === 'exp:Rent').cells[1], -800);
+  const pos = KC.cashPosition(raw, raw.settings).accounts; assert.equal(pos.Cash, 10000 + 1000 - 800 - 500 - 5000 + 300 - 700 + 500); assert.equal(pos['Orange Money'], 2000 - 1020 - 1200);
+  const cash = KC.cashFlow(raw, raw.settings, { from: '2026-01-01', to: '2026-03-31', by: 'quarter', account: 'Cash' }); assert.equal(cash.opening, 10000); assert.equal(cash.closing, pos.Cash);
+  assert.equal(KC.cfPeriods('2026-11-01', '2026-11-30', 'day').length, 30); assert.equal(KC.cfPeriods('2026-01-01', '2026-03-31', 'all').length, 1);
+});

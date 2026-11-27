@@ -2379,3 +2379,57 @@ b,strong{font-weight:600}
   .wz-r.wz-loans{grid-template-columns:1fr 1fr 34px;padding-bottom:8px;border-bottom:1px solid var(--line2)}.wz-r.wz-loans [data-del]{grid-row:1;grid-column:3}
 }
 
+/* ================= Financials ================= */
+.i.rot180{transform:rotate(180deg)}
+.f-pos{color:var(--ok)} .f-neg{color:var(--bad)} .fz{color:var(--line)}
+.fin-tabs{margin-top:2px}
+.fin-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px}
+.fin-seg{display:inline-flex;background:var(--line2);border-radius:11px;padding:3px;gap:2px;overflow-x:auto;scrollbar-width:none;max-width:100%}
+.fin-seg button{flex:none;border:0;background:none;font:inherit;font-size:13px;font-weight:500;color:var(--ink2);padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.fin-seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.fin-step{display:inline-flex;align-items:center;gap:6px}.fin-step b{font-weight:600;font-size:14px;min-width:96px;text-align:center}.fin-step .inp{height:36px;width:auto}
+.fin-step .icon-btn{width:32px;height:32px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
+.fin-bar .fin-sel{width:auto;flex:none;height:36px;font-size:13px;padding-right:28px}
+.fin-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.fin-card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;overflow:hidden}
+.fin-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tone)}
+.fin-ci{position:absolute;right:12px;top:12px;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:color-mix(in srgb,var(--tone) 14%,var(--card));color:var(--tone)}
+.fin-cl{font-size:12px;color:var(--ink3);font-weight:500}.fin-cv{font-size:21px;font-weight:600;margin:4px 0 2px;letter-spacing:-.01em}.fin-cs{font-size:11.5px;color:var(--ink3)}
+.t-sky{--tone:#3a8fb7}.t-rose{--tone:#d0475d}.t-emerald{--tone:#1f8a4c}.t-amber{--tone:#d9822b}.t-brand{--tone:var(--brand)}.t-violet{--tone:#7a5bd1}.t-slate{--tone:#5b6472}
+.fin-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fin-charts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fin-acc{display:inline-flex;align-items:center;gap:7px}.fin-acc i{width:9px;height:9px;border-radius:50%;flex:none}
+.a-cash{background:#1f8a4c}.a-mtn{background:#ffcb05}.a-om{background:#ff7900}.a-bank{background:#3a6fd8}.a-other{background:#9aa0a6}
+@media (max-width:899px){.fin-kpis{grid-template-columns:1fr 1fr}.fin-row,.fin-charts{grid-template-columns:1fr}}
+@media (max-width:420px){.fin-cv{font-size:18px}.fin-card{padding:12px}}
+/* transactions */
+.fin-scroll{overflow:auto;max-height:640px}
+.fin-ltab{min-width:760px}.fin-ltab thead th{position:sticky;top:0;background:var(--bg);z-index:1;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);font-weight:500}
+.fin-ltab tfoot td{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);font-size:13px}
+.fin-ltab .nw{white-space:nowrap}.fin-d{font-weight:500;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fin-g{display:inline-block;font-size:11px;font-weight:500;padding:2px 8px;border-radius:999px}
+.g-in{background:var(--okSoft);color:var(--ok)}.g-out{background:var(--badSoft);color:var(--bad)}.g-inv{background:var(--warnSoft);color:var(--warn)}.g-fin{background:var(--infoSoft);color:var(--info)}
+/* cash flow statement */
+.cf-wrap{overflow:hidden}
+.cf-scroll{overflow:auto;max-height:70vh}
+.cf{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:12.5px;font-variant-numeric:tabular-nums}
+.cf th,.cf td{padding:8px 12px;border-bottom:1px solid var(--line2);white-space:nowrap;background:var(--card)}
+.cf td.r,.cf th.r{text-align:right;min-width:86px}
+.cf thead th{position:sticky;top:0;z-index:3;background:#eef0ec;font-size:11px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.05em}
+.cf thead th.now{color:var(--brand)}
+.cf .c1{position:sticky;left:0;z-index:2;min-width:200px;max-width:240px;text-align:left;font-weight:500;color:var(--ink)}
+.cf .c2{position:sticky;left:200px;z-index:2;min-width:130px;font-size:10.5px;color:var(--ink3);box-shadow:6px 0 6px -6px rgba(0,0,0,.15)}
+.cf thead .c1,.cf thead .c2{z-index:4}
+.cf .ct{position:sticky;right:0;z-index:2;background:#f3f4f1;font-weight:600;box-shadow:-6px 0 6px -6px rgba(0,0,0,.15)}
+.cf thead .ct{z-index:4;background:#e3e6e0}
+.cf td:not(.c2):not(.r){color:var(--ink2)}
+.cf tbody td.r{color:var(--ink2)}
+.cf .cf-sec td{background:#1f2a2e;color:#fff!important;padding:7px 12px;font-size:10.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase}
+.cf .cf-sec td span{position:sticky;left:12px}
+.cf .cf-tot th,.cf .cf-tot td{background:#f7f8f5;font-weight:600}.cf .cf-tot .ct{background:#eceee9}
+.cf .cf-close th,.cf .cf-close td{border-bottom:2px solid var(--line)}
+.cf .cf-kpi th,.cf .cf-kpi td{background:color-mix(in srgb,#d9822b 5%,var(--card))}
+.cf .cf-none th{font-weight:400;color:var(--ink3);font-style:italic}
+.cf tbody tr:hover th,.cf tbody tr:hover td:not(.ct){background:#f6f7f4}
+.cf-st{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+@media (max-width:640px){.cf .c2{display:none}.cf .c1{min-width:150px;max-width:170px;white-space:normal}.cf th,.cf td{padding:7px 9px}.fin-step b{min-width:70px}}
