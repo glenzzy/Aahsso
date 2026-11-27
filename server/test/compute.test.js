@@ -573,3 +573,30 @@ test('Financials: cash ledger from every module, cash flow with carried balances
   const cash = KC.cashFlow(raw, raw.settings, { from: '2026-01-01', to: '2026-03-31', by: 'quarter', account: 'Cash' }); assert.equal(cash.opening, 10000); assert.equal(cash.closing, pos.Cash);
   assert.equal(KC.cfPeriods('2026-11-01', '2026-11-30', 'day').length, 30); assert.equal(KC.cfPeriods('2026-01-01', '2026-03-31', 'all').length, 1);
 });
+
+test('Staff control: clock in only at work, who must clock in, stock caps per role, bar hands out drinks', () => {
+  const S = { clockRequired: true, clockGeo: { main: { lat: 4.0511, lng: 9.7679, radius: 30 }, b2: { lat: 4.06, lng: 9.7, radius: 3 } }, roles: { sales: { stockCap: 30 }, viewer: { stockCap: 'hide' } } };
+  assert.ok(Math.abs(KC.geoDistance({ lat: 4.0511, lng: 9.7679 }, { lat: 4.0521, lng: 9.7679 }) - 111) < 2);
+  assert.equal(KC.clockWhere(S, 'main', { lat: 4.0512, lng: 9.7679 }), ''); // 11 m
+  assert.match(KC.clockWhere(S, 'main', { lat: 4.0611, lng: 9.7679 }), /1\.1 km from work/);
+  assert.match(KC.clockWhere(S, 'main', null), /Turn on location/);
+  assert.equal(KC.clockPlace(S, 'b2').radius, KC.GEO_MIN_RADIUS); // 3 m is below what GPS can do
+  assert.equal(KC.clockWhere(S, 'other', null), ''); // no place set: anywhere
+  assert.equal(KC.mustClock(S, 'owner'), false); assert.equal(KC.mustClock(S, 'sales'), true); assert.equal(KC.mustClock({}, 'sales'), false);
+  const now = new Date().toISOString(); const d = KC.localDay(new Date());
+  assert.equal(KC.isClockedIn({ attendance: [{ id: 'at_' + d + '_s1', date: d, events: [{ t: 'in', at: now }] }] }, 's1', now, {}), true);
+  assert.equal(KC.isClockedIn({ attendance: [{ id: 'at_' + d + '_s1', date: d, events: [{ t: 'in', at: now }, { t: 'break', at: now }] }] }, 's1', now, {}), false); // on a break
+  assert.equal(KC.stockCapOf(S, 'sales'), 30); assert.equal(KC.stockCapOf(S, 'viewer'), 0); assert.equal(KC.stockCapOf(S, 'owner'), null); assert.equal(KC.stockCapOf(S, 'manager'), null);
+  assert.equal(KC.stockShown(1000, 30), '30+'); assert.equal(KC.stockShown(12, 30), null); assert.equal(KC.stockShown(5, 0), 'In stock'); assert.equal(KC.stockShown(0, 0), 'Sold out'); assert.equal(KC.stockShown(1000, null), null);
+  const o = { lines: [{ menuId: 'beer', qty: 2, station: 'bar' }, { menuId: 'fish', qty: 1, station: 'kitchen' }], status: 'ready' };
+  assert.equal(KC.serveBlocked(o, { barHandover: true }), true); assert.equal(KC.serveBlocked(o, {}), false);
+  assert.deepEqual(KC.orderOuts(o, { barHandover: true }), []); // ordered, not handed: nothing leaves
+  const h = Object.assign({}, o, { handedAt: '2026-11-27T10:00:00Z' });
+  assert.deepEqual(KC.orderOuts(h, { barHandover: true }).map((g) => [g.key, g.lines.map((l) => l.menuId)]), [['hand', ['beer']]]);
+  const sv = Object.assign({}, h, { status: 'served', servedAt: '2026-11-27T10:05:00Z' });
+  assert.deepEqual(KC.orderOuts(sv, { barHandover: true }).map((g) => [g.key, g.lines.map((l) => l.menuId)]), [['hand', ['beer']], ['srv', ['fish']]]); // never twice
+  assert.deepEqual(KC.orderOuts(sv, {}).map((g) => [g.key, g.lines.length]), [['srv', 2]]); // small bar: all at served, as before
+  // stock: a served-unpaid bill with handed drinks takes them off the shelf once
+  const raw = { settings: { barHandover: true }, menu: [{ id: 'beer', uses: [{ productId: 'p', qty: 1 }] }], tabs: [{ id: 't', status: 'open', saleIds: [] }], rorders: [Object.assign({ tabId: 't' }, sv)], sales: [], lots: [{ id: 'l', productId: 'p', qty: 10, unitCost: 1, inWarehouse: true, sourceType: 'Local (Cameroon)' }], products: [{ id: 'p', name: 'Beer' }] };
+  const C = KC.computeAll(raw); assert.equal(C.prodX.p.inService, 2); assert.equal(C.prodX.p.available, 8);
+});

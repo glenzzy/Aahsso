@@ -42,7 +42,7 @@ function gridHTML() {
     return '<div class="pt' + (q ? ' incart' : '') + (av - q <= 0 ? ' out' : '') + '" data-a="addCart" data-id="' + p.id + '">' + (q ? '<div class="q" style="z-index:2">' + q + '</div>' : '') +
       (src ? '<div class="pimg"><img src="' + esc(src) + '" alt="" loading="lazy"></div>' : '<div class="pimg ph">' + esc(initials(p.name)) + '</div>') +
       '<div class="nm">' + esc(p.name) + '</div>' + (KC.sizeLabel(p) ? '<div class="tiny muted">' + esc(KC.sizeLabel(p)) + '</div>' : '') + '<div class="row gap6 wrap">' + (p.condition && p.condition !== 'New' ? '<span class="badge acc">' + esc(p.condition) + '</span>' : '') + (heldForCart(p.id) ? '<span class="badge info">Client order</span>' : '') + (px.nextExpiry && daysUntil(px.nextExpiry) <= (num(S().expiryWarnDays) || 60) ? expiryBadge(px.nextExpiry) : '') + '</div>' +
-      '<div class="pr money">' + F(px.priceMax) + '</div><div class="st">' + fmt(av - q) + ' in stock' + (KC.packText(p, av - q) ? '<span class="pk-t">' + esc(KC.packText(p, av - q)) + '</span>' : '') + '</div></div>';
+      '<div class="pr money">' + F(px.priceMax) + '</div><div class="st">' + qtyTxt(av - q, ' in stock') + (!stockCapped() && KC.packText(p, av - q) ? '<span class="pk-t">' + esc(KC.packText(p, av - q)) + '</span>' : '') + '</div></div>';
   }).join('');
 }
 function cartHTML(inSheet, noGo) {
@@ -73,7 +73,7 @@ function nsListHTML() {
   if (!ps.length) return '<div class="empty small">' + (K.raw.products.length ? (K.ui.posQ ? 'Nothing in stock matches “' + esc(K.ui.posQ) + '”.' : 'Nothing in stock' + (allLocs().length > 1 ? ' at ' + esc(locName(K.loc)) : '') + '.') : 'No stock yet. Record a purchase in Buy, then receive it.') + '</div>';
   return ps.map((p) => {
     const px = K.C.prodX[p.id], q = cartQty(p.id), av = availFor(p.id);
-    const sub = [p.condition && p.condition !== 'New' ? p.condition : '', heldForCart(p.id) ? 'client order' : '', fmt(av - q) + ' in stock'].filter(Boolean).join(' · ');
+    const sub = [p.condition && p.condition !== 'New' ? p.condition : '', heldForCart(p.id) ? 'client order' : '', qtyTxt(av - q, ' in stock')].filter(Boolean).join(' · ');
     return '<button type="button" class="ns-it' + (q ? ' in' : '') + (av - q <= 0 ? ' out' : '') + '" data-a="addCart" data-id="' + p.id + '"' + (av - q <= 0 ? ' aria-disabled="true"' : '') + '>' + thumb(p, 38, 9) +
       '<span class="ns-tx"><span class="ns-n">' + esc(p.name) + (px.promo ? ' <span class="badge promo">' + esc(px.promo.type === 'pct' ? '−' + px.promo.value + '%' : 'Promo') + '</span>' : '') + '</span><span class="ns-s">' + esc(sub) + '</span></span><span class="ns-p money">' + (px.promo ? '<s class="faint">' + fmt(px.priceMax) + '</s> <span class="promo-p">' + fmt(px.promo.price) + '</span>' : fmt(px.priceMax)) + '</span>' +
       (q ? '<span class="ns-q">' + q + '</span>' : '<span class="ns-add">' + ic('plus', 'sm') + '</span>') + '</button>';
@@ -117,13 +117,13 @@ function addToCart(pid) {
   const p = byId('products', pid); if (!p) return;
   const l = K.cart.lines.find((x) => x.productId === pid);
   const step = l ? lineStep(l) : 1;
-  if (cartQty(pid) + step > availFor(pid)) { toast('Only ' + availFor(pid) + ' in stock', true); return; }
+  if (cartQty(pid) + step > availFor(pid)) { toast(stockCapped() ? 'Not enough in stock' : 'Only ' + availFor(pid) + ' in stock', true); return; }
   if (l) { l.qty = num(l.qty) + step; reprice(l); } else { const nl = { productId: pid, name: p.name, qty: 1, unitPrice: 0 }; reprice(nl); K.cart.lines.push(nl); }
   if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) { }
   refreshPOS();
 }
 A.addCart = (el) => addToCart(el.dataset.id);
-A.cartStep = (el) => { const l = K.cart.lines[+el.dataset.i2]; const n = num(l.qty) + num(el.dataset.d) * lineStep(l); if (n > availFor(l.productId)) return toast('Only ' + availFor(l.productId) + ' in stock', true); if (n <= 0) K.cart.lines.splice(+el.dataset.i2, 1); else { l.qty = n; reprice(l); } refreshPOS(); };
+A.cartStep = (el) => { const l = K.cart.lines[+el.dataset.i2]; const n = num(l.qty) + num(el.dataset.d) * lineStep(l); if (n > availFor(l.productId)) return toast(stockCapped() ? 'Not enough in stock' : 'Only ' + availFor(l.productId) + ' in stock', true); if (n <= 0) K.cart.lines.splice(+el.dataset.i2, 1); else { l.qty = n; reprice(l); } refreshPOS(); };
 A.cartUnit = (el) => {
   const l = K.cart.lines[+el.dataset.i2]; const p = byId('products', l.productId); const j = +el.dataset.v; const pk = j >= 0 ? KC.packsOf(p)[j] : null;
   if (pk) {
@@ -499,7 +499,7 @@ async function completeSale(v) {
   const lines = [];
   for (const l of K.cart.lines) {
     const alloc = KC.allocate(K.C, K.raw.lots, l.productId, num(l.qty), extra, K.cart.customerId, K.loc);
-    if (!alloc) { toast('Not enough stock for ' + l.name + ' (' + availFor(l.productId) + ' left)', true); return false; }
+    if (!alloc) { toast('Not enough stock for ' + l.name + (stockCapped() ? '' : ' (' + availFor(l.productId) + ' left)'), true); return false; }
     const pm = (K.C.prodX[l.productId] || {}).promo;
     lines.push(Object.assign({ productId: l.productId, name: (byId('products', l.productId) || l).name, qty: num(l.qty), unitPrice: num(l.unitPrice), pack: l.pack && num(l.pack.size) > 1 ? { name: l.pack.name, size: num(l.pack.size) } : undefined, condition: lineCond(l), working: lineWork(l), alloc, returns: [] }, pm && num(l.unitPrice) === pm.price ? { promoId: pm.id, promoName: pm.name } : l.promoId ? { promoId: l.promoId, promoName: l.promoName } : {}));
   }

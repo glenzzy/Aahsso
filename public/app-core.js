@@ -92,6 +92,13 @@ const costWord = (cap) => (isStore() ? (cap ? 'Cost' : 'cost') : (cap ? 'Landed 
 function featureClasses() { const f = (K.info && K.info.features) || {}; KC.FEATURE_KEYS.forEach((k) => document.body.classList.toggle('nf-' + k, f[k] === false)); document.body.classList.toggle('ed-store', isStore()); document.body.classList.toggle('ed-resto', !!K.info && K.info.edition === 'resto'); }
 const isAdmin = () => can('settings') || can('team');
 const seeCost = () => can('costs');
+/** how much stock this person may see (Team & access → role): null = all, 0 = no numbers, n = at most n */
+const myStockCap = () => (K.member ? KC.stockCapOf(S(), K.member.role) : null);
+const stockCapped = () => myStockCap() !== null;
+/** a stock count as this person may see it: "1,000 left" for a manager, "30+ left" or "In stock" for others */
+function qtyTxt(n, suffix) { const s = KC.stockShown(num(n), myStockCap()); return s !== null ? s + (myStockCap() === 0 ? '' : suffix || '') : fmt(n) + (suffix || ''); }
+/** staff who must clock in first see only the clock-in screen (the owner never) */
+const clockLocked = () => !!(K.member && KC.mustClock(S(), K.member.role) && has('attendance') && typeof meStaffId === 'function' && !KC.isClockedIn(K.raw, meStaffId(), new Date().toISOString(), S()));
 const roleLabel = () => (KC.rolesWith(S().roles)[(K.member || {}).role] || { label: 'Custom' }).label;
 /** Sales this person may see: all, or only the ones they made. */
 const visibleSales = () => can('salesAll') ? K.raw.sales : K.raw.sales.filter((s) => s.createdById && s.createdById === K.me.id);
@@ -550,6 +557,7 @@ function render(force) {
   K.pending = false;
   if (!K.C) recompute();
   shell();
+  if (clockLocked() && K.route !== 'profile') { $('#view').innerHTML = clockLockView(); $('#fab').classList.add('hide'); return; }
   const v = VIEWS[K.route];
   $('#view').innerHTML = subTabs(K.route) + v.render();
   if (v.after) v.after();

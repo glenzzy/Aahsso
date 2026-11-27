@@ -579,6 +579,17 @@ async function planGuard(c, u, col, body, old) {
   return null;
 }
 /** Server rules for staff records. Returns {status, error} to refuse, or null. May correct `body`. */
+const settingsOf = async (c, tid) => Object.assign({}, KC.DEFAULT_SETTINGS, ((await c.query("SELECT data FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [tid])).rows[0] || {}).data || {});
+/** staff who must clock in first (the owner never): null when they may work, else the reason */
+async function clockGate(c, u) {
+  if (u.role === 'owner' || u.supportView) return null; if (!KC.anyOn(u.features, ['attendance'])) return null;
+  const S = await settingsOf(c, u.tenant_id); if (!KC.mustClock(S, u.role)) return null;
+  const sid = KC.staffIdOf(u.id); const now = new Date(); const day = (k) => { const d = new Date(now.getTime() + k * 864e5); return d.toISOString().slice(0, 10); };
+  const ids = [-1, 0, 1].map((k) => 'at_' + day(k) + '_' + sid);
+  const rows = (await c.query("SELECT data FROM documents WHERE tenant_id=$1 AND collection='attendance' AND id = ANY($2)", [u.tenant_id, ids])).rows;
+  const nowIso = now.toISOString(); const working = rows.some((r) => { const st = KC.dayState(r.data, nowIso, S); return st.state === 'in' && (Date.now() - Date.parse(st.since)) < 20 * 3600e3; });
+  return working ? null : 'Clock in first — Aahsso is locked until you start work';
+}
 async function staffRules(c, u, P, col, id, body, old) {
   const me = KC.staffIdOf(u.id); const nowIso = new Date().toISOString(); const no = (status, error) => ({ status, error });
   if (col === 'attendance') {
@@ -594,13 +605,18 @@ async function staffRules(c, u, P, col, id, body, old) {
     if (appendOnly && !correcting) {
       // a clock tap: keep the stored events, stamp the new ones with the server's clock where the phone's is off
       const now = Date.now(); const lastAt = before.length ? Date.parse(before[before.length - 1].at) : 0;
-      const added = ev.slice(before.length).map((e) => ({ t: e.t, at: e.at }));
+      const added = ev.slice(before.length).map((e) => Object.assign({ t: e.t, at: e.at }, e.geo ? { geo: e.geo } : {}));
       for (const e of added) {
         const t = Date.parse(e.at);
         if (!t || t > now + 2 * 60e3 || t < now - 36 * 3600e3) { e.at = nowIso; e.fixed = true; } // the phone's clock is wrong
         else if (Math.abs(t - now) > 3 * 60e3) e.syncedAt = nowIso; // recorded offline, sent later
         if (Date.parse(e.at) < lastAt) return no(403, 'Clock times cannot be changed — ask a manager to correct them');
         e.byId = u.id; e.by = u.name;
+        if (e.t === 'in' && body.staffId === me) {
+          const S = await settingsOf(c, u.tenant_id); const why = KC.clockWhere(S, body.locationId || u.location_id || 'main', e.geo);
+          if (why) return no(403, why);
+          if (e.geo) e.geo = { lat: Number(e.geo.lat), lng: Number(e.geo.lng), acc: Math.round(Number(e.geo.acc) || 0), dist: Math.round(Number(e.geo.dist) || 0) };
+        }
       }
       body.events = before.concat(added);
       body.editedBy = old ? old.editedBy : undefined; body.editedAt = old ? old.editedAt : undefined;
@@ -694,6 +710,7 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
     // Serialize stock-affecting writes per tenant so two cashiers can't sell the same last item.
     if (['sales', 'adjustments', 'lots', 'shipments', 'transfers'].includes(col)) await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [u.tenant_id]);
     const prev = (await c.query('SELECT data FROM documents WHERE tenant_id=$1 AND collection=$2 AND id=$3 FOR UPDATE', [u.tenant_id, col, id])).rows[0];
+    if (col !== 'attendance' && col !== 'leaves') { const g = await clockGate(c, u); if (g) return { status: 403, error: g }; } // not clocked in: nothing but clocking in
 
     const P = perms(u);
     if (col === 'products' && !P.costs && prev) { body.priceMax = prev.data.priceMax ?? null; body.priceMin = prev.data.priceMin ?? null; body.markup = prev.data.markup ?? null; body.minMarkup = prev.data.minMarkup ?? null; body.priceHistory = prev.data.priceHistory || []; }
@@ -703,6 +720,12 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
     if (col === 'handovers') {
       if (!P.handover) { if (body.userId !== u.id) return { status: 403, error: 'You can only submit your own handover' }; if (body.status === 'confirmed' || (prev && prev.data.status === 'confirmed')) return { status: 403, error: 'Only a manager can confirm a handover' }; }
       body.expectedTotal = KC.collectedBy(await loadAllSales(c, u.tenant_id), body.userId, body.date).total; // never trust the client's own total
+    }
+    if (col === 'rorders') { // the bar hands out the drinks (only the bar, once); waiters serve only after that when the business asks for it
+      const S = await settingsOf(c, u.tenant_id); const old = prev ? prev.data : null; const HK = ['handedAt', 'handedBy', 'handedById', 'handedTo', 'handedToName', 'handedLoc'];
+      if (old && old.handedAt) HK.forEach((k) => { if (old[k] !== undefined) body[k] = old[k]; else delete body[k]; });
+      else if (body.handedAt) { if (!perms(u).kds && u.role !== 'owner') return { status: 403, error: 'Only the bar can hand out drinks' }; body.handedAt = new Date().toISOString(); body.handedById = u.id; body.handedBy = u.name; }
+      if (body.status === 'served' && (!old || old.status !== 'served') && KC.serveBlocked(body, S)) return { status: 403, error: 'The bar must hand out the drinks first' };
     }
     if (col === 'rorders') { if (prev && prev.data.nos) { body.no = prev.data.no; body.nos = prev.data.nos; } else if (!prev) Object.assign(body, await orderNos(c, u.tenant_id, body.lines)); }
     if (col === 'audits') { const why = auditRules(u, P, body, prev ? prev.data : null); if (why) return why; }
@@ -891,6 +914,7 @@ app.delete('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, re
   if (!anyU(u, DELETE_PERMS[col])) return err(res, 403, 'You do not have permission to delete ' + col);
   if (col === 'sales') return err(res, 400, 'Sales are never deleted — cancel them instead');
   if (col === 'settings') return err(res, 400, 'Settings cannot be deleted');
+  { const g = await tx((c) => clockGate(c, u)); if (g) return err(res, 403, g); }
   const r = await tx(async (c) => {
     if (col === 'lots' || col === 'products') {
       const raw = await loadAll(c, u.tenant_id);

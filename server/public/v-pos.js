@@ -37,7 +37,7 @@ function posTiles() {
       (q ? '<span class="pos-q">' + q + '</span>' : '') +
       (src ? '<span class="pos-img"><img src="' + esc(src) + '" alt="" loading="lazy"></span>' : '<span class="pos-img ph" style="background:' + catColor(p.category) + '">' + esc(initials(p.name)) + '</span>') +
       '<span class="pos-n">' + esc(p.name) + '</span><span class="pos-p money">' + fmt(price) + (px.promo ? ' <s>' + fmt(px.priceMax) + '</s>' : '') + '</span>' +
-      '<span class="pos-s">' + (left <= 0 ? 'Sold out' : fmt(left) + ' left') + '</span></button>';
+      '<span class="pos-s">' + (left <= 0 ? 'Sold out' : qtyTxt(left, ' left')) + '</span></button>';
   }).join('');
 }
 function posCartLines() {

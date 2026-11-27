@@ -117,12 +117,20 @@ A.roleEdit = (el) => {
   setSheetBody(sh, '<div class="col">' + field('Role name', inp('rlName', r.label, 'placeholder="e.g. Cashier, Store keeper, Branch manager"')) + (used ? '<div class="tiny muted">' + used + ' person(s) have this role — changes apply to them at once (except their personal on/off switches).</div>' : '') +
     '<div class="card pad">' + Object.entries(groups).map(([g, ps]) => '<div class="tiny b faint" style="text-transform:uppercase;letter-spacing:.05em;margin-top:8px">' + g + '</div><div class="perm-grid">' + ps.map(([k, l]) => '<label><input type="checkbox" data-rp="' + k + '"' + (perms.has(k) ? ' checked' : '') + '>' + esc(l) + '</label>').join('') + '</div>').join('') + '</div></div>');
   const write = async (rolesObj) => { const ok = await saveSettings({ roles: rolesObj }); if (ok) { resolveAccess(); closeSheet(); render(true); toast('Roles saved'); } };
+  // how much stock this role may see
+  const capNow = r.stockCap === undefined || r.stockCap === null || r.stockCap === '' ? 'all' : r.stockCap === 'hide' ? 'hide' : 'cap';
+  $('.col', sh).insertAdjacentHTML('beforeend', '<div class="card pad"><div class="b small mb">Stock this role can see</div><div class="seg" id="rlCapSeg">' + [['all', 'Full counts'], ['cap', 'Up to a number'], ['hide', 'No numbers']].map(([k, l]) => '<button type="button" data-cap="' + k + '" class="' + (capNow === k ? 'on' : '') + '">' + l + '</button>').join('') + '</div>' +
+    '<div class="row mt' + (capNow === 'cap' ? '' : ' hide') + '" id="rlCapN" style="align-items:center;gap:8px"><span class="small">Show at most</span>' + inp('rlCap', capNow === 'cap' ? r.stockCap : 30, 'inputmode="numeric" style="width:90px"') + '<span class="small">— e.g. 1,000 bottles show as “30+”</span></div>' +
+    '<p class="hint mt">People with this role see stock counts this way on the POS, when selling and in the stock list. The owner always sees everything.</p></div>');
+  let capMode = capNow; sh.addEventListener('click', (e) => { const b = e.target.closest('[data-cap]'); if (!b) return; capMode = b.dataset.cap; $$('[data-cap]', sh).forEach((x) => x.classList.toggle('on', x === b)); $('#rlCapN', sh).classList.toggle('hide', capMode !== 'cap'); });
+  const capVal = () => capMode === 'hide' ? 'hide' : capMode === 'cap' ? Math.max(1, Math.round(num(formVals(sh).rlCap)) || 30) : '';
   $('#rlSave', sh).onclick = async () => {
     const name = formVals(sh).rlName; if (!name) return toast('Give the role a name', true);
     const ps = $$('[data-rp]', sh).filter((c) => c.checked).map((c) => c.dataset.rp);
     const k = key || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || uid('role_');
     if (!key && R[k]) return toast('A role with this name already exists', true);
-    await write(Object.assign({}, S().roles || {}, { [k]: { label: name, perms: ps, v: 3 } }));
+    const rr = { label: name, perms: ps, v: 3 }; const cv = capVal(); if (cv !== '') rr.stockCap = cv;
+    await write(Object.assign({}, S().roles || {}, { [k]: rr }));
   };
   if ($('#rlReset', sh)) $('#rlReset', sh).onclick = async () => { const o = Object.assign({}, S().roles || {}); delete o[key]; await write(o); };
   if ($('#rlDel', sh)) $('#rlDel', sh).onclick = async () => { if (used) return toast('Move its ' + used + ' person(s) to another role first', true); if (!(await confirmBox('Delete the role "' + r.label + '"?', 'Delete', true))) return; const o = Object.assign({}, S().roles || {}); delete o[key]; await write(o); };

@@ -408,7 +408,33 @@ function staffRulesCard() {
     '<div class="set-grid mt">' + sf('Work starts', '<input class="inp" type="time" name="srStart" value="' + esc(R.workStart) + '">', 'Clocking in later than this counts as late.') + sf('Work ends', '<input class="inp" type="time" name="srEnd" value="' + esc(R.workEnd) + '">') +
     sf('Late after', unitIn('srGrace', R.lateGraceMin, 'min', 'inputmode="numeric"'), 'Minutes of grace before someone is marked late.') + sf('Normal working day', unitIn('srHours', R.hoursPerDay, 'hours', 'inputmode="decimal"'), 'Hours beyond this are overtime.') +
     sf('Overtime pay', unitIn('srOT', R.overtimeRate, '× normal', 'inputmode="decimal"'), 'Only for people whose file says overtime is paid.') + sf('Paid vacation per year', unitIn('srLeave', R.leavePerYear, 'days', 'inputmode="decimal"'), 'Can be changed per person in Employees.') + '</div>' +
+    (has('attendance') ? clockSettings() : '') +
     '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>');
+}
+/** clock in: required before using the app, and only at work (a point + a distance per branch) */
+function clockSettings() {
+  const s = S(); const G = s.clockGeo || {};
+  return '<div class="set-sub"><h3>Clocking in</h3><input type="hidden" name="clockCardOn" value="1">' +
+    '<label class="toggle"><input type="checkbox" name="clockRequired"' + (s.clockRequired ? ' checked' : '') + '>Staff must clock in before they can use Aahsso</label>' +
+    '<p class="hint">Until they clock in, staff only see the clock-in screen. The owner is never locked out.</p>' +
+    '<div class="b small mt">Clock in only at work</div><p class="hint" style="margin-top:2px">Stand at the place and tap <b>Use my location here</b>. Staff can then clock in only within the distance you choose. Phone GPS is accurate to about 5–15 m, so the smallest distance is ' + KC.GEO_MIN_RADIUS + ' m; 30–50 m works well indoors.</p>' +
+    allLocs().map((L) => { const g = G[L.id] || {}; const set = g.lat !== undefined && g.lat !== '';
+      return '<div class="cg-row" data-cg="' + esc(L.id) + '"><div class="cg-n"><b>' + esc(L.name) + '</b><span class="tiny ' + (set ? '' : 'muted') + '" data-cgt>' + (set ? '📍 ' + num(g.lat).toFixed(5) + ', ' + num(g.lng).toFixed(5) + (g.acc ? ' (±' + g.acc + ' m)' : '') : 'Anywhere — no location set') + '</span></div>' +
+        '<input type="hidden" name="cg_' + esc(L.id) + '_lat" value="' + esc(g.lat ?? '') + '"><input type="hidden" name="cg_' + esc(L.id) + '_lng" value="' + esc(g.lng ?? '') + '"><input type="hidden" name="cg_' + esc(L.id) + '_acc" value="' + esc(g.acc ?? '') + '">' +
+        unitIn('cg_' + L.id + '_r', g.radius || 50, 'm', 'inputmode="numeric" aria-label="Distance allowed"') +
+        '<button type="button" class="btn sm" data-a="cgHere" data-id="' + esc(L.id) + '">' + ic('check', 'sm') + 'Use my location here</button>' + (set ? '<button type="button" class="btn sm ghost" data-a="cgClear" data-id="' + esc(L.id) + '">Remove</button>' : '') + '</div>'; }).join('') + '</div>';
+}
+A.cgHere = async (el) => {
+  const row = el.closest('[data-cg]'); const id = row.dataset.cg; el.disabled = true; const t0 = el.innerHTML; el.innerHTML = 'Finding you…';
+  const pos = await herePos(); el.disabled = false; el.innerHTML = t0; if (typeof pos === 'string') return toast(pos, true);
+  $('[name="cg_' + id + '_lat"]', row).value = pos.lat.toFixed(6); $('[name="cg_' + id + '_lng"]', row).value = pos.lng.toFixed(6); $('[name="cg_' + id + '_acc"]', row).value = pos.acc;
+  $('[data-cgt]', row).textContent = '📍 ' + pos.lat.toFixed(5) + ', ' + pos.lng.toFixed(5) + ' (±' + pos.acc + ' m) — save to keep it'; $('[data-cgt]', row).classList.remove('muted'); setDirty();
+  if (pos.acc > 30) toast('Location found, but only accurate to ±' + pos.acc + ' m. Try again near a window for a better point.', true);
+};
+A.cgClear = (el) => { const row = el.closest('[data-cg]'); const id = row.dataset.cg; ['lat', 'lng', 'acc'].forEach((k) => ($('[name="cg_' + id + '_' + k + '"]', row).value = '')); $('[data-cgt]', row).textContent = 'Anywhere — save to apply'; setDirty(); };
+function readClockGeo(v) {
+  const out = {}; allLocs().forEach((L) => { const lat = v['cg_' + L.id + '_lat'], lng = v['cg_' + L.id + '_lng']; if (lat !== undefined && lat !== '' && lng !== '') out[L.id] = { lat: num(lat), lng: num(lng), acc: num(v['cg_' + L.id + '_acc']) || 0, radius: Math.max(KC.GEO_MIN_RADIUS, Math.round(num(v['cg_' + L.id + '_r']) || 50)) }; });
+  return out;
 }
 const setDirty = () => { K.viewDirty = true; const b = $('#setBar'); if (b) b.classList.add('show'); };
 ['input', 'change'].forEach((t) => document.addEventListener(t, (e) => {
@@ -453,6 +479,7 @@ A.saveSettings = async () => {
   const rates = isStore() ? Object.assign({}, S().fxRates || {}) : {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });
   const curInfo = KC.CURRENCIES.find((c) => c[0] === v.baseCurrency) || [v.baseCurrency, v.baseCurrency];
   const patch = { currency: v.baseCurrency || 'XAF', currencySymbol: v.currencySymbol || curInfo[1], fxRates: rates, fxRate: rates.USD || num(S().fxRate) || 600, businessName: v.businessName || 'My Business', tagline: v.tagline, phone: v.phone, address: v.address, receiptFooter: v.receiptFooter, socials: Object.fromEntries(KC.SOCIALS.map(([k]) => [k, String(v['so_' + k] || '').trim().slice(0, 120)]).filter((x) => x[1])), tipsOn: !!v.tipsOn,  defaultMarkup: num(v.defaultMarkup), minMarkup: num(v.minMarkup), roundTo: num(v.roundTo), lowStock: num(v.lowStock), expiryWarnDays: num(v.expiryWarnDays), wholesaleMarkup: num(v.wholesaleMarkup), bulkQty: num(v.bulkQty), creditDays: num(v.creditDays) || 14, reminderTemplate: v.reminderTemplate, reminderEvery: num(v.reminderEvery) || 7, defaultCreditLimit: v.defaultCreditLimit === '' ? null : num(v.defaultCreditLimit),
+    ...(v.clockCardOn ? { clockRequired: !!v.clockRequired, clockGeo: readClockGeo(v) } : {}),
     ...(K.info.mode === 'saas' && v.apDiscountPct !== undefined ? { approvals: { discountPct: v.apDiscountPct === '' ? null : Math.max(0, Math.min(100, num(v.apDiscountPct))), refundAbove: v.apRefundAbove === '' ? null : Math.max(0, num(v.apRefundAbove)), cancel: !!v.apCancel } } : {}), momoAccounts: mm, momoFeeTables, vendors: K.ui.storeDraft.slice(), shopAgencies: (K.ui.agDraft || []).slice(0, 30), staffRules: readStaffRules(v), categories: Object.keys(cats).length ? cats : KC.CATEGORIES };
   if (await saveSettings(patch)) {
     // items that used a renamed category / subcategory follow the new name

@@ -648,7 +648,7 @@
     const menu = new Map((raw.menu || []).map((m) => [m.id, m])); const sales = new Map((raw.sales || []).map((s) => [s.id, s]));
     open.forEach((tab) => {
       const served = {}, loc = {};
-      (raw.rorders || []).forEach((o) => { if (o.tabId !== tab.id || o.status !== 'served') return; (o.lines || []).forEach((l) => { served[l.menuId] = (served[l.menuId] || 0) + num(l.qty); loc[l.menuId] = o.servedLoc || loc[l.menuId]; }); });
+      (raw.rorders || []).forEach((o) => { if (o.tabId !== tab.id) return; orderOuts(o, raw.settings).forEach((g) => g.lines.forEach((l) => { served[l.menuId] = (served[l.menuId] || 0) + num(l.qty); loc[l.menuId] = g.loc || loc[l.menuId]; })); });
       const paid = {}; (tab.saleIds || []).forEach((id) => { const s = sales.get(id); if (!s || s.status === 'cancelled') return; (s.lines || []).forEach((l) => { if (l.menuId) paid[l.menuId] = (paid[l.menuId] || 0) + num(l.qty); }); });
       Object.entries(served).forEach(([mid, q]) => {
         const left = q - (paid[mid] || 0); const m = menu.get(mid); if (!(left > 0) || !m) return;
@@ -690,11 +690,11 @@
     });
     // Bar & Resto: served tickets take what their menu items use
     const menu = new Map((raw.menu || []).map((m) => [m.id, m])); const tabs = new Map((raw.tabs || []).map((t) => [t.id, t]));
-    (raw.rorders || []).forEach((o) => {
-      if (o.status !== 'served' || !o.servedAt) return; const t = at(null, o.servedAt); const tab = tabs.get(o.tabId) || {};
-      const by = {}; (o.lines || []).forEach((l) => { const m = menu.get(l.menuId); (m && m.uses || []).forEach((u) => { if (num(u.qty) > 0) { const x = (by[u.productId] = by[u.productId] || { q: 0, what: [] }); x.q += num(u.qty) * num(l.qty); x.what.push(num(l.qty) + ' × ' + (l.name || m.name)); } }); });
-      Object.entries(by).forEach(([pid, x]) => push(Object.assign({}, t, { id: 'srv:' + o.id + ':' + pid, type: 'served', dir: -1, productId: pid, qty: Math.round(x.q * 10000) / 10000, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: o.servedLoc || tab.locationId || 'main', by: o.servedBy || '', ref: [o.tableLabel ? (o.tableLabel === 'Counter' ? 'Counter' : 'Table ' + o.tableLabel) : '', orderNoText(o) ? 'order ' + orderNoText(o) : ''].filter(Boolean).join(' · '), refId: o.id, notes: x.what.join(', '), bill: o.paid || tab.status === 'paid' ? 'paid' : tab.status === 'open' ? 'open' : '' })));
-    });
+    (raw.rorders || []).forEach((o) => orderOuts(o, raw.settings).forEach((g) => {
+      const t = at(null, g.at); const tab = tabs.get(o.tabId) || {};
+      const by = {}; g.lines.forEach((l) => { const m = menu.get(l.menuId); (m && m.uses || []).forEach((u) => { if (num(u.qty) > 0) { const x = (by[u.productId] = by[u.productId] || { q: 0, what: [] }); x.q += num(u.qty) * num(l.qty); x.what.push(num(l.qty) + ' × ' + (l.name || m.name)); } }); });
+      Object.entries(by).forEach(([pid, x]) => push(Object.assign({}, t, { id: g.key + ':' + o.id + ':' + pid, type: g.key === 'hand' ? 'handed' : 'served', dir: -1, productId: pid, qty: Math.round(x.q * 10000) / 10000, unitCost: (C.prodX[pid] || {}).avgCost || 0, loc: g.loc || tab.locationId || 'main', by: g.by, ref: [o.tableLabel ? (o.tableLabel === 'Counter' ? 'Counter' : 'Table ' + o.tableLabel) : '', orderNoText(o) ? 'order ' + orderNoText(o) : ''].filter(Boolean).join(' · '), refId: o.id, notes: x.what.join(', '), bill: o.paid || tab.status === 'paid' ? 'paid' : tab.status === 'open' ? 'open' : '' })));
+    }));
     // corrections and losses
     (raw.adjustments || []).forEach((a) => {
       const l = lotById.get(a.lotId); if (!l || !num(a.qty)) return; const t = at(a.date, a.createdAt); const out = num(a.qty) < 0;
@@ -844,7 +844,8 @@
   /** Role list with the business's own edits (settings.roles) applied. Owner can never be restricted. */
   function rolesWith(custom) {
     const out = {}; Object.entries(ROLES).forEach(([k, r]) => (out[k] = { label: r.label, perms: r.perms.slice() }));
-    Object.entries(custom || {}).forEach(([k, r]) => { if (k === 'owner' || !r) return; out[k] = { label: r.label || (out[k] || {}).label || k, perms: Array.isArray(r.perms) ? r.perms.filter((p) => ALL.includes(p)) : (out[k] || { perms: [] }).perms, custom: !ROLES[k], v: r.v }; });
+    // (a role's stockCap stays in settings.roles: see stockCapOf)
+    Object.entries(custom || {}).forEach(([k, r]) => { if (k === 'owner' || !r) return; out[k] = { label: r.label || (out[k] || {}).label || k, perms: Array.isArray(r.perms) ? r.perms.filter((p) => ALL.includes(p)) : (out[k] || { perms: [] }).perms, custom: !ROLES[k], v: r.v, stockCap: r.stockCap }; });
     return out;
   }
   function permsFor(member, customRoles) {
@@ -1296,6 +1297,50 @@
     }
     return '';
   }
+  /* ================= STAFF CONTROL: clock in at the workplace, capped stock counts ================= */
+  /** metres between two {lat, lng} points */
+  function geoDistance(a, b) {
+    if (!a || !b) return Infinity; const R = 6371000, rad = (x) => num(x) * Math.PI / 180;
+    const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng); const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  const GEO_MIN_RADIUS = 10; // phone GPS is rarely better than ±5–15 m: a smaller circle would refuse people standing inside
+  /** the place a branch's staff must be to clock in: {lat, lng, radius} or null (anywhere) */
+  function clockPlace(S, locId) { const g = ((S && S.clockGeo) || {})[locId || 'main']; return g && isFinite(num(g.lat)) && isFinite(num(g.lng)) && (num(g.lat) || num(g.lng)) ? { lat: num(g.lat), lng: num(g.lng), radius: Math.max(GEO_MIN_RADIUS, num(g.radius) || 50), name: g.name || '' } : null; }
+  /** '' when this position may clock in at this branch, else the reason */
+  function clockWhere(S, locId, pos) {
+    const pl = clockPlace(S, locId); if (!pl) return '';
+    if (!pos || !isFinite(num(pos.lat)) || !isFinite(num(pos.lng)) || (!num(pos.lat) && !num(pos.lng))) return 'Turn on location so Aahsso can see you are at work';
+    const d = geoDistance(pl, pos); if (d <= pl.radius) return '';
+    return 'You are ' + (d >= 1000 ? (Math.round(d / 100) / 10) + ' km' : Math.round(d) + ' m') + ' from work. Clock in when you are there (within ' + pl.radius + ' m).';
+  }
+  /** must this person clock in before using the app? (everyone but the owner, when the business turns it on) */
+  const mustClock = (S, role) => !!(S && S.clockRequired) && role !== 'owner';
+  /** is this person working now (clocked in, not on a break) — from their attendance records */
+  function isClockedIn(raw, staffId, nowIso, S) {
+    const t = String(nowIso || new Date().toISOString()); const today = localDay(new Date(t)); const yest = addDays(today, -1);
+    for (const d of [today, yest]) { const a = (raw.attendance || []).find((x) => x.id === 'at_' + d + '_' + staffId); if (!a) continue; const st = dayState(a, t, S); if (d === today && st.state === 'in') return true; if (d === yest && st.state === 'in' && !st.open) return true; }
+    return false;
+  }
+  /** how much stock a role may see: null = everything, 0 = no numbers, n = at most n ("30+") */
+  function stockCapOf(S, role) {
+    if (!role || role === 'owner') return null; const r = ((S && S.roles) || {})[role]; const v = r && r.stockCap;
+    if (v === undefined || v === null || v === '' || v === 'all') return null; if (v === 'hide') return 0; return Math.max(1, Math.round(num(v)));
+  }
+  /** the number to show: 1,000 bottles with a cap of 30 → "30+" */
+  function stockShown(n, cap) { if (cap === null || cap === undefined) return null; if (cap === 0) return n > 0 ? 'In stock' : 'Sold out'; return n > cap ? cap + '+' : null; }
+  /** Bar & Resto: when an order's lines take their stock. With the bar hand-over on, drinks (bar lines) leave the shelf when the
+   *  barman hands them to the waiter; everything else when it is served. Returns [{lines, at, loc, by}] */
+  function orderOuts(o, S) {
+    const out = []; const hand = !!(S && S.barHandover);
+    const isBar = (l) => (l.station || 'kitchen') === 'bar';
+    const bar = (o.lines || []).filter(isBar), rest = (o.lines || []).filter((l) => !isBar(l));
+    if (hand && o.handedAt && bar.length) out.push({ key: 'hand', lines: bar, at: o.handedAt, loc: o.handedLoc || o.servedLoc, by: o.handedBy || '' });
+    if (o.status === 'served' && o.servedAt) { const ls = hand && o.handedAt ? rest : (o.lines || []); if (ls.length) out.push({ key: 'srv', lines: ls, at: o.servedAt, loc: o.servedLoc, by: o.servedBy || '' }); }
+    return out;
+  }
+  /** may a waiter mark this order served? With the hand-over on, drinks must first be handed out by the bar */
+  const serveBlocked = (o, S) => !!(S && S.barHandover) && (o.lines || []).some((l) => (l.station || 'kitchen') === 'bar') && !o.handedAt;
   /* ================= FINANCIALS: one cash ledger for every module =================
    * Every movement of money in or out of the business, in the base currency, from what is already recorded:
    * sale payments (and tips, refunds), supplier & stock payments (bills, with MoMo charges), expenses (salaries included),
@@ -1715,7 +1760,7 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, EQUITY_ROLES, LENDER_ROLES, CAPITAL_TYPES, CAPITAL_METHODS, loanSchedule, capitalSummary, openingTotals, capitalInterest, capitalCheck, CF_SECTIONS, CF_ROWS, cfRow, accountOf, cashLedger, openingCash, cfPeriods, cashFlow, cashPosition, isMobileMoney, momoNetwork, MOMO_USES, momoAccountsFor, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
+    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, EQUITY_ROLES, LENDER_ROLES, CAPITAL_TYPES, CAPITAL_METHODS, loanSchedule, capitalSummary, openingTotals, capitalInterest, capitalCheck, geoDistance, GEO_MIN_RADIUS, clockPlace, clockWhere, mustClock, isClockedIn, stockCapOf, stockShown, orderOuts, serveBlocked, CF_SECTIONS, CF_ROWS, cfRow, accountOf, cashLedger, openingCash, cfPeriods, cashFlow, cashPosition, isMobileMoney, momoNetwork, MOMO_USES, momoAccountsFor, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
     servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, recipeShort, takeawayOf, validateTakeaway, takeawayStage, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

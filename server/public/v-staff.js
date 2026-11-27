@@ -57,8 +57,25 @@ function clockCard(compact) {
     '<div class="grow"><div class="b">' + title + (st.late ? ' <span class="badge warn">Late ' + dur(st.lateMin) + '</span>' : '') + '</div><div class="small muted">' + line + '</div></div>' +
     '<div class="clock-btns">' + KC.clockNext(st.state).map((t) => { const [cls, l, i] = CLOCK_BTN[t]; return '<button class="btn ' + cls + '" data-a="clock" data-t="' + t + '">' + ic(i) + l + '</button>'; }).join('') + '</div></div>';
 }
+/** where this phone is now: {lat, lng, acc} or an error message */
+function herePos() {
+  return new Promise((res) => {
+    if (!navigator.geolocation) return res('This phone cannot share its location');
+    navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy || 0) }),
+      (e) => res(e && e.code === 1 ? 'Allow location for Aahsso (browser settings) to clock in' : 'Could not find your location — go outside or near a window and try again'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  });
+}
+const myWorkLoc = () => (K.member && K.member.locationId) || K.loc || 'main';
 A.clock = async (el) => {
   const t = el.dataset.t; const sid = meStaffId();
+  let geo = null;
+  if (t === 'in' && KC.clockPlace(S(), myWorkLoc())) { // clock in only at work
+    el.disabled = true; const prev = el.innerHTML; el.innerHTML = 'Checking your location…';
+    const pos = await herePos(); el.disabled = false; el.innerHTML = prev;
+    if (typeof pos === 'string') return toast(pos, true);
+    const why = KC.clockWhere(S(), myWorkLoc(), pos); if (why) return toast(why + (pos.acc > 30 ? ' (location accurate to ±' + pos.acc + ' m)' : ''), true);
+    geo = Object.assign({}, pos, { dist: Math.round(KC.geoDistance(KC.clockPlace(S(), myWorkLoc()), pos)) });
+  }
   let day = myOpenDay();
   if (t === 'in' && day && day.date !== todayStr()) day = null; // a new day
   if (t === 'out' && can('payments')) {
@@ -66,12 +83,20 @@ A.clock = async (el) => {
     if (Math.abs(held.total) >= 1 && !byId('handovers', hoId(d0, K.me.id)) && !(await confirmBox('You still hold ' + F(held.total) + ' from today. Hand the till to a colleague, or close your day in Cash handover. Clock out anyway?', 'Clock out anyway'))) return;
   }
   const d = day ? day.date : todayStr();
-  const cur = day || { id: attId(d, sid), staffId: sid, userId: K.me.id, staffName: K.me.name || 'Me', date: d, locationId: K.loc, events: [] };
+  const cur = day || { id: attId(d, sid), staffId: sid, userId: K.me.id, staffName: K.me.name || 'Me', date: d, locationId: myWorkLoc(), events: [] };
   const at = nowIso();
-  if (await save('attendance', Object.assign({}, cur, { events: (cur.events || []).concat([{ t, at }]) }))) {
+  if (await save('attendance', Object.assign({}, cur, { events: (cur.events || []).concat([Object.assign({ t, at }, geo ? { geo } : {})]) }))) {
+    setTimeout(() => render(true), 50); // unlock (or lock) the app at once
     toast({ in: 'Clocked in at ', break: 'Break started at ', back: 'Back at work at ', out: 'Clocked out at ' }[t] + hm(at)); scheduleRender();
   }
 };
+/** the only screen for staff who must clock in first */
+function clockLockView() {
+  const pl = KC.clockPlace(S(), myWorkLoc()); const day = myOpenDay(); const st = KC.dayState(day, nowIso(), S());
+  return '<div class="lock-wrap"><div class="lock-card card"><div class="lock-ic">' + ic('clock') + '</div><h2>' + (st.state === 'break' ? 'You are on a break' : 'Hello ' + esc((K.me.name || '').split(' ')[0] || '') + ', clock in to start') + '</h2>' +
+    '<p class="muted">' + (st.state === 'break' ? 'Tap Back to work to use Aahsso again.' : 'Aahsso opens once you have clocked in' + (pl ? ' at <b>' + esc(locName(myWorkLoc())) + '</b> (within ' + pl.radius + ' m).' : '.')) + '</p>' + clockCard() +
+    '<div class="row wrap mt" style="justify-content:center"><button class="btn ghost" data-a="go" data-r="profile">' + ic('user', 'sm') + 'My profile</button><button class="btn ghost" data-a="logoutAsk">' + ic('logout', 'sm') + 'Log out</button></div></div></div>';
+}
 setInterval(() => { const c = document.getElementById('clockCard'); if (c && !K.sheets.length) c.outerHTML = clockCard(c.classList.contains('compact')); }, 60000);
 
 /* ================= ATTENDANCE ================= */

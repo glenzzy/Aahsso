@@ -241,7 +241,8 @@ function ticketCard(o) {
   if (o.away && can('serve') && ['accepted', 'ready'].includes(o.status)) {
     if (o.away.mode === 'delivery') acts.push((o.dlv && o.dlv.stage === 'out') ? '<button class="btn sm pri" data-a="dlDone" data-id="' + o.id + '">' + ic('check', 'sm') + 'Delivered</button>' : '<button class="btn sm' + (o.status === 'ready' ? ' pri' : '') + '" data-a="dlOut" data-id="' + o.id + '">' + ic('truck', 'sm') + 'Out for delivery</button>');
     else acts.push('<button class="btn sm' + (o.status === 'ready' ? ' pri' : '') + '" data-a="dlDone" data-id="' + o.id + '">' + ic('check', 'sm') + 'Picked up</button>');
-  } else if (['accepted', 'ready'].includes(o.status) && can('serve')) acts.push('<button class="btn sm pri" data-a="tkServed" data-id="' + o.id + '">' + ic('check', 'sm') + 'Served</button>');
+  } else if (['accepted', 'ready'].includes(o.status) && can('serve')) acts.push(KC.serveBlocked(o, S()) ? (can('kds') ? '<button class="btn sm pri" data-a="barHand" data-id="' + o.id + '">' + ic('glass', 'sm') + 'Hand out drinks</button>' : '<span class="tk-wait">' + ic('clock', 'sm') + 'Waiting for the bar</span>') : '<button class="btn sm pri" data-a="tkServed" data-id="' + o.id + '">' + ic('check', 'sm') + 'Served</button>');
+  if (o.handedAt && S().barHandover) acts.unshift('<span class="tk-hand">' + ic('glass', 'sm') + 'Drinks handed by ' + esc(o.handedBy || 'the bar') + ' · ' + new Date(o.handedAt).toTimeString().slice(0, 5) + '</span>');
   return '<div class="card tk' + (late ? ' tk-late' : '') + (orderPay(o) === 'unpaid' ? ' tk-unpaid' : '') + '"><div class="row between"><div><b>' + esc(o.tableLabel || 'Counter') + '</b> <span class="faint small tk-no">' + esc(tkNo(o)) + (o.customerName && !o.away ? ' · ' + esc(o.customerName) : '') + (o.source === 'qr' ? ' · QR' : '') + '</span></div><div class="row gap6">' + badge + '<span class="small ' + (late ? 'bad-t' : 'faint') + '">' + rAgo(o.createdAt) + '</span></div></div>' +
     (o.away ? awayInfo(o) : '') +
     '<div class="tk-lines">' + (o.lines || []).filter((l) => l.menuId !== '_delivery').map((l) => '<div><b>' + fmt(l.qty) + '×</b> ' + esc(l.name) + (l.note ? ' <span class="faint">— ' + esc(l.note) + '</span>' : '') + (stations().length > 1 ? ' <span class="tk-st">' + esc(STATION[l.station] || '') + '</span>' : '') + '</div>').join('') + (o.note ? '<div class="faint small">' + esc(o.note) + '</div>' : '') + (o.rejectReason ? '<div class="small bad-t">' + esc(o.rejectReason) + '</div>' : '') + '</div>' +
@@ -265,7 +266,7 @@ A.dlOut = (el) => {
     await setOrder(o, Object.assign({ dlv: { stage: 'out', rider, at: now } }, o.status === 'accepted' ? { status: 'ready', readyAt: now } : {})); closeSheet(); toast((o.customerName || 'The order') + ' is on the way'); };
 };
 A.dlDone = async (el) => {
-  const o = rOrder(el.dataset.id); if (!o) return; const now = new Date().toISOString();
+  const o = rOrder(el.dataset.id); if (!o) return; if (KC.serveBlocked(o, S())) return toast('The bar must hand out the drinks first', true); const now = new Date().toISOString();
   await setOrder(o, { status: 'served', servedLoc: K.loc || 'main', servedAt: now, servedBy: K.me.name || '', servedById: K.me.id, dlv: Object.assign({}, o.dlv || {}, { stage: o.away && o.away.mode === 'pickup' ? 'picked' : 'delivered', doneAt: now }) });
   toast(o.away && o.away.mode === 'pickup' ? 'Picked up — take the payment if not done' : 'Delivered — take the payment if not done');
 };
@@ -284,7 +285,7 @@ A.tkReject = async (el) => {
   $('#rjGo', sh).onclick = async () => { const v = formVals(sh); await setOrder(o, { status: 'rejected', rejectReason: [v.why, v.whyMore].filter(Boolean).join(' — '), rejectedBy: K.me.name || '', rejectedAt: new Date().toISOString() }); closeSheet(); };
 };
 A.tkReady = async (el) => { const o = rOrder(el.dataset.id); if (o) await setOrder(o, { status: 'ready', readyAt: new Date().toISOString() }); };
-A.tkServed = async (el) => { const o = rOrder(el.dataset.id); if (o) await setOrder(o, { status: 'served', servedLoc: K.loc || 'main', servedAt: new Date().toISOString(), servedBy: K.me.name || '', servedById: K.me.id, waiterId: o.waiterId || K.me.id }); };
+A.tkServed = async (el) => { const o = rOrder(el.dataset.id); if (o && KC.serveBlocked(o, S())) return toast('The bar must hand out the drinks first', true); if (o) await setOrder(o, { status: 'served', servedLoc: K.loc || 'main', servedAt: new Date().toISOString(), servedBy: K.me.name || '', servedById: K.me.id, waiterId: o.waiterId || K.me.id }); };
 
 /* ================= ORDERS (tickets) ================= */
 VIEWS.tickets = {
@@ -319,10 +320,19 @@ function stationScreen(st) {
     return head +
       (live.length ? '<div class="kds">' + live.map((o) => { const s = (o.st || {})[st] || {}; const m = mins(o.acceptedAt || o.createdAt); return '<div class="kd' + (m >= lateMins() ? ' late' : s.s === 'started' ? ' go' : '') + '"><div class="kd-h"><b>' + esc(o.tableLabel || 'Counter') + ' <span class="kd-no">' + esc(tkNo(o, st)) + '</span></b><span>' + m + ' min</span></div><div class="kd-l">' +
         (o.lines || []).filter((l) => (l.station || 'kitchen') === st).map((l) => '<div><b>' + fmt(l.qty) + '</b> ' + esc(l.name) + (l.note ? '<i>' + esc(l.note) + '</i>' : '') + '</div>').join('') + '</div>' +
-        '<div class="kd-a">' + (s.s !== 'started' ? '<button class="btn" data-a="kdsGo" data-id="' + o.id + '" data-s="' + st + '" data-v="started">Start</button>' : '') + '<button class="btn pri" data-a="kdsGo" data-id="' + o.id + '" data-s="' + st + '" data-v="ready">' + ic('check') + 'Ready</button></div></div>'; }).join('') + '</div>'
+        '<div class="kd-a">' + (s.s !== 'started' ? '<button class="btn" data-a="kdsGo" data-id="' + o.id + '" data-s="' + st + '" data-v="started">Start</button>' : '') + (st === 'bar' && S().barHandover ? '<button class="btn pri" data-a="barHand" data-id="' + o.id + '">' + ic('check') + 'Handed to ' + esc(personName(o.waiterId) || 'waiter') + '</button>' : '<button class="btn pri" data-a="kdsGo" data-id="' + o.id + '" data-s="' + st + '" data-v="ready">' + ic('check') + 'Ready</button>') + '</div></div>'; }).join('') + '</div>'
         : '<div class="card empty"><div class="big">' + (st === 'bar' ? '🍸' : '👨‍🍳') + '</div>' + (st === 'bar' ? 'No drinks to prepare.' : 'Nothing to cook right now.') + '</div>') +
       (done.length ? '<h3 class="mt2 mb">Ready</h3><div class="card list">' + done.map((o) => '<div class="li" style="cursor:default"><div class="grow">' + esc(o.tableLabel || 'Counter') + ' <span class="faint">' + esc(tkNo(o, st)) + '</span></div><span class="hint">' + rAgo(o.st[st].at) + ' ago</span></div>').join('') + '</div>' : '');
 }
+/** the barman hands the drinks to the waiter: from now they are out of stock, under the waiter's name */
+A.barHand = async (el) => {
+  const o = rOrder(el.dataset.id); if (!o || o.handedAt) return; const now = new Date().toISOString();
+  const st = Object.assign({}, o.st || {}, { bar: { s: 'ready', at: now, by: K.me.name || '' } });
+  const need = [...new Set((o.lines || []).filter((l) => l.station !== 'none').map((l) => l.station || 'kitchen'))]; const all = need.every((x) => st[x] && st[x].s === 'ready');
+  const to = o.waiterId || ''; const toName = personName(to) || '';
+  await setOrder(o, Object.assign({ st, handedAt: now, handedBy: K.me.name || '', handedById: K.me.id, handedTo: to, handedToName: toName, handedLoc: K.loc || 'main' }, all ? { status: 'ready', readyAt: now } : {}));
+  toast('Drinks handed' + (toName ? ' to ' + toName : '') + ' — out of stock');
+};
 A.kdsGo = async (el) => {
   const o = rOrder(el.dataset.id); if (!o) return; const k = el.dataset.s; const now = new Date().toISOString();
   const st = Object.assign({}, o.st || {}, { [k]: { s: el.dataset.v, at: now, by: K.me.name || '' } });
@@ -807,6 +817,7 @@ A.venueSettings = () => {
     field('Time zone', (() => { const cur = s.timezone || 'Africa/Douala'; let all = []; try { all = Intl.supportedValuesOf('timeZone'); } catch (e) { } if (!all.length) all = ['Africa/Douala', 'Africa/Lagos', 'Africa/Abidjan', 'Africa/Accra', 'Africa/Kinshasa', 'Africa/Nairobi', 'Africa/Johannesburg', 'Europe/Paris', 'Europe/London', 'America/New_York'];
       if (!all.includes(cur)) all = [cur].concat(all); return sel('timezone', all.map((z) => [z, z.replace(/_/g, ' ')]), cur); })() + '<div class="tiny muted">Reservations, “late” and today\'s times follow this clock. Cameroon: Africa/Douala.</div>') +
     field('An order is late after (minutes)', inp('lateMins', s.lateMins || 15, 'inputmode="numeric"')) +
+    (stations().includes('bar') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="barHandover"' + (s.barHandover ? ' checked' : '') + '><b>The bar hands out the drinks</b></label><div class="hint">Drinks leave the stock only when the barman taps <b>Handed to waiter</b> on the bar screen, and waiters cannot mark an order served before. Leave it off in a small bar where the waiter also serves the drinks.</div></div>' : '') +
     (has('payFirst') ? '<label class="toggle"><input type="checkbox" name="payFirst"' + (s.payFirst ? ' checked' : '') + '>Pay-first counter (order and pay at the counter)</label>' : '') +
     (has('tabsPlus') ? field('Service charge (%)', inp('serviceCharge', s.serviceCharge || '', 'inputmode="decimal" placeholder="0 = none"')) : '') +
     (has('happyHour') ? '<div class="card pad"><label class="toggle"><input type="checkbox" name="hhOn"' + (hh.on ? ' checked' : '') + '><b>Happy hour</b></label><div class="grid3 mt">' + field('From', inp('hhFrom', hh.from, 'type="time"')) + field('To', inp('hhTo', hh.to, 'type="time"')) + field('Discount %', inp('hhPct', hh.pct, 'inputmode="numeric"')) + '</div><div class="row wrap mt">' + D.map((d, i) => '<label class="check"><input type="checkbox" name="hhd' + i + '"' + (!(hh.days || []).length || hh.days.includes(i) ? ' checked' : '') + '> ' + d + '</label>').join('') + '</div>' + field('Only these categories (empty = all)', inp('hhCats', (hh.cats || []).join(', '), 'placeholder="e.g. Beers, Cocktails"')) + '</div>' : '') +
@@ -820,6 +831,7 @@ A.venueSettings = () => {
   $('#vsGo', sh).onclick = async () => {
     const v = formVals(sh); if (planVenueLock() || !v.venueType) v.venueType = venue(); const patch = { venueType: v.venueType, qrOn: !!v.qrOn, lateMins: Math.max(1, num(v.lateMins) || 15), timezone: v.timezone || s.timezone || 'Africa/Douala' }; if (has('qrOrders')) patch.pickTable = !!v.pickTable;
     if (has('payFirst')) patch.payFirst = !!v.payFirst;
+    if (stations().includes('bar')) patch.barHandover = !!v.barHandover;
     if (has('tabsPlus')) patch.serviceCharge = Math.max(0, Math.min(30, num(v.serviceCharge)));
     if (has('happyHour')) { const days = D.map((_, i) => i).filter((i) => v['hhd' + i]); patch.happyHour = { on: !!v.hhOn, from: v.hhFrom || '17:00', to: v.hhTo || '19:00', pct: Math.max(0, Math.min(90, num(v.hhPct))), days: days.length === 7 ? [] : days, cats: String(v.hhCats || '').split(',').map((x) => x.trim()).filter(Boolean) }; }
     if (has('qrOrders')) patch.takeaway = { on: !!v.twOn, delivery: !!v.twDel, pickup: !!v.twPick, fee: Math.max(0, Math.round(num(v.twFee))), minOrder: Math.max(0, Math.round(num(v.twMin))), prepMins: Math.max(5, Math.round(num(v.twPrep) || 30)), zones: String(v.twZones || '').slice(0, 2000) };
