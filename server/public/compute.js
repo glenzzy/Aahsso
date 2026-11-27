@@ -330,6 +330,7 @@
     ['suppliers', 'Suppliers & bills', 'Money', 'Suppliers and bills to pay'],
     ['reports', 'Reports', 'Money', 'Sales, profit and stock reports'],
     ['assets', 'Assets', 'Money', 'Equipment and vehicles the business owns'],
+    ['capital', 'Capital & loans', 'Money', 'Owners, investors and their shares, loans and starting capital'],
     ['attendance', 'Attendance', 'Staff', 'Clock in/out, breaks, lateness'],
     ['leave', 'Leave', 'Staff', 'Vacation requests and balances'],
     ['payroll', 'Payroll', 'Staff', 'Payslips, advances and salary payments'],
@@ -381,24 +382,24 @@
   const anyOn = (features, keys) => keys.some((k) => featureOn(features, k));
   // which feature each permission belongs to (a permission of a feature that is off is never granted)
   const PERM_FEATURE = { purchases: ['buy'], containers: ['ship', 'receive'], transfers: ['transfers'], audit: ['stockCount'], credit: ['credit'], reminders: ['reminders'],
-    expenses: ['expenses'], handover: ['cashHandover'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'], payroll: ['payroll'], hr: ['attendance', 'leave', 'payroll'],
+    expenses: ['expenses'], handover: ['cashHandover'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'], capital: ['capital'], payroll: ['payroll'], hr: ['attendance', 'leave', 'payroll'],
     activity: ['activity'], export: ['excel'], allLocations: ['branches'], sell: ['sell'], payments: ['sell'], returns: ['sell'], cancel: ['sell'], discount: ['sell'],
     customers: ['customers'], orders: ['onlineShop'], promos: ['promos'],
     tables: ['tables'], menu: ['tables', 'payFirst', 'qrOrders'], serve: ['tables', 'payFirst', 'qrOrders'], bills: ['tables', 'payFirst'], kds: ['kds'], reservations: ['reservations'] };
   const permFeatureOn = (features, perm) => !PERM_FEATURE[perm] || anyOn(features, PERM_FEATURE[perm]);
   // which feature each page (route) belongs to
   const ROUTE_FEATURE = { buy: ['buy'], ship: ['ship'], receive: ['receive'], sales: ['sell'], sell: ['sell'], orders: ['onlineShop'], customers: ['customers'], reminders: ['reminders'],
-    promos: ['promos'], audit: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], cash: ['cashHandover', 'tills'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'],
+    promos: ['promos'], audit: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], cash: ['cashHandover', 'tills'], suppliers: ['suppliers'], reports: ['reports'], assets: ['assets'], capital: ['capital'],
     staff: ['attendance'], leave: ['leave'], payroll: ['payroll'], employees: ['attendance', 'leave', 'payroll'], activity: ['activity'],
     floor: ['tables'], kds: ['kds'], barscreen: ['kds'], bookings: ['reservations'], menu: ['tables', 'payFirst', 'qrOrders'], tickets: ['tables', 'payFirst', 'qrOrders'] };
   const routeFeatureOn = (features, route) => !ROUTE_FEATURE[route] || anyOn(features, ROUTE_FEATURE[route]);
   // which feature each kind of record belongs to (writes are refused when all of them are off)
   const COLLECTION_FEATURE = { lots: ['buy', 'ship', 'receive'], shipments: ['ship', 'receive'], sales: ['sell'], customers: ['customers'], orders: ['onlineShop'], promos: ['promos'],
-    audits: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], handovers: ['cashHandover'], tills: ['tills'], suppliers: ['suppliers'], bills: ['suppliers'], assets: ['assets'],
+    audits: ['stockCount'], transfers: ['transfers'], expenses: ['expenses'], handovers: ['cashHandover'], tills: ['tills'], suppliers: ['suppliers'], bills: ['suppliers'], assets: ['assets'], funders: ['capital'], loans: ['capital'], capital: ['capital'],
     attendance: ['attendance'], leaves: ['leave'], payroll: ['payroll'], staff: ['attendance', 'leave', 'payroll'], reminders: ['reminders'],
     tables: ['tables'], areas: ['tables'], reservations: ['reservations'], menu: ['tables', 'payFirst', 'qrOrders'], tabs: ['tables', 'payFirst', 'qrOrders'], rorders: ['tables', 'payFirst', 'qrOrders'] };
   // records hidden entirely when their feature is off (the core ones — items, stock, sales — are still needed to compute stock)
-  const HIDDEN_WHEN_OFF = ['orders', 'promos', 'audits', 'transfers', 'expenses', 'handovers', 'tills', 'suppliers', 'bills', 'assets', 'attendance', 'leaves', 'payroll', 'staff', 'reminders', 'reservations'];
+  const HIDDEN_WHEN_OFF = ['orders', 'promos', 'audits', 'transfers', 'expenses', 'handovers', 'tills', 'suppliers', 'bills', 'assets', 'funders', 'loans', 'capital', 'attendance', 'leaves', 'payroll', 'staff', 'reminders', 'reservations'];
   /** permissions after the plan: a permission whose feature is off is false */
   function permsWithFeatures(perms, features) { const out = Object.assign({}, perms); Object.keys(out).forEach((p) => { if (out[p] && !permFeatureOn(features, p)) out[p] = false; }); return out; }
 
@@ -822,7 +823,7 @@
     ['customers', 'Add & edit customers', 'Sales'], ['credit', 'Sell beyond a customer\'s credit limit', 'Sales'], ['reminders', 'Send payment reminders to customers', 'Sales'],
     ['stockView', 'See stock list', 'Stock'], ['stockEdit', 'Adjust stock, set prices, photos & labels', 'Stock'],
     ['purchases', 'Record purchases', 'Stock'], ['containers', 'Containers & shipping costs', 'Stock'], ['transfers', 'Move stock between branches', 'Stock'], ['audit', 'Do stock counts (inventory audit)', 'Stock'], ['lossReport', 'Report losses (theft, damage, pests…)', 'Stock'], ['allLocations', 'Work at all locations (off = only their own)', 'Stock'],
-    ['costs', 'See costs, margins & profit', 'Money'], ['reports', 'See reports & analytics', 'Money'], ['expenses', 'Record expenses', 'Money'], ['handover', 'Confirm staff cash handovers', 'Money'], ['payroll', 'Payroll: salaries, advances & payslips', 'Money'], ['suppliers', 'Suppliers & bills to pay', 'Money'], ['assets', 'Business assets (equipment, vehicles…)', 'Money'],
+    ['costs', 'See costs, margins & profit', 'Money'], ['reports', 'See reports & analytics', 'Money'], ['expenses', 'Record expenses', 'Money'], ['handover', 'Confirm staff cash handovers', 'Money'], ['payroll', 'Payroll: salaries, advances & payslips', 'Money'], ['suppliers', 'Suppliers & bills to pay', 'Money'], ['assets', 'Business assets (equipment, vehicles…)', 'Money'], ['capital', 'Capital, owners\' shares & loans', 'Money'],
     ['tables', 'Set up areas, tables & QR codes', 'Bar & Resto'], ['menu', 'Edit the menu & mark items sold out', 'Bar & Resto'], ['serve', 'Take & serve table orders', 'Bar & Resto'],
     ['bills', 'Close table bills & take payment', 'Bar & Resto'], ['kds', 'Use the kitchen / bar screen', 'Bar & Resto'], ['reservations', 'Manage reservations', 'Bar & Resto'],
     ['approve', 'Approve risky actions for others on the spot (with a PIN)', 'Admin'], ['export', 'Download Excel & backups', 'Admin'], ['activity', 'See the activity log (who did what)', 'Admin'], ['settings', 'Change business settings', 'Admin'], ['team', 'Manage team & permissions', 'Admin'], ['hr', 'Staff: attendance, leave approval & employee files', 'Admin'],
@@ -831,7 +832,7 @@
   const ROLES = {
     owner: { label: 'Owner', perms: ALL },
     admin: { label: 'Admin', perms: ALL },
-    manager: { label: 'Manager', perms: ALL.filter((p) => !['team', 'settings', 'payroll'].includes(p)) },
+    manager: { label: 'Manager', perms: ALL.filter((p) => !['team', 'settings', 'payroll', 'capital'].includes(p)) },
     sales: { label: 'Sales rep', perms: ['sell', 'payments', 'returns', 'customers', 'stockView', 'orders', 'lossReport'] },
     viewer: { label: 'Viewer (read only)', perms: ['stockView', 'reports', 'salesAll', 'allLocations'] },
     // Bar & Resto
@@ -1177,7 +1178,125 @@
 
 
   /* ---------------- activity log: plain-language description of any change ---------------- */
-  const ACT_TYPES = { sales: 'Sales', payments: 'Payments', lots: 'Purchases', products: 'Items & prices', shipments: 'Containers', adjustments: 'Stock & losses', losses: 'Stock & losses', claims: 'Returns & claims', transfers: 'Transfers', audits: 'Stock counts', customers: 'Customers', handovers: 'Cash handover', bills: 'Suppliers & bills', suppliers: 'Suppliers & bills', expenses: 'Expenses', settings: 'Settings & team', members: 'Settings & team', locations: 'Settings & team', reminders: 'Reminders', assets: 'Assets', staff: 'Staff', attendance: 'Attendance', leaves: 'Leave', payroll: 'Payroll', tills: 'Cash handover' };
+  /* ================= CAPITAL: owners & investors, lenders & loans, starting capital =================
+   * funders  {name, kind:'equity'|'debt', role, stakePct (equity only), phone, note}
+   * loans    {funderId, name, principal, ratePct (a year), termMonths, startDate, firstDue, opening, status, note}
+   * capital  entries {type, date, funderId, loanId, amount, interest (repayment), method, ref, note, opening,
+   *                   stakePct + toFunderId + price (share transfer)}
+   *          and the starting position, id 'opening': {type:'opening', date, cash, banks:[{name,amount}], wallets:[{name,amount}], stock, equipment}
+   * Money put in and loans received are not sales; money taken out and loan principal are not expenses;
+   * loan interest is an expense (Profit & loss). A share transfer moves stake between owners, no money for the business. */
+  const EQUITY_ROLES = ['Owner', 'Partner', 'Co-owner', 'Investor'];
+  const LENDER_ROLES = ['Bank', 'Microfinance', 'Njangi / tontine', 'Family or friend', 'Supplier credit', 'Other lender'];
+  const CAPITAL_TYPES = { injection: 'Money put in', drawing: 'Money taken out', loan: 'Loan received', repayment: 'Loan repayment', transfer: 'Share transfer' };
+  const CAPITAL_METHODS = ['Cash', 'MTN MoMo', 'Orange Money', 'Bank'];
+  const addMonthsStr = (ds, k) => { const [y, m, d] = String(ds || '').slice(0, 10).split('-').map(Number); if (!y) return ''; const t = new Date(y, m - 1 + k, 1); const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate(); return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(Math.min(d || 1, last)).padStart(2, '0'); };
+  /** equal monthly payments (no interest: equal principal); rows {n, due, principal, interest, total, balance} */
+  function loanSchedule(l) {
+    const P = Math.max(0, num(l && l.principal)), n = Math.max(1, Math.min(600, Math.round(num(l && l.termMonths)) || 12)), r = Math.max(0, num(l && l.ratePct)) / 100 / 12;
+    const emi = !P ? 0 : r ? P * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1) : P / n;
+    const first = (l && l.firstDue) || addMonthsStr((l && l.startDate) || '', 1);
+    let bal = P, ti = 0; const rows = [];
+    for (let i = 1; i <= n && P; i++) {
+      const it = bal * r; let pr = i === n ? bal : Math.min(bal, emi - it); bal = Math.max(0, bal - pr); ti += it;
+      rows.push({ n: i, due: first ? addMonthsStr(first, i - 1) : '', principal: Math.round(pr), interest: Math.round(it), total: Math.round(pr + it), balance: Math.round(bal) });
+    }
+    return { emi: Math.round(emi), rows, totalInterest: Math.round(ti), endDate: rows.length ? rows[rows.length - 1].due : '' };
+  }
+  const isCapEntry = (e) => !!(e && CAPITAL_TYPES[e.type] && !e.deleted);
+  /** everything about the capital: per owner, per loan, totals, money in / out over a period (opts.from / opts.to, dates 'YYYY-MM-DD') */
+  function capitalSummary(raw, opts) {
+    opts = opts || {}; const to = opts.to || '9999-12-31', from = opts.from || '';
+    const funders = (raw.funders || []).filter((f) => f && !f.deleted), loans = (raw.loans || []).filter((l) => l && !l.deleted);
+    const all = (raw.capital || []).filter(isCapEntry).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.at || '').localeCompare(String(b.at || '')));
+    const fu = {}, lo = {};
+    funders.forEach((f) => { fu[f.id] = { f, kind: f.kind === 'debt' ? 'debt' : 'equity', stake: Math.max(0, num(f.stakePct)), putIn: 0, takenOut: 0, balance: 0, opening: 0, inPeriod: 0, outPeriod: 0, debt: 0, entries: [] }; });
+    loans.forEach((l) => { lo[l.id] = { l, principal: Math.max(0, num(l.principal)), paid: 0, interestPaid: 0, outstanding: 0, entries: [] }; });
+    const flows = { putIn: 0, loansIn: 0, takenOut: 0, principalPaid: 0, interestPaid: 0 };
+    all.forEach((e) => {
+      if (String(e.date || '') > to) return;
+      const a = Math.max(0, num(e.amount)), x = fu[e.funderId], y = lo[e.loanId], inP = String(e.date || '') >= from;
+      if (x) x.entries.push(e); if (y) y.entries.push(e);
+      if (e.type === 'injection') { if (x) { x.putIn += a; if (inP) x.inPeriod += a; else x.opening += a; } if (inP && !e.opening) flows.putIn += a; }
+      if (e.type === 'drawing') { if (x) { x.takenOut += a; if (inP) x.outPeriod += a; else x.opening -= a; } if (inP) flows.takenOut += a; }
+      if (e.type === 'loan' && inP && !e.opening) flows.loansIn += a;
+      if (e.type === 'repayment') { const it = Math.min(a, Math.max(0, num(e.interest))); if (y) { y.paid += a - it; y.interestPaid += it; } if (inP) { flows.principalPaid += a - it; flows.interestPaid += it; } }
+    });
+    let equity = 0, debt = 0, stakeTotal = 0, owners = 0;
+    Object.values(fu).forEach((x) => { x.balance = x.putIn - x.takenOut; x.closing = x.balance; if (x.kind === 'equity') { equity += x.balance; stakeTotal += x.stake; owners++; } });
+    Object.values(lo).forEach((y) => {
+      y.outstanding = Math.max(0, y.principal - y.paid); y.sched = loanSchedule(y.l); y.repaid = y.principal > 0 && y.outstanding < 1;
+      let cum = 0; y.next = null; for (const r of y.sched.rows) { cum += r.principal; if (cum > y.paid + 1) { y.next = r; break; } }
+      y.paidRows = y.sched.rows.filter((r, i) => y.sched.rows.slice(0, i + 1).reduce((s, q) => s + q.principal, 0) <= y.paid + 1).length;
+      y.late = !!(y.next && y.next.due && y.next.due < (opts.today || to.slice(0, 10)) && !y.repaid);
+      debt += y.outstanding; if (fu[y.l.funderId]) fu[y.l.funderId].debt += y.outstanding;
+    });
+    const total = equity + debt;
+    const op = (raw.capital || []).find((e) => e && e.id === 'opening' && e.type === 'opening' && !e.deleted) || null;
+    return { funders: fu, loans: lo, equity, debt, total, de: equity > 0 ? debt / equity : null, equityPct: total > 0 ? equity / total * 100 : 0, debtPct: total > 0 ? debt / total * 100 : 0,
+      stakeTotal, owners, flows, opening: op, start: op ? openingTotals(op, raw) : null };
+  }
+  /** the starting position: what the business had, what it owed on loans, what the owners put in, and the profit (or loss) made before */
+  function openingTotals(op, raw) {
+    const sum = (rows) => (rows || []).reduce((s, r) => s + Math.max(0, num(r && r.amount)), 0);
+    const money = Math.max(0, num(op.cash)) + sum(op.banks) + sum(op.wallets);
+    const has = money + Math.max(0, num(op.stock)) + Math.max(0, num(op.equipment));
+    const loans = (raw.loans || []).filter((l) => l && l.opening && !l.deleted).reduce((s, l) => s + Math.max(0, num(l.principal)), 0);
+    const capital = (raw.capital || []).filter((e) => isCapEntry(e) && e.opening && e.type === 'injection').reduce((s, e) => s + Math.max(0, num(e.amount)), 0);
+    return { money, has, loans, capital, earlier: has - loans - capital };
+  }
+  /** loan interest paid in a period: an expense in Profit & loss */
+  const capitalInterest = (raw, from, to) => (raw.capital || []).filter((e) => isCapEntry(e) && e.type === 'repayment' && String(e.date || '') >= from && String(e.date || '') <= to).reduce((s, e) => s + Math.min(Math.max(0, num(e.amount)), Math.max(0, num(e.interest))), 0);
+  /** checks for one record before it is saved (the app and the server); others = {funders, loans, capital} already saved */
+  function capitalCheck(col, d, others) {
+    others = others || {}; if (!d || typeof d !== 'object') return 'Missing data';
+    const bad = (x) => !isFinite(num(x)) || num(x) < 0;
+    if (col === 'funders') {
+      if (d.deleted) return '';
+      if (!String(d.name || '').trim()) return 'Enter a name';
+      if (d.kind !== 'equity' && d.kind !== 'debt') return 'Choose owner / investor or lender';
+      if (d.kind === 'equity') {
+        if (bad(d.stakePct) || num(d.stakePct) > 100) return 'The share must be between 0 and 100%';
+        const rest = (others.funders || []).filter((f) => f && f.id !== d.id && f.kind === 'equity' && !f.deleted).reduce((s, f) => s + Math.max(0, num(f.stakePct)), 0);
+        if (rest + num(d.stakePct) > 100.001) return 'The shares cannot add up to more than 100%. Already given: ' + Math.round(rest * 100) / 100 + '%, left: ' + Math.max(0, Math.round((100 - rest) * 100) / 100) + '%';
+      }
+      return '';
+    }
+    if (col === 'loans') {
+      if (d.deleted) return '';
+      if (!(num(d.principal) > 0)) return 'Enter the loan amount';
+      if (bad(d.ratePct) || num(d.ratePct) > 100) return 'The interest rate must be between 0 and 100% a year';
+      if (!(num(d.termMonths) >= 1 && num(d.termMonths) <= 600)) return 'The length must be between 1 and 600 months';
+      if (!d.funderId) return 'Choose the lender';
+      return '';
+    }
+    if (col === 'capital') {
+      if (d.deleted) return '';
+      if (d.type === 'opening') {
+        if (bad(d.cash) || bad(d.stock) || bad(d.equipment) || [].concat(d.banks || [], d.wallets || []).some((r) => !r || bad(r.amount))) return 'Amounts cannot be negative';
+        return '';
+      }
+      if (!CAPITAL_TYPES[d.type]) return 'Unknown kind of entry';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d.date || ''))) return 'Enter the date';
+      if (d.type === 'transfer') {
+        if (!d.funderId || !d.toFunderId || d.funderId === d.toFunderId) return 'Choose who gives and who receives the share';
+        if (!(num(d.stakePct) > 0) || num(d.stakePct) > 100) return 'Enter the share to transfer (%)';
+        return '';
+      }
+      if (!(num(d.amount) > 0)) return 'Enter the amount';
+      if ((d.type === 'injection' || d.type === 'drawing') && !d.funderId) return 'Choose the owner or investor';
+      if ((d.type === 'loan' || d.type === 'repayment') && !d.loanId) return 'Choose the loan';
+      if (d.type === 'repayment') {
+        if (bad(d.interest) || num(d.interest) > num(d.amount)) return 'The interest part cannot be more than the amount paid';
+        const l = (others.loans || []).find((x) => x && x.id === d.loanId);
+        if (l) { const paid = (others.capital || []).filter((e) => isCapEntry(e) && e.type === 'repayment' && e.loanId === d.loanId && e.id !== d.id).reduce((s, e) => s + Math.max(0, num(e.amount)) - Math.min(Math.max(0, num(e.amount)), Math.max(0, num(e.interest))), 0);
+          const left = Math.max(0, num(l.principal) - paid); if (num(d.amount) - num(d.interest) > left + 1) return 'This pays back more than is still owed on the loan (' + Math.round(left) + ' left)'; }
+      }
+      return '';
+    }
+    return '';
+  }
+  const ACT_TYPES = { sales: 'Sales', payments: 'Payments', lots: 'Purchases', products: 'Items & prices', shipments: 'Containers', adjustments: 'Stock & losses', losses: 'Stock & losses', claims: 'Returns & claims', transfers: 'Transfers', audits: 'Stock counts', customers: 'Customers', handovers: 'Cash handover', bills: 'Suppliers & bills', suppliers: 'Suppliers & bills', expenses: 'Expenses', settings: 'Settings & team', members: 'Settings & team', locations: 'Settings & team', reminders: 'Reminders', assets: 'Assets', funders: 'Capital & loans', loans: 'Capital & loans', capital: 'Capital & loans', staff: 'Staff', attendance: 'Attendance', leaves: 'Leave', payroll: 'Payroll', tills: 'Cash handover' };
   /** L = lookups {product(id), customer(id), loc(id), ship(id), F(amount), money(v,cur)} → [{type, text, reason, amount, ref}] (one change can produce several lines) */
   function describeChange(col, b, a, L) {
     const out = []; const type = ACT_TYPES[col] || col; const push = (text, extra) => out.push(Object.assign({ type, text }, extra || {}));
@@ -1266,6 +1385,12 @@
     if (col === 'locations') { const d = a || b; push((b ? 'Edited' : 'Added') + ' branch ' + d.name + (a && a.archived ? ' (archived)' : '')); return out; }
     if (col === 'suppliers') { const d = a || b; if (!b) push('New supplier ' + d.name); return out; }
     if (col === 'reminders') { const d = a || b; if (!b) push('Sent payment reminder to ' + L.customer(d.customerId) + ' by ' + (d.channel || '') + ' — owes ' + F(n(d.balance)) + (d.status === 'failed' ? ' (FAILED: ' + d.error + ')' : '')); return out; }
+    if (col === 'funders') { const d = a || b; const what = d.kind === 'debt' ? 'lender' : (d.role || 'owner').toLowerCase(); if (!b) push('Added ' + what + ' ' + d.name + (d.kind === 'equity' && num(d.stakePct) ? ' (' + num(d.stakePct) + '%)' : '')); else if (!a || a.deleted) push('Removed ' + what + ' ' + b.name); else push(d.name + ': ' + (num(b.stakePct) !== num(a.stakePct) ? 'share ' + num(b.stakePct) + '% → ' + num(a.stakePct) + '%' : 'details edited')); return out; }
+    if (col === 'loans') { const d = a || b; if (!b) push('Loan ' + (d.name || '') + ' from ' + (L.funder ? L.funder(d.funderId) : 'lender') + ': ' + F(n(d.principal)) + ' at ' + n(d.ratePct) + '% over ' + n(d.termMonths) + ' months' + (d.opening ? ' (starting position)' : '')); else if (!a || a.deleted) push('Removed loan ' + (b.name || '')); else push('Loan ' + (d.name || '') + ' edited'); return out; }
+    if (col === 'capital') { const d = a || b; const who = L.funder ? L.funder(d.funderId) : '';
+      if (d.type === 'opening') { push((b ? 'Changed' : 'Set') + ' the starting capital position'); return out; }
+      const t = CAPITAL_TYPES[d.type] || 'Capital entry'; const verb = !b ? '' : (!a || a.deleted) ? 'Deleted: ' : 'Edited: ';
+      push(verb + (d.type === 'transfer' ? 'Share transfer of ' + n(d.stakePct) + '% from ' + who + ' to ' + (L.funder ? L.funder(d.toFunderId) : '') : t + (who ? ' — ' + who : '') + ': ' + F(n(d.amount)) + (d.type === 'repayment' && n(d.interest) ? ' (interest ' + F(n(d.interest)) + ')' : '')), { reason: d.note || '', amount: n(d.amount) }); return out; }
     if (col === 'assets') {
       const d = a || b; const nm = d.name || 'asset'; const st = (k) => (ASSET_STATUSES.find((x) => x[0] === k) || [0, k || 'In use'])[1];
       const price = (x) => (L.money ? L.money(num(x.price), x.currency || '') : num(x.price)) + (num(x.extraCosts) ? ' + ' + F(num(x.extraCosts)) + ' extra costs' : '');
@@ -1482,7 +1607,7 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, momoNetwork, MOMO_USES, momoAccountsFor, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
+    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, EQUITY_ROLES, LENDER_ROLES, CAPITAL_TYPES, CAPITAL_METHODS, loanSchedule, capitalSummary, openingTotals, capitalInterest, capitalCheck, isMobileMoney, momoNetwork, MOMO_USES, momoAccountsFor, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
     servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, recipeShort, takeawayOf, validateTakeaway, takeawayStage, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });

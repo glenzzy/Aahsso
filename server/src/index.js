@@ -34,13 +34,14 @@ const PORT = process.env.PORT || 8080;
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 16) { console.error('Set JWT_SECRET (16+ chars) in .env'); process.exit(1); }
 
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims', 'menu', 'areas', 'tables', 'tabs', 'rorders', 'reservations'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'funders', 'loans', 'capital', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims', 'menu', 'areas', 'tables', 'tabs', 'rorders', 'reservations'];
 // Which permissions allow writing each collection (any one of them). Permission model lives in compute.js.
 const WRITE_PERMS = {
   settings: ['settings'], products: ['stockEdit', 'purchases'], lots: ['purchases', 'containers'], shipments: ['containers'],
   adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers', 'sell'], sales: ['sell', 'payments', 'returns', 'cancel'],
   locations: ['settings'], transfers: ['transfers'], handovers: ['payments', 'handover'], suppliers: ['suppliers', 'purchases', 'containers'],
   bills: ['suppliers', 'purchases', 'containers', 'assets'], reminders: ['reminders'], audits: ['audit', 'stockEdit'], assets: ['assets'],
+  funders: ['capital'], loans: ['capital'], capital: ['capital'], // owners, lenders, loans, starting capital
   orders: ['sell', 'payments'], // online-shop orders: staff confirm / reject them
   promos: ['stockEdit'], // promotions: whoever sets prices
   staff: ['hr', 'payroll'], payroll: ['payroll'], tills: ['payments', 'handover'],
@@ -50,7 +51,7 @@ const WRITE_PERMS = {
   // Bar & Resto
   menu: ['menu'], areas: ['tables'], tables: ['tables', 'serve', 'bills'], tabs: ['serve', 'bills'], rorders: ['serve', 'bills', 'kds'], reservations: ['reservations'],
 };
-const DELETE_PERMS = { menu: ['menu'], areas: ['tables'], tables: ['tables'], reservations: ['reservations'], products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], orders: ['cancel'], promos: ['stockEdit'], staff: ['hr'], attendance: ['hr'], leaves: ['hr'], payroll: ['payroll'] };
+const DELETE_PERMS = { menu: ['menu'], areas: ['tables'], tables: ['tables'], reservations: ['reservations'], products: ['stockEdit'], lots: ['purchases'], shipments: ['containers'], adjustments: ['stockEdit'], expenses: ['expenses'], customers: ['customers'], bills: ['suppliers'], suppliers: ['suppliers'], assets: ['assets'], funders: ['capital'], loans: ['capital'], capital: ['capital'], orders: ['cancel'], promos: ['stockEdit'], staff: ['hr'], attendance: ['hr'], leaves: ['hr'], payroll: ['payroll'] };
 const grp = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); // 25,000
 const perms = (u) => {
   const f = u.features || {};
@@ -460,6 +461,7 @@ async function docsFor(u, col, rows, ctx) {
   if (col === 'handovers' && !P.handover) docs = docs.filter((d) => d.userId === u.id);
   if (col === 'orders' && !P.sell && !P.payments) docs = [];
   if (col === 'assets' && !P.assets) docs = [];
+  if ((col === 'funders' || col === 'loans' || col === 'capital') && !P.capital) docs = []; // owners' money and loans: only for people allowed
   if (KC.HIDDEN_WHEN_OFF.includes(col) && !KC.anyOn(u.features, KC.COLLECTION_FEATURE[col])) docs = []; // not in the plan
   const me = KC.staffIdOf(u.id);
   if (col === 'staff') docs = docs.map((d) => {
@@ -772,6 +774,12 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
         }
       }
     }
+    if (col === 'funders' || col === 'loans' || col === 'capital') { // shares up to 100%, loans with terms, no repaying more than is owed
+      const r = await c.query("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('funders','loans','capital')", [u.tenant_id]);
+      const o = { funders: [], loans: [], capital: [] }; r.rows.forEach((x) => { if (!(x.collection === col && x.id === id)) o[x.collection].push(Object.assign({}, x.data, { id: x.id })); });
+      const bad = KC.capitalCheck(col, Object.assign({}, body, { id }), o); if (bad) return { status: 400, error: bad };
+      if (col === 'capital' && body.type !== 'opening') { if (!prev) { body.byId = u.id; body.by = u.name; } else { body.byId = prev.data.byId; body.by = prev.data.by; } }
+    }
     if (col === 'assets') {
       const bad = KC.assetCheck(body); if (bad) return { status: 400, error: bad };
       if (KC.assetGone(body) && body.disposal && body.disposal.date) body.disposal.bookValue = Math.round(KC.assetBookOn(body, Object.assign({}, KC.DEFAULT_SETTINGS, ((await c.query("SELECT data FROM documents WHERE tenant_id=$1 AND collection='settings' AND id='main'", [u.tenant_id])).rows[0] || {}).data || {}), body.disposal.date));
@@ -1052,11 +1060,11 @@ app.get('/api/activity', auth, requireFeature('activity'), wrap(async (req, res)
   const all = canU(u, 'activity');
   const rows = (await q(`SELECT a.at, a.user_id, COALESCE(a.user_name, us.name) AS user_name, us.role, a.location_id, a.action, a.collection, a.doc_id, a.before, a.after FROM audit_log a LEFT JOIN users us ON us.id=a.user_id
     WHERE a.tenant_id=$1 AND (a.at AT TIME ZONE 'Africa/Douala')::date BETWEEN $2::date AND $3::date ${all ? '' : 'AND a.user_id=$4'} ORDER BY a.at DESC LIMIT 5000`, all ? [u.tenant_id, from, to] : [u.tenant_id, from, to, u.id])).rows;
-  const docs = (await q("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('products','customers','locations','shipments','suppliers','settings','assets')", [u.tenant_id])).rows;
+  const docs = (await q("SELECT collection, id, data FROM documents WHERE tenant_id=$1 AND collection IN ('products','customers','locations','shipments','suppliers','settings','assets','funders')", [u.tenant_id])).rows;
   const by = {}; docs.forEach((d) => ((by[d.collection] = by[d.collection] || {})[d.id] = d.data));
   const S = Object.assign({}, KC.DEFAULT_SETTINGS, (by.settings || {}).main || {});
   const sym = KC.currencySymbolOf(S); const F = (v) => String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' ' + sym;
-  const L = { product: (id) => ((by.products || {})[id] || {}).name || 'item', customer: (id) => ((by.customers || {})[id] || {}).name || 'customer', loc: (id) => (!id || id === 'main' ? S.mainLocationName || 'Main warehouse' : ((by.locations || {})[id] || {}).name || id), ship: (id) => ((by.shipments || {})[id] || {}).name || 'container', supplier: (id) => ((by.suppliers || {})[id] || {}).name || 'supplier', asset: (id) => ((by.assets || {})[id] || {}).name || 'asset', F, money: (v, c) => (c && c !== S.currency ? Number(v).toFixed(2) + ' ' + c : F(v)) };
+  const L = { product: (id) => ((by.products || {})[id] || {}).name || 'item', funder: (id) => ((by.funders || {})[id] || {}).name || 'owner', customer: (id) => ((by.customers || {})[id] || {}).name || 'customer', loc: (id) => (!id || id === 'main' ? S.mainLocationName || 'Main warehouse' : ((by.locations || {})[id] || {}).name || id), ship: (id) => ((by.shipments || {})[id] || {}).name || 'container', supplier: (id) => ((by.suppliers || {})[id] || {}).name || 'supplier', asset: (id) => ((by.assets || {})[id] || {}).name || 'asset', F, money: (v, c) => (c && c !== S.currency ? Number(v).toFixed(2) + ' ' + c : F(v)) };
   const roles = KC.rolesWith(u.customRoles); const entries = [];
   rows.forEach((r) => {
     const base = { at: new Date(r.at).toISOString(), uid: r.user_id, user: r.user_name || '—', role: (roles[r.role] || { label: r.role || '' }).label, loc: r.location_id || 'main', col: r.collection, id: r.doc_id };

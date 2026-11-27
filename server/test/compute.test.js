@@ -517,3 +517,28 @@ test('kitchen: a served dish takes its recipe from stock; it stays orderable; sh
   const mv = KC.stockMovements(raw, C).filter((r) => r.productId === 'beef');
   assert.deepEqual(mv.map((r) => r.type), ['purchase', 'served', 'used']); assert.equal(mv[2].ref, 'Staff meal'); near(mv[2].after, 0.9);
 });
+
+test('Capital & loans: monthly payment, owners and loans, starting capital, checks', () => {
+  const s = KC.loanSchedule({ principal: 1200000, ratePct: 12, termMonths: 12, startDate: '2026-01-10' });
+  assert.equal(s.emi, 106619); assert.equal(s.rows.length, 12); assert.equal(s.rows[0].due, '2026-02-10'); assert.equal(s.rows[0].interest, 12000); assert.equal(s.rows[11].balance, 0);
+  assert.equal(KC.loanSchedule({ principal: 600000, ratePct: 0, termMonths: 6, startDate: '2026-01-31' }).rows[0].due, '2026-02-28'); // no interest: equal parts; month end kept
+  const raw = { funders: [{ id: 'a', name: 'Mado', kind: 'equity', stakePct: 60 }, { id: 'b', name: 'Paul', kind: 'equity', stakePct: 40 }, { id: 'bk', name: 'Bank', kind: 'debt' }],
+    loans: [{ id: 'l1', funderId: 'bk', principal: 1200000, ratePct: 12, termMonths: 12, startDate: '2026-01-10' }, { id: 'l0', funderId: 'bk', principal: 300000, ratePct: 10, termMonths: 6, startDate: '2026-01-01', opening: true }],
+    capital: [{ id: 'opening', type: 'opening', date: '2026-01-01', cash: 500000, banks: [{ name: 'UBA', amount: 2000000 }], wallets: [{ name: 'MoMo', amount: 100000 }], stock: 1400000, equipment: 0 },
+      { id: 'opi_a', type: 'injection', opening: true, date: '2026-01-01', funderId: 'a', amount: 2000000 }, { id: 'opi_b', type: 'injection', opening: true, date: '2026-01-01', funderId: 'b', amount: 1000000 },
+      { id: 'e1', type: 'injection', date: '2026-02-01', funderId: 'a', amount: 500000 }, { id: 'e3', type: 'loan', date: '2026-01-10', loanId: 'l1', funderId: 'bk', amount: 1200000 },
+      { id: 'e4', type: 'repayment', date: '2026-02-10', loanId: 'l1', amount: 106619, interest: 12000 }, { id: 'e5', type: 'drawing', date: '2026-03-01', funderId: 'a', amount: 200000 }] };
+  const c = KC.capitalSummary(raw, { from: '2026-02-01', to: '2026-12-31' });
+  assert.equal(c.equity, 3300000); assert.equal(c.debt, 1200000 - 94619 + 300000); assert.equal(c.stakeTotal, 100);
+  assert.deepEqual(c.flows, { putIn: 500000, loansIn: 0, takenOut: 200000, principalPaid: 94619, interestPaid: 12000 });
+  assert.equal(c.funders.a.opening, 2000000); assert.equal(c.funders.a.closing, 2300000); assert.equal(c.loans.l1.next.n, 2);
+  assert.deepEqual(c.start, { money: 2600000, has: 4000000, loans: 300000, capital: 3000000, earlier: 700000 }); // profit kept from before
+  assert.equal(KC.capitalInterest(raw, '2026-02-01', '2026-02-28'), 12000); assert.equal(KC.capitalInterest(raw, '2026-03-01', '2026-03-31'), 0);
+  assert.match(KC.capitalCheck('funders', { id: 'c', name: 'Eric', kind: 'equity', stakePct: 1 }, raw), /more than 100%/);
+  assert.equal(KC.capitalCheck('funders', { id: 'a', name: 'Mado', kind: 'equity', stakePct: 60 }, raw), '');
+  assert.match(KC.capitalCheck('capital', { type: 'repayment', date: '2026-03-10', loanId: 'l1', amount: 2000000, interest: 0 }, raw), /more than is still owed/);
+  assert.match(KC.capitalCheck('capital', { type: 'repayment', date: '2026-03-10', loanId: 'l1', amount: 1000, interest: 2000 }, raw), /interest part/);
+  assert.match(KC.capitalCheck('capital', { type: 'transfer', date: '2026-03-10', funderId: 'a', toFunderId: 'a', stakePct: 5 }, raw), /who gives/);
+  assert.match(KC.capitalCheck('loans', { principal: 1000, ratePct: 12, termMonths: 0, funderId: 'bk' }, raw), /between 1 and 600/);
+  assert.equal(KC.capitalSummary({ funders: [], loans: [], capital: [] }).de, null);
+});

@@ -38,7 +38,7 @@ const LocalDB = (() => {
   return { get, set, del };
 })();
 const OFFLINE_MSG = 'No internet — this needs a connection. Everything else you do is saved on this phone and syncs later.';
-const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims', 'menu', 'areas', 'tables', 'tabs', 'rorders', 'reservations'];
+const COLLECTIONS = ['settings', 'products', 'lots', 'shipments', 'customers', 'sales', 'adjustments', 'expenses', 'locations', 'transfers', 'handovers', 'suppliers', 'bills', 'reminders', 'audits', 'assets', 'funders', 'loans', 'capital', 'orders', 'promos', 'staff', 'attendance', 'leaves', 'payroll', 'tills', 'losses', 'claims', 'menu', 'areas', 'tables', 'tabs', 'rorders', 'reservations'];
 const TEAM_COLLECTIONS = ['members', 'requests']; // hosted mode only (SaaS keeps users in its own table)
 
 class LocalStore {

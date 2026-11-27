@@ -2277,3 +2277,18 @@ b,strong{font-weight:600}
 .mmx-net button.on.mtn{background:#ffcb05;border-color:#ffcb05;color:#1a1a1a}
 .mmx-net button.on.om{background:#ff7900;border-color:#ff7900;color:#fff}
 @media (max-width:599px){.mmx-num{font-size:19px}.mmx-net button{min-width:54px}}
+/* Capital & loans */
+.av.ok{background:var(--okSoft);color:var(--ok)} .av.bad{background:color-mix(in srgb,var(--bad) 12%,var(--card));color:var(--bad)}
+.cap-split{display:flex;height:12px;border-radius:999px;overflow:hidden;background:var(--line2)}
+.cap-split .eq,.cap-dot.eq{background:var(--brand)} .cap-split .dt,.cap-dot.dt{background:#d9822b}
+.cap-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.cap-own{display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--line2);margin-bottom:10px}
+.cap-leg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px}.cap-leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.cap-prog{height:5px;border-radius:3px;background:var(--line2);margin-top:6px;overflow:hidden;max-width:260px}.cap-prog span{display:block;height:100%;background:var(--ok)}
+.op-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 36px;gap:6px;margin-bottom:6px;align-items:center}
+.op-row.op-own,.op-head.op-own{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) 70px 36px}
+.op-row.op-loan,.op-head.op-loan{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 70px 80px 36px}
+.op-head{display:grid;gap:6px;font-size:11.5px;color:var(--ink3);margin-bottom:4px}
+@media (max-width:560px){.op-row.op-own{grid-template-columns:1fr 1fr 36px}.op-row.op-own [data-k=amount]{grid-column:1}.op-row.op-own [data-k=stake]{grid-column:2}.op-row.op-own [data-x]{grid-row:1;grid-column:3}
+  .op-row.op-loan{grid-template-columns:1fr 1fr 36px}.op-row.op-loan [data-x]{grid-row:1;grid-column:3}.op-head.op-own,.op-head.op-loan{display:none}
+  .op-row.op-own,.op-row.op-loan{padding-bottom:8px;border-bottom:1px solid var(--line2)}}
