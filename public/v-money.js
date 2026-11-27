@@ -318,7 +318,7 @@ async function storeSupOpen(id0, name) {
     const groups = supPurchases(s); const bills = K.raw.bills.filter((b) => b.supplierId === id && b.status !== 'cancelled');
     const open = bills.filter((b) => billX(b).balance > 0.005).sort((a, b) => billDue(a).localeCompare(billDue(b)));
     const bought = groups.reduce((a, g) => a + g.totalX, 0); const wa = phoneWA(s.phone); const tel = String(s.phone || '').replace(/[^\d+]/g, '');
-    setSheetBody(sh, '<div class="row mb"><div class="av acc" style="width:44px;height:44px;font-size:15px">' + esc(initials(s.name)) + '</div><div class="grow"><div class="b" style="font-size:16px">' + esc(s.name) + '</div><div class="small muted">' + esc([s.phone, s.city].filter(Boolean).join(' · ') || 'No phone yet') + '</div></div></div>' +
+    setSheetBody(sh, '<div class="row mb"><div class="av acc" style="width:44px;height:44px;font-size:13px">' + esc(initials(s.name)) + '</div><div class="grow"><div class="b" style="font-size:14px">' + esc(s.name) + '</div><div class="small muted">' + esc([s.phone, s.city].filter(Boolean).join(' · ') || 'No phone yet') + '</div></div></div>' +
       '<div class="row wrap mb">' + (can('purchases') ? '<button class="btn pri" data-a="supBuy" data-id="' + id + '">' + ic('buy') + 'New purchase</button>' : '') +
         (wa ? '<a class="btn" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '">' + ic('wa') + 'WhatsApp</a>' : '') +
         (tel ? '<a class="btn" href="tel:' + esc(tel) + '">' + ic('user') + 'Call</a>' : '') +

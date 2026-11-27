@@ -159,7 +159,7 @@ function toast(msg, bad) {
 }
 function confirmBox(msg, okLabel = 'Confirm', danger) {
   return new Promise((res) => {
-    const el = openSheet({ title: 'Please confirm', body: '<p style="margin:0;font-size:15px;white-space:pre-line">' + esc(msg) + '</p>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn grow ' + (danger ? 'danger' : 'pri') + '" id="cbOk">' + esc(okLabel) + '</button>', onClose: () => res(false) });
+    const el = openSheet({ title: 'Please confirm', body: '<p style="margin:0;font-size:13px;white-space:pre-line">' + esc(msg) + '</p>', foot: '<button class="btn grow" data-a="sheetClose">Cancel</button><button class="btn grow ' + (danger ? 'danger' : 'pri') + '" id="cbOk">' + esc(okLabel) + '</button>', onClose: () => res(false) });
     $('#cbOk', el).onclick = () => { el._onClose = null; closeSheet(); res(true); };
   });
 }

@@ -152,7 +152,7 @@ A.openCust = (el) => {
     const sales = visibleSales().filter((s) => s.customerId === id).sort((a, b) => saleDate(b).localeCompare(saleDate(a)));
     const live = sales.filter((s) => K.C.saleX[s.id].status !== 'cancelled'); const owed = live.reduce((a, s) => a + Math.max(0, K.C.saleX[s.id].balance), 0);
     const wa = phoneWA(c.whatsapp || c.phone);
-    setSheetBody(sh, '<div class="row mb"><div class="av" style="width:52px;height:52px;font-size:18px">' + esc(initials(c.name)) + '</div><div class="grow"><div class="b" style="font-size:18px">' + esc(c.name) + '</div><div class="small muted">' + esc([c.phone, c.email, c.city].filter(Boolean).join(' · ')) + '</div></div></div>' +
+    setSheetBody(sh, '<div class="row mb"><div class="av" style="width:52px;height:52px;font-size:15.5px">' + esc(initials(c.name)) + '</div><div class="grow"><div class="b" style="font-size:15.5px">' + esc(c.name) + '</div><div class="small muted">' + esc([c.phone, c.email, c.city].filter(Boolean).join(' · ')) + '</div></div></div>' +
       '<div class="row wrap mb">' + (wa ? '<a class="btn" style="background:#25D366;border-color:#25D366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/' + wa + '">' + ic('wa') + 'WhatsApp</a>' : '') + '' + (can('customers') ? '<button class="btn" data-a="custEdit" data-id="' + id + '">' + ic('edit') + 'Edit</button>' : '') + (can('sell') ? '<button class="btn pri" data-a="custSell" data-id="' + id + '">' + ic('sell') + 'New sale</button>' : '') + '</div>' +
       '<div class="grid3 mb">' + kpi('Bought', F(live.reduce((a, s) => a + K.C.saleX[s.id].net, 0))) + kpi('Sales', fmt(live.length)) + kpi('Owes', F(owed)) + '</div>' +
       custCredit(c, owed) + custHeld(c) + custItems(live) +
@@ -334,7 +334,7 @@ VIEWS.settings = {
     const nav = '<nav class="set-nav" aria-label="Settings sections">' + secs.map(([k, l, i]) => '<button type="button" data-a="setGo" data-v="' + k + '" class="' + (k === 'business' ? 'on' : '') + '">' + ic(i, 'sm') + '<span>' + l + '</span></button>').join('') + '</nav>';
     const form = '<div id="setForm">' +
       setCard('business', 'Business', 'How your business appears on receipts, the shop page and messages to customers.',
-        '<div class="logo-row" id="setLogo">' + logoHTML('logo" style="width:64px;height:64px;font-size:22px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : '') + '</div>' +
+        '<div class="logo-row" id="setLogo">' + logoHTML('logo" style="width:64px;height:64px;font-size:19px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : '') + '</div>' +
         '<div class="set-grid">' + sf('Business name', inp('businessName', s.businessName)) + sf('Tagline', inp('tagline', s.tagline, 'placeholder="' + (isStore() ? 'e.g. Everything for your home' : 'e.g. Quality goods from the USA') + '"')) + sf('Phone (on receipts)', inp('phone', s.phone, 'inputmode="tel"')) + sf('Address', inp('address', s.address)) + '</div>' +
         sf('Receipt footer', inp('receiptFooter', s.receiptFooter), 'Printed at the bottom of every receipt.', 'mt') +
         '<button type="button" class="btn mt" data-a="receiptDesign">' + ic('edit', 'sm') + 'Design the receipt — logo, messages, NIU, QR code</button>' +
@@ -469,7 +469,7 @@ A.logoUp = async () => {
   if (await saveSettings({ logo: c.toDataURL('image/jpeg', 0.85) })) { toast('Logo updated'); refreshLogo(); }
 };
 A.logoDel = async () => { await saveSettings({ logo: '' }); refreshLogo(); };
-function refreshLogo() { const row = $('#setLogo'); const s = S(); if (row) row.innerHTML = logoHTML('logo" style="width:64px;height:64px;font-size:22px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : ''); shell(); }
+function refreshLogo() { const row = $('#setLogo'); const s = S(); if (row) row.innerHTML = logoHTML('logo" style="width:64px;height:64px;font-size:19px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : ''); shell(); }
 function fullBackup() { const o = { app: 'aahsso', version: 1, exportedAt: new Date().toISOString(), business: S().businessName, data: {} }; COLLECTIONS.forEach((c) => (o.data[c] = c === 'settings' ? [Object.assign({ id: 'main' }, K.raw.settings)] : K.raw[c])); if (K.raw.members.length) o.data.members = K.raw.members; return o; }
 async function embedPhotos(b) {
   // Photos stored as files are copied into the backup so it restores anywhere.
