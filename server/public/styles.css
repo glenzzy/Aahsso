@@ -2450,3 +2450,10 @@ button,input,select,textarea{font-family:inherit;letter-spacing:inherit}
 /* bar hand-over on order tickets */
 .tk-wait,.tk-hand{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--warn);background:var(--warnSoft);border-radius:999px;padding:4px 10px}
 .tk-hand{color:var(--ok);background:var(--okSoft)}
+
+/* payment window: the amount alone on the left; the tip's "Other" amount in the same row */
+.pos-paysheet .pos-due{justify-content:flex-start;align-items:baseline;gap:10px;flex-wrap:nowrap;padding:8px 12px;margin-bottom:10px}
+.pos-paysheet .pos-dtip{flex-basis:auto;text-align:left}
+.tip-ch .tip-in{flex:1 1 90px;min-width:90px;max-width:none;height:auto;min-height:34px;padding:0 12px;border-radius:999px}
+.pos-paysheet .tip-ch .tip-in{min-height:36px}
+.pos-paysheet .tip-box{margin-bottom:10px;gap:6px}

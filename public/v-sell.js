@@ -213,8 +213,8 @@ function tipPicker(base, value) {
   const opts = [[0, 'No tip']].concat(up > 0 && up < 500 ? [[up, 'Round to ' + fmt(base + up)]] : [], [[500, '+500'], [1000, '+1,000'], [2000, '+2,000']]);
   const other = v > 0 && !opts.some((o) => o[0] === v);
   return '<div class="tip-box" data-tipbase="' + base + '"><div class="tip-h"><span>Tip</span><span class="tiny muted">optional · for the person who served</span></div>' +
-    '<div class="tip-ch" role="group" aria-label="Tip">' + opts.map(([x, l]) => '<button type="button" data-tipv="' + x + '" class="' + (!other && v === x ? 'on' : '') + '">' + esc(l) + '</button>').join('') + '<button type="button" data-tipv="other" class="' + (other ? 'on' : '') + '">Other</button></div>' +
-    '<input class="inp tip-in' + (other ? '' : ' hide') + '" name="tip" inputmode="numeric" placeholder="Tip amount" value="' + (v || '') + '" autocomplete="off" aria-label="Tip amount"></div>';
+    '<div class="tip-ch" role="group" aria-label="Tip">' + opts.map(([x, l]) => '<button type="button" data-tipv="' + x + '" class="' + (!other && v === x ? 'on' : '') + '">' + esc(l) + '</button>').join('') + '<button type="button" data-tipv="other" class="' + (other ? 'on' : '') + '">Other</button>' +
+    '<input class="inp tip-in' + (other ? '' : ' hide') + '" name="tip" inputmode="numeric" placeholder="Amount" value="' + (v || '') + '" autocomplete="off" aria-label="Tip amount"></div></div>';
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest && e.target.closest('[data-tipv]'); if (!b) return;

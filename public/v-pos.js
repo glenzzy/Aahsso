@@ -113,7 +113,7 @@ A.posPay = (el) => {
   const mm = el.dataset.m !== 'Cash'; const total = Math.max(0, cartTotal() - num(K.cart.discount)); if (!total) return;
   const cu = K.cart.customerId && byId('customers', K.cart.customerId);
   const notesFor = (due) => [...new Set([due, Math.ceil(due / 500) * 500, Math.ceil(due / 1000) * 1000, Math.ceil(due / 5000) * 5000, Math.ceil(due / 10000) * 10000])].filter((x) => x >= due).slice(0, 5);
-  const body = '<div class="pos-due"><span>' + (mm ? 'Mobile Money' : 'Cash') + ' · to pay</span><b class="money" id="posDue">' + F(total) + '</b><span class="pos-dtip tiny" id="posDueTip"></span></div>' +
+  const body = '<div class="pos-due"><b class="money" id="posDue" aria-label="To pay">' + F(total) + '</b><span class="pos-dtip tiny" id="posDueTip"></span></div>' +
     tipPicker(total, 0) +
     (mm
     ? '<div class="col">' + momoBox('pos', { phone: cu ? cu.phone || '' : '', cust: !cu }) + '<p class="tiny muted" id="posFee"></p></div>'
