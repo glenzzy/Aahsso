@@ -57,9 +57,12 @@ function clockCard(compact) {
     '<div class="grow"><div class="b">' + title + (st.late ? ' <span class="badge warn">Late ' + dur(st.lateMin) + '</span>' : '') + '</div><div class="small muted">' + line + '</div></div>' +
     '<div class="clock-btns">' + KC.clockNext(st.state).map((t) => { const [cls, l, i] = CLOCK_BTN[t]; return '<button class="btn ' + cls + '" data-a="clock" data-t="' + t + '">' + ic(i) + l + '</button>'; }).join('') + '</div></div>';
 }
+/** Settings → Clock-in & location */
+A.goClockSet = () => { go('settings'); setTimeout(() => A.setGo({ dataset: { v: 'clockin' } }), 350); };
 /** where this phone is now: {lat, lng, acc} or an error message */
 function herePos() {
   return new Promise((res) => {
+    if (!window.isSecureContext) return res('Location only works on the secure address of Aahsso (https://…)');
     if (!navigator.geolocation) return res('This phone cannot share its location');
     navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy || 0) }),
       (e) => res(e && e.code === 1 ? 'Allow location for Aahsso (browser settings) to clock in' : 'Could not find your location — go outside or near a window and try again'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
@@ -104,6 +107,8 @@ VIEWS.staff = {
   render() {
     const d = K.ui.attDate || todayStr();
     let html = clockCard();
+    if (can('settings') && !Object.keys(S().clockGeo || {}).length) html += '<div class="alert warn mt mb">' + ic('alert', 'sm') + '<div class="grow"><b>Staff can clock in from anywhere.</b> Set the work location so they can clock in only when they are at work.</div><button class="btn sm pri" data-a="goClockSet">Set the location</button></div>';
+    else if (can('settings')) html += '<div class="tiny muted mt mb">Clock-in only at work: ' + Object.entries(S().clockGeo).map(([k, g]) => esc(locName(k)) + ' (' + g.radius + ' m)').join(', ') + ' · ' + (S().clockRequired ? 'staff must clock in to use Aahsso' : 'staff can use Aahsso without clocking in') + ' <button class="btn sm ghost" data-a="goClockSet">Change</button></div>';
     if (!can('hr')) return html + myAttendance();
     const rows = roster().map((f) => { const a = byId('attendance', attId(d, f.id)); return { f, a, st: KC.dayState(a, nowIso(), S()), lv: leaveOn(f.id, d) }; });
     const inNow = rows.filter((r) => r.st.state === 'in').length, brk = rows.filter((r) => r.st.state === 'break').length, late = rows.filter((r) => r.st.late).length, off = rows.filter((r) => r.lv).length;

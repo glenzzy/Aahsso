@@ -290,8 +290,8 @@ A.expEdit = (el) => {
 
 /* ---------- settings + backup ---------- */
 /* ---------- settings page: section menu + one card per section ---------- */
-const SET_SECTIONS = [['business', 'Business', 'home'], ['currency', 'Currency', 'wallet'], ['pricing', 'Pricing', 'tag'], ['credit', 'Wholesale & credit', 'users'], ['approvals', 'Approvals', 'key'], ['money', 'Mobile money', 'wallet'], ['reminders', 'Reminders', 'wa'], ['catalogue', 'Stores & categories', 'buy'], ['delivery', 'Delivery', 'ship'], ['staff', 'Staff & pay', 'clock'], ['shop', 'Online shop', 'sell'], ['branches', 'Branches', 'home'], ['backup', 'Backup', 'dl'], ['account', 'Account', 'gear']];
-const SET_FEATURE = { reminders: ['reminders'], delivery: ['delivery'], staff: ['attendance', 'leave', 'payroll'], shop: ['onlineShop'], branches: ['branches'], backup: ['excel'] };
+const SET_SECTIONS = [['business', 'Business', 'home'], ['clockin', 'Clock-in & location', 'clock'], ['currency', 'Currency', 'wallet'], ['pricing', 'Pricing', 'tag'], ['credit', 'Wholesale & credit', 'users'], ['approvals', 'Approvals', 'key'], ['money', 'Mobile money', 'wallet'], ['reminders', 'Reminders', 'wa'], ['catalogue', 'Stores & categories', 'buy'], ['delivery', 'Delivery', 'ship'], ['staff', 'Staff & pay', 'clock'], ['shop', 'Online shop', 'sell'], ['branches', 'Branches', 'home'], ['backup', 'Backup', 'dl'], ['account', 'Account', 'gear']];
+const SET_FEATURE = { clockin: ['attendance'], reminders: ['reminders'], delivery: ['delivery'], staff: ['attendance', 'leave', 'payroll'], shop: ['onlineShop'], branches: ['branches'], backup: ['excel'] };
 const ST_SET_HIDE = ['credit', 'approvals']; // Aahsso Store: kept simple (the saved values stay as they are)
 const setSections = () => SET_SECTIONS.filter(([k]) => !SET_FEATURE[k] || hasAny(...SET_FEATURE[k]));
 const setCard = (id, title, desc, body, side) => '<section class="card set-card" id="set-' + id + '"><header class="set-head"><div><h2>' + title + '</h2>' + (desc ? '<p>' + desc + '</p>' : '') + '</div>' + (side || '') + '</header>' + body + '</section>';
@@ -342,6 +342,7 @@ VIEWS.settings = {
         '<div class="set-grid">' + KC.SOCIALS.map(([k, label]) => { const so = s.socials || {}; const old = k === 'website' && !so.website && s.receipt && s.receipt.web && !/facebook|instagram|tiktok|youtube|twitter|x\.com/i.test(s.receipt.web) ? s.receipt.web : '';
           return sf(label, inp('so_' + k, so[k] || old, 'autocomplete="off" placeholder="' + ({ facebook: 'e.g. chezmado or facebook.com/chezmado', instagram: 'e.g. @chezmado', tiktok: 'e.g. @chezmado', youtube: 'e.g. @chezmado', x: 'e.g. @chezmado', website: 'e.g. chezmado.cm' }[k]) + '"')); }).join('') + '</div>' +
         '<h3 class="set-sub">Tips</h3><label class="toggle"><input type="checkbox" name="tipsOn"' + (s.tipsOn !== false ? ' checked' : '') + '>Offer a tip when taking payment (POS, bills and sales)</label><p class="hint">The tip is added on top of the bill, printed on the receipt and credited to the person who served. It is not counted as sales.</p>') +
+      (has('attendance') ? setCard('clockin', 'Clock-in & location', 'Where your staff must be to clock in, and whether they must clock in before using Aahsso.', clockSettings() + '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>') : '') +
       setCard('currency', 'Currency', isStore() ? 'The money your shop works in.' : 'Your money, and how purchases in other currencies are converted.', currencyBlock(s)) +
       setCard('pricing', 'Pricing', 'How selling prices are worked out from what each item cost you, and when to warn you.',
         '<div class="set-grid">' + sf('Default markup', unitIn('defaultMarkup', s.defaultMarkup, '%'), 'Selling price = ' + costWord() + ' + this %.') + sf('Lowest markup', unitIn('minMarkup', s.minMarkup, '%'), 'Staff cannot sell below this without permission.') + sf('Round prices up to', unitIn('roundTo', s.roundTo, baseSym(), 'inputmode="numeric"'), 'e.g. 50 → 12,330 becomes 12,350.') +
@@ -408,13 +409,12 @@ function staffRulesCard() {
     '<div class="set-grid mt">' + sf('Work starts', '<input class="inp" type="time" name="srStart" value="' + esc(R.workStart) + '">', 'Clocking in later than this counts as late.') + sf('Work ends', '<input class="inp" type="time" name="srEnd" value="' + esc(R.workEnd) + '">') +
     sf('Late after', unitIn('srGrace', R.lateGraceMin, 'min', 'inputmode="numeric"'), 'Minutes of grace before someone is marked late.') + sf('Normal working day', unitIn('srHours', R.hoursPerDay, 'hours', 'inputmode="decimal"'), 'Hours beyond this are overtime.') +
     sf('Overtime pay', unitIn('srOT', R.overtimeRate, '× normal', 'inputmode="decimal"'), 'Only for people whose file says overtime is paid.') + sf('Paid vacation per year', unitIn('srLeave', R.leavePerYear, 'days', 'inputmode="decimal"'), 'Can be changed per person in Employees.') + '</div>' +
-    (has('attendance') ? clockSettings() : '') +
     '<button type="button" class="btn pri lg block mt2" data-a="saveSettings">' + ic('check') + 'Save settings</button>');
 }
 /** clock in: required before using the app, and only at work (a point + a distance per branch) */
 function clockSettings() {
   const s = S(); const G = s.clockGeo || {};
-  return '<div class="set-sub"><h3>Clocking in</h3><input type="hidden" name="clockCardOn" value="1">' +
+  return '<div><input type="hidden" name="clockCardOn" value="1">' +
     '<label class="toggle"><input type="checkbox" name="clockRequired"' + (s.clockRequired ? ' checked' : '') + '>Staff must clock in before they can use Aahsso</label>' +
     '<p class="hint">Until they clock in, staff only see the clock-in screen. The owner is never locked out.</p>' +
     '<div class="b small mt">Clock in only at work</div><p class="hint" style="margin-top:2px">Stand at the place and tap <b>Use my location here</b>. Staff can then clock in only within the distance you choose. Phone GPS is accurate to about 5–15 m, so the smallest distance is ' + KC.GEO_MIN_RADIUS + ' m; 30–50 m works well indoors.</p>' +
