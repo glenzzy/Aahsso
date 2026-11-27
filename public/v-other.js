@@ -64,6 +64,7 @@ function homeTodos() {
 function homeWelcome(hello) {
   const named = S().businessName && S().businessName !== KC.DEFAULT_SETTINGS.businessName;
   const steps = [
+    ['capital', 'Set your capital structure', 'Owners, the money they put in, loans and your starting capital', capitalSet(), can('capital') && navOk('capital')],
     ['settings', 'Add your business details', 'Name, logo and MoMo numbers for receipts', named, can('settings')],
     ['buy', 'Record what you bought', (isStore() ? 'Supplier, items and price' : 'Seller, items and tax') + ' — from a receipt or an Excel list', K.raw.lots.length > 0, can('purchases')],
     ['ship', 'Put it in a shipment', 'Container, loading and shipping costs', K.raw.shipments.length > 0, can('containers')],

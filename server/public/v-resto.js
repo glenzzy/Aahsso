@@ -129,7 +129,9 @@ function restoHome(hello) {
       late.slice(0, 5).map((o) => '<div class="sh-row todo bad" data-a="go" data-r="tickets" role="button"><span class="todo-ic">' + ic('clock', 'sm') + '</span><div class="grow ellipsis">' + esc(o.tableLabel || 'Counter') + ' · waiting ' + rAgo(o.createdAt) + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</section>' : '') +
     (rMenu().length && can('settings') ? menuCard() : '') +
     (top.length ? '<section class="card sh-sec"><div class="sh-sh"><h2>Selling tonight</h2></div>' + top.map(([n, q]) => '<div class="sh-row"><div class="grow ellipsis">' + esc(n) + '</div><b>' + fmt(q) + '</b></div>').join('') + '</section>' : '') +
-    (!rMenu().length && can('menu') ? '<section class="card sh-sec"><div class="sh-sh"><h2>Get started</h2></div><div class="sh-row" data-a="go" data-r="menu" role="button"><div class="grow">1 · Add your menu</div>' + ic('chev', 'sm') + '</div>' + (can('tables') ? '<div class="sh-row" data-a="go" data-r="floor" role="button"><div class="grow">2 · Add your tables and print their QR codes</div>' + ic('chev', 'sm') + '</div>' : '') + '<div class="sh-row" data-a="go" data-r="buy" role="button"><div class="grow">3 · Record the drinks and food you bought</div>' + ic('chev', 'sm') + '</div></section>' : '');
+    (() => { // capital structure first, then the menu, the tables, the stock
+      const rows = [[!capitalSet() && can('capital') && navOk('capital'), 'capital', 'Set your capital structure: owners, money put in, loans'], [!rMenu().length && can('menu'), 'menu', 'Add your menu'], [!rMenu().length && can('tables'), 'floor', 'Add your tables and print their QR codes'], [!rMenu().length && can('purchases'), 'buy', 'Record the drinks and food you bought']].filter((x) => x[0]);
+      return rows.length ? '<section class="card sh-sec"><div class="sh-sh"><h2>Get started</h2></div>' + rows.map(([, r, t], k) => '<div class="sh-row" data-a="go" data-r="' + r + '" role="button"><div class="grow">' + (k + 1) + ' · ' + t + '</div>' + ic('chev', 'sm') + '</div>').join('') + '</section>' : ''; })();
 }
 
 /* ================= TABLES (floor) ================= */

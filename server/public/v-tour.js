@@ -1,9 +1,10 @@
-/* Aahsso — first-time tour: Buy → Ship → Receive → Sell.
+/* Aahsso — first-time tour: Capital Structure → Buy → Ship → Receive → Sell (every edition starts with the capital).
  * Shown once per device to someone who can record purchases and has no stock yet; "Take the tour" on Home
  * replays it. Each step opens the real page behind the card, highlights it in the menu and offers one action. */
 const TOUR_KEY = 'aahsso-tour-done';
 const TOUR = [
-  { r: null, title: 'Welcome to Aahsso', lead: 'Your goods move in four steps. Aahsso follows each one, so you always know where your stock and your money are.', intro: true },
+  { r: null, title: 'Welcome to Aahsso', lead: 'Start with your capital, then your goods move in four steps. Aahsso follows each one, so you always know where your stock and your money are.', intro: true },
+  { r: 'capital', title: 'Capital Structure', lead: 'Start with the money behind your business.', points: ['Who owns the business and how much each one put in', 'Any loans: who lent, how much, the repayments', 'Your starting capital: what you had and owed on day one'], tip: 'Every profit, withdrawal and repayment is then tracked against it.', act: ['capOpening', 'Set my starting capital', 'capital'] },
   { r: 'buy', title: 'Buy', lead: 'Record what you bought, as soon as you buy it.', points: ['Who you bought from: a shop, the black market, a person…', 'Each item, how many and the price', 'Tax in % or as an amount — shared over the items for you', 'Paid, part paid or still owed'], tip: 'Bought in Cameroon? It goes straight to stock — no Ship or Receive.', act: ['newPurchase', 'Record a purchase', 'purchases'] },
   { r: 'ship', title: 'Ship', lead: 'Group what you bought abroad into a shipment.', points: ['Your purchases wait here until they are shipped', 'Add the container number and loading date', 'Add shipping costs: freight, BESC, tests…'], act: ['newShip', 'Start a shipment', 'containers'] },
   { r: 'receive', title: 'Receive', lead: 'When the shipment reaches Cameroon, tick off four steps.', points: ['Mark it arrived', 'Add customs and clearing costs', 'Unload and count — the goods are now in stock', 'Check prices and print labels'], tip: 'Every cost is spread over the items, so you see the real cost of each one.' },
@@ -11,14 +12,16 @@ const TOUR = [
 ];
 /* Aahsso Store: buy locally → keep stock right → sell */
 const STORE_TOUR = [
-  { r: null, title: 'Welcome to Aahsso', lead: 'Your shop in three steps: buy, keep your stock right, sell. Aahsso keeps the numbers, so you always know what you have and what you made.', intro: true },
+  { r: null, title: 'Welcome to Aahsso', lead: 'Your shop step by step: your capital, then buy, keep your stock right, sell. Aahsso keeps the numbers, so you always know what you have and what you made.', intro: true },
+  { r: 'capital', title: 'Capital Structure', lead: 'Start with the money behind your business.', points: ['Who owns the business and how much each one put in', 'Any loans: who lent, how much, the repayments', 'Your starting capital: what you had and owed on day one'], tip: 'Every profit, withdrawal and repayment is then tracked against it.', act: ['capOpening', 'Set my starting capital', 'capital'] },
   { r: 'buy', title: 'Buy', lead: 'Record what you buy from your suppliers.', points: ['Who you bought from', 'Each item, how many and the price', 'Paid, part paid or still owed — Aahsso reminds you'], tip: 'It goes straight into your stock, ready to sell.', act: ['newPurchase', 'Record a purchase', 'purchases'] },
   { r: 'stock', title: 'Stock', lead: 'See what you have, at a glance.', points: ['What you have and what it is worth', 'What is running low — also on your Home', 'Selling prices worked out from what you paid'] },
   { r: 'sales', title: 'Sell', lead: 'Sell at the till, by phone or on social media.', points: ['Tap New sale, then search or scan an item', 'Get paid by cash, MTN MoMo or Orange Money', 'Send the receipt by WhatsApp', 'See who owes you and remind them'], act: ['newSale', 'Make a sale', 'sell'] },
 ];
 /* Aahsso Bar & Resto: tables & QR → orders → kitchen → bill */
 const RESTO_TOUR = [
-  { r: null, title: 'Welcome to Aahsso', lead: 'Your bar or restaurant in four steps: the menu, the tables, the orders, the bill. Aahsso keeps the stock and the money right.', intro: true },
+  { r: null, title: 'Welcome to Aahsso', lead: 'Your bar or restaurant step by step: your capital, then the menu, the tables, the orders, the bill. Aahsso keeps the stock and the money right.', intro: true },
+  { r: 'capital', title: 'Capital Structure', lead: 'Start with the money behind your business.', points: ['Who owns the business and how much each one put in', 'Any loans: who lent, how much, the repayments', 'Your starting capital: what you had and owed on day one'], tip: 'Every profit, withdrawal and repayment is then tracked against it.', act: ['capOpening', 'Set my starting capital', 'capital'] },
   { r: 'menu', title: 'Menu', lead: 'Add what you serve.', points: ['Price, category and photo', 'From stock: a bottle of beer takes one bottle', 'Sold out with one switch — it leaves the QR menu'] },
   { r: 'floor', title: 'Tables', lead: 'Your tables, live.', points: ['Add areas and tables, print their QR codes', 'Colours show new orders, food ready, bill asked', 'Tap a table for its orders and its bill'] },
   { r: 'tickets', title: 'Orders', lead: 'Customers order from their phone.', points: ['The waiter accepts, the kitchen and bar prepare', 'Mark it served when it reaches the table', 'Bill: cash or MoMo, the table is free again'] },
@@ -53,13 +56,15 @@ function tourDraw() {
   setTimeout(tourMark, 80);
   const f = $('.tour-foot .btn.pri', el); if (f) f.focus({ preventScroll: true });
 }
+/** has the business recorded its owners, loans or starting capital yet? */
+const capitalSet = () => !!((K.raw.funders || []).length || (K.raw.capital || []).length || (K.raw.loans || []).length);
 function startTour() { while (K.sheets.length) closeSheet(); K.tour = { i: 0 }; tourDraw(); }
 function endTour() { K.tour = null; try { localStorage.setItem(TOUR_KEY, '1'); } catch (e) { } const el = $('#tour'); if (el) el.parentNode.removeChild(el); tourMark(); }
 A.tourStart = () => startTour();
 A.tourEnd = () => endTour();
 A.tourGo = (el) => {
   const n = K.tour.i + num(el.dataset.d);
-  if (n >= tourSteps().length) { endTour(); if (K.route !== 'home') go('home'); toast('You are ready — start with Buy'); return; }
+  if (n >= tourSteps().length) { endTour(); if (K.route !== 'home') go('home'); toast(capitalSet() ? 'You are ready' : 'You are ready — start with your capital structure'); if (!capitalSet() && navOk('capital')) { go('capital'); return; } return; }
   K.tour.i = Math.max(0, n); tourDraw();
 };
 A.tourTry = (el) => { const v = el.dataset.v; endTour(); A[v](); };
