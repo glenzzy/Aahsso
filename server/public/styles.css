@@ -2263,20 +2263,18 @@ b,strong{font-weight:600}
 /* Mobile Money: our number for the customer to send to, then their number (MTN / Orange worked out from it) */
 .mmx{display:flex;flex-direction:column;gap:10px}
 .mmx-to{display:flex;flex-direction:column;gap:6px}
-.mmx-h{font-size:10.5px;font-weight:500;color:var(--ink2);text-transform:uppercase;letter-spacing:.08em}
-.mmx-acc{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:10px;padding:10px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line);border-left:5px solid #ffcb05}
+.mmx-h{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;font-weight:500;color:var(--ink2);text-transform:uppercase;letter-spacing:.08em}.mmx-h span{text-transform:none;letter-spacing:0;color:var(--ink3);font-weight:400}
+.mmx-accs{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:8px}
+.mmx-acc{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0;padding:8px 10px;border-radius:10px;background:var(--card);border:1px solid var(--line);border-left:4px solid #ffcb05;font:inherit;color:var(--ink);text-align:left;cursor:pointer}
 .mmx-acc.om{border-left-color:#ff7900}
-.mmx-op{font-size:10.5px;font-weight:500;color:var(--ink2)}
-.mmx-num{grid-row:span 2;justify-self:end;font-size:19px;font-weight:600;letter-spacing:.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
-.mmx-lb{font-size:10px;color:var(--ink3)}
+.mmx-acc.on{border-color:#ffcb05;box-shadow:0 0 0 1px #ffcb05}.mmx-acc.om.on{border-color:#ff7900;box-shadow:0 0 0 1px #ff7900}.mmx-acc.off{opacity:.45}
+.mmx-op{font-size:10px;font-weight:500;color:var(--ink2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mmx-num{font-size:14px;font-weight:600;letter-spacing:.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .mmx-none{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--bad) 8%,var(--card));color:var(--ink2);font-size:11.5px}.mmx-none .i{color:var(--bad);flex:none;margin-top:1px}
-.mmx-pr{display:flex;gap:6px;margin-top:4px}
-.mmx-pr .inp{flex:1;min-width:0;font-size:14px;font-variant-numeric:tabular-nums}
-.mmx-net{display:flex;gap:4px;flex:none}
-.mmx-net button{min-width:62px;border:1px solid var(--line);border-radius:10px;background:var(--card);font:inherit;font-size:11px;font-weight:500;color:var(--ink2);cursor:pointer;padding:0 8px}
-.mmx-net button.on.mtn{background:#ffcb05;border-color:#ffcb05;color:#1a1a1a}
-.mmx-net button.on.om{background:#ff7900;border-color:#ff7900;color:#fff}
-@media (max-width:599px){.mmx-num{font-size:16.5px}.mmx-net button{min-width:54px}}
+.mmx-ph .inp{font-variant-numeric:tabular-nums}
+.mmx-cu{margin:0;padding:0;border:0}
+.mmx-r2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (max-width:340px){.mmx-r2{grid-template-columns:1fr}}
 /* Capital structure */
 .av.ok{background:var(--okSoft);color:var(--ok)} .av.bad{background:color-mix(in srgb,var(--bad) 12%,var(--card));color:var(--bad)}
 .bad-t{color:var(--bad);font-weight:500}

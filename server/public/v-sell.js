@@ -254,22 +254,24 @@ function momoBox(where, opts = {}) {
   const net = MOMO_NETS.indexOf(opts.net) >= 0 ? opts.net : '';
   return '<div class="mmx" data-where="' + esc(where || '') + '"><input type="hidden" name="momoWhere" value="' + esc(where || '') + '"><input type="hidden" name="momoNet" value="' + esc(net) + '">' +
     '<div class="mmx-to">' + momoToHTML(where, net) + '</div>' +
-    '<label class="f mmx-ph">Customer’s number' + '<div class="mmx-pr"><input class="inp" name="momoPhone" inputmode="tel" autocomplete="off" placeholder="e.g. 677 12 34 56" value="' + esc(opts.phone || '') + '" aria-label="Customer’s mobile money number">' +
-      '<div class="mmx-net" role="group" aria-label="Network">' + MOMO_NETS.map((n) => '<button type="button" data-mmnet="' + esc(n) + '" class="' + (n === net ? 'on ' : '') + (n === 'MTN MoMo' ? 'mtn' : 'om') + '">' + (n === 'MTN MoMo' ? 'MTN' : 'Orange') + '</button>').join('') + '</div></div></label>' +
-    '<label class="f">Transaction ID (optional)' + inp('payRef', opts.ref || '', 'autocomplete="off" placeholder="From the SMS, if you have it"') + '</label></div>';
+    // the customer's number is also their phone on the sale: one field, with their name beside it (opts.cust)
+    (opts.cust ? '<div class="qc mmx-cu"><div class="mmx-r2"><label class="f">Customer’s name' + inp('qcName', opts.name || '', 'autocomplete="off" placeholder="Optional"') + '</label>' : '') +
+    '<label class="f mmx-ph">Customer’s number<input class="inp" name="momoPhone" inputmode="tel" autocomplete="off" placeholder="677 12 34 56" value="' + esc(opts.phone || '') + '" aria-label="Customer’s mobile money number"></label>' +
+    (opts.cust ? '</div><input type="hidden" name="qcPhone" value="' + esc(opts.phone || '') + '"><div class="qc-hint tiny muted"></div></div>' : '') +
+    '<label class="f">Transaction ID' + inp('payRef', opts.ref || '', 'autocomplete="off" placeholder="From the SMS (optional)"') + '</label></div>';
 }
 /** "Send to": the business's number(s) for the network, big enough for the customer to read from the screen */
 function momoToHTML(where, net) {
   // network known: its numbers; not yet: the best number for each network
-  const accs = net ? KC.momoAccountsFor(S(), where, net).slice(0, 2) : MOMO_NETS.map((n) => KC.momoAccountsFor(S(), where, n).find((a) => a.method === n)).filter(Boolean);
+  const accs = MOMO_NETS.map((n) => KC.momoAccountsFor(S(), where, n).find((a) => a.method === n)).filter(Boolean); // one per network, side by side
   if (!accs.length) return '<div class="mmx-none">' + ic('alert', 'sm') + '<span>No ' + esc(net || 'mobile money') + ' number to receive money yet. ' + (can('settings') ? '<a href="#settings">Add it in Settings → Mobile money</a>' : 'Ask the owner to add it in Settings') + '.</span></div>';
-  return '<div class="mmx-h">Send the money to</div>' + accs.slice(0, 3).map((a) => '<div class="mmx-acc ' + (a.method === 'Orange Money' ? 'om' : 'mtn') + '"><span class="mmx-op">' + esc(a.method === 'Orange Money' ? 'Orange Money' : 'MTN MoMo') + '</span><b class="mmx-num">' + esc(fmtPhone(a.number)) + '</b>' + (a.label ? '<span class="mmx-lb">' + esc(a.label) + '</span>' : '') + '</div>').join('');
+  // tapping a number picks that network (it is also worked out from the customer's number)
+  return '<div class="mmx-h">Send the money to <span>tap the network used</span></div><div class="mmx-accs">' + accs.map((a) => '<button type="button" data-mmnet="' + esc(a.method) + '" class="mmx-acc ' + (a.method === 'Orange Money' ? 'om' : 'mtn') + (net ? (a.method === net ? ' on' : ' off') : '') + '"><span class="mmx-op">' + esc(a.method === 'Orange Money' ? 'Orange' : 'MTN') + (a.label ? ' · ' + esc(a.label) : '') + '</span><b class="mmx-num">' + esc(fmtPhone(a.number)) + '</b></button>').join('') + '</div>';
 }
 /** the network chosen (or worked out from the number) in a payment form, '' when not known yet */
 const momoNetOf = (root) => ($('[name=momoNet]', root) || {}).value || '';
 function setMomoNet(box, net) {
   $('[name=momoNet]', box).value = net || '';
-  $$('[data-mmnet]', box).forEach((b) => b.classList.toggle('on', b.dataset.mmnet === net));
   $('.mmx-to', box).innerHTML = momoToHTML(box.dataset.where, net);
   box.dispatchEvent(new CustomEvent('momonet', { bubbles: true, detail: net }));
   const r = box.closest('.sheet'); if (r && $('#payBox', r)) syncPayCharges(r);
@@ -286,10 +288,11 @@ document.addEventListener('click', (e) => { const b = e.target.closest && e.targ
 /** check the Mobile Money fields; returns { method, account, phone, ref } or a message */
 function readMomo(v) {
   const phone = String(v.momoPhone || '').trim(), ref = String(v.payRef || '').trim();
-  const method = MOMO_NETS.indexOf(v.momoNet) >= 0 ? v.momoNet : KC.momoNetwork(phone);
+  const only = MOMO_NETS.filter((n) => KC.momoAccountsFor(S(), v.momoWhere || '', n).some((a) => a.method === n)); // one network set up: it is that one
+  const method = MOMO_NETS.indexOf(v.momoNet) >= 0 ? v.momoNet : KC.momoNetwork(phone) || (only.length === 1 ? only[0] : '');
   if (!phone && !ref) return 'Enter the customer’s mobile money number';
   if (phone && String(phone).replace(/\D/g, '').length < 9) return 'The customer’s number looks too short';
-  if (!method) return 'Is it MTN or Orange? Tap one';
+  if (!method) return 'Is it MTN or Orange? Tap the number they sent to';
   const acc = KC.momoAccountsFor(S(), v.momoWhere || '', method)[0];
   return { method, account: acc ? acc.number : '', phone, ref };
 }

@@ -116,11 +116,11 @@ A.posPay = (el) => {
   const body = '<div class="pos-due"><span>' + (mm ? 'Mobile Money' : 'Cash') + ' · to pay</span><b class="money" id="posDue">' + F(total) + '</b><span class="pos-dtip tiny" id="posDueTip"></span></div>' +
     tipPicker(total, 0) +
     (mm
-    ? '<div class="col">' + momoBox('pos', { phone: cu ? cu.phone || '' : '' }) + '<p class="tiny muted" id="posFee"></p></div>'
+    ? '<div class="col">' + momoBox('pos', { phone: cu ? cu.phone || '' : '', cust: !cu }) + '<p class="tiny muted" id="posFee"></p></div>'
     : '<div class="col">' + field('Cash received', inp('posGiven', '', 'inputmode="numeric" id="posGiven" placeholder="' + fmt(total) + '" autocomplete="off"')) +
       '<div class="pos-notes" id="posNotes"></div>' +
       '<div class="pos-change" id="posChange"><span>Change</span><b class="money">' + F(0) + '</b></div></div>') +
-    (cu ? '' : custQuick('', ''));
+    (cu || mm ? '' : custQuick('', '')); // Mobile Money: the name sits beside the number, no second phone
   const sh = openSheet({ title: mm ? 'Mobile Money' : 'Cash payment', body, foot: '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow lg" id="posOk">' + ic('check') + (mm ? 'Money received — finish' : 'Paid — finish') + '</button>' });
   sh.classList.add('pos-paysheet');
   const due = () => total + tipOf(sh);
