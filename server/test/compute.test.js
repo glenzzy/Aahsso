@@ -582,7 +582,7 @@ test('Staff control: clock in only at work, who must clock in, stock caps per ro
   assert.match(KC.clockWhere(S, 'main', null), /Turn on location/);
   assert.equal(KC.clockPlace(S, 'b2').radius, KC.GEO_MIN_RADIUS); // 3 m is below what GPS can do
   assert.equal(KC.clockWhere(S, 'other', null), ''); // no place set: anywhere
-  assert.equal(KC.mustClock(S, 'owner'), false); assert.equal(KC.mustClock(S, 'sales'), true); assert.equal(KC.mustClock({}, 'sales'), false);
+  assert.equal(KC.mustClock(S, 'owner'), false); assert.equal(KC.mustClock(S, 'sales'), true); assert.equal(KC.mustClock({}, 'sales'), true); assert.equal(KC.mustClock({ clockRequired: false }, 'sales'), false);
   const now = new Date().toISOString(); const d = KC.localDay(new Date());
   assert.equal(KC.isClockedIn({ attendance: [{ id: 'at_' + d + '_s1', date: d, events: [{ t: 'in', at: now }] }] }, 's1', now, {}), true);
   assert.equal(KC.isClockedIn({ attendance: [{ id: 'at_' + d + '_s1', date: d, events: [{ t: 'in', at: now }, { t: 'break', at: now }] }] }, 's1', now, {}), false); // on a break

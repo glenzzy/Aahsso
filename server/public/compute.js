@@ -1315,7 +1315,7 @@
     return 'You are ' + (d >= 1000 ? (Math.round(d / 100) / 10) + ' km' : Math.round(d) + ' m') + ' from work. Clock in when you are there (within ' + pl.radius + ' m).';
   }
   /** must this person clock in before using the app? (everyone but the owner, when the business turns it on) */
-  const mustClock = (S, role) => !!(S && S.clockRequired) && role !== 'owner';
+  const mustClock = (S, role) => !!S && S.clockRequired !== false && role !== 'owner'; // on unless the owner turns it off
   /** is this person working now (clocked in, not on a break) — from their attendance records */
   function isClockedIn(raw, staffId, nowIso, S) {
     const t = String(nowIso || new Date().toISOString()); const today = localDay(new Date(t)); const yest = addDays(today, -1);

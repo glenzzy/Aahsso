@@ -381,7 +381,7 @@ A.remCopy = async (el) => { const o = owingCustomers().find((x) => x.id === el.d
 
 /* ================= LOCATIONS (settings card) ================= */
 function locationsCard() {
-  return '<div class="card pad2 mb"><h2 class="mb">Branches</h2><div class="tiny muted mb">Each branch keeps its own stock. Move stock with Branch transfers. Staff can be tied to one branch in Team & access.' + (planMax('maxLocations') ? ' Your plan allows ' + planMax('maxLocations') + ' (including the main one).' : '') + '</div><div class="card list loc-list">' +
+  return '<div class="card pad2 mb"><h2 class="mb">Branches ' + infoTip('Each branch keeps its own stock. Move stock with Branch transfers. Staff can be tied to one branch in Team & access.' + (planMax('maxLocations') ? ' Your plan allows ' + planMax('maxLocations') + ' (including the main one).' : ''), 'About Branches') + '</h2><div class="card list loc-list">' +
     allLocs().map((l) => '<div class="li" data-a="locEdit" data-id="' + l.id + '"><div class="av">' + ic('home', 'sm') + '</div><div class="grow"><div class="t">' + esc(l.name) + '</div><div class="tiny muted">' + (l.id === 'main' ? (isStore() ? 'Main ' + locW().one : 'Main location — containers unload here by default') : esc(l.type || 'Shop') + (l.address ? ' · ' + esc(l.address) : '')) + '</div></div>' + ic('edit', 'sm') + '</div>').join('') + '</div><div class="loc-acts"><button class="btn" data-a="locEdit">' + ic('plus') + 'Add branch</button></div></div>';
 }
 A.locEdit = (el) => {

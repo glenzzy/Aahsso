@@ -294,9 +294,9 @@ const SET_SECTIONS = [['business', 'Business', 'home'], ['clockin', 'Clock-in & 
 const SET_FEATURE = { clockin: ['attendance'], reminders: ['reminders'], delivery: ['delivery'], staff: ['attendance', 'leave', 'payroll'], shop: ['onlineShop'], branches: ['branches'], backup: ['excel'] };
 const ST_SET_HIDE = ['credit', 'approvals']; // Aahsso Store: kept simple (the saved values stay as they are)
 const setSections = () => SET_SECTIONS.filter(([k]) => !SET_FEATURE[k] || hasAny(...SET_FEATURE[k]));
-const setCard = (id, title, desc, body, side) => '<section class="card set-card" id="set-' + id + '"><header class="set-head"><div><h2>' + title + '</h2>' + (desc ? '<p>' + desc + '</p>' : '') + '</div>' + (side || '') + '</header>' + body + '</section>';
+const setCard = (id, title, desc, body, side) => '<section class="card set-card" id="set-' + id + '"><header class="set-head"><div><h2>' + title + (desc && id !== 'account' ? ' ' + infoTip(desc, 'About ' + title) : '') + '</h2>' + (desc && id === 'account' ? '<p>' + desc + '</p>' : '') + '</div>' + (side || '') + '</header>' + body + '</section>';
 /** label + input + optional hint (one small grey line). */
-const sf = (label, inner, hint, cls) => '<label class="f' + (cls ? ' ' + cls : '') + '"><span class="lbl">' + label + '</span>' + inner + (hint ? '<span class="hint">' + hint + '</span>' : '') + '</label>';
+const sf = (label, inner, hint, cls) => '<label class="f' + (cls ? ' ' + cls : '') + '"><span class="lbl">' + label + (hint ? ' ' + infoTip(hint) : '') + '</span>' + inner + '</label>';
 /** input with its unit inside the box: 25 [%], 50 [F], 14 [days] */
 const unitIn = (name, val, unit, attrs) => '<div class="in-unit"><input class="inp" name="' + name + '" value="' + esc(val === undefined || val === null ? '' : val) + '" ' + (attrs || 'inputmode="decimal"') + '><span>' + esc(unit) + '</span></div>';
 const REM_TOKENS = [['{name}', 'Customer name'], ['{balance}', 'Amount owed'], ['{due}', 'Due date'], ['{business}', 'Your business'], ['{momo}', 'Your MoMo numbers'], ['{receipts}', 'Receipt numbers']];
@@ -334,7 +334,7 @@ VIEWS.settings = {
     const nav = '<nav class="set-nav" aria-label="Settings sections">' + secs.map(([k, l, i]) => '<button type="button" data-a="setGo" data-v="' + k + '" class="' + (k === 'business' ? 'on' : '') + '">' + ic(i, 'sm') + '<span>' + l + '</span></button>').join('') + '</nav>';
     const form = '<div id="setForm">' +
       setCard('business', 'Business', 'How your business appears on receipts, the shop page and messages to customers.',
-        '<div class="logo-row" id="setLogo">' + logoHTML('logo" style="width:64px;height:64px;font-size:19px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : '') + '</div>' +
+        '<div class="logo-row" id="setLogo">' + logoHTML('logo" style="width:64px;height:64px;font-size:19px') + '<div class="logo-txt"><div class="b">Logo ' + infoTip('Square PNG or JPG works best.') + '</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : '') + '</div>' +
         '<div class="set-grid">' + sf('Business name', inp('businessName', s.businessName)) + sf('Tagline', inp('tagline', s.tagline, 'placeholder="' + (isStore() ? 'e.g. Everything for your home' : 'e.g. Quality goods from the USA') + '"')) + sf('Phone (on receipts)', inp('phone', s.phone, 'inputmode="tel"')) + sf('Address', inp('address', s.address)) + '</div>' +
         sf('Receipt footer', inp('receiptFooter', s.receiptFooter), 'Printed at the bottom of every receipt.', 'mt') +
         '<button type="button" class="btn mt" data-a="receiptDesign">' + ic('edit', 'sm') + 'Design the receipt — logo, messages, NIU, QR code</button>' +
@@ -390,7 +390,7 @@ VIEWS.settings = {
   },
 };
 /* live bits after the page is drawn: exchange-rate examples, reminder preview */
-function setAfterRender() { fxExamples(); remPreview(); }
+function setAfterRender() { fxExamples(); remPreview(); tipHints($('#setForm')); }
 function fxExamples() {
   const base = ($('#baseCur') || {}).value || baseCode(); const sym = ($('#curSym') || {}).value || baseSym();
   $$('[data-fxrow]').forEach((r) => { const c = $('select', r).value; const v = num($('[data-fxr]', r).value); const sy = (KC.CURRENCIES.find((x) => x[0] === c) || [0, c])[1]; $('.fx-eg', r).textContent = v > 0 ? sy + ' 100 = ' + fmt(v * 100) + ' ' + sym : ''; $('.fx-base', r).textContent = base; });
@@ -415,9 +415,8 @@ function staffRulesCard() {
 function clockSettings() {
   const s = S(); const G = s.clockGeo || {};
   return '<div><input type="hidden" name="clockCardOn" value="1">' +
-    '<label class="toggle"><input type="checkbox" name="clockRequired"' + (s.clockRequired ? ' checked' : '') + '>Staff must clock in before they can use Aahsso</label>' +
-    '<p class="hint">Until they clock in, staff only see the clock-in screen. The owner is never locked out.</p>' +
-    '<div class="b small mt">Clock in only at work</div><p class="hint" style="margin-top:2px">Stand at the place and tap <b>Use my location here</b>. Staff can then clock in only within the distance you choose. Phone GPS is accurate to about 5–15 m, so the smallest distance is ' + KC.GEO_MIN_RADIUS + ' m; 30–50 m works well indoors.</p>' +
+    '<label class="toggle"><input type="checkbox" name="clockRequired"' + (s.clockRequired !== false ? ' checked' : '') + '>Staff must clock in before they can use Aahsso</label>' +
+    '<div class="b small mt2">Clock in only at work</div><p class="hint">Stand at the place and tap <b>Use my location here</b>. Staff can then clock in only within the distance you choose. Phone GPS is accurate to about 5–15 m, so the smallest distance is ' + KC.GEO_MIN_RADIUS + ' m; 30–50 m works well indoors.</p>' +
     allLocs().map((L) => { const g = G[L.id] || {}; const set = g.lat !== undefined && g.lat !== '';
       return '<div class="cg-row" data-cg="' + esc(L.id) + '"><div class="cg-n"><b>' + esc(L.name) + '</b><span class="tiny ' + (set ? '' : 'muted') + '" data-cgt>' + (set ? '📍 ' + num(g.lat).toFixed(5) + ', ' + num(g.lng).toFixed(5) + (g.acc ? ' (±' + g.acc + ' m)' : '') : 'Anywhere — no location set') + '</span></div>' +
         '<input type="hidden" name="cg_' + esc(L.id) + '_lat" value="' + esc(g.lat ?? '') + '"><input type="hidden" name="cg_' + esc(L.id) + '_lng" value="' + esc(g.lng ?? '') + '"><input type="hidden" name="cg_' + esc(L.id) + '_acc" value="' + esc(g.acc ?? '') + '">' +
@@ -496,7 +495,7 @@ A.logoUp = async () => {
   if (await saveSettings({ logo: c.toDataURL('image/jpeg', 0.85) })) { toast('Logo updated'); refreshLogo(); }
 };
 A.logoDel = async () => { await saveSettings({ logo: '' }); refreshLogo(); };
-function refreshLogo() { const row = $('#setLogo'); const s = S(); if (row) row.innerHTML = logoHTML('logo" style="width:64px;height:64px;font-size:19px') + '<div class="logo-txt"><div class="b">Logo</div><div class="hint">Square PNG or JPG works best.</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : ''); shell(); }
+function refreshLogo() { const row = $('#setLogo'); const s = S(); if (row) row.innerHTML = logoHTML('logo" style="width:64px;height:64px;font-size:19px') + '<div class="logo-txt"><div class="b">Logo ' + infoTip('Square PNG or JPG works best.') + '</div></div><button type="button" class="btn sm" data-a="logoUp">' + ic('up', 'sm') + 'Upload logo</button>' + (s.logo ? '<button type="button" class="btn sm ghost" data-a="logoDel">Remove</button>' : ''); shell(); }
 function fullBackup() { const o = { app: 'aahsso', version: 1, exportedAt: new Date().toISOString(), business: S().businessName, data: {} }; COLLECTIONS.forEach((c) => (o.data[c] = c === 'settings' ? [Object.assign({ id: 'main' }, K.raw.settings)] : K.raw[c])); if (K.raw.members.length) o.data.members = K.raw.members; return o; }
 async function embedPhotos(b) {
   // Photos stored as files are copied into the backup so it restores anywhere.

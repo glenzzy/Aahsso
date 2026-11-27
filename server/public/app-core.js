@@ -92,6 +92,36 @@ const costWord = (cap) => (isStore() ? (cap ? 'Cost' : 'cost') : (cap ? 'Landed 
 function featureClasses() { const f = (K.info && K.info.features) || {}; KC.FEATURE_KEYS.forEach((k) => document.body.classList.toggle('nf-' + k, f[k] === false)); document.body.classList.toggle('ed-store', isStore()); document.body.classList.toggle('ed-resto', !!K.info && K.info.edition === 'resto'); }
 const isAdmin = () => can('settings') || can('team');
 const seeCost = () => can('costs');
+/** a small (i) that shows its help text on hover or tap — keeps forms clean */
+const infoTip = (html, label) => html ? '<span class="itip" role="button" tabindex="0" aria-label="' + esc(label || 'More info') + '" aria-expanded="false"><span class="itip-i" aria-hidden="true">i</span><span class="itip-b" role="tooltip">' + html + '</span></span>' : '';
+/** turn the grey help lines under headings, labels and switches into (i) tips (root: a page or a section) */
+function tipHints(root) {
+  $$('p.hint:not(.keep)', root).forEach((p) => {
+    const prev = p.previousElementSibling; if (!prev || !prev.matches('h2, h3, h4, .b, label.toggle, .set-head')) return;
+    const host = prev.matches('label.toggle') ? prev : prev.matches('.set-head') ? $('h2', prev) : prev; if (!host || $('.itip', host)) return;
+    const t = document.createElement('span'); t.innerHTML = infoTip(' '); const tip = t.firstChild; const body = $('.itip-b', tip); body.textContent = '';
+    while (p.firstChild) body.appendChild(p.firstChild); // moved, not copied: live parts (ids) keep working
+    host.appendChild(document.createTextNode(' ')); host.appendChild(tip); p.remove();
+  });
+}
+(() => {
+  let open = null;
+  const place = (tip) => { const b = $('.itip-b', tip); const r = tip.getBoundingClientRect(); const w = Math.min(280, innerWidth - 24); b.style.width = w + 'px';
+    const left = Math.max(12, Math.min(innerWidth - w - 12, r.left + r.width / 2 - w / 2)); b.style.left = left + 'px';
+    const below = r.bottom + 8; b.style.top = below + 'px'; const h = b.offsetHeight; if (below + h > innerHeight - 8 && r.top - h - 8 > 8) b.style.top = (r.top - h - 8) + 'px'; };
+  const show = (tip) => { if (open && open !== tip) hide(open); open = tip; tip.classList.add('open'); tip.setAttribute('aria-expanded', 'true'); place(tip); };
+  const hide = (tip) => { tip.classList.remove('open'); tip.setAttribute('aria-expanded', 'false'); if (open === tip) open = null; };
+  document.addEventListener('click', (e) => {
+    const tip = e.target.closest && e.target.closest('.itip');
+    if (tip) { if (e.target.closest('.itip-b a')) return; e.preventDefault(); e.stopPropagation(); tip.classList.contains('open') && !tip._hover ? hide(tip) : show(tip); tip._hover = false; return; }
+    if (open) hide(open);
+  }, true);
+  document.addEventListener('keydown', (e) => { const tip = e.target.closest && e.target.closest('.itip'); if (tip && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); tip.classList.contains('open') ? hide(tip) : show(tip); } if (e.key === 'Escape' && open) hide(open); });
+  const fine = () => matchMedia('(hover:hover)').matches;
+  document.addEventListener('mouseover', (e) => { const tip = e.target.closest && e.target.closest('.itip'); if (tip && fine() && open !== tip) { show(tip); tip._hover = true; } });
+  document.addEventListener('mouseout', (e) => { const tip = e.target.closest && e.target.closest('.itip'); if (tip && fine() && !tip.contains(e.relatedTarget)) hide(tip); });
+  addEventListener('scroll', () => { if (open) hide(open); }, true);
+})();
 /** how much stock this person may see (Team & access → role): null = all, 0 = no numbers, n = at most n */
 const myStockCap = () => (K.member ? KC.stockCapOf(S(), K.member.role) : null);
 const stockCapped = () => myStockCap() !== null;
