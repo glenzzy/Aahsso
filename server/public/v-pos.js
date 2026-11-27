@@ -60,9 +60,8 @@ function posPanel() {
       (disc ? '<div class="pos-row"><span>Subtotal</span><span class="money">' + fmt(sub) + '</span></div><div class="pos-row"><span>Discount</span><span class="money">−' + fmt(disc) + '</span></div>' : '') +
       '<div class="pos-tot"><span>' + (n ? n + ' item' + (n === 1 ? '' : 's') : 'Total') + '</span><b class="money">' + F(tot) + '</b></div>' +
       (pay ? '<div class="pos-pay">' +
-        '<button type="button" class="pos-pb cash" data-a="posPay" data-m="Cash"' + (n ? '' : ' disabled') + '>Cash</button>' +
-        '<button type="button" class="pos-pb mtn" data-a="posPay" data-m="MTN MoMo"' + (n ? '' : ' disabled') + '>MTN MoMo</button>' +
-        '<button type="button" class="pos-pb om" data-a="posPay" data-m="Orange Money"' + (n ? '' : ' disabled') + '>Orange Money</button></div>' : '') +
+        '<button type="button" class="pos-pb cash" data-a="posPay" data-m="Cash"' + (n ? '' : ' disabled') + '>' + ic('wallet') + 'Cash</button>' +
+        '<button type="button" class="pos-pb momo" data-a="posPay" data-m="Mobile Money"' + (n ? '' : ' disabled') + '>' + ic('phone') + 'Mobile Money</button></div>' : '') +
       '<div class="pos-more">' + (canOrAsk('discount') ? '<button type="button" class="btn sm" data-a="posDisc"' + (n ? '' : ' disabled') + '>Discount</button>' : '') +
         '<button type="button" class="btn sm" data-a="checkout"' + (n ? '' : ' disabled') + '>' + (pay ? 'Credit, deposit, delivery…' : 'Save for the cashier') + '</button></div>' +
     '</div>';
@@ -109,45 +108,42 @@ A.posDisc = () => {
   sh.addEventListener('click', (e) => { const b = e.target.closest('[data-pct]'); if (b) $('[name=posD]', sh).value = Math.round(sub * +b.dataset.pct / 100); });
   $('#posDOk', sh).onclick = () => { K.cart.discount = Math.min(sub, Math.max(0, num(formVals(sh).posD))); saveCart(); closeSheet(); posRefresh(); };
 };
-/** take the payment: cash (with change), or mobile money (receiving number + transaction ID); a tip and the customer's name / phone, both optional */
+/** take the payment: cash (with change), or Mobile Money — our number on the screen for the customer to send to, their number (MTN / Orange from it), the transaction ID if they have it; a tip and the customer's name / phone, both optional */
 A.posPay = (el) => {
-  const m = el.dataset.m; const total = Math.max(0, cartTotal() - num(K.cart.discount)); if (!total) return;
-  const mm = KC.isMobileMoney(m); const accs = accountOpts(m);
+  const mm = el.dataset.m !== 'Cash'; const total = Math.max(0, cartTotal() - num(K.cart.discount)); if (!total) return;
   const cu = K.cart.customerId && byId('customers', K.cart.customerId);
   const notesFor = (due) => [...new Set([due, Math.ceil(due / 500) * 500, Math.ceil(due / 1000) * 1000, Math.ceil(due / 5000) * 5000, Math.ceil(due / 10000) * 10000])].filter((x) => x >= due).slice(0, 5);
-  const body = '<div class="pos-due"><span>' + esc(m) + ' · to pay</span><b class="money" id="posDue">' + F(total) + '</b><span class="pos-dtip tiny" id="posDueTip"></span></div>' +
+  const body = '<div class="pos-due"><span>' + (mm ? 'Mobile Money' : 'Cash') + ' · to pay</span><b class="money" id="posDue">' + F(total) + '</b><span class="pos-dtip tiny" id="posDueTip"></span></div>' +
     tipPicker(total, 0) +
     (mm
-    ? '<div class="col">' + field('Money sent to (number)', '<select class="inp" name="payAccount">' + accs.slice(1).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>') +
-      '<div class="hide" id="posOther">' + field('Other receiving number', inp('payAccountOther', '', 'inputmode="tel"')) + '</div>' +
-      field('Transaction ID (from the customer’s SMS)', inp('payRef', '', 'id="posRef" autocomplete="off" placeholder="Required"')) +
-      '<p class="tiny muted" id="posFee"></p></div>'
+    ? '<div class="col">' + momoBox('pos', { phone: cu ? cu.phone || '' : '' }) + '<p class="tiny muted" id="posFee"></p></div>'
     : '<div class="col">' + field('Cash received', inp('posGiven', '', 'inputmode="numeric" id="posGiven" placeholder="' + fmt(total) + '" autocomplete="off"')) +
       '<div class="pos-notes" id="posNotes"></div>' +
       '<div class="pos-change" id="posChange"><span>Change</span><b class="money">' + F(0) + '</b></div></div>') +
     (cu ? '' : custQuick('', ''));
-  const sh = openSheet({ title: 'Payment', body, foot: '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow lg" id="posOk">' + ic('check') + 'Paid — finish</button>' });
+  const sh = openSheet({ title: mm ? 'Mobile Money' : 'Cash payment', body, foot: '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow lg" id="posOk">' + ic('check') + (mm ? 'Money received — finish' : 'Paid — finish') + '</button>' });
   sh.classList.add('pos-paysheet');
   const due = () => total + tipOf(sh);
   const given = () => num(($('#posGiven', sh) || {}).value) || due();
+  const net = () => momoNetOf(sh);
   const showChange = () => { const c = $('#posChange', sh); if (!c) return; const ch = given() - due(); c.classList.toggle('bad', ch < 0); c.innerHTML = '<span>' + (ch < 0 ? 'Missing' : 'Change') + '</span><b class="money">' + F(Math.abs(ch)) + '</b>'; };
   const showDue = () => {
     const d = due(), tp = tipOf(sh); $('#posDue', sh).textContent = F(d); $('#posDueTip', sh).textContent = tp ? 'incl. tip ' + fmt(tp) : '';
     const n = $('#posNotes', sh); if (n) { n.innerHTML = notesFor(d).map((x) => '<button type="button" data-given="' + x + '">' + (x === d ? 'Exact' : fmt(x)) + '</button>').join(''); $('#posGiven', sh).placeholder = fmt(d); }
-    const f = $('#posFee', sh); if (f) { const fee = KC.calcMomoFee(m, d, S()); f.textContent = fee ? 'Charges ' + F(fee) + ' — customer sends ' + F(d + fee) : ''; }
+    const f = $('#posFee', sh); if (f) { const fee = net() ? KC.calcMomoFee(net(), d, S()) : 0; f.textContent = fee ? 'Charges ' + F(fee) + ' — the customer sends ' + F(d + fee) : ''; }
     showChange();
   };
   sh.addEventListener('click', (e) => { const b = e.target.closest('[data-given]'); if (b) { $('#posGiven', sh).value = b.dataset.given; showChange(); } });
   sh.addEventListener('input', (e) => { if (e.target.id === 'posGiven') showChange(); if (e.target.name === 'tip') showDue(); });
-  sh.addEventListener('change', (e) => { if (e.target.name === 'payAccount') $('#posOther', sh).classList.toggle('hide', e.target.value !== '__other'); });
+  sh.addEventListener('momonet', showDue);
   showDue();
-  setTimeout(() => { const f = $('#posGiven', sh) || $('#posRef', sh); if (f && matchMedia('(pointer:fine)').matches) f.focus(); }, 80);
+  setTimeout(() => { const f = $('#posGiven', sh) || $('[name=momoPhone]', sh); if (f && matchMedia('(pointer:fine)').matches) f.focus(); }, 80);
   $('#posOk', sh).onclick = async () => {
     const v = formVals(sh); const d = due(); const tip = tipOf(sh);
     if (!mm && given() < d) return toast('The cash received is less than the total — take more, or use “Credit, deposit…”', true);
-    if (mm && !accs.slice(1).length && v.payAccount !== '__other') return toast('Add your ' + m + ' receiving number in Settings, or choose “Other number”', true);
-    const tendered = mm ? 0 : given();
-    const ok = await completeSale({ payAmount: d, payMethod: m, payDate: todayStr(), payAccount: mm ? v.payAccount : '', payAccountOther: v.payAccountOther || '', payRef: mm ? v.payRef : '', payFee: mm ? KC.calcMomoFee(m, d, S()) : 0, delivered: 'yes', saleDate: todayStr(), dueDate: '', notes: '', tip, qcName: v.qcName, qcPhone: v.qcPhone });
+    if (mm) { const mo = readMomo(v); if (typeof mo === 'string') { toast(mo, true); const p = $('[name=momoPhone]', sh); if (p && !p.value) p.focus(); return; } }
+    const tendered = mm ? 0 : given(); const m = mm ? 'Mobile Money' : 'Cash';
+    const ok = await completeSale({ payAmount: d, payMethod: m, payDate: todayStr(), momoPhone: v.momoPhone || '', momoNet: v.momoNet || '', momoWhere: 'pos', payRef: mm ? v.payRef : '', payFee: mm && net() ? KC.calcMomoFee(net(), d, S()) : 0, delivered: 'yes', saleDate: todayStr(), dueDate: '', notes: '', tip, qcName: v.qcName, qcPhone: v.qcPhone || (cu ? '' : v.momoPhone) });
     if (ok && tendered) POS.last = Object.assign(POS.last || {}, { tendered });
   };
 };

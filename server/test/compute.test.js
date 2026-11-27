@@ -222,9 +222,18 @@ test('MoMo fees: Cameroon tiers, validate txn id, sale totals keep fee separate'
   // 100_000 → 1% + 0.2% tax + 4 = 1000 + 200 + 4 = 1204
   assert.equal(KC.calcMomoFee('MTN MoMo', 100000), 1204);
   assert.equal(KC.calcMomoFee('Orange Money', 400000), 4004);
-  assert.match(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: '', account: '677' }), /Transaction ID/);
-  assert.match(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: 'TX1', account: '' }), /Receiving/);
+  // a sale paid by mobile money needs the customer's number or the transaction ID (either one); our receiving number is optional
+  assert.match(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: '', account: '677' }), /customer’s mobile money number/);
+  assert.equal(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: '', phone: '677123456' }), '');
+  assert.equal(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: 'TX1', account: '' }), '');
   assert.equal(KC.validatePayment({ method: 'MTN MoMo', amount: 5000, fee: 54, ref: 'TX1', account: '677' }), '');
+  // MTN or Orange from the number; receiving numbers per part of the app
+  assert.equal(KC.momoNetwork('677 12 34 56'), 'MTN MoMo'); assert.equal(KC.momoNetwork('+237 699 12 34 56'), 'Orange Money');
+  assert.equal(KC.momoNetwork('651234567'), 'MTN MoMo'); assert.equal(KC.momoNetwork('657123456'), 'Orange Money'); assert.equal(KC.momoNetwork('612345678'), null); assert.equal(KC.momoNetwork('12345'), null);
+  const accS = { momoAccounts: [{ method: 'MTN MoMo', number: '670000001' }, { method: 'MTN MoMo', number: '670000002', use: 'pos' }, { method: 'Orange Money', number: '690000001', use: 'resto' }] };
+  assert.deepEqual(KC.momoAccountsFor(accS, 'pos', 'MTN MoMo').map((a) => a.number), ['670000002']);
+  assert.deepEqual(KC.momoAccountsFor(accS, 'sales', 'MTN MoMo').map((a) => a.number), ['670000001']);
+  assert.deepEqual(KC.momoAccountsFor(accS, 'pos', 'Orange Money').map((a) => a.number), ['690000001']); // nothing for the POS or everywhere: any Orange number
   assert.equal(KC.validatePayment({ method: 'Cash', amount: 5000 }), '');
   const sale = { no: 'S1', lines: [{ qty: 1, unitPrice: 10000, returns: [] }], payments: [{ id: 'p1', amount: 10000, fee: 1204, method: 'MTN MoMo', ref: 'ABC99', account: '677' }] };
   const t = KC.saleTotals(sale);

@@ -403,7 +403,7 @@ function billSheet(tabId) {
     const pts = ui.cust ? KC.loyaltyPoints(K.raw, ui.cust.id) : 0; const spend = Math.min(num(ui.spend), pts); const spendVal = Math.round(spend * (num(S().pointValue) || 10));
     const total = Math.max(0, sub + svc - spendVal);
     if (open) { // a split bill in progress: take the next payment on it
-      setSheetBody(sh, '<div class="alert info mb">Bill ' + esc(open.no) + ': ' + F(K.C.saleX[open.id].net) + ' · paid ' + F(K.C.saleX[open.id].paid) + ' · <b>still ' + F(K.C.saleX[open.id].balance) + '</b></div>' + payFields(Math.round(ui.split > 1 ? Math.min(K.C.saleX[open.id].balance, K.C.saleX[open.id].net / ui.split) : K.C.saleX[open.id].balance), { kind: 'sale' }));
+      setSheetBody(sh, '<div class="alert info mb">Bill ' + esc(open.no) + ': ' + F(K.C.saleX[open.id].net) + ' · paid ' + F(K.C.saleX[open.id].paid) + ' · <b>still ' + F(K.C.saleX[open.id].balance) + '</b></div>' + payFields(Math.round(ui.split > 1 ? Math.min(K.C.saleX[open.id].balance, K.C.saleX[open.id].net / ui.split) : K.C.saleX[open.id].balance), { kind: 'sale', where: 'resto' }));
       syncPayCharges(sh);
       $('.sf', sh).innerHTML = '<button class="btn grow" data-a="sheetClose">Later</button><button class="btn pri grow" id="bpGo">' + ic('check') + 'Record payment</button>';
       $('#bpGo', sh).onclick = async () => { const p = readPayment(formVals(sh), 'sale'); if (p === false) return; if (!p) return toast('Enter the amount', true); const s = byId('sales', open.id); const n = Object.assign({}, s, { payments: (s.payments || []).concat([p]) }); if (await save('sales', n)) { recompute(); await closeTabIfDone(tabId, n.id, n); } };
@@ -419,7 +419,7 @@ function billSheet(tabId) {
       (loyal ? '' : custQuick(ui.qc.name, ui.qc.phone)) +
       (tab.deposit && num(tab.deposit.amount) > 0 && !tab.depositUsed ? '<div class="alert ok mb">Deposit from the reservation: ' + F(tab.deposit.amount) + ' (' + esc(tab.deposit.method || 'Cash') + ') — counted in this bill.</div>' : '') +
       (can('discount') ? field('Discount (optional)', inp('disc', '', 'inputmode="numeric" placeholder="0"')) : '') +
-      payFields(Math.max(0, Math.round((ui.split > 1 ? Math.ceil((total + ui.tip) / ui.split) : total + ui.tip) - (tab.deposit && !tab.depositUsed ? num(tab.deposit.amount) : 0))), { kind: 'sale' }));
+      payFields(Math.max(0, Math.round((ui.split > 1 ? Math.ceil((total + ui.tip) / ui.split) : total + ui.tip) - (tab.deposit && !tab.depositUsed ? num(tab.deposit.amount) : 0))), { kind: 'sale', where: 'resto' }));
     sh._total = total; sh._dep = tab.deposit && !tab.depositUsed ? num(tab.deposit.amount) : 0;
     syncPayCharges(sh);
     $('.sf', sh).innerHTML = '<button class="btn grow" data-a="sheetClose">Later</button><button class="btn pri grow" id="bpGo"' + (chosen.length ? '' : ' disabled') + '>' + ic('check') + 'Take payment</button>';
@@ -474,7 +474,7 @@ async function closeTabIfDone(tabId, saleId, saved) {
 /* the counter (pay-first): pay now, then the ticket goes to the bar / kitchen */
 function payCounter(cart, sh0) {
   const lines0 = ticketLines(cart); const total = lines0.reduce((a, l) => a + l.qty * l.price, 0);
-  const sh = openSheet({ title: 'Counter sale · ' + F(total), body: tipPicker(total, 0) + payFields(total, { kind: 'sale' }) + custQuick('', ''), foot: '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow" id="cpGo">' + ic('check') + 'Paid · send</button>' });
+  const sh = openSheet({ title: 'Counter sale · ' + F(total), body: tipPicker(total, 0) + payFields(total, { kind: 'sale', where: 'resto' }) + custQuick('', ''), foot: '<button class="btn grow" data-a="sheetClose">Back</button><button class="btn pri grow" id="cpGo">' + ic('check') + 'Paid · send</button>' });
   syncPayCharges(sh);
   sh.addEventListener('input', (e) => { if (e.target.name !== 'tip') return; const pa = $('#payAmount', sh); pa.value = total + tipOf(sh); const fe = $('#payFee', sh); if (fe) fe.dataset.auto = '1'; syncPayCharges(sh); });
   $('#cpGo', sh).onclick = async () => {

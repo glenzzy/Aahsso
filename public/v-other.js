@@ -311,6 +311,7 @@ function mmRow(a) {
   return '<div class="mm-row" data-mm>' + sel('mmMethod', ['MTN MoMo', 'Orange Money', 'Bank transfer'], a.method || 'MTN MoMo', 'aria-label="Type"') +
     '<input class="inp" data-mmn value="' + esc(a.number || '') + '" placeholder="Number, e.g. 677 00 00 00" inputmode="tel" aria-label="Number">' +
     '<input class="inp" data-mml value="' + esc(a.label || '') + '" placeholder="Label, e.g. Shop MoMo" aria-label="Label">' +
+    sel('mmUse', KC.MOMO_USES, a.use || '', 'data-mmu aria-label="Used in" title="Where this number is shown to customers"') +
     '<button type="button" class="icon-btn" data-a="mmDel" title="Remove this number" aria-label="Remove this number">' + ic('trash', 'sm') + '</button></div>';
 }
 function currencyBlock(s) {
@@ -354,7 +355,7 @@ VIEWS.settings = {
         '<label class="toggle mt"><input type="checkbox" name="apCancel"' + ((s.approvals || {}).cancel ? ' checked' : '') + '>Every cancelled sale and deleted payment needs a manager</label>' +
         '<p class="hint">People with the <b>Approve risky actions</b> permission (owners, admins and managers by default) are never stopped, and approve for others with the PIN they set in <a href="#profile">My profile</a>.</p>') : '') +
       setCard('money', 'Mobile money', 'Numbers customers send money to, and the withdrawal charges suggested at payment.',
-        '<h3>Receiving numbers</h3><p class="hint" style="margin-top:2px">Shown on receipts and reminders, and chosen when a customer pays.</p><div id="momoList">' + (s.momoAccounts || []).map(mmRow).join('') + '</div><button type="button" class="btn sm" data-a="mmAdd">' + ic('plus', 'sm') + 'Add a number</button>' +
+        '<h3>Receiving numbers</h3><p class="hint" style="margin-top:2px">When a customer pays by Mobile Money, the number for their network (MTN or Orange) is shown on the screen for them to send to. Choose where each number is used — e.g. one number for the POS and another for the bar. Also printed on receipts and reminders.</p><div id="momoList">' + (s.momoAccounts || []).map(mmRow).join('') + '</div><button type="button" class="btn sm" data-a="mmAdd">' + ic('plus', 'sm') + 'Add a number</button>' +
         '<div class="set-sub"><h3>Withdrawal charges</h3><p class="hint">When a customer pays by MTN MoMo or Orange Money, this grid suggests the charge (kept apart from the sale amount). Staff can still change it on each payment.</p>' + feeEditor() + '</div>') +
       (!has('reminders') ? '' : setCard('reminders', 'Payment reminders', 'The message sent to customers who owe you money.',
         '<div class="tok-row"><span class="hint">Insert:</span>' + REM_TOKENS.map(([t, l]) => '<button type="button" class="chip" data-a="remTok" data-v="' + t + '" title="' + l + '">' + l + '</button>').join('') + '</div>' +
@@ -446,7 +447,7 @@ A.saveSettings = async () => {
   const cd = catDraftForSave(); const cats = cd.cats;
   if (!Object.keys(cats).length) { toast('Keep at least one category', true); return; }
   if (cd.items.length && !(await confirmBox('Renaming moves ' + cd.items.length + ' item' + (cd.items.length === 1 ? '' : 's') + ' to the new name. Continue?', 'Save and move items'))) return;
-  const mm = $$('#momoList [data-mm]').map((r) => ({ method: $('select', r).value, number: $('[data-mmn]', r).value.trim(), label: $('[data-mml]', r).value.trim() })).filter((m) => m.number);
+  const mm = $$('#momoList [data-mm]').map((r) => ({ method: $('[name=mmMethod]', r).value, number: $('[data-mmn]', r).value.trim(), label: $('[data-mml]', r).value.trim(), use: ($('[data-mmu]', r) || {}).value || '' })).map((m) => { if (!m.use) delete m.use; return m; }).filter((m) => m.number);
   const fee = feeDraftForSave(); if (fee.error) { toast(fee.error, true); const ed = $('#feeEd'); if (ed) ed.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
   const momoFeeTables = fee.tables;
   const rates = isStore() ? Object.assign({}, S().fxRates || {}) : {}; $$('[data-fxc]').forEach((i) => { const c = i.value.trim().toUpperCase(); const r = num($('[data-fxr="' + i.dataset.fxc + '"]').value); if (c && r > 0 && c !== v.baseCurrency) rates[c] = r; });

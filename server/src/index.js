@@ -816,12 +816,13 @@ app.put('/api/data/:col/:id', auth, colOk, requireActive, wrap(async (req, res) 
       for (const p of newPays) {
         if (oldPays.has(p.id)) {
           const o = (old.payments || []).find((x) => x.id === p.id);
-          if (o) { p.fee = o.fee; p.ref = o.ref; p.method = o.method; p.account = o.account; p.amount = o.amount; p.date = o.date; }
+          if (o) { p.fee = o.fee; p.ref = o.ref; p.method = o.method; p.account = o.account; p.amount = o.amount; p.date = o.date; if (o.phone) p.phone = o.phone; else delete p.phone; }
           continue;
         }
         p.fee = Math.max(0, Number(p.fee) || 0);
         if (!KC.isMobileMoney(p.method) || Number(p.amount) < 0) p.fee = 0;
         p.ref = String(p.ref || '').trim();
+        if (p.phone != null) { p.phone = String(p.phone).trim().slice(0, 30); if (!p.phone) delete p.phone; } // the customer's mobile money number
         const payErr = KC.validatePayment(p, paySettings);
         if (payErr) return { status: 400, error: payErr };
       }

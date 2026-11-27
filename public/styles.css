@@ -358,8 +358,8 @@ select.inp.fx-code{width:104px;flex:none}
 .in-unit.fx-rate{width:170px;flex:none}
 .fx-eg{min-width:150px}
 /* mobile money numbers */
-.mm-row{display:grid;grid-template-columns:160px minmax(160px,1fr) minmax(160px,1fr) 40px;gap:10px;align-items:center;margin-bottom:10px;max-width:760px}
-@media (max-width:640px){.mm-row{grid-template-columns:1fr 1fr 40px}.mm-row [data-mml]{grid-column:1 / 3}}
+.mm-row{display:grid;grid-template-columns:150px minmax(140px,1fr) minmax(140px,1fr) 150px 40px;gap:10px;align-items:center;margin-bottom:10px;max-width:900px}
+@media (max-width:760px){.mm-row{grid-template-columns:1fr 1fr 40px;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--line2)}.mm-row [data-mml]{grid-column:1 / 2}.mm-row [data-mmu]{grid-column:2 / 4}}
 /* reminders */
 .tok-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
 .tok-row .chip{font-size:12.5px;padding:5px 10px}
@@ -2255,3 +2255,25 @@ b,strong{font-weight:600}
   .pos-notes{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media (max-width:359px){.pos-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* POS: two ways to pay — Cash, Mobile Money */
+.pos-pay{grid-template-columns:1fr 1fr}
+.pos-pb{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.pos-pb .i{width:18px;height:18px;stroke:currentColor}
+.pos-pb.momo{background:var(--brand)}
+/* Mobile Money: our number for the customer to send to, then their number (MTN / Orange worked out from it) */
+.mmx{display:flex;flex-direction:column;gap:10px}
+.mmx-to{display:flex;flex-direction:column;gap:6px}
+.mmx-h{font-size:12px;font-weight:500;color:var(--ink2);text-transform:uppercase;letter-spacing:.08em}
+.mmx-acc{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:10px;padding:10px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line);border-left:5px solid #ffcb05}
+.mmx-acc.om{border-left-color:#ff7900}
+.mmx-op{font-size:12px;font-weight:500;color:var(--ink2)}
+.mmx-num{grid-row:span 2;justify-self:end;font-size:22px;font-weight:600;letter-spacing:.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mmx-lb{font-size:11.5px;color:var(--ink3)}
+.mmx-none{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--bad) 8%,var(--card));color:var(--ink2);font-size:13px}.mmx-none .i{color:var(--bad);flex:none;margin-top:1px}
+.mmx-pr{display:flex;gap:6px;margin-top:4px}
+.mmx-pr .inp{flex:1;min-width:0;font-size:16px;font-variant-numeric:tabular-nums}
+.mmx-net{display:flex;gap:4px;flex:none}
+.mmx-net button{min-width:62px;border:1px solid var(--line);border-radius:10px;background:var(--card);font:inherit;font-size:12.5px;font-weight:500;color:var(--ink2);cursor:pointer;padding:0 8px}
+.mmx-net button.on.mtn{background:#ffcb05;border-color:#ffcb05;color:#1a1a1a}
+.mmx-net button.on.om{background:#ff7900;border-color:#ff7900;color:#fff}
+@media (max-width:599px){.mmx-num{font-size:19px}.mmx-net button{min-width:54px}}

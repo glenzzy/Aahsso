@@ -246,22 +246,71 @@ async function quickCustomer(v) {
 /** who the tip is for: the person who served */
 const tipStaff = (id) => { id = id || K.me.id || ''; const m = (K.raw.members || []).find((x) => x.id === id) || (K.raw.staff || []).find((x) => x.userId === id || x.id === id); return { tipFor: id, tipForName: (m && (m.name || m.label)) || (id === K.me.id ? K.me.name || '' : '') }; };
 
+/* ---------- Mobile Money at the till: the customer sends to our number, we note their number (MTN / Orange from it) ---------- */
+const MOMO_NETS = ['MTN MoMo', 'Orange Money'];
+const fmtPhone = (x) => { const d = String(x || '').replace(/\D/g, '').replace(/^237(?=\d{9}$)/, ''); return d.length === 9 ? d.replace(/^(\d{3})(\d{2})(\d{2})(\d{2})$/, '$1 $2 $3 $4') : String(x || ''); };
+/** where: 'pos' | 'resto' | 'sales' (picks the receiving numbers set for that part of the app in Settings) */
+function momoBox(where, opts = {}) {
+  const net = MOMO_NETS.indexOf(opts.net) >= 0 ? opts.net : '';
+  return '<div class="mmx" data-where="' + esc(where || '') + '"><input type="hidden" name="momoWhere" value="' + esc(where || '') + '"><input type="hidden" name="momoNet" value="' + esc(net) + '">' +
+    '<div class="mmx-to">' + momoToHTML(where, net) + '</div>' +
+    '<label class="f mmx-ph">Customer’s number' + '<div class="mmx-pr"><input class="inp" name="momoPhone" inputmode="tel" autocomplete="off" placeholder="e.g. 677 12 34 56" value="' + esc(opts.phone || '') + '" aria-label="Customer’s mobile money number">' +
+      '<div class="mmx-net" role="group" aria-label="Network">' + MOMO_NETS.map((n) => '<button type="button" data-mmnet="' + esc(n) + '" class="' + (n === net ? 'on ' : '') + (n === 'MTN MoMo' ? 'mtn' : 'om') + '">' + (n === 'MTN MoMo' ? 'MTN' : 'Orange') + '</button>').join('') + '</div></div></label>' +
+    '<label class="f">Transaction ID (optional)' + inp('payRef', opts.ref || '', 'autocomplete="off" placeholder="From the SMS, if you have it"') + '</label></div>';
+}
+/** "Send to": the business's number(s) for the network, big enough for the customer to read from the screen */
+function momoToHTML(where, net) {
+  // network known: its numbers; not yet: the best number for each network
+  const accs = net ? KC.momoAccountsFor(S(), where, net).slice(0, 2) : MOMO_NETS.map((n) => KC.momoAccountsFor(S(), where, n).find((a) => a.method === n)).filter(Boolean);
+  if (!accs.length) return '<div class="mmx-none">' + ic('alert', 'sm') + '<span>No ' + esc(net || 'mobile money') + ' number to receive money yet. ' + (can('settings') ? '<a href="#settings">Add it in Settings → Mobile money</a>' : 'Ask the owner to add it in Settings') + '.</span></div>';
+  return '<div class="mmx-h">Send the money to</div>' + accs.slice(0, 3).map((a) => '<div class="mmx-acc ' + (a.method === 'Orange Money' ? 'om' : 'mtn') + '"><span class="mmx-op">' + esc(a.method === 'Orange Money' ? 'Orange Money' : 'MTN MoMo') + '</span><b class="mmx-num">' + esc(fmtPhone(a.number)) + '</b>' + (a.label ? '<span class="mmx-lb">' + esc(a.label) + '</span>' : '') + '</div>').join('');
+}
+/** the network chosen (or worked out from the number) in a payment form, '' when not known yet */
+const momoNetOf = (root) => ($('[name=momoNet]', root) || {}).value || '';
+function setMomoNet(box, net) {
+  $('[name=momoNet]', box).value = net || '';
+  $$('[data-mmnet]', box).forEach((b) => b.classList.toggle('on', b.dataset.mmnet === net));
+  $('.mmx-to', box).innerHTML = momoToHTML(box.dataset.where, net);
+  box.dispatchEvent(new CustomEvent('momonet', { bubbles: true, detail: net }));
+  const r = box.closest('.sheet'); if (r && $('#payBox', r)) syncPayCharges(r);
+}
+document.addEventListener('input', (e) => {
+  if (e.target.name !== 'momoPhone') return; const box = e.target.closest('.mmx'); if (!box) return;
+  const n = KC.momoNetwork(e.target.value); if (n && n !== momoNetOf(box)) setMomoNet(box, n); box.dataset.picked = '';
+  // the same number is the customer's phone (shown, can be changed)
+  const r = box.closest('.sheet'); const q = r && $('[name=qcPhone]', r);
+  if (q && (!q.value || q.dataset.auto)) { q.value = e.target.value; q.dataset.auto = '1'; q.dispatchEvent(new Event('input', { bubbles: true })); }
+});
+document.addEventListener('input', (e) => { if (e.target.name === 'qcPhone' && e.isTrusted) delete e.target.dataset.auto; });
+document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-mmnet]'); if (!b) return; const box = b.closest('.mmx'); setMomoNet(box, b.dataset.mmnet); });
+/** check the Mobile Money fields; returns { method, account, phone, ref } or a message */
+function readMomo(v) {
+  const phone = String(v.momoPhone || '').trim(), ref = String(v.payRef || '').trim();
+  const method = MOMO_NETS.indexOf(v.momoNet) >= 0 ? v.momoNet : KC.momoNetwork(phone);
+  if (!phone && !ref) return 'Enter the customer’s mobile money number';
+  if (phone && String(phone).replace(/\D/g, '').length < 9) return 'The customer’s number looks too short';
+  if (!method) return 'Is it MTN or Orange? Tap one';
+  const acc = KC.momoAccountsFor(S(), v.momoWhere || '', method)[0];
+  return { method, account: acc ? acc.number : '', phone, ref };
+}
+
 function payFields(defAmount, opts = {}) {
   const kind = opts.kind || 'sale', cur = opts.currency || baseCode(), sym = esc(curSym(cur));
-  const methods = opts.methods || payMethodsFor(kind); const defMethod = methods.indexOf(opts.method) >= 0 ? opts.method : 'Cash';
-  const mm = KC.isMobileMoney(defMethod), sale = kind === 'sale';
-  const sug = mm ? payFeeSuggest(defMethod, defAmount, cur) : 0;
+  const sale = kind === 'sale';
+  const methods = opts.methods || (sale ? ['Cash', 'Mobile Money'] : payMethodsFor(kind));
+  const net = sale && KC.isMobileMoney(opts.method) ? opts.method : '';
+  const defMethod = net ? 'Mobile Money' : methods.indexOf(opts.method) >= 0 ? opts.method : 'Cash';
+  const mm = net || KC.isMobileMoney(defMethod) || defMethod === 'Mobile Money';
+  const sug = net || KC.isMobileMoney(defMethod) ? payFeeSuggest(net || defMethod, defAmount, cur) : 0;
   return '<div class="col" id="payBox" data-kind="' + kind + '" data-cur="' + esc(cur) + '"><div class="grid2">' + field((sale ? 'Sale amount' : 'Amount paid') + ' (' + sym + ')', inp('payAmount', defAmount, 'inputmode="decimal" id="payAmount"')) + field('Date', inp('payDate', todayStr(), 'type="date"')) + '</div>' +
     field('Payment mode', '<div class="seg" id="pm" style="flex-wrap:wrap">' + methods.map((m) => '<button type="button" class="' + (m === defMethod ? 'on' : '') + '" data-a="pmPick" data-v="' + esc(m) + '">' + esc(m) + '</button>').join('') + '</div><input type="hidden" name="payMethod" value="' + esc(defMethod) + '">') +
     '<div id="pmCharges" class="' + (mm ? '' : 'hide') + '">' +
       '<div class="grid2">' + field('Withdrawal / MoMo charges (' + sym + ')', inp('payFee', sug || '', 'inputmode="decimal" id="payFee" placeholder="0"')) +
         field(sale ? 'Customer sends' : 'You send', '<div class="inp" id="payGross" style="display:flex;align-items:center;background:var(--bg, #f6f6f6)">' + money(num(defAmount) + sug, cur) + '</div>') + '</div>' +
     '</div>' +
-    '<div class="grid2' + (defMethod === 'Cash' ? ' hide' : '') + '" id="pmExtra">' +
-      (sale ? field('Money sent to (number)', '<select class="inp" name="payAccount" id="payAccount">' + accountOpts(defMethod).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + '</option>').join('') + '<option value="__other">Other number…</option></select>')
-        : field('Paid to (number / account)', inp('payAccount', opts.account || '', 'placeholder="Optional"'))) +
-      field('Transaction ID', inp('payRef', '', 'id="payRef" placeholder="' + (mm ? 'Required — ' + esc(defMethod) + ' txn ID' : 'Optional ref') + '"')) + '</div>' +
-    (sale ? '<div id="payAccOther" class="hide">' + field('Other receiving number', inp('payAccountOther', '', 'inputmode="tel"')) + '</div>' : '') + '</div>';
+    (sale ? '<div class="' + (defMethod === 'Cash' ? 'hide' : '') + '" id="pmExtra">' + momoBox(opts.where || 'sales', { net }) + '</div>'
+      : '<div class="grid2' + (defMethod === 'Cash' ? ' hide' : '') + '" id="pmExtra">' + field('Paid to (number / account)', inp('payAccount', opts.account || '', 'placeholder="Optional"')) +
+        field('Transaction ID', inp('payRef', '', 'id="payRef" placeholder="' + (mm ? 'Required — ' + esc(defMethod) + ' txn ID' : 'Optional ref') + '"')) + '</div>') + '</div>';
 }
 /** Change the label text of a field() wrapper around `input` (label text is the first text node). */
 function setFieldLabel(input, text) {
@@ -278,9 +327,10 @@ function syncPayCharges(root) {
   if (!root) return;
   const box = $('#payBox', root); if (!box) return;
   const cur = box.dataset.cur;
-  const method = ($('[name=payMethod]', root) || {}).value || 'Cash';
+  let method = ($('[name=payMethod]', root) || {}).value || 'Cash';
+  const ch = $('#pmCharges', root); if (ch) ch.classList.toggle('hide', !(KC.isMobileMoney(method) || method === 'Mobile Money'));
+  if (method === 'Mobile Money') method = momoNetOf(root) || 'MTN MoMo';
   const mm = KC.isMobileMoney(method);
-  const ch = $('#pmCharges', root); if (ch) ch.classList.toggle('hide', !mm);
   const amtEl = $('#payAmount', root), feeEl = $('#payFee', root), gross = $('#payGross', root), refEl = $('#payRef', root);
   if (refEl) refEl.placeholder = mm ? 'Required — ' + method + ' txn ID' : 'Optional ref';
   if (!mm) { if (feeEl) feeEl.value = ''; if (gross) gross.textContent = '—'; return; }
@@ -310,9 +360,11 @@ document.addEventListener('input', (e) => {
 /** Read the payment form. null = no amount entered, false = invalid (toast already shown). */
 function readPayment(v, kind = 'sale') {
   const amount = num(v.payAmount); if (!amount) return null;
-  const method = v.payMethod || 'Cash';
+  let method = v.payMethod || 'Cash'; let mo = null;
+  if (method === 'Mobile Money') { mo = readMomo(v); if (typeof mo === 'string') { toast(mo, true); return false; } method = mo.method; }
   const fee = KC.isMobileMoney(method) ? Math.max(0, num(v.payFee)) : 0;
-  const p = { id: uid(kind === 'sale' ? 'p_' : 'bp_'), date: v.payDate || todayStr(), method, account: v.payAccount === '__other' ? v.payAccountOther || '' : v.payAccount || '', ref: String(v.payRef || '').trim(), amount, fee, by: K.me.name || K.info.userLabel || '', byId: K.me.id || '', at: new Date().toISOString() };
+  const p = { id: uid(kind === 'sale' ? 'p_' : 'bp_'), date: v.payDate || todayStr(), method, account: mo ? mo.account : v.payAccount === '__other' ? v.payAccountOther || '' : v.payAccount || '', ref: String((mo ? mo.ref : v.payRef) || '').trim(), amount, fee, by: K.me.name || K.info.userLabel || '', byId: K.me.id || '', at: new Date().toISOString() };
+  if (mo && mo.phone) p.phone = mo.phone;
   const err = KC.validatePayment(p, S(), kind);
   if (err) { toast(err, true); return false; }
   return p;
@@ -523,7 +575,7 @@ function receiptText(s) {
   if (t.deliveryFee > 0 || t.tip > 0) L.push('*TOTAL TO PAY: ' + F(t.due) + '*');
   L.push('Paid: ' + F(t.paid));
   if (t.balance > 0) L.push('*Balance due: ' + F(t.balance) + '*');
-  (s.payments || []).forEach((p) => L.push('  ' + fmtDate(p.date) + ' ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : '')));
+  (s.payments || []).forEach((p) => L.push('  ' + fmtDate(p.date) + ' ' + p.method + (p.account ? ' → ' + p.account : '') + (p.phone ? ' · from ' + p.phone : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : '')));
   if (t.fees > 0) L.push('MoMo charges total: ' + F(t.fees));
   if (t.txnId) L.push('Transaction ID: ' + t.txnId);
   if (KC.isDelivery(s)) L.push('', ...deliveryLines(s)); else L.push('Collected: ' + (s.delivered ? 'Yes' : 'No — to pick up at the shop'));
@@ -541,7 +593,7 @@ function receiptHTML(s) {
     (t.discount ? '<tr><td class="muted">Discount</td><td class="right money">−' + fmt(t.discount) + '</td></tr>' : '') + (t.returned ? '<tr><td class="muted">Returns</td><td class="right money">−' + fmt(t.returned) + '</td></tr>' : '') +
     '<tr class="tot"><td>TOTAL</td><td class="right money">' + F(t.net) + '</td></tr>' + (t.deliveryFee > 0 ? '<tr><td class="muted">Delivery fee</td><td class="right money">' + F(t.deliveryFee) + '</td></tr>' : '') + (t.tip > 0 ? '<tr><td class="muted">Tip</td><td class="right money">' + F(t.tip) + '</td></tr>' : '') + (t.deliveryFee > 0 || t.tip > 0 ? '<tr class="tot"><td>TOTAL TO PAY</td><td class="right money">' + F(t.due) + '</td></tr>' : '') + '<tr><td class="muted">Paid</td><td class="right money">' + F(t.paid) + '</td></tr>' +
     (t.balance > 0 ? '<tr><td class="b" style="color:var(--bad)">Balance due</td><td class="right money b" style="color:var(--bad)">' + F(t.balance) + '</td></tr>' : '') + '</table>' +
-    ((s.payments || []).length ? '<div class="tiny muted mt">' + s.payments.map((p) => esc(fmtDate(p.date) + ' · ' + p.method + (p.account ? ' → ' + p.account : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : ''))).join('<br>') + (t.fees > 0 ? '<br>MoMo charges total: ' + F(t.fees) : '') + '</div>' : '') +
+    ((s.payments || []).length ? '<div class="tiny muted mt">' + s.payments.map((p) => esc(fmtDate(p.date) + ' · ' + p.method + (p.account ? ' → ' + p.account : '') + (p.phone ? ' · from ' + p.phone : '') + (p.ref ? ' · txn ' + p.ref : '') + ': ' + F(p.amount) + (num(p.fee) > 0 ? ' + ' + F(p.fee) + ' charges' : ''))).join('<br>') + (t.fees > 0 ? '<br>MoMo charges total: ' + F(t.fees) : '') + '</div>' : '') +
     (KC.isDelivery(s) ? '<div class="tiny mt" style="border-top:1px dashed var(--line);padding-top:8px">' + deliveryLines(s).map(esc).join('<br>') + '</div>' : '') +
     '<div class="center mt"><span class="stamp ' + t.status + '">' + ({ paid: 'PAID', partial: 'DEPOSIT', unpaid: 'UNPAID', cancelled: 'CANCELLED' }[t.status]) + '</span>' + (!s.delivered && t.status !== 'cancelled' ? '<div class="tiny mt b" style="color:var(--warn)">Reserved — awaiting pickup</div>' : '') + '</div>' +
     (st.receiptFooter ? '<div class="tiny muted center mt">' + esc(st.receiptFooter) + '</div>' : '') + followHTML(st) + '</div>';
@@ -630,7 +682,7 @@ VIEWS.sales = {
     let list = K.ui.salesStatus === 'owing' || K.ui.salesStatus === 'pickup' || K.ui.salesStatus === 'deliver' ? visibleSales().slice() : salesInRange();
     const st = K.ui.salesStatus, q = K.ui.salesQ.toLowerCase();
     list = list.filter((s) => { const x = K.C.saleX[s.id]; return st === 'all' ? true : st === 'owing' ? x.status === 'partial' || x.status === 'unpaid' : st === 'pickup' ? !KC.isDelivery(s) && !s.delivered && x.status !== 'cancelled' : st === 'deliver' ? KC.isDelivery(s) && s.delivery.status !== 'delivered' && x.status !== 'cancelled' : st === 'cancelled' ? x.status === 'cancelled' : true; })
-      .filter((s) => !q || (s.no + ' ' + KC.saleTxnId(s) + ' ' + s.customerName + ' ' + s.customerPhone + ' ' + (s.payments || []).map((p) => p.ref || '').join(' ') + ' ' + (s.lines || []).map((l) => l.name).join(' ')).toLowerCase().includes(q))
+      .filter((s) => !q || (s.no + ' ' + KC.saleTxnId(s) + ' ' + s.customerName + ' ' + s.customerPhone + ' ' + (s.payments || []).map((p) => (p.ref || '') + ' ' + (p.phone || '')).join(' ') + ' ' + (s.lines || []).map((l) => l.name).join(' ')).toLowerCase().includes(q))
       .sort((a, b) => (saleDate(b) + b.createdAt).localeCompare(saleDate(a) + a.createdAt));
     const live = list.filter((s) => K.C.saleX[s.id].status !== 'cancelled');
     const tot = live.reduce((a, s) => a + K.C.saleX[s.id].net, 0), paid = live.reduce((a, s) => a + K.C.saleX[s.id].paid, 0), bal = live.reduce((a, s) => a + Math.max(0, K.C.saleX[s.id].balance), 0), prof = live.reduce((a, s) => a + K.C.saleX[s.id].profit, 0);
@@ -714,7 +766,7 @@ function openSale(id) {
       '</tbody></table><div class="pad"><div class="row between small"><span class="muted">Subtotal</span><span class="money">' + F(x.subtotal) + '</span></div>' + (x.discount ? '<div class="row between small"><span class="muted">Discount</span><span class="money">−' + F(x.discount) + '</span></div>' : '') + (x.returned ? '<div class="row between small"><span class="muted">Returns</span><span class="money">−' + F(x.returned) + '</span></div>' : '') +
       '<div class="row between b mt"><span>Total</span><span class="money" style="font-size:18px">' + F(x.net) + '</span></div>' + (x.tip > 0 ? '<div class="row between small"><span class="muted">Tip' + (s.tipForName ? ' · for ' + esc(s.tipForName) : '') + '</span><span class="money">' + F(x.tip) + '</span></div>' : '') + (x.deliveryFee > 0 ? '<div class="row between small"><span class="muted">Delivery fee</span><span class="money">' + F(x.deliveryFee) + '</span></div>' : '') + (x.deliveryFee > 0 || x.tip > 0 ? '<div class="row between b"><span>Total to pay</span><span class="money">' + F(x.due) + '</span></div>' : '') + '<div class="row between small"><span class="muted">Paid</span><span class="money">' + F(x.paid) + '</span></div>' + (x.fees > 0 ? '<div class="row between small"><span class="muted">MoMo charges</span><span class="money">' + F(x.fees) + '</span></div>' : '') + (x.balance > 0 && !cancelled ? '<div class="row between b" style="color:var(--bad)"><span>Balance due</span><span class="money">' + F(x.balance) + '</span></div>' : '') +
       (seeCost() && !cancelled ? '<div class="row between small mt"><span class="muted">Cost of goods · profit</span><span class="money">' + F(x.cogs) + ' · <b style="color:var(--ok)">' + F(x.profit) + '</b></span></div>' : '') + '</div></div>' +
-      (has('delivery') ? deliveryCard(s) : '') + '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.note ? ' &middot; ' + esc(p.note) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (canOrAsk('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
+      (has('delivery') ? deliveryCard(s) : '') + '<h3 class="mt mb">Payments</h3><div class="card list">' + ((s.payments || []).length ? s.payments.map((p) => '<div class="li" style="cursor:default"><div class="av ' + (p.amount < 0 ? 'acc' : '') + '">' + ic('wallet', 'sm') + '</div><div class="grow"><div class="t">' + esc(p.method) + (p.amount < 0 ? ' (refund)' : '') + '</div><div class="tiny muted">' + fmtDate(p.date) + (p.account ? ' · to ' + esc(p.account) : '') + (p.phone ? ' · from ' + esc(p.phone) : '') + (p.ref ? ' · txn ' + esc(p.ref) : '') + (p.note ? ' &middot; ' + esc(p.note) : '') + (p.by ? ' · ' + esc(p.by) : '') + (num(p.fee) > 0 ? ' · charges ' + F(p.fee) : '') + '</div></div><div class="right"><div class="b money">' + F(p.amount) + '</div>' + (num(p.fee) > 0 ? '<div class="tiny muted">+' + fmt(p.fee) + ' fee</div>' : '') + '</div>' + (canOrAsk('cancel') ? '<button class="icon-btn" data-a="payDel" data-s="' + s.id + '" data-p="' + p.id + '">' + ic('trash', 'sm') + '</button>' : '') + '</div>').join('') : '<div class="empty small">No payment yet.</div>') + '</div>' +
       (s.notes ? '<div class="alert info mt">' + esc(s.notes) + '</div>' : '') +
       ((s.approvals || []).length ? '<div class="appr-list mt">' + s.approvals.map((a) => '<div>' + ic('key', 'sm') + '<span>' + esc(APPROVE_WHAT[a.action] || a.action) + ' — approved by <b>' + esc(a.by) + '</b> for ' + esc(a.for || '') + ', ' + esc(fmtDT(a.at)) + '</span></div>').join('') + '</div>' : '') +
       '<div class="grid2 mt2">' +

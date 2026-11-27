@@ -44,7 +44,7 @@
     staffSeeCosts: false, wholesaleMarkup: 60, bulkQty: 0, creditDays: 14,
     reminderTemplate: 'Hello {name}, this is a friendly reminder from {business}. Your balance is {balance} (due {due}). You can pay by Cash or Mobile Money: {momo}. Thank you!',
     tipsOn: true, socials: {}, reminderEvery: 7, receiptFooter: 'Thank you for your business! Goods sold in good condition.',
-    momoAccounts: [], // [{label, method, number}]
+    momoAccounts: [], // [{label, method, number, use}] — use: '' everywhere, or 'pos' / 'resto' / 'sales' / 'shop'
     momoFeeTables: DEFAULT_MOMO_FEE_TABLES, // suggested withdrawal charges for MTN / Orange
     categories: CATEGORIES,
     vendors: ['Costco', 'Walmart', "Sam's Club", 'B-Stock', 'Target', 'Amazon', 'BJ\'s'],
@@ -117,6 +117,23 @@
   const PURCHASE_PAY_METHODS = ['Cash', 'MTN MoMo', 'Orange Money', 'Bank transfer', 'Credit card', 'Zelle / US bank', 'Other'];
   const PAY_METHODS = PURCHASE_PAY_METHODS;
   const isMobileMoney = (method) => method === 'MTN MoMo' || method === 'Orange Money';
+  /** the network from a Cameroon mobile number: MTN or Orange (same prefixes as the server's Fapshi module); null when unknown */
+  function momoNetwork(phone) {
+    let d = String(phone || '').replace(/\D/g, ''); if (d.length === 12 && d.startsWith('237')) d = d.slice(3); else if (d.length === 14 && d.startsWith('00237')) d = d.slice(5);
+    if (!/^6\d{8}$/.test(d)) return null;
+    const p2 = +d.slice(0, 2), p3 = +d.slice(0, 3);
+    if (p2 === 67 || (p3 >= 650 && p3 <= 654) || (p3 >= 680 && p3 <= 683)) return 'MTN MoMo';
+    if (p2 === 69 || (p3 >= 655 && p3 <= 659) || (p3 >= 686 && p3 <= 689)) return 'Orange Money';
+    return null;
+  }
+  /** where a receiving number is used: everywhere, or one part of the app */
+  const MOMO_USES = [['', 'Everywhere'], ['pos', 'POS'], ['resto', 'Tables & bar'], ['sales', 'Sales & orders'], ['shop', 'Online shop']];
+  /** the receiving numbers for one part of the app (numbers set for it first, then the "everywhere" ones), optionally for one network */
+  function momoAccountsFor(S, where, method) {
+    const all = ((S && S.momoAccounts) || []).filter((a) => a && a.number && (!method || !a.method || a.method === method));
+    const mine = all.filter((a) => where && a.use === where), any = all.filter((a) => !a.use);
+    return mine.length ? mine : any.length ? any : all;
+  }
   /** New transaction id, e.g. TX261110-K3F9QZ (sales) or PU261110-… (purchases). */
   function newTxnId(prefix, date) {
     const d = String(date || new Date().toISOString().slice(0, 10)).replace(/-/g, '').slice(2, 8);
@@ -155,8 +172,8 @@
     if (fee < 0) return 'Charges cannot be negative';
     if (amount === 0 && fee === 0) return 'Enter an amount';
     if (isMobileMoney(method) && amount > 0) {
-      if (!String(p.ref || '').trim()) return 'Transaction ID is required for ' + method;
-      if (kind !== 'purchase' && !String(p.account || '').trim()) return 'Receiving MoMo number is required for ' + method;
+      // sales: the customer's number or the transaction ID (either one traces the transfer); purchases: the transaction ID
+      if (kind === 'purchase' ? !String(p.ref || '').trim() : !String(p.ref || '').trim() && !String(p.phone || '').trim()) return kind === 'purchase' ? 'Transaction ID is required for ' + method : 'Enter the customer’s mobile money number';
     }
     return '';
   }
@@ -712,7 +729,7 @@
    * The order is a normal ticket on its own bill (tab source 'delivery' / 'pickup'); the delivery fee is a line on it. */
   function takeawayOf(S) {
     const t = (S && S.takeaway) || {}; const zones = String(t.zones || '').split('\n').map((l) => { const m = l.match(/^\s*(.+?)\s*[:=–-]\s*([\d\s.,]+)\s*$/); return m ? { name: m[1].trim().slice(0, 60), fee: Math.round(num(m[2].replace(/[\s.,]/g, ''))) } : null; }).filter(Boolean).slice(0, 40);
-    const pay = [{ method: 'Cash', label: 'Cash' }].concat(((S && S.momoAccounts) || []).filter((a) => a && a.number && /momo|orange/i.test(a.method || '')).map((a) => ({ method: a.method, number: a.number, label: a.label || '' })));
+    const pay = [{ method: 'Cash', label: 'Cash' }].concat(momoAccountsFor(S, 'shop').filter((a) => /momo|orange/i.test(a.method || '')).map((a) => ({ method: a.method, number: a.number, label: a.label || '' })));
     return { on: !!t.on && (t.delivery !== false || t.pickup !== false), delivery: t.delivery !== false, pickup: t.pickup !== false, fee: Math.max(0, Math.round(num(t.fee))), zones, minOrder: Math.max(0, Math.round(num(t.minOrder))), prepMins: Math.max(5, Math.round(num(t.prepMins) || 30)), pay };
   }
   /** a delivery / pickup order from the public menu: who, where, when, how they pay. Returns { error } or { info, fee } */
@@ -1465,7 +1482,7 @@
   function creditLimitOf(S, c) { if (!c) return null; const v = c.creditLimit; if (v !== undefined && v !== null && v !== '') return num(v); const d = S.defaultCreditLimit; return d !== undefined && d !== null && d !== '' ? num(d) : null; }
 
   return { ASSET_CATS, ASSET_LIFE, ASSET_STATUSES, ASSET_GONE, DEP_METHODS, assetCost, assetStart, assetLife, assetMethod, assetBookOn, assetValue, assetDepreciation, assetTotals, assetSchedule, assetGone, assetCheck,
-    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
+    PACK_NAMES, packsOf, packText, lineQtyText, LOSS_CAUSES, lossCause, lossCauseOf, lossCheck, ACT_TYPES, describeChange, rolesWith, rateOf, RETURN_REASONS, TRANSFER_REASONS, CURRENCIES, validateTransfer, isWholesale, autoPrice, priceFloor, collectedBy, billTotals, dueDateOf, lotCap, customerBalance, creditLimitOf, num, roundTo, DEFAULT_SETTINGS, DEFAULT_MOMO_FEE_TABLES, CATEGORIES, SOURCE_TYPES, EXPENSE_STAGES, EXPENSE_PHASES, expenseStage, allocTax, sellingPrices, PROMO_TYPES, promoStatus, promoActive, promoCovers, promoPriceOf, localDay, currencySymbolOf, shipPhase, CONDITIONS, WORKING, DELIVERY_MODES, OUR_DELIVERY, DELIVERY_PAY_WHEN, deliveryRule, handOverBlock, DELIVERY_PAYERS, DELIVERY_STATUSES, deliveryModeLabel, isDelivery, deliveryFeeDue, cleanDelivery, shopCatalog, FEATURES, FEATURE_KEYS, EDITIONS, EDITION_KEYS, editionOf, locWord, limitLabel, editionHas, featuresOf, featureOn, anyOn, PERM_FEATURE, permFeatureOn, ROUTE_FEATURE, routeFeatureOn, COLLECTION_FEATURE, HIDDEN_WHEN_OFF, permsWithFeatures, staffIdOf, PAY_TYPES, isWeekKey, weekOf, inPeriod, payEvery, periodOf, LEAVE_TYPES, LEAVE_STATUS, CLOCK, STAFF_DEFAULTS, staffRules, dayState, clockNext, leaveDates, leavePaid, leaveBalance, leaveOverlaps, staffMonth, payslipDraft, tillMoves, monthDays, datesBetween, shopSlugify, shopSlugError, SHOP_SLUG_RE, publicItem, validateShopOrder, PAY_METHODS, SALE_PAY_METHODS, PURCHASE_PAY_METHODS, newTxnId, isMobileMoney, momoNetwork, MOMO_USES, momoAccountsFor, calcMomoFee, validatePayment, saleTxnId, billTxnId, paymentFees, SHIP_STATUSES, COST_CATEGORIES, ADJ_REASONS, EXPENSE_CATS, saleTotals, saleTip, SOCIALS, socialLinks, computeAll, allocate, validateSale,
     servedUnpaid, stockMovements, MOVE_TYPES, orderNoText, venueClock, recipeShort, takeawayOf, validateTakeaway, takeawayStage, RESTO_FEATURES, VENUE_TYPES, venueLabel, VENUE_PLANS, venueStations, stationOf, MENU_CATS, DRINK_CATS, hhActive, menuPrice, menuUnits, allocUpTo, allocMenu, tabLines, validateMenuOrder, orderState, loyaltyPoints, RESV_STATUSES, menuKind,
     PERMS, ROLES, permsFor, SELL_UNITS, SIZE_UNITS, convertSize, sizeLabel, saleFacts, groupBy, summarize, inventoryHealth, projections, addDays, daysBetween };
 });
